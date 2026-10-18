@@ -6,10 +6,10 @@ comes from the consumers (``docs/FORMATS.md`` 12.3)::
 
     DEFINE_WEAPONS   0x450be0  record 0x2a8 bytes @ 0x80fa00
     DEFINE_AMMO      0x450b10  record 0x38  bytes @ 0x818960
-    DEFINE_EQUIPMENT 0x450e60  record 0x40  bytes @ 0x814c8c
+    DEFINE_EQUIPMENT 0x450e60  record 0x40  bytes @ 0x814c60
 
 Weapon fields: 0 fire mode, 1 fire period, 2 ammo type index, 3 ammo per
-shot, 4/5/6 projectile ids and state, 8 price, 9 score, 10 flags, 12-13
+shot, 4/5/6 projectile ids and state, 8 price, 9 weight, 10 flags, 12-13
 charge rate, 14/16 spread cone tangents, 18 range, 20 muzzle node index.
 
 Usage:  python3 sbt_fields.py LEVEL.sbt [--table DEFINE_WEAPONS] [--all]
@@ -37,7 +37,7 @@ WEAPON_MAP = {
     6: ("+0x38", "state value"),
     7: ("+0x4c", "id"),
     8: ("+0x44", "price"),
-    9: ("+0x48", "score"),
+    9: ("+0x48", "weight"),
     10: ("+0x28", "flags"),
     11: ("+0x294", "class index"),
     12: ("+0x00", "charge rate"),
@@ -49,6 +49,42 @@ WEAPON_MAP = {
     18: ("+0x18", "range"),
     19: ("+0x1c", "range hi"),
     20: ("+0x20", "muzzle node index"),
+}
+
+# The two other record tables; the file operand order comes from the consumer
+# arg order (verified via the push sequence of 0x45cc40 / 0x45cbe0).
+AMMO_MAP = {
+    0: ("+0x04", "max carried"),
+    1: ("+0x18", "pickup obj id"),
+    2: ("+0x14", "pickup obj id"),
+    3: ("+0x1c", "pickup obj id"),
+    4: ("+0x08", "lot size (buy/sell)"),
+    5: ("+0x0c", "price"),
+    6: ("+0x10", "weight per round"),
+    7: ("+0x00", "flags (1 buy, 2 sell, 8 hide)"),
+    8: ("+0x20", "rounds per unit"),
+    9: ("+0x24", "drop weight"),
+}
+
+EQUIP_MAP = {
+    0: ("+0x00", "flags (1 buy, 2 sell, 4 no-cycle, 8 hide)"),
+    1: ("+0x04", "object id (buy)"),
+    2: ("+0x08", "object id (activate)"),
+    3: ("+0x0c", "object id"),
+    4: ("+0x10", "object id"),
+    5: ("+0x14", "object id"),
+    6: ("+0x18", "object id"),
+    7: ("+0x1c", "value"),
+    8: ("+0x20", "ammo type index"),
+    9: ("+0x24", "price"),
+    10: ("+0x28", "weight"),
+    11: ("+0x3c", "value"),
+}
+
+FIELD_MAPS = {
+    "DEFINE_WEAPONS": WEAPON_MAP,
+    "DEFINE_AMMO": AMMO_MAP,
+    "DEFINE_EQUIPMENT": EQUIP_MAP,
 }
 
 
@@ -81,13 +117,13 @@ def dump_table(ins, show_all):
     for idx, (strs, vals) in enumerate(ins.data):
         print("  [%d] %s" % (idx, " | ".join(strs)))
         dwords = expand(tail, vals)
-        show_all = show_all or name != "DEFINE_WEAPONS"
+        fmap = FIELD_MAPS.get(name)
         for k, ch, dw in dwords:
-            if name == "DEFINE_WEAPONS":
-                off, label = WEAPON_MAP.get(k, ("?", ""))
-            else:
+            if fmap is None:
                 off, label = "d%d" % k, ""
-            if label or show_all:
+            else:
+                off, label = fmap.get(k, ("?", ""))
+            if label or show_all or fmap is None:
                 print("      %-6s %-6s %-12s %s" % (
                     "d%d" % k, off, "%d" % dw, label))
 
