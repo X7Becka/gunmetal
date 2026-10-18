@@ -19,19 +19,30 @@ Operand letters -> size (engine func ``0x457170`` walking the table at
 ``0x457204``): ``A``/``B``/``D`` = 8 bytes, ``Y`` = 1 byte, ``S`` = a
 NUL-terminated string, every other letter = 4 bytes.
 
-A handful of ids have **no name** in the exe's table because they are
-*structural* rather than text commands; their layouts come from their handlers
-(see :data:`SPECIAL`)::
+A handful of ids have **no entry** in the exe's :data:`COMMANDS` table because
+they are *structural* rather than plain commands.  Their *names* and *operand
+signatures* are recovered from the engine's text loader (``0x460eca``): every
+structural keyword is matched against a pooled string and compiled by emitting
+the opcode byte followed by a count and then the record operands walked with
+the same signature table (the ``DEFINE_*`` / ``ADD_LIFT`` /
+``SOURCEPLAYER_PATH`` / ``IF`` / ``ELSE`` / ``END`` tokens)::
 
-    103  u32 n (<=30) + n strings
-    158  u32 n + n u32
-    170  u32 n(<=c8) + n * {3 strings + 0x54 bytes}   weapons table
-    171  u32 n + n * {1 string  + 0x28 bytes}          items table
-    172  u32 n(<=c8) + n * {3 strings + 0x17c bytes}   chassis/thing table
-    175  u32 n + n * {1 string  + 0x30 bytes}          equipment table
-    188  0x94 bytes + u32 n(<=c8) + n * 0xc bytes
-    199  IF: u8 cond + cond operands + u32 size + body(size)
-    200  GOTO: u32 relative offset
+    103  DEFINE_LEVEL_OBJECTIVES  u32 n(<=30) + n strings        ("Objective")
+    158  SOURCEPLAYER_PATH        u32 n(<=32) + n * {1 dword}    ("Path points")
+    170  DEFINE_WEAPONS           u32 n(<=31) + n * {3 strings + 0x54}
+    171  DEFINE_AMMO              u32 n(<=31) + n * {1 string  + 0x28}
+    172  DEFINE_PLAYER_TYPES      u32 n        + n * {3 strings + 0x17c}
+    175  DEFINE_EQUIPMENT         u32 n(<=31) + n * {1 string  + 0x30}
+    188  ADD_LIFT                 0x94 bytes + u32 n(<=31) + n * 0xc ("Lift stops")
+    199  IF: u8 cond-id + cond operands + u32 size + body(size)
+    200  ELSE: u32 relative offset (jump over the else-branch at run time)
+    201  EVAL: u8 cond-id + cond operands (a bare condition statement)
+
+The record sizes above are byte-exact against the pooled signature strings
+(``0x4b8fe8`` ``SLEEEEEELLLLL`` = 0x30, ``0x4b900c`` ``SLEOLLLLLLL`` = 0x28,
+``0x4b8fa8`` ``SSSLLLLEEEELLLLDBBDL`` = 0x54,
+``0x4b9024`` ``SSSLDLLD…EE`` = 0x17c, ``0x4b8f7c`` ``LOLLLLLL…VNVNVN`` =
+0x94, ``ELE`` = 0xc, ``E`` = 4).  Opcode ``0xFF`` terminates a sub-script.
 
 ``decode()`` turns a code block into a flat list of :class:`Insn` (with ``IF``
 bodies decoded recursively) and ``render()`` prints it as readable text.  Every
@@ -307,20 +318,22 @@ LETTER_SIZE = {
     "S": "str",
 }
 
-# id -> (n_strings, n_bytes) fixed-size record tables
-SIMPLE_TABLES = {
-    170: (3, 0x54),
-    171: (1, 0x28),
-    175: (1, 0x30),
+# id -> operand signature of one record for the fixed-size record tables.
+# The letters are the very strings the engine's text loader feeds to the
+# operand walker (``0x461bc0``), so the derived byte size is authoritative.
+TABLE_SIGS = {
+    170: "SSSLLLLEEEELLLLDBBDL",  # DEFINE_WEAPONS
+    171: "SLEOLLLLLLL",  # DEFINE_AMMO
+    172: "SSSLDLLDODDDDLNVNVEEDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDEE",  # DEFINE_PLAYER_TYPES
+    175: "SLEEEEEELLLLL",  # DEFINE_EQUIPMENT
 }
 TABLE_NAMES = {
-    170: "WEAPONS",
-    171: "ITEMS",
-    175: "EQUIPMENT",
+    170: "DEFINE_WEAPONS",
+    171: "DEFINE_AMMO",
+    172: "DEFINE_PLAYER_TYPES",
+    175: "DEFINE_EQUIPMENT",
 }
-
-# id -> (n_strings, n_bytes) for the "thing/chassis" table (172)
-THING_TABLE = (3, 0x17C)
+_TABLES = set(TABLE_NAMES.values())
 
 MAX_BLOCK = 0x30000  # engine's code buffer limit (0x4b6784 / [ebp+8] < 0x30000)
 
@@ -358,7 +371,9 @@ def _rdargs(code, i, letters):
     return out, i
 
 
-def _table(code, i, nstr, nbytes):
+def _table(code, i, sig):
+    nstr = len(sig) - len(sig.lstrip("S"))
+    letters = _letters(sig[nstr:])
     n = struct.unpack_from("<I", code, i)[0]
     i += 4
     recs = []
@@ -367,8 +382,7 @@ def _table(code, i, nstr, nbytes):
         for _ in range(nstr):
             s, i = _rdstr(code, i)
             strs.append(s)
-        vals = list(struct.unpack_from("<%dI" % (nbytes // 4), code, i))
-        i += nbytes
+        vals, i = _rdargs(code, i, letters)
         recs.append((strs, vals))
     return recs, i
 
@@ -390,40 +404,38 @@ def decode(code, start=0, end=None):
             out.append(Insn(off, b, "END", [], None, None))
             i += 1
             continue
-        if b in SIMPLE_TABLES:                          # items/weapons/equipment
-            recs, i = _table(code, i + 1, *SIMPLE_TABLES[b])
+        if b in TABLE_SIGS:                             # DEFINE_WEAPONS/AMMO/… tables
+            recs, i = _table(code, i + 1, TABLE_SIGS[b])
             out.append(Insn(off, b, TABLE_NAMES[b], [("n", len(recs))], None, recs))
             continue
-        if b == 172:                                    # chassis / thing table
-            recs, i = _table(code, i + 1, *THING_TABLE)
-            out.append(Insn(off, b, "THINGS", [("n", len(recs))], None, recs))
-            continue
-        if b == 103:                                    # <=30 strings
+        if b == 103:                                    # DEFINE_LEVEL_OBJECTIVES
             n = struct.unpack_from("<I", code, i + 1)[0]
             if n > 30:
-                raise ValueError("OP103 count too large (%d)" % n)
+                raise ValueError("DEFINE_LEVEL_OBJECTIVES count too large (%d)" % n)
             i += 5
             vals = []
             for _ in range(n):
                 s, i = _rdstr(code, i)
                 vals.append(s)
-            out.append(Insn(off, b, "STRINGS", vals, None, None))
+            out.append(Insn(off, b, "DEFINE_LEVEL_OBJECTIVES", vals, None, None))
             continue
-        if b == 158:                                    # n u32
+        if b == 158:                                    # SOURCEPLAYER_PATH
             n = struct.unpack_from("<I", code, i + 1)[0]
+            if n > 32:
+                raise ValueError("SOURCEPLAYER_PATH point count too large (%d)" % n)
             i += 5
             vals = list(struct.unpack_from("<%dI" % n, code, i))
             i += 4 * n
-            out.append(Insn(off, b, "INTS", vals, None, None))
+            out.append(Insn(off, b, "SOURCEPLAYER_PATH", [("n", n)], None, vals))
             continue
-        if b == 188:                                    # 0x94 + n*0xc
+        if b == 188:                                    # ADD_LIFT
             j = i + 1 + 0x94
             head = code[i + 1:j]
             n = struct.unpack_from("<I", code, j)[0]
             j += 4
             recs = [tuple(struct.unpack_from("<3I", code, j + 12 * k)) for k in range(n)]
             i = j + 12 * n
-            out.append(Insn(off, b, "OP188", [("n", n)], None, (head, recs)))
+            out.append(Insn(off, b, "ADD_LIFT", [("n", n)], None, (head, recs)))
             continue
         if b == 199:                                    # IF <cond> <size> { body }
             cid = code[i + 1]
@@ -434,10 +446,18 @@ def decode(code, start=0, end=None):
             body, j2 = decode(code, j + 4, j + size)
             out.append(Insn(off, b, "IF", [(name, args)], body, size))
             i = j + size
+            # an ELSE clause (opcode 200) always immediately follows the
+            # then-branch; decode the else-branch up to the jump target.
+            if i < end and code[i] == 200:
+                rel = struct.unpack_from("<I", code, i + 1)[0]
+                tgt = i + 1 + rel
+                ebody, _ = decode(code, i + 5, tgt)
+                out.append(Insn(i, 200, "ELSE", [("target", tgt)], ebody, rel))
+                i = tgt
             continue
-        if b == 200:                                    # GOTO <relative>
+        if b == 200:                                    # ELSE / relative jump
             rel = struct.unpack_from("<I", code, i + 1)[0]
-            out.append(Insn(off, b, "GOTO", [("target", i + 1 + rel)], None, rel))
+            out.append(Insn(off, b, "ELSE", [("target", i + 1 + rel)], None, rel))
             i = i + 1 + rel
             continue
         if b == 0xC9:                                   # evaluate a condition op
@@ -474,33 +494,46 @@ def _render(insns, indent):
     """Return the rendered lines as a list of strings."""
     pad = "    " * indent
     lines = []
-    for ins in insns:
+    k = 0
+    n = len(insns)
+    while k < n:
+        ins = insns[k]
         if ins.name == "END":
             lines.append(pad + "---")
-        elif ins.name in TABLE_NAMES.values() or ins.name == "THINGS":
+        elif ins.name in _TABLES:
             lines.append("%s%s %d entries" % (pad, ins.name, len(ins.data)))
             for strs, vals in ins.data:
-                lines.append("%s    %-24s %s" % (pad, " | ".join(strs), vals))
-        elif ins.name == "STRINGS":
-            lines.append(pad + "STRINGS " + " ".join('"%s"' % s for s in ins.args))
-        elif ins.name == "INTS":
-            lines.append(pad + "INTS " + " ".join(_fmt(x) for x in ins.args))
-        elif ins.name == "OP188":
-            lines.append("%sOP188 n=%d" % (pad, ins.args[0][1]))
+                lines.append("%s    %-24s %s" % (
+                    pad, " | ".join(strs), " ".join(_fmt(v) for v in vals)))
+        elif ins.name == "DEFINE_LEVEL_OBJECTIVES":
+            lines.append(pad + "DEFINE_LEVEL_OBJECTIVES " +
+                         " ".join('"%s"' % s for s in ins.args))
+        elif ins.name == "SOURCEPLAYER_PATH":
+            lines.append("%sSOURCEPLAYER_PATH n=%d %s" % (
+                pad, ins.args[0][1], " ".join(_fmt(x) for x in ins.data)))
+        elif ins.name == "ADD_LIFT":
+            lines.append("%sADD_LIFT n=%d" % (pad, ins.args[0][1]))
         elif ins.name == "IF":
             (cname, cargs), = ins.args
             head = "%sIF %s" % (pad, cname)
             if cargs:
                 head += " " + " ".join(_fmt(x) for x in cargs)
+            nxt = insns[k + 1] if k + 1 < n else None
+            has_else = nxt is not None and nxt.name == "ELSE" and nxt.body is not None
             lines.append(head + " {")
             lines.extend(_render(ins.body, indent + 1))
+            if has_else:
+                lines.append(pad + "} else {")
+                lines.extend(_render(nxt.body, indent + 1))
+                k += 1
             lines.append(pad + "}")
-        elif ins.name == "GOTO":
-            lines.append("%sGOTO -> 0x%x" % (pad, ins.args[0][1]))
+        elif ins.name == "ELSE":
+            lines.append("%sELSE -> 0x%x" % (pad, ins.args[0][1]))
         elif ins.name == "EVAL":
             (cname, cargs), = ins.args
             lines.append("%sEVAL %s %s" % (pad, cname, " ".join(_fmt(x) for x in cargs)))
         else:
             args = " ".join(_fmt(x) for x in ins.args)
             lines.append(("%s%-34s %s" % (pad, ins.name, args)).rstrip())
+        k += 1
     return lines
