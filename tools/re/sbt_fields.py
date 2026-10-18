@@ -8,8 +8,9 @@ comes from the consumers (``docs/FORMATS.md`` 12.3)::
     DEFINE_AMMO      0x450b10  record 0x38  bytes @ 0x818960
     DEFINE_EQUIPMENT 0x450e60  record 0x40  bytes @ 0x814c8c
 
-Weapon fields proven so far: dword 2 = ammo type index into DEFINE_AMMO,
-dword 3 = ammo spent per shot, dword 8 = price, dword 10 = flag bits.
+Weapon fields: 0 fire mode, 1 fire period, 2 ammo type index, 3 ammo per
+shot, 4/5/6 projectile ids and state, 8 price, 9 score, 10 flags, 12-13
+charge rate, 14/16 spread cone tangents, 18 range, 20 muzzle node index.
 
 Usage:  python3 sbt_fields.py LEVEL.sbt [--table DEFINE_WEAPONS] [--all]
 """
@@ -39,14 +40,14 @@ WEAPON_MAP = {
     9: ("+0x48", "score"),
     10: ("+0x28", "flags"),
     11: ("+0x294", "class index"),
-    12: ("+0x00", "ballistic factor * 0.91"),
-    13: ("+0x00", "ballistic factor * 0.91"),
-    14: ("+0x08", "spread 1 (tan)"),
+    12: ("+0x00", "charge rate"),
+    13: ("+0x00", "charge rate"),
+    14: ("+0x08", "spread cone tan 1"),
     15: ("+0x0c", "spread 1 hi"),
-    16: ("+0x10", "spread 2 (tan)"),
+    16: ("+0x10", "spread cone tan 2"),
     17: ("+0x14", "spread 2 hi"),
-    18: ("+0x18", "range/speed"),
-    19: ("+0x1c", "range/speed hi"),
+    18: ("+0x18", "range"),
+    19: ("+0x1c", "range hi"),
     20: ("+0x20", "muzzle node index"),
 }
 
