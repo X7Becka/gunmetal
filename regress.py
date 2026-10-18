@@ -60,6 +60,50 @@ def report(name: str, ok: bool, detail: str = "") -> bool:
     return ok
 
 
+def render_checks(G: str, results: list[bool], out: str, full: bool = False) -> None:
+    """Model/level rendering: deterministic PNGs with a sane coverage."""
+    sys.path.insert(0, HERE)
+    from gm import png, render, sbw, sob
+
+    pool = render.TexturePool(G)
+    tex = pool.get("SHELLS1")
+    results.append(report("render / texture pool",
+                          tex is not None and tex[0] > 0 and tex[1] > 0,
+                          "SHELLS1 resolved from PICS"))
+
+    m = sob.parse(os.path.join(G, "SOBS", "20mmclp.sob"))
+    a = render.render(m, 96, pool=pool, az=35, el=22)
+    b = render.render(m, 96, pool=pool, az=35, el=22)
+    img = png.decode(a)
+    cov = render.coverage(a)
+    ok = (a == b and img.width == 96 and img.height == 96 and img.channels == 3
+          and 0.15 < cov < 0.9)
+    results.append(report("render / model (deterministic)", ok,
+                          f"96x96 RGB, coverage {cov:.1%}"))
+
+    w = sbw.parse_file(os.path.join(G, "level0.sbw"))
+    meshes = render.level_meshes(w)
+    lv = render.render(meshes, 96, pool=pool, az=35, el=40)
+    cov = render.coverage(lv)
+    n_faces = sum(len(x.faces) for x in meshes)
+    results.append(report("render / level (level0.sbw)", 0.05 < cov < 0.95,
+                          f"{n_faces} faces, coverage {cov:.1%}"))
+
+    if full:
+        bad = 0
+        files = sorted(glob.glob(os.path.join(G, "SOBS", "*.sob")))
+        for p in files:
+            try:
+                src = sob.parse(p)
+                data = render.render(src, 48, pool=pool, az=35, el=22)
+                if png.decode(data).width != 48:
+                    bad += 1
+            except Exception:  # noqa: BLE001 - count and continue
+                bad += 1
+        results.append(report("render / all models", bad == 0,
+                              f"{len(files)} models rendered"))
+
+
 def write_path_checks(G: str, results: list[bool], out: str) -> None:
     """In-process round-trip checks for the writers (sbm blobs, png->sbm)."""
     sys.path.insert(0, HERE)
@@ -229,6 +273,7 @@ def main() -> int:
 
     # --- models / animations / audio -------------------------------------
     results.append(check("sob / models", ["sob", f"{G}/SOBS", out], ["sob: 672 converted, 0 failed"]))
+    render_checks(G, results, out, opts.full)
     results.append(check("soa / animations", ["soa", G], ["soa: 104 parsed, 0 failed"]))
     results.append(check("soe / thing types", ["soe", G], ["soe: 1 parsed, 0 failed"]))
     results.append(check("sog / songs", ["sog", f"{G}/MUSIC", "--music", f"{G}/MUSIC/SOU.IDX"],

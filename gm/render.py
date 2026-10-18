@@ -1,0 +1,454 @@
+"""Minimal software renderer for `.sob` meshes (and their OBJ twins).
+
+No third-party dependencies: a perspective camera, a z-buffer, scanline
+rasterisation of triangulated faces and nearest-neighbour texturing from the
+game's own archives (``PICS/SBM.IDX``, then ``sprites/SBM.IDX``).
+
+Each `.sob` face carries a plane basis (``origin``/``u``/``v``, 16.16), so UVs
+come straight from :meth:`gm.sob.Sob.uv`; by default the face's own UV extent
+is mapped onto the whole texture (``uv="fit"``) which looks best on small
+patches, while ``uv="tile"`` repeats the texture per world unit.
+
+Typical use::
+
+    from gm import render, sob
+    pool = render.TexturePool("/mnt/d/games/Gunmetal 3dfx")
+    png_bytes = render.render(sob.parse(open("tank.sob").read()), 480,
+                              pool=pool, az=35, el=22)
+"""
+from __future__ import annotations
+
+import math
+import os
+
+from . import bigfile, palette as palmod, png, sbm, sob as sobmod
+
+# ---------------------------------------------------------------------------
+# mesh adapters: `.sob` models and `.sbw` level geometry look the same to the
+# renderer (vertices + faces + a per-face UV function)
+# ---------------------------------------------------------------------------
+
+
+class LevelFace:
+    """A `.sbw` polygon seen as a render face."""
+
+    __slots__ = ("indices", "texture", "normal", "u", "v", "origin")
+
+    def __init__(self, poly, name: str):
+        self.indices = list(poly.indices)
+        self.texture = name
+        self.normal = poly.normal
+        self.u = poly.u_axis
+        self.v = poly.v_axis
+        self.origin = poly.centre
+
+
+class LevelMesh:
+    """One `.sbw` object (its local vertex pool + polygons)."""
+
+    def __init__(self, obj, tex_names):
+        self.vertices = list(obj.vertices)
+        self.faces = []
+        for p in obj.polys:
+            if len(p.indices) < 3:
+                continue
+            name = "none"
+            if 0 <= p.texture < len(tex_names):
+                name = tex_names[p.texture]
+            self.faces.append(LevelFace(p, name))
+
+    def uv(self, face, vertex):
+        d = _sub(vertex, face.origin)
+        return _dot(d, face.u), _dot(d, face.v)
+
+
+def level_meshes(level) -> list[LevelMesh]:
+    """Wrap every object of a parsed `.sbw` level as a renderable mesh."""
+    names = [t.name for t in level.tex]
+    return [LevelMesh(o, names) for s in level.sectors for o in s.objects
+            if o.vertices]
+
+
+def model_meshes(model) -> list:
+    """Wrap a parsed `.sob` as a list of renderable meshes."""
+    return [model]
+
+
+# ---------------------------------------------------------------------------
+# textures
+# ---------------------------------------------------------------------------
+
+
+class TexturePool:
+    """Resolve texture names to ``(width, height, rgb bytes)``.
+
+    The archives are read lazily and cached; ``None`` means "not found" and the
+    renderer then falls back to a flat colour.
+    """
+
+    def __init__(self, game: str | None = None, pal: bytes | None = None,
+                 archives: tuple[str, ...] = ("PICS", "sprites")):
+        self.game = game
+        self._palette = pal
+        self._archives = archives
+        self._maps: list[tuple[str, dict[str, int], list[int]]] | None = None
+        self._cache: dict[str, tuple[int, int, bytes] | None] = {}
+
+    def _pal_bytes(self) -> bytes:
+        if self._palette is None:
+            self._palette = palmod.installed(self.game)
+        return self._palette
+
+    def _index(self) -> list[tuple[str, dict[str, int], list[int]]]:
+        """``[(dat_path, {name: offset}, sorted offsets)]`` for every archive."""
+        if self._maps is None:
+            self._maps = []
+            for sub in self._archives:
+                idx = os.path.join(self.game or "", sub, "SBM.IDX")
+                if not os.path.exists(idx):
+                    continue
+                bf = bigfile.BigFile(idx)
+                offs = {e.name: e.offset for e in bf.entries}
+                self._maps.append((bf.dat_path, offs, sorted(offs.values())))
+        return self._maps
+
+    def get(self, name: str) -> tuple[int, int, bytes] | None:
+        if not name or name == "none":
+            return None
+        if name in self._cache:
+            return self._cache[name]
+        img = None
+        for dat_path, offs, order in self._index():
+            off = offs.get(name)
+            if off is None:                      # case-insensitive retry
+                up = name.upper()
+                for k, v in offs.items():
+                    if k.upper() == up:
+                        off = v
+                        break
+            if off is None:
+                continue
+            size = _entry_size(dat_path, order, off)
+            with open(dat_path, "rb") as f:
+                f.seek(off)
+                blob = f.read(size)
+            try:
+                img = self._to_rgb(sbm.parse(blob))
+            except ValueError:
+                img = None
+            break
+        self._cache[name] = img
+        return img
+
+    def _to_rgb(self, tex: sbm.Sbm) -> tuple[int, int, bytes]:
+        pal = self._pal_bytes()
+        n = min(256, len(pal) // 4)
+        rows = []
+        for i in range(min(tex.width * tex.height, len(tex.pixels))):
+            c = tex.pixels[i] if tex.pixels[i] < n else 0
+            rows.append(pal[4 * c : 4 * c + 3])
+        if len(rows) < tex.width * tex.height:  # truncated blob: pad
+            rows += [b"\x00\x00\x00"] * (tex.width * tex.height - len(rows))
+        return tex.width, tex.height, b"".join(rows)
+
+
+def _entry_size(dat_path: str, order: list[int], off: int) -> int:
+    """The BIGFILE index has no sizes; the next entry's offset bounds an entry."""
+    lo, hi = 0, len(order)
+    while lo < hi:                                # first offset > off
+        mid = (lo + hi) // 2
+        if order[mid] > off:
+            hi = mid
+        else:
+            lo = mid + 1
+    if lo < len(order):
+        return order[lo] - off
+    return os.path.getsize(dat_path) - off
+
+
+# ---------------------------------------------------------------------------
+# camera / raster
+# ---------------------------------------------------------------------------
+
+Vec3 = tuple[float, float, float]
+
+
+def _sub(a: Vec3, b: Vec3) -> Vec3:
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _cross(a: Vec3, b: Vec3) -> Vec3:
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _dot(a: Vec3, b: Vec3) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _norm(a: Vec3) -> Vec3:
+    n = math.sqrt(_dot(a, a)) or 1.0
+    return (a[0] / n, a[1] / n, a[2] / n)
+
+
+def _bounds(meshes) -> tuple[Vec3, float]:
+    lo = [1e30] * 3
+    hi = [-1e30] * 3
+    for m in meshes:
+        for v in m.vertices:
+            for k in range(3):
+                lo[k] = min(lo[k], v[k])
+                hi[k] = max(hi[k], v[k])
+    if lo[0] > hi[0]:
+        return (0.0, 0.0, 0.0), 1.0
+    c = tuple((lo[k] + hi[k]) / 2 for k in range(3))
+    r = max(1e-6, 0.5 * math.sqrt(sum((hi[k] - lo[k]) ** 2 for k in range(3))))
+    return c, r
+
+
+class Camera:
+    def __init__(self, center: Vec3, radius: float, width: int, height: int,
+                 az: float = 35.0, el: float = 22.0, zoom: float = 1.0,
+                 fov: float = 45.0):
+        a, e = math.radians(az), math.radians(el)
+        d = (math.cos(e) * math.cos(a), math.cos(e) * math.sin(a), math.sin(e))
+        self.dir = _norm(d)                       # from the object towards the eye
+        dist = radius / math.sin(math.radians(fov) / 2) / max(1e-3, zoom)
+        self.eye = tuple(center[k] + self.dir[k] * dist for k in range(3))
+        self.fwd = _norm(_sub(center, self.eye))
+        up = (0.0, 0.0, 1.0)
+        if abs(_dot(self.fwd, up)) > 0.99:
+            up = (0.0, 1.0, 0.0)
+        self.right = _norm(_cross(self.fwd, up))
+        self.up = _cross(self.right, self.fwd)
+        self.scale = (height / 2) / math.tan(math.radians(fov) / 2)
+        self.cx, self.cy = width / 2.0, height / 2.0
+        self.near = max(1e-4, dist - radius * 3)
+
+    def project(self, p: Vec3):
+        """World point -> ``(sx, sy, inv_z, z)`` or ``None`` when behind the camera."""
+        d = _sub(p, self.eye)
+        z = _dot(d, self.fwd)
+        if z <= self.near:
+            return None
+        return (self.cx + _dot(d, self.right) / z * self.scale,
+                self.cy - _dot(d, self.up) / z * self.scale, 1.0 / z, z)
+
+
+# ---------------------------------------------------------------------------
+# renderer
+# ---------------------------------------------------------------------------
+
+BG_TOP = (34, 38, 52)
+BG_BOTTOM = (12, 12, 16)
+AMBIENT = 0.28
+LIGHT = _norm((0.42, -0.5, 0.75))
+
+
+def render(meshes, width: int = 480, height: int | None = None, *, az: float = 35.0,
+           el: float = 22.0, zoom: float = 1.0, fov: float = 45.0,
+           pool: TexturePool | None = None, lit: bool = True, wire: bool = False,
+           solid: bool = True, uv: str = "fit", cull: bool = False,
+           color=(180, 180, 190), bg: bool = True) -> bytes:
+    """Render one mesh or a list of meshes into an RGB PNG."""
+    if height is None:
+        height = width
+    if isinstance(meshes, sobmod.Sob):
+        meshes = [meshes]
+    meshes = list(meshes)
+    center, radius = _bounds(meshes)
+    cam = Camera(center, radius, width, height, az, el, zoom, fov)
+
+    buf = bytearray(width * height * 3)
+    if bg:
+        for y in range(height):
+            t = y / max(1, height - 1)
+            row = bytes(int(BG_TOP[k] + (BG_BOTTOM[k] - BG_TOP[k]) * t) for k in range(3))
+            buf[y * width * 3 : (y + 1) * width * 3] = row * width
+
+    zbuf = [-1.0] * (width * height)
+
+    for mesh in meshes:
+        for face in mesh.faces:
+            idx = face.indices
+            if len(idx) < 3:
+                continue
+            tex = pool.get(face.texture) if pool is not None else None
+            pts = [cam.project(mesh.vertices[i]) for i in idx]
+            if any(p is None for p in pts):
+                continue
+            uvs = [mesh.uv(face, mesh.vertices[i]) for i in idx]
+            col = _face_color(face, tex, lit)
+            if solid:
+                shade = _shade(face, lit)
+                _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col,
+                           uv=uv, cull=cull)
+            if wire:
+                for k in range(len(pts)):
+                    a, b = pts[k], pts[(k + 1) % len(pts)]
+                    _line(buf, width, height, a, b, (16, 16, 20))
+
+    return png.rgb(width, height, bytes(buf))
+
+
+def _shade(face, lit: bool) -> float:
+    if not lit:
+        return 1.0
+    n = face.normal
+    if abs(n[0]) + abs(n[1]) + abs(n[2]) < 1e-9:
+        n = _norm(_cross(face.u, face.v))
+    lam = abs(_dot(_norm(n), LIGHT))
+    return AMBIENT + (1.0 - AMBIENT) * lam
+
+
+def _face_color(face, tex, lit: bool):
+    if tex is not None:
+        return None
+    h = 2166136261
+    for ch in face.texture or "none":
+        h = ((h ^ ord(ch)) * 16777619) & 0xFFFFFFFF
+    r = 110 + (h & 0x3F)
+    g = 110 + ((h >> 6) & 0x3F)
+    b = 120 + ((h >> 12) & 0x3F)
+    return (r, g, b)
+
+
+def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
+               cull=False):
+    """Triangulate the (convex) face as a fan and rasterise the triangles."""
+    if cull:
+        area = ((pts[1][0] - pts[0][0]) * (pts[2][1] - pts[0][1])
+                - (pts[2][0] - pts[0][0]) * (pts[1][1] - pts[0][1]))
+        if area >= 0:
+            return
+    # per-face UV extent -> [0,1)
+    u0 = v0 = 0.0
+    su = sv = 1.0
+    if uv == "fit" and len(uvs) > 2:
+        us = [p[0] for p in uvs]
+        vs = [p[1] for p in uvs]
+        u0, v0 = min(us), min(vs)
+        su = max(1e-9, max(us) - u0)
+        sv = max(1e-9, max(vs) - v0)
+    for k in range(1, len(pts) - 1):
+        tri = (pts[0], pts[k], pts[k + 1])
+        tuv = (uvs[0], uvs[k], uvs[k + 1])
+        _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col,
+                  u0, v0, su, sv)
+
+
+def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, sv):
+    (x0, y0, w0, z0), (x1, y1, w1, z1), (x2, y2, w2, z2) = tri
+    minx = max(0, int(min(x0, x1, x2)))
+    maxx = min(width - 1, int(max(x0, x1, x2)) + 1)
+    miny = max(0, int(min(y0, y1, y2)))
+    maxy = min(height - 1, int(max(y0, y1, y2)) + 1)
+    if maxx < minx or maxy < miny:
+        return
+    area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+    if abs(area) < 1e-9:
+        return
+    inv = 1.0 / area
+    tw = tex[0] if tex else 1
+    th = tex[1] if tex else 1
+    tpx = tex[2] if tex else b""
+    tex_w, tex_h = tw, th
+    for y in range(miny, maxy + 1):
+        py = y + 0.5
+        for x in range(minx, maxx + 1):
+            px = x + 0.5
+            l0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv
+            if l0 < 0:
+                continue
+            l1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv
+            if l1 < 0:
+                continue
+            l2 = 1.0 - l0 - l1
+            if l2 < 0:
+                continue
+            i = y * width + x
+            iz = l0 * w0 + l1 * w1 + l2 * w2
+            if iz <= zbuf[i]:
+                continue
+            zbuf[i] = iz
+            if tex is None:
+                r, g, b = col
+                f = shade
+                o = i * 3
+                buf[o] = _clamp(r * f)
+                buf[o + 1] = _clamp(g * f)
+                buf[o + 2] = _clamp(b * f)
+                continue
+            # perspective-correct UVs
+            uu = (l0 * tuv[0][0] * w0 + l1 * tuv[1][0] * w1 + l2 * tuv[2][0] * w2) / iz
+            vv = (l0 * tuv[0][1] * w0 + l1 * tuv[1][1] * w1 + l2 * tuv[2][1] * w2) / iz
+            su_t = (uu - u0) / su
+            sv_t = (vv - v0) / sv
+            tx = int(su_t * tex_w) % tex_w
+            ty = int(sv_t * tex_h) % tex_h
+            if tx < 0:
+                tx += tex_w
+            if ty < 0:
+                ty += tex_h
+            o = (ty * tex_w + tx) * 3
+            o2 = i * 3
+            buf[o2] = _clamp(tpx[o] * shade)
+            buf[o2 + 1] = _clamp(tpx[o + 1] * shade)
+            buf[o2 + 2] = _clamp(tpx[o + 2] * shade)
+
+
+def _clamp(v: float) -> int:
+    return 0 if v < 0 else (255 if v > 255 else int(v))
+
+
+def _line(buf, width, height, a, b, rgb):
+    x0, y0 = a[0], a[1]
+    x1, y1 = b[0], b[1]
+    n = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
+    for s in range(n + 1):
+        t = s / n
+        x = int(x0 + (x1 - x0) * t)
+        y = int(y0 + (y1 - y0) * t)
+        if 0 <= x < width and 0 <= y < height:
+            o = (y * width + x) * 3
+            buf[o], buf[o + 1], buf[o + 2] = rgb
+
+
+# ---------------------------------------------------------------------------
+# small helpers used by the CLI and the tests
+# ---------------------------------------------------------------------------
+
+
+def ascii_preview(data: bytes, cols: int = 78) -> str:
+    """Coarse ASCII view of a rendered PNG (for tests and terminals)."""
+    img = png.decode(data)
+    ramp = " .:-=+*#%@"
+    step = max(1, img.width // cols)
+    lines = []
+    for y in range(0, img.height, max(1, step * 2)):
+        row = []
+        for x in range(0, img.width, step):
+            o = (y * img.width + x) * img.channels
+            if img.channels >= 3:
+                v = (img.pixels[o] * 3 + img.pixels[o + 1] * 6 + img.pixels[o + 2]) // 10
+            else:
+                v = img.pixels[o]
+            row.append(ramp[min(len(ramp) - 1, v * len(ramp) // 256)])
+        lines.append("".join(row))
+    return "\n".join(lines)
+
+
+def coverage(data: bytes) -> float:
+    """Fraction of pixels that differ from the background gradient."""
+    img = png.decode(data)
+    n = 0
+    total = img.width * img.height
+    for y in range(img.height):
+        t = y / max(1, img.height - 1)
+        ref = tuple(int(BG_TOP[k] + (BG_BOTTOM[k] - BG_TOP[k]) * t) for k in range(3))
+        for x in range(img.width):
+            o = (y * img.width + x) * img.channels
+            if img.channels >= 3:
+                if abs(img.pixels[o] - ref[0]) + abs(img.pixels[o + 1] - ref[1]) + \
+                        abs(img.pixels[o + 2] - ref[2]) > 12:
+                    n += 1
+    return n / total

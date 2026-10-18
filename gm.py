@@ -29,6 +29,7 @@ import dataclasses
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,6 +39,7 @@ from gm import (  # noqa: E402
     look,
     palette,
     png,
+    render,
     sbc,
     sbm,
     sbt,
@@ -720,6 +722,78 @@ def _sbt_brief(payload) -> str:
     return ""
 
 
+def cmd_view(opts) -> int:
+    import math
+
+    from gm import render, sbw
+
+    if opts.size < 16:
+        print("size must be >= 16", file=sys.stderr)
+        return 2
+    az, el = opts.az, opts.el
+    presets = {"front": (0.0, 0.0), "back": (180.0, 0.0), "left": (90.0, 0.0),
+               "right": (-90.0, 0.0), "top": (0.0, 89.0), "iso": (35.0, 22.0)}
+    if opts.angle:
+        if opts.angle not in presets:
+            print(f"unknown angle {opts.angle!r} (use {', '.join(presets)})",
+                  file=sys.stderr)
+            return 2
+        az, el = presets[opts.angle]
+
+    pool = None if opts.no_textures else render.TexturePool(opts.game, _pal(opts))
+    paths: list[str] = []
+    for p in opts.paths:
+        if os.path.isdir(p):
+            paths += [os.path.join(p, f) for f in sorted(os.listdir(p))
+                      if f.lower().endswith((".sob", ".sbw"))]
+        else:
+            paths.append(p)
+    if not paths:
+        print("nothing to render", file=sys.stderr)
+        return 2
+
+    out_is_dir = (opts.out is None or len(paths) > 1
+                  or opts.out.endswith(("/", os.sep))
+                  or (not opts.out.lower().endswith(".png")
+                      and not os.path.isfile(opts.out)))
+    if out_is_dir:
+        os.makedirs(opts.out or ".", exist_ok=True)
+
+    rc = 0
+    for p in paths:
+        ext = os.path.splitext(p)[1].lower()
+        try:
+            if ext == ".sbw":
+                w = sbw.parse_file(p)
+                meshes = render.level_meshes(w)
+                kind = f"level {len(w.sectors)}s/{w.n_objects}o"
+            else:
+                m = sob.parse(p)
+                meshes = render.model_meshes(m)
+                kind = f"model {len(m.vertices)}v/{len(m.faces)}f"
+        except Exception as exc:  # noqa: BLE001 - keep going over a batch
+            print(f"  FAIL {p}: {exc}", file=sys.stderr)
+            rc = 1
+            continue
+        n_faces = sum(len(m.faces) for m in meshes)
+        t0 = time.time()
+        data = render.render(meshes, opts.size, pool=pool, az=az, el=el,
+                             zoom=opts.zoom, uv=opts.uv, wire=opts.wire,
+                             cull=opts.cull, lit=not opts.flat)
+        dt = time.time() - t0
+        name = os.path.splitext(os.path.basename(p))[0]
+        out = os.path.join(opts.out, name + ".png") if out_is_dir else opts.out
+        with open(out, "wb") as f:
+            f.write(data)
+        tex_used = len({fc.texture for m in meshes for fc in m.faces})
+        print(f"{os.path.basename(p)}: {kind}, {n_faces} faces, "
+              f"{tex_used} textures, az={az:g} el={el:g}, "
+              f"coverage {render.coverage(data):.1%}, {dt:.2f}s -> {out}")
+        if opts.ascii:
+            print(render.ascii_preview(data, opts.ascii))
+    return rc
+
+
 def cmd_sob(opts) -> int:
     files = sorted(
         os.path.join(opts.src, f) for f in os.listdir(opts.src) if f.lower().endswith(".sob")
@@ -809,6 +883,26 @@ def main(argv=None) -> int:
     p.add_argument("src")
     p.add_argument("out")
     p.set_defaults(func=cmd_sob)
+
+    p = sub.add_parser("view", help="render .sob models / .sbw levels to PNG")
+    p.add_argument("paths", nargs="+", help=".sob/.sbw files or directories")
+    p.add_argument("--out", help="output PNG file or directory (default: current dir)")
+    p.add_argument("--size", type=int, default=480, help="image size in pixels (default 480)")
+    p.add_argument("--angle", help="preset view: front/back/left/right/top/iso")
+    p.add_argument("--az", type=float, default=35.0, help="azimuth in degrees (default 35)")
+    p.add_argument("--el", type=float, default=22.0, help="elevation in degrees (default 22)")
+    p.add_argument("--zoom", type=float, default=1.0, help="zoom factor (default 1)")
+    p.add_argument("--uv", choices=("fit", "tile"), default="fit",
+                   help="map the texture onto each face (default) or repeat per unit")
+    p.add_argument("--no-textures", action="store_true", help="flat colours only")
+    p.add_argument("--flat", action="store_true", help="no lighting (full brightness)")
+    p.add_argument("--wire", action="store_true", help="overlay polygon edges")
+    p.add_argument("--cull", action="store_true", help="backface culling")
+    p.add_argument("--ascii", type=int, nargs="?", const=78, default=0,
+                   help="also print a coarse ASCII preview (optional width)")
+    p.add_argument("--palette", help="BMP file to take the palette from")
+    p.add_argument("--game", help="installation dir (for textures and the palette)")
+    p.set_defaults(func=cmd_view)
 
     p = sub.add_parser("soa", help="list .soa animation descriptors")
     p.add_argument("paths", nargs="+", help="one or more .soa files or directories")

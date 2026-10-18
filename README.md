@@ -38,6 +38,8 @@ gm/                   модули по форматам:
                       IF/ELSE/END, DEFINE_*-таблицы, декомпилятор)
   soe.py              сущности .soe (текстовая схема «thing»)
   look.py             таблицы поиска LOOK16.TAB / LOOK162.TAB
+  render.py           софт-рендер моделей/уровней в PNG (камера, z-буфер,
+                      планарные UV, текстуры из PICS/sprites)
   palette.py, bmp.py, png.py   палитра и вывод изображений
 tools/gen_sbtvm.py    генератор gm/sbtvm.py из exe (правь его, не вывод)
 tools/re/             инструментарий реверса exe (PE-карта, дизасм, xref,
@@ -74,6 +76,11 @@ python3 gm.py sob      "…/Gunmetal 3dfx/SOBS" out/models
 python3 gm.py sbw      "…/Gunmetal 3dfx"/*.sbw --obj out/levels
 python3 gm.py sbw      "…/Gunmetal 3dfx"/*.sbw --rebuild out/levels_rebuilt   # правка геометрии
 
+# просмотр: софт-рендер модели/уровня в PNG (с текстурами из PICS)
+python3 gm.py view     "…/Gunmetal 3dfx/SOBS/kingtest.sob" --out out/view --size 640 --angle iso
+python3 gm.py view     "…/Gunmetal 3dfx/level0.sbw" --out out/view --size 640 --el 40 --ascii
+python3 gm.py view     "…/Gunmetal 3dfx/SOBS" --out out/view --size 256 --game "…/Gunmetal 3dfx"
+
 # уровни: таблицы handle + сверка с соседним .sbw
 python3 gm.py sbt      "…/Gunmetal 3dfx" --resolve -v
 python3 gm.py sbt      "…/Gunmetal 3dfx" --rebuild out/levels_rebuilt   # запись обратно
@@ -102,14 +109,14 @@ python3 gm.py sbv      "…/Gunmetal 3dfx/Vid/Intro.sbv" --png out/intro --frame
 | BIGFILE `.idx`/`.dat` | архивы (PICS, sprites, sounds, FRONTEND, MUSIC) | разобран; **repack** (чтение+запись, по-байтово точно) |
 | `.sbm` | 8-битные текстуры/спрайты | разобран; **кодировщик** (blob round-trip побайтово; PNG/BMP→.sbm) |
 | `.bmp`, палитра | общая VGA-палитра из BMP; вывод PNG | разобран |
-| `.sob` | модели (672 файла) | разобран |
+| `.sob` | модели (672 файла) | разобран; **рендер в PNG** (`gm.py view`, текстуры из PICS) |
 | `.sbc` | уровневые градационные карты (51 файл) | разобран (побайтово); **писатель** |
 | `.soa` | анимации (104 файла) | разобран; **писатель** |
 | `.soe` | «thing»-определения (текст) | разобран; **писатель** |
 | `.sog` | песни (651) | разобран; **писатель** |
 | `.sou` | контейнер звука (999 + 3092 записи) | контейнер разобран; кодеки SOU1/2 — Miles, не воспроизведены |
 | `.sbv` | видео (Intro/orient/winner) | разобран полностью, включая кодек (сверка с эмулятором) |
-| `.sbw` | мир: геометрия + поля полигонов/объектов | разобран (36/36 до EOF); **писатель** (rebuild побайтово) |
+| `.sbw` | мир: геометрия + поля полигонов/объектов | разобран (36/36 до EOF); **писатель** (rebuild побайтово); **рендер в PNG** (`gm.py view`) |
 | `.sbt` | мир/уровень (World Things file) | разобран (36/36; handle сверены с `.sbw`); **писатель** (rebuild побайтово, структурные записи 205/205); **скриптовая ВМ SCRIPT** разобрана — имена опкодов (в т.ч. `DEFINE_WEAPONS`/`DEFINE_AMMO`/`DEFINE_EQUIPMENT`/`DEFINE_PLAYER_TYPES`/`DEFINE_LEVEL_OBJECTIVES`/`ADD_LIFT`/`SOURCEPLAYER_PATH`, `IF`/`ELSE`/`END`), декомпилятор, 36/36 в байтовый конец |
 | `LOOK16.TAB`/`LOOK162.TAB` | кубы 64³ «6-6-6 RGB → индекс палитры» | разобран |
 
