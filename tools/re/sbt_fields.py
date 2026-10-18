@@ -23,29 +23,31 @@ sys.path.insert(0, ROOT)
 from gm import sbt as sbtmod          # noqa: E402
 from gm import sbtvm                  # noqa: E402
 
-# file dword index -> (memory offset, field name) for DEFINE_WEAPONS
+# file dword index -> (memory offset, field name) for DEFINE_WEAPONS.
+# "code" = proven from the engine code, "val" = inferred from value ranges;
+# see docs/FORMATS.md 12.3 for the evidence.
 WEAPON_MAP = {
-    0: ("+0x24", ""),
-    1: ("+0x2c", ""),
+    0: ("+0x24", "fire mode"),
+    1: ("+0x2c", "fire period"),
     2: ("+0x3c", "ammo type index"),
     3: ("+0x40", "ammo per shot"),
-    4: ("+0x30", "weapon id"),
-    5: ("+0x34", ""),
-    6: ("+0x38", ""),
-    7: ("+0x4c", ""),
+    4: ("+0x30", "projectile id"),
+    5: ("+0x34", "alt projectile id"),
+    6: ("+0x38", "state value"),
+    7: ("+0x4c", "id"),
     8: ("+0x44", "price"),
-    9: ("+0x48", ""),
+    9: ("+0x48", "score"),
     10: ("+0x28", "flags"),
-    11: ("+0x294", ""),
-    12: ("+0x00", "double * 0x4a2488"),
-    13: ("+0x00", "double * 0x4a2488"),
-    14: ("+0x08", ""),
-    15: ("+0x0c", ""),
-    16: ("+0x10", ""),
-    17: ("+0x14", ""),
-    18: ("+0x18", ""),
-    19: ("+0x1c", ""),
-    20: ("+0x20", ""),
+    11: ("+0x294", "class index"),
+    12: ("+0x00", "ballistic factor * 0.91"),
+    13: ("+0x00", "ballistic factor * 0.91"),
+    14: ("+0x08", "spread 1 (tan)"),
+    15: ("+0x0c", "spread 1 hi"),
+    16: ("+0x10", "spread 2 (tan)"),
+    17: ("+0x14", "spread 2 hi"),
+    18: ("+0x18", "range/speed"),
+    19: ("+0x1c", "range/speed hi"),
+    20: ("+0x20", "muzzle node index"),
 }
 
 
