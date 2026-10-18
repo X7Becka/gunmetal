@@ -36,6 +36,7 @@ class Sbm:
     levels: int
     flags: int
     levels_data: list[bytes]  # level 0 first, 8-bit indices
+    extra: bytes = b""        # any bytes after the mip chain (kept verbatim)
 
     @property
     def pixels(self) -> bytes:
@@ -43,6 +44,14 @@ class Sbm:
 
     def mip(self, level: int) -> bytes:
         return self.levels_data[level]
+
+    def to_bytes(self) -> bytes:
+        """Re-serialise exactly as read (round-trips the shipped blobs)."""
+        log2w = self.width.bit_length() - 1
+        log2h = self.height.bit_length() - 1
+        header = struct.pack("<IBBBBI", 0, log2w, log2h, len(self.levels_data) - 1,
+                             0, self.flags)
+        return header + b"".join(self.levels_data) + self.extra
 
     def to_png(self, palette: bytes, transparent_index: int | None = None, level: int = 0) -> bytes:
         from . import png
@@ -53,7 +62,49 @@ class Sbm:
             h = max(1, self.height >> level)
         else:
             p, w, h = self.pixels, self.width, self.height
-        return png.from_indexed(p, w, h, palette, transparent_index)
+        return png.indexed(p, w, h, palette, transparent_index)
+
+
+def _downsample(pix: bytes, w: int, h: int, mip: str) -> bytes:
+    """Halve an 8-bit image.  ``box`` averages 2x2, ``nearest`` samples the top-left."""
+    nw, nh = max(1, w // 2), max(1, h // 2)
+    if mip == "nearest" or w < 2 or h < 2:
+        return b"".join(
+            pix[(y * 2) * w : (y * 2) * w + 2 * nw : 2] for y in range(nh)
+        )
+    out = bytearray(nw * nh)
+    for y in range(nh):
+        r0 = (y * 2) * w
+        r1 = (y * 2 + 1) * w
+        for x in range(nw):
+            out[y * nw + x] = (pix[r0 + 2 * x] + pix[r0 + 2 * x + 1]
+                               + pix[r1 + 2 * x] + pix[r1 + 2 * x + 1] + 2) >> 2
+    return bytes(out)
+
+
+def encode(width: int, height: int, pixels: bytes, levels: int = 1,
+           flags: int = 0, mip: str = "box") -> bytes:
+    """Build an ``.sbm`` blob from level-0 pixel indices.
+
+    *width*/*height* must be powers of two; *levels* is the number of mip levels
+    to store (1 = none).  ``box`` (2x2 average) or ``nearest`` controls the
+    filter used to derive lower levels.
+    """
+    if width & (width - 1) or height & (height - 1) or width < 1 or height < 1:
+        raise ValueError(f"width/height must be powers of two: {width}x{height}")
+    if len(pixels) != width * height:
+        raise ValueError(f"pixel count {len(pixels)} != {width}x{height}")
+    if levels < 1 or levels > width.bit_length():
+        raise ValueError(f"bad level count {levels}")
+    chain = [pixels]
+    w, h = width, height
+    for _ in range(1, levels):
+        chain.append(_downsample(chain[-1], w, h, mip))
+        w, h = max(1, w // 2), max(1, h // 2)
+    log2w = width.bit_length() - 1
+    log2h = height.bit_length() - 1
+    header = struct.pack("<IBBBBI", 0, log2w, log2h, levels - 1, 0, flags)
+    return header + b"".join(chain)
 
 
 def expected_size(log2w: int, log2h: int, levels: int) -> int:
@@ -91,6 +142,7 @@ def parse(data: bytes) -> Sbm:
         levels=lvlm1 + 1,
         flags=flags,
         levels_data=levels,
+        extra=body[o:],
     )
 
 

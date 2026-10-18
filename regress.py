@@ -60,6 +60,39 @@ def report(name: str, ok: bool, detail: str = "") -> bool:
     return ok
 
 
+def write_path_checks(G: str, results: list[bool]) -> None:
+    """In-process round-trip checks for the writers (sbm blobs, png->sbm)."""
+    sys.path.insert(0, HERE)
+    from gm import bigfile, sbm, png, palette
+
+    pal = palette.installed(G)
+    bad = n = 0
+    for rel in ("PICS/SBM.IDX", "sprites/SBM.IDX"):
+        bf = bigfile.BigFile(os.path.join(G, rel))
+        dat = open(bf.dat_path, "rb").read()
+        for e in bf.entries:
+            blob = e.data(dat)
+            s = sbm.parse(blob)
+            n += 1
+            if s.to_bytes() != blob:
+                bad += 1
+    results.append(report("sbm / blob round-trip", bad == 0, f"{n} blobs byte-identical"))
+
+    bf = bigfile.BigFile(os.path.join(G, "sprites/SBM.IDX"))
+    dat = open(bf.dat_path, "rb").read()
+    bad = 0
+    sample = bf.entries[:48]
+    for e in sample:
+        blob = e.data(dat)
+        s = sbm.parse(blob)
+        img = png.decode(s.to_png(pal))          # indexed PNG preserves indices
+        re = sbm.encode(s.width, s.height, img.pixels, levels=s.levels, flags=s.flags)
+        if re != blob:
+            bad += 1
+    results.append(report("sbm / png->sbm round-trip", bad == 0,
+                          f"{len(sample)} sprites byte-identical"))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -106,6 +139,9 @@ def main() -> int:
         rc2, out2 = run(["list", mod])
         ok = rc2 == 0 and "REGTEST" in out2
     results.append(report("repack / set adds an entry", ok, "REGTEST present"))
+
+    # --- in-process writer round-trips -----------------------------------
+    write_path_checks(G, results)
 
     # --- level formats ----------------------------------------------------
     results.append(check("sbw / all levels", ["sbw", *sbw_files()], ["sbw: 36 parsed, 0 failed"]))

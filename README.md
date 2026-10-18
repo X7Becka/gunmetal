@@ -59,6 +59,11 @@ python3 gm.py extract  "…/Gunmetal 3dfx/sprites/SBM.IDX" out/raw
 python3 gm.py pack     out/SBM.IDX out/raw --ext .bin
 python3 gm.py set      "…/Gunmetal 3dfx/sprites/SBM.IDX" HERO01 new.bin out/mod.IDX
 
+# правка текстуры: .sbm -> PNG -> правка -> .sbm -> в архив
+python3 gm.py sprites  "…/Gunmetal 3dfx" out/sprites --transparent 0
+python3 gm.py sbm      out/sprites/HERO01.png out/HERO01.sbm --game "…/Gunmetal 3dfx" --flags 257
+python3 gm.py set      "…/Gunmetal 3dfx/sprites/SBM.IDX" HERO01 out/HERO01.sbm out/SBM.IDX
+
 # модели и геометрия уровня
 python3 gm.py sob      "…/Gunmetal 3dfx/SOBS" out/models
 python3 gm.py sbw      "…/Gunmetal 3dfx"/*.sbw --obj out/levels
@@ -82,7 +87,7 @@ python3 gm.py sbv      "…/Gunmetal 3dfx/Vid/Intro.sbv" --png out/intro --frame
 | Формат | Что это | Статус |
 |---|---|---|
 | BIGFILE `.idx`/`.dat` | архивы (PICS, sprites, sounds, FRONTEND, MUSIC) | разобран; **repack** (чтение+запись, по-байтово точно) |
-| `.sbm` | 8-битные текстуры/спрайты | разобран |
+| `.sbm` | 8-битные текстуры/спрайты | разобран; **кодировщик** (blob round-trip побайтово; PNG/BMP→.sbm) |
 | `.bmp`, палитра | общая VGA-палитра из BMP; вывод PNG | разобран |
 | `.sob` | модели (672 файла) | разобран |
 | `.sbc` | уровневые градационные карты (51 файл) | разобран (побайтово) |

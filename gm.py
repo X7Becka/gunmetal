@@ -111,6 +111,78 @@ def cmd_set(opts) -> int:
     return 0
 
 
+def cmd_sbm(opts) -> int:
+    data = open(opts.image, "rb").read()
+    low = opts.image.lower()
+    if low.endswith(".png"):
+        img = png.decode(data)
+    elif low.endswith(".bmp"):
+        from gm.png import Image
+        bb = bmp.parse(data)
+        img = Image(bb.width, bb.height, "P", 1, bb.pixels, bb.palette)
+    else:
+        print("sbm: input must be .png or .bmp", file=sys.stderr)
+        return 1
+
+    if opts.palette:
+        pal = bmp.parse(open(opts.palette, "rb").read()).palette
+    elif opts.game:
+        pal = palette.installed(opts.game)
+    elif img.palette:
+        pal = img.palette
+    else:
+        print("sbm: pass --palette BMP or --game DIR (the image carries no palette)", file=sys.stderr)
+        return 1
+
+    prgb = [(pal[4 * i], pal[4 * i + 1], pal[4 * i + 2]) for i in range(len(pal) // 4)]
+    cache: dict[tuple[int, int, int], int] = {}
+
+    def nearest(rgb: tuple[int, int, int]) -> int:
+        v = cache.get(rgb)
+        if v is None:
+            r, g, b = rgb
+            best, bi = 1 << 30, 0
+            for i, (pr, pg, pb) in enumerate(prgb):
+                d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+                if d < best:
+                    best, bi = d, i
+            v = cache[rgb] = bi
+        return v
+
+    idx = bytearray()
+    if img.mode == "P":
+        ncol = len(img.palette) // 4
+        remap = []
+        for i in range(ncol):
+            c = (img.palette[4 * i], img.palette[4 * i + 1], img.palette[4 * i + 2])
+            # an identical palette keeps its indices (the shared palette has
+            # duplicate colours, so a plain nearest-match would not round-trip)
+            remap.append(i if i < len(prgb) and prgb[i] == c else nearest(c))
+        for v in img.pixels:
+            idx.append(remap[v] if v < len(remap) else 0)
+    elif img.mode in ("L", "LA"):
+        step = img.channels
+        for i in range(0, len(img.pixels), step):
+            v = img.pixels[i]
+            idx.append(nearest((v, v, v)))
+    else:  # RGB / RGBA
+        step = img.channels
+        for i in range(0, len(img.pixels), step):
+            idx.append(nearest((img.pixels[i], img.pixels[i + 1], img.pixels[i + 2])))
+
+    try:
+        blob = sbm.encode(img.width, img.height, bytes(idx), levels=opts.mips,
+                          flags=opts.flags, mip=opts.filter)
+    except ValueError as exc:
+        print(f"sbm: {exc}", file=sys.stderr)
+        return 1
+    with open(opts.out, "wb") as f:
+        f.write(blob)
+    print(f"sbm: {img.width}x{img.height}, {len(cache)} colours, {opts.mips} mip level(s), "
+          f"{len(blob)} bytes -> {opts.out}")
+    return 0
+
+
 def cmd_textures(opts) -> int:
     pal = _pal(opts)
     src = opts.game
@@ -652,6 +724,18 @@ def main(argv=None) -> int:
     p.add_argument("file", help="payload file")
     p.add_argument("out", help="output .idx (the .DAT is written next to it)")
     p.set_defaults(func=cmd_set)
+
+    p = sub.add_parser("sbm", help="encode an image (PNG/BMP) into an .sbm texture")
+    p.add_argument("image")
+    p.add_argument("out")
+    p.add_argument("--palette", help="BMP providing the palette (overrides --game)")
+    p.add_argument("--game", help="installation dir (for the shared palette)")
+    p.add_argument("--mips", type=int, default=1, help="number of mip levels to store (default 1)")
+    p.add_argument("--flags", type=int, default=0,
+                   help="header flags (PICS 0/1/2/16; sprites 256/257; default 0)")
+    p.add_argument("--filter", choices=["box", "nearest"], default="box",
+                   help="mip downsampling filter (default box)")
+    p.set_defaults(func=cmd_sbm)
 
     p = sub.add_parser("textures", help="PICS/SBM.DAT -> PNG")
     p.add_argument("game")
