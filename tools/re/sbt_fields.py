@@ -81,10 +81,25 @@ EQUIP_MAP = {
     11: ("+0x3c", "value"),
 }
 
+# DEFINE_PLAYER_TYPES (chassis).  The record mixes 4-byte and 8-byte operands,
+# so the dword indices below are the raw file dwords (the store fn 0x47a170
+# pushes the record as plain dwords).  "D lo/hi" = halves of one double.
+CHASSIS_MAP = {
+    0: ("+0x148", "weight limit"),
+    1: ("+0x18", "max-speed penalty (D lo)"),
+    2: ("+0x1c", "max-speed penalty (D hi)"),
+    3: ("+0x14c", "armor x100"),
+    4: ("+0x150", "armor cap x100"),
+    5: ("+0x20", "max speed (D lo)"),
+    6: ("+0x24", "max speed (D hi)"),
+    7: ("+0x28", "?"),
+}
+
 FIELD_MAPS = {
     "DEFINE_WEAPONS": WEAPON_MAP,
     "DEFINE_AMMO": AMMO_MAP,
     "DEFINE_EQUIPMENT": EQUIP_MAP,
+    "DEFINE_PLAYER_TYPES": CHASSIS_MAP,
 }
 
 
