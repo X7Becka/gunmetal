@@ -74,9 +74,19 @@ class ThingType:
     fields: list[Field] = field(default_factory=list)
     ctx: dict[str, object] = field(default_factory=dict)   # name -> last value
     extra: int = 0                  # leftover tokens (0 = fully consumed)
+    lines: list[str] = field(default_factory=list)  # exact text lines (round-trip)
 
     def get(self, label: str, default=None):
         return self.ctx.get(label, default)
+
+    def to_bytes(self) -> bytes:
+        """Re-serialise with CRLF endings (byte-exact round-trip of shipped files)."""
+        lines = self.lines or self.render_lines()
+        return b"\r\n".join(ln.encode("latin1") for ln in lines)
+
+    def render_lines(self) -> list[str]:
+        """Canonical one-value-per-line text built from the parsed fields."""
+        return [str(f.value) for f in self.fields]
 
 
 class _Reader:
@@ -243,14 +253,15 @@ def parse_text(text: str, name: str = "") -> ThingType:
             gi(f"child[{i}].x")
 
     tt.extra = r.n - r.i
+    tt.lines = text.split("\r\n")
     return tt
 
 
 def parse_file(path: str) -> ThingType:
     import os
     stem = os.path.splitext(os.path.basename(path))[0]
-    with open(path, "r", encoding="latin1") as f:
-        return parse_text(f.read(), name=stem)
+    with open(path, "rb") as f:
+        return parse_text(f.read().decode("latin1"), name=stem)
 
 
 parse = parse_file

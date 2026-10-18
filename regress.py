@@ -127,6 +127,31 @@ def write_path_checks(G: str, results: list[bool], out: str) -> None:
     results.append(report("sbt / structured re-encode", enc_ok == enc_tot and enc_tot > 0,
                           f"{enc_ok}/{enc_tot} records exact"))
 
+    # text/binary descriptor writers: rebuild every shipped file
+    from gm import sbc as sbcmod, soa as soamod, sog as sogmod, soe as soemod
+
+    def all_ext(root: str, ext: str) -> list[str]:
+        found = []
+        for r, _d, fs in os.walk(root):
+            found += [os.path.join(r, f) for f in fs if f.lower().endswith(ext)]
+        return sorted(found)
+
+    cases = [
+        ("sbc", ".sbc", sbcmod.parse),
+        ("soa", ".soa", soamod.parse),
+        ("sog", ".sog", sogmod.parse),
+        ("soe", ".soe", lambda d: soemod.parse_text(d.decode("latin1"))),
+    ]
+    for label, ext, parsefn in cases:
+        bad = n = 0
+        for p in all_ext(G, ext):
+            raw = open(p, "rb").read()
+            n += 1
+            if parsefn(raw).to_bytes() != raw:
+                bad += 1
+        results.append(report(f"{label} / rebuild round-trip", bad == 0,
+                              f"{n} files byte-identical"))
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,

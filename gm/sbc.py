@@ -53,6 +53,22 @@ class Sbc:
     def count(self) -> int:
         return len(self.records)
 
+    def to_bytes(self) -> bytes:
+        """Re-serialise the blob (byte-exact round-trip of the shipped data)."""
+        out = bytearray(self.magic)
+        out += struct.pack("<I", len(self.records))
+        for r in self.records:
+            desc = (r.width.bit_length() - 1) | ((r.height.bit_length() - 1) << 16)
+            out += struct.pack("<I", desc) + r.pixels
+        return bytes(out)
+
+
+def encode(records: list[Record], magic: bytes = b"SBC0") -> bytes:
+    """Build an ``.sbc`` blob from grayscale records."""
+    if magic not in MAGICS:
+        raise ValueError(f"magic must be one of {MAGICS!r}")
+    return Sbc(bytes(magic), list(records)).to_bytes()
+
 
 def parse(data: bytes) -> Sbc:
     if len(data) < 8:

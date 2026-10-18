@@ -270,13 +270,7 @@ def cmd_frontend(opts) -> int:
 
 
 def cmd_sbc(opts) -> int:
-    paths: list[str] = []
-    for p in opts.paths:
-        if os.path.isdir(p):
-            for root, _dirs, files in os.walk(p):
-                paths += [os.path.join(root, f) for f in files if f.lower().endswith(".sbc")]
-        else:
-            paths.append(p)
+    paths = list(_iter_with_rel(opts.paths, ".sbc"))
     paths.sort()
     if not paths:
         print("no .sbc files found", file=sys.stderr)
@@ -284,14 +278,19 @@ def cmd_sbc(opts) -> int:
 
     os.makedirs(opts.out, exist_ok=True)
     ok = bad = 0
-    for p in paths:
-        stem = os.path.basename(p)[:-4]
+    for p, rel in paths:
+        stem = os.path.splitext(rel)[0]
         try:
             blob = sbc.parse_file(p)
         except ValueError as exc:
             bad += 1
             print(f"  FAIL {p}: {exc}", file=sys.stderr)
             continue
+        if opts.rebuild:
+            dst = os.path.join(opts.rebuild, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(dst, "wb") as f:
+                f.write(blob.to_bytes())
         out = os.path.join(opts.out, stem)
         os.makedirs(out, exist_ok=True)
         for i, rec in enumerate(blob.records):
@@ -324,20 +323,27 @@ def _sbc_sheet(blob, scale: int = 4, cols: int = 16, limit: int = 256) -> bytes:
     return png.gray(w, h, bytes(buf))
 
 
-def _soa_iter(paths):
+def _iter_with_rel(paths, ext):
+    """Yield ``(path, relpath)`` for files matching *ext*.
+
+    When a path is a directory, files are walked recursively and *relpath* is
+    relative to that directory, so a rebuild preserves the sub-tree (the game
+    has e.g. ``anims/``, ``spritani/`` and ``Sobanim/`` with colliding names).
+    """
     for p in paths:
         if os.path.isdir(p):
-            for root, _d, files in os.walk(p):
+            for root, _dirs, files in os.walk(p):
                 for f in sorted(files):
-                    if f.lower().endswith(".soa"):
-                        yield os.path.join(root, f)
+                    if f.lower().endswith(ext):
+                        fp = os.path.join(root, f)
+                        yield fp, os.path.relpath(fp, p)
         else:
-            yield p
+            yield p, os.path.basename(p)
 
 
 def cmd_soa(opts) -> int:
     n = bad = 0
-    for p in _soa_iter(opts.paths):
+    for p, rel in _iter_with_rel(opts.paths, ".soa"):
         try:
             a = soa.parse(open(p, "rb").read())
         except ValueError as exc:
@@ -347,20 +353,14 @@ def cmd_soa(opts) -> int:
         extra = "" if len(a.names) == a.frame_count else f" (+{len(a.names) - a.frame_count} extra)"
         print(f"{os.path.basename(p):16s} mode={a.mode} period={a.period} "
               f"loop={a.loop} frames={a.frame_count}{extra}")
+        if opts.rebuild:
+            dst = os.path.join(opts.rebuild, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(dst, "wb") as f:
+                f.write(a.to_bytes())
         n += 1
     print(f"soa: {n} parsed, {bad} failed")
     return 0 if bad == 0 else 1
-
-
-def _soe_iter(paths):
-    for p in paths:
-        if os.path.isdir(p):
-            for root, _d, files in os.walk(p):
-                for f in sorted(files):
-                    if f.lower().endswith(".soe"):
-                        yield os.path.join(root, f)
-        else:
-            yield p
 
 
 def cmd_look(opts) -> int:
@@ -383,7 +383,7 @@ def cmd_look(opts) -> int:
 
 def cmd_soe(opts) -> int:
     n = bad = 0
-    for p in _soe_iter(opts.paths):
+    for p, rel in _iter_with_rel(opts.paths, ".soe"):
         try:
             tt = soe.parse_file(p)
         except (ValueError, OSError) as exc:
@@ -398,19 +398,20 @@ def cmd_soe(opts) -> int:
         if opts.verbose:
             for f in tt.fields:
                 print(f"  {f.label:26s} {f.kind:3s} {f.value!r}")
+        if opts.rebuild:
+            dst = os.path.join(opts.rebuild, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(dst, "wb") as f:
+                f.write(tt.to_bytes())
     print(f"soe: {n} parsed, {bad} failed")
     return 0 if bad == 0 else 1
 
 
 def cmd_sog(opts) -> int:
-    if os.path.isdir(opts.path):
-        files = sorted(
-            os.path.join(opts.path, f)
-            for f in os.listdir(opts.path)
-            if f.lower().endswith(".sog")
-        )
-    else:
-        files = [opts.path]
+    files = list(_iter_with_rel([opts.path], ".sog"))
+    if not files:
+        print(f"no .sog files under {opts.path}", file=sys.stderr)
+        return 1
 
     known = None
     if opts.music:
@@ -420,9 +421,14 @@ def cmd_sog(opts) -> int:
 
     bad = 0
     total = 0
-    for p in files:
+    for p, rel in files:
         s = sog.parse(open(p, "rb").read())
         total += 1
+        if opts.rebuild:
+            dst = os.path.join(opts.rebuild, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(dst, "wb") as f:
+                f.write(s.to_bytes())
         missing = sum(1 for nm in s.names if nm.lower() not in known) if known else 0
         if opts.verbose or missing:
             print(f"{os.path.basename(p):12s} {s.track_count} samples"
@@ -769,6 +775,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("sbc", help=".sbc lightmap blobs -> per-record grayscale PNG + contact sheet")
     p.add_argument("paths", nargs="+", help="one or more .sbc files, or directories to scan")
     p.add_argument("out")
+    p.add_argument("--rebuild", help="write each .sbc back (re-serialised) into this directory")
     p.set_defaults(func=cmd_sbc)
 
     p = sub.add_parser("frontend", help="FRONTEND/BMP.DAT -> BMP")
@@ -783,12 +790,14 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("soa", help="list .soa animation descriptors")
     p.add_argument("paths", nargs="+", help="one or more .soa files or directories")
+    p.add_argument("--rebuild", help="write each .soa back (re-serialised) into this directory")
     p.set_defaults(func=cmd_soa)
 
     p = sub.add_parser("soe", help="parse .soe thing-type definitions (text)")
     p.add_argument("paths", nargs="+", help="one or more .soe files or directories")
     p.add_argument("-v", "--verbose", action="store_true",
                    help="dump every field of the token stream")
+    p.add_argument("--rebuild", help="write each .soe back (re-serialised) into this directory")
     p.set_defaults(func=cmd_soe)
 
     p = sub.add_parser("look", help="analyse LOOK16.TAB / LOOK162.TAB lookup cubes")
@@ -803,6 +812,7 @@ def main(argv=None) -> int:
     p.add_argument("path", help="a .sog file or the MUSIC directory")
     p.add_argument("--music", help="MUSIC/SOU.IDX to resolve sample names against")
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--rebuild", help="write each .sog back (re-serialised) into this directory")
     p.set_defaults(func=cmd_sog)
 
     p = sub.add_parser("sbv", help="parse .sbv video (header + frame blocks)")
