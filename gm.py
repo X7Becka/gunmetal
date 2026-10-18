@@ -41,6 +41,7 @@ from gm import (  # noqa: E402
     sbc,
     sbm,
     sbt,
+    sbtvm,
     sbv,
     sbw,
     sob,
@@ -665,6 +666,27 @@ def cmd_sbt(opts) -> int:
             stem = os.path.splitext(os.path.basename(p))[0]
             with open(os.path.join(opts.json, stem + ".json"), "w") as f:
                 json.dump(_sbt_json(s), f, indent=1)
+        if opts.script:
+            for r in s.records_of(11):
+                code = r.payload.code
+                insns, end = sbtvm.decode(code)
+                status = "ok" if end == len(code) else f"END {end}/{len(code)}"
+                stem = os.path.splitext(os.path.basename(p))[0]
+                text = sbtvm.render(code)
+                if opts.script_out:
+                    os.makedirs(opts.script_out, exist_ok=True)
+                    with open(os.path.join(opts.script_out, stem + ".script.txt"), "w") as f:
+                        f.write(text + "\n")
+                else:
+                    head = text.splitlines()
+                    shown = head[:opts.script_lines]
+                    for line in shown:
+                        print("   " + line)
+                    if len(head) > len(shown):
+                        print(f"   ... {len(head) - len(shown)} more lines "
+                              f"(use --script-out DIR)")
+                print(f"  script: {len(code)} bytes, {len(insns)} top-level ops, {status}"
+                      + (f" -> {opts.script_out}" if opts.script_out else ""))
     print(f"sbt: {ok} parsed, {bad} failed"
           + (f" -> {opts.json}" if opts.json else ""))
     return 0 if bad == 0 else 1
@@ -841,6 +863,11 @@ def main(argv=None) -> int:
                    help="check the handle tables against the sibling .sbw geometry")
     p.add_argument("--json", help="write the parsed structure as JSON into this directory")
     p.add_argument("--rebuild", help="write each .sbt back (re-serialised) into this directory")
+    p.add_argument("--script", action="store_true",
+                   help="decompile the SCRIPT (type 11) bytecode to readable text")
+    p.add_argument("--script-out", help="write the decompiled mission text into this directory")
+    p.add_argument("--script-lines", type=int, default=40,
+                   help="lines of the decompiled script to preview on stdout (default 40)")
     p.set_defaults(func=cmd_sbt)
 
     opts = ap.parse_args(argv)

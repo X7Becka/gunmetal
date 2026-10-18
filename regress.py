@@ -127,6 +127,22 @@ def write_path_checks(G: str, results: list[bool], out: str) -> None:
     results.append(report("sbt / structured re-encode", enc_ok == enc_tot and enc_tot > 0,
                           f"{enc_ok}/{enc_tot} records exact"))
 
+    # sbt: SCRIPT (type 11) bytecode must decode to the exact end of every block
+    from gm import sbtvm
+    dec_ok = dec_tot = 0
+    for p in sbt_paths:
+        s = sbtmod.parse(open(p, "rb").read())
+        for rec in s.records_of(11):
+            dec_tot += 1
+            try:
+                _ins, end = sbtvm.decode(rec.payload.code)
+            except ValueError:
+                end = -1
+            if end == len(rec.payload.code):
+                dec_ok += 1
+    results.append(report("sbt / SCRIPT VM decode", dec_ok == dec_tot and dec_tot > 0,
+                          f"{dec_ok}/{dec_tot} code blocks decode to exact end"))
+
     # text/binary descriptor writers: rebuild every shipped file
     from gm import sbc as sbcmod, soa as soamod, sog as sogmod, soe as soemod
 

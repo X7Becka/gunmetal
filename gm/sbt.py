@@ -199,10 +199,43 @@ class PlayerStatus:
 
 @dataclass
 class Script:
+    """The ``SCRIPT`` record (type 11) -- a level's compiled behaviour code.
+
+    Layout (engine loader ``0x462a80``)::
+
+        u32 count;                  // "things", count * 40 bytes follow
+        count * 40  things;
+        u32 n;                      // parallel handle columns, 3 x n u32
+        n * 4 col_a; n * 4 col_b; n * 4 col_c;
+        u32 m;                      // compiled code length
+        m  code;                    // bytecode, see :mod:`gm.sbtvm`
+        u8 flag;
+        if flag: 9 * 0x400 tables;
+
+    The three handle columns are stored separately here (not interleaved), so
+    the raw payload is split into :attr:`things`, :attr:`handles` (n*12),
+    :attr:`code` and :attr:`tables` (0 or 9*0x400 bytes).
+    """
+
     count: int
     n: int
     m: int
     flag: int
+    things: bytes = b""
+    handles: bytes = b""
+    code: bytes = b""
+    tables: bytes = b""
+
+    def encode(self) -> bytes:
+        out = bytearray(struct.pack("<I", self.count))
+        out += self.things
+        out += struct.pack("<I", self.n)
+        out += self.handles
+        out += struct.pack("<I", self.m)
+        out += self.code
+        out.append(self.flag)
+        out += self.tables
+        return bytes(out)
 
 
 @dataclass
@@ -433,15 +466,14 @@ def _read_record(r: _R, type_: int) -> object:
         return PlayerStatus(exists, r.take(0x3510, "player status") if exists else b"")
     if type_ == 11:
         c = _count(r, 0, 0xC8, "SCRIPT/things")
-        r.take(c * 40, "script info")
+        things = r.take(c * 40, "script info")
         n = _count(r, 0, 0x400, "SCRIPT/named items")
-        r.take(n * 12, "script handle arrays")
+        handles = r.take(n * 12, "script handle arrays")
         m = _count(r, 0, 0x30000, "SCRIPT/compiled code")
-        r.take(m, "compiled scripts")
+        code = r.take(m, "compiled scripts")
         flag = r.u8()
-        if flag:
-            r.take(9 * 0x400, "script tables")
-        return Script(c, n, m, flag)
+        tables = r.take(9 * 0x400, "script tables") if flag else b""
+        return Script(c, n, m, flag, things, handles, code, tables)
     if type_ == 12:
         counts = struct.unpack("<300I", r.take(0x4B0, "sample counts"))
         namesb = r.take(0xA8C, "sample names")
@@ -544,6 +576,8 @@ def encode_payload(type_: int, payload: object) -> bytes:
             out += e.name_raw or e.name.encode("latin1")[:12].ljust(12, b"\0")
             out += struct.pack("<II", e.amount, e.ptr)
         return bytes(out)
+    if isinstance(payload, Script):
+        return payload.encode()
     raw = getattr(payload, "raw", None)
     if raw is not None:
         return raw
