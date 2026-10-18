@@ -60,7 +60,7 @@ def report(name: str, ok: bool, detail: str = "") -> bool:
     return ok
 
 
-def write_path_checks(G: str, results: list[bool]) -> None:
+def write_path_checks(G: str, results: list[bool], out: str) -> None:
     """In-process round-trip checks for the writers (sbm blobs, png->sbm)."""
     sys.path.insert(0, HERE)
     from gm import bigfile, sbm, png, palette
@@ -91,6 +91,17 @@ def write_path_checks(G: str, results: list[bool]) -> None:
             bad += 1
     results.append(report("sbm / png->sbm round-trip", bad == 0,
                           f"{len(sample)} sprites byte-identical"))
+
+    # sbw: re-serialise every level and compare byte-for-byte
+    rb = os.path.join(out, "sbw_rebuild")
+    run(["sbw", *sorted(glob.glob(os.path.join(G, "*.sbw"))), "--rebuild", rb])
+    same = True
+    for p in sorted(glob.glob(os.path.join(G, "*.sbw"))):
+        rp = os.path.join(rb, os.path.basename(p))
+        if not os.path.exists(rp) or open(rp, "rb").read() != open(p, "rb").read():
+            same = False
+            break
+    results.append(report("sbw / rebuild round-trip", same, "36 files byte-identical"))
 
 
 def main() -> int:
@@ -141,7 +152,7 @@ def main() -> int:
     results.append(report("repack / set adds an entry", ok, "REGTEST present"))
 
     # --- in-process writer round-trips -----------------------------------
-    write_path_checks(G, results)
+    write_path_checks(G, results, out)
 
     # --- level formats ----------------------------------------------------
     results.append(check("sbw / all levels", ["sbw", *sbw_files()], ["sbw: 36 parsed, 0 failed"]))

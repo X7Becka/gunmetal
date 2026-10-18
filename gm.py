@@ -545,6 +545,11 @@ def cmd_sbw(opts) -> int:
             out = os.path.join(opts.obj, os.path.splitext(os.path.basename(p))[0] + ".obj")
             n = sbw.to_obj(w, out, transform=opts.transform, tex=opts.verbose)
             print(f"  -> {out} ({n} polygons)")
+        if opts.rebuild:
+            os.makedirs(opts.rebuild, exist_ok=True)
+            out = os.path.join(opts.rebuild, os.path.basename(p))
+            with open(out, "wb") as f:
+                f.write(w.to_bytes())
     print(f"sbw: {ok} parsed, {bad} failed")
     return 0 if bad == 0 else 1
 
@@ -811,6 +816,7 @@ def main(argv=None) -> int:
     p.add_argument("-v", "--verbose", action="store_true")
     p.add_argument("--obj", help="also export the level geometry as .obj into this directory")
     p.add_argument("--transform", action="store_true", help="apply each object's header to its vertices in the .obj")
+    p.add_argument("--rebuild", help="write each .sbw back (re-serialised) into this directory")
     p.set_defaults(func=cmd_sbw)
 
     p = sub.add_parser("sbt", help="parse .sbt world/level record streams")

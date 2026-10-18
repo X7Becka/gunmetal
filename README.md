@@ -67,6 +67,7 @@ python3 gm.py set      "…/Gunmetal 3dfx/sprites/SBM.IDX" HERO01 out/HERO01.sbm
 # модели и геометрия уровня
 python3 gm.py sob      "…/Gunmetal 3dfx/SOBS" out/models
 python3 gm.py sbw      "…/Gunmetal 3dfx"/*.sbw --obj out/levels
+python3 gm.py sbw      "…/Gunmetal 3dfx"/*.sbw --rebuild out/levels_rebuilt   # правка геометрии
 
 # уровни: таблицы handle + сверка с соседним .sbw
 python3 gm.py sbt      "…/Gunmetal 3dfx" --resolve -v
@@ -96,7 +97,7 @@ python3 gm.py sbv      "…/Gunmetal 3dfx/Vid/Intro.sbv" --png out/intro --frame
 | `.sog` | песни (651) | разобран |
 | `.sou` | контейнер звука (999 + 3092 записи) | контейнер разобран; кодеки SOU1/2 — Miles, не воспроизведены |
 | `.sbv` | видео (Intro/orient/winner) | разобран полностью, включая кодек (сверка с эмулятором) |
-| `.sbw` | мир: геометрия + поля полигонов/объектов | разобран (36/36 до EOF) |
+| `.sbw` | мир: геометрия + поля полигонов/объектов | разобран (36/36 до EOF); **писатель** (rebuild побайтово) |
 | `.sbt` | мир/уровень (World Things file) | разобран (36/36; таблицы handle сверены с `.sbw`) |
 | `LOOK16.TAB`/`LOOK162.TAB` | кубы 64³ «6-6-6 RGB → индекс палитры» | разобран |
 

@@ -170,6 +170,14 @@ class Poly:
     def size(self) -> int:
         return 124 + 2 * len(self.indices)
 
+    def to_bytes(self) -> bytes:
+        """Re-serialise the polygon in disk order (byte-exact round-trip)."""
+        head = struct.pack("<5H", self.texture, self.lightmap, self.material,
+                           self.overlay, self.f7a)
+        head += bytes((self.brightness & 0xFF, len(self.indices) & 0xFF))
+        idx = struct.pack("<%dH" % len(self.indices), *self.indices) if self.indices else b""
+        return head + idx + self.raw
+
 
 @dataclass
 class Object:
@@ -212,6 +220,33 @@ class Sbw:
     @property
     def n_polys(self) -> int:
         return sum(len(o.polys) for o in (ob for s in self.sectors for ob in s.objects))
+
+    def to_bytes(self) -> bytes:
+        """Serialise the whole file (byte-exact round-trip of the shipped data)."""
+        out = bytearray()
+        out += struct.pack("<I", len(self.tex))
+        for t in self.tex:
+            out += t.name.encode("latin1") + b"\0"
+            out += struct.pack("<HI", t.flag, t.value)
+        out += struct.pack("<I", len(self.effects))
+        for e in self.effects:
+            out += e.name.encode("latin1") + b"\0"
+            out += struct.pack("<III", e.kind, e.start, len(e.ids))
+            out += struct.pack("<%dH" % len(e.ids), *e.ids) if e.ids else b""
+        out += struct.pack("<I", len(self.sectors))
+        for s in self.sectors:
+            out += struct.pack("<IHB", len(s.objects), s.kind, s.sub)
+            for o in s.objects:
+                out += struct.pack("<I", o.id) + o.header[:96]
+        for s in self.sectors:
+            for o in s.objects:
+                out += struct.pack("<HH", len(o.vertices), len(o.polys))
+                for v in o.vertices:
+                    out += struct.pack("<3f", *v)
+                out += o.raw_tail[:50]
+                for p in o.polys:
+                    out += p.to_bytes()
+        return bytes(out)
 
 
 def _cstr(data: bytes, o: int) -> tuple[str, int]:
