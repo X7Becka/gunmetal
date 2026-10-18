@@ -39,6 +39,9 @@ gm/                   модули по форматам:
   soe.py              сущности .soe (текстовая схема «thing»)
   look.py             таблицы поиска LOOK16.TAB / LOOK162.TAB
   palette.py, bmp.py, png.py   палитра и вывод изображений
+tools/gen_sbtvm.py    генератор gm/sbtvm.py из exe (правь его, не вывод)
+tools/re/             инструментарий реверса exe (PE-карта, дизасм, xref,
+                      таблицы команд, эмулятор x86) — см. tools/re/README.md
 docs/FORMATS.md       спецификации форматов (главный документ)
 NOTES.md              рабочие заметки, карта адресов движка, CLI-справка
 ```

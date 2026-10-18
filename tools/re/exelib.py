@@ -52,20 +52,24 @@ def data():
 
 
 def sections():
-    """``[(name, vma, vsize, fileoff)]`` parsed from the PE header."""
+    """``[(name, vma, rawsize, fileoff)]`` parsed from the PE header.
+
+    Virtual addresses = ``ImageBase`` (0x400000) + the header's RVA.
+    """
     global _sections
     if _sections is None:
         d = data()
         pe = struct.unpack_from("<I", d, 0x3C)[0]
         nsec = struct.unpack_from("<H", d, pe + 6)[0]
         optsz = struct.unpack_from("<H", d, pe + 20)[0]
+        image_base = struct.unpack_from("<I", d, pe + 24 + 28)[0]
         base = pe + 24 + optsz
         out = []
         for i in range(nsec):
             o = base + 40 * i
             name = d[o:o + 8].rstrip(b"\0").decode("latin1")
-            vsize, vma, rawsize, rawoff = struct.unpack_from("<IIII", d, o + 8)
-            out.append((name, vma, max(vsize, rawsize), rawoff))
+            _vsize, rva, rawsize, rawoff = struct.unpack_from("<IIII", d, o + 8)
+            out.append((name, image_base + rva, rawsize, rawoff))
         _sections = out
     return _sections
 

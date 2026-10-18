@@ -78,6 +78,7 @@ def dump_table(ins, show_all):
     for idx, (strs, vals) in enumerate(ins.data):
         print("  [%d] %s" % (idx, " | ".join(strs)))
         dwords = expand(tail, vals)
+        show_all = show_all or name != "DEFINE_WEAPONS"
         for k, ch, dw in dwords:
             if name == "DEFINE_WEAPONS":
                 off, label = WEAPON_MAP.get(k, ("?", ""))
