@@ -156,6 +156,7 @@ class ThingType:
     name: str
     params: tuple = ()  # 49 doubles
     tail: bytes = b""  # 528 bytes of opaque u32 fields
+    name_raw: bytes = b""  # full 16-byte name slot (trailing bytes preserved)
 
 
 @dataclass
@@ -167,6 +168,7 @@ class ThingTypes:
 class NamedItem:
     name: str
     params: tuple = ()  # 9 u32 (f0..f3 plain, f4..f6 resolved ids, f7..f8)
+    name_raw: bytes = b""  # full 16-byte name slot
 
 
 @dataclass
@@ -285,6 +287,8 @@ class Item:
 class SobEntry:
     name: str
     amount: int
+    ptr: int = 0        # stale runtime heap pointer (kept so the record round-trips)
+    name_raw: bytes = b""  # full 12-byte name slot
 
 
 @dataclass
@@ -299,6 +303,7 @@ class Record:
     offset: int  # file offset of the type byte
     size: int  # total bytes, type byte included
     payload: object
+    raw: bytes = b""  # payload bytes exactly as read (no type byte)
 
 
 @dataclass
@@ -306,9 +311,33 @@ class Sbt:
     version: int
     records: list[Record] = field(default_factory=list)
     header_size: int = HEADER_SIZE
+    header: bytes = b""  # the 84 raw header bytes (kept for exact re-serialisation)
 
     def records_of(self, type_: int) -> list[Record]:
         return [r for r in self.records if r.type == type_]
+
+    def to_bytes(self) -> bytes:
+        """Re-serialise the file (byte-exact round-trip of the shipped data).
+
+        Records are emitted from their stored ``raw`` payload, so an edit is
+        made either by writing ``record.raw`` directly or through
+        :meth:`set_payload` for the fully-modelled record types.
+        """
+        out = bytearray(self.header or self._default_header())
+        for r in self.records:
+            out.append(r.type)
+            if r.type != END_OF_FILE:
+                out += r.raw
+        return bytes(out)
+
+    def _default_header(self) -> bytes:
+        return MAGIC + b"\0" * (80 - len(MAGIC)) + struct.pack("<I", self.version)
+
+    def set_payload(self, rec: Record, payload: object) -> None:
+        """Replace a record's payload, re-encoding its raw bytes."""
+        rec.payload = payload
+        rec.raw = encode_payload(rec.type, payload)
+        rec.size = 1 + len(rec.raw)
 
 
 # --- reader ------------------------------------------------------------------
@@ -375,17 +404,19 @@ def _read_record(r: _R, type_: int) -> object:
         n = _count(r, 0, 0x80, "THING_TYPES")
         out: list[ThingType] = []
         for _ in range(n):
-            name, _ = r.bss(16)
+            nraw = r.take(16, "thing type name")
+            name = nraw.split(b"\0", 1)[0].decode("latin1")
             params = struct.unpack("<49d", r.take(49 * 8, "thing type params"))
             tail = r.take(936 - 16 - 49 * 8, "thing type tail")
-            out.append(ThingType(name, params, tail))
+            out.append(ThingType(name, params, tail, nraw))
         return ThingTypes(out)
     if type_ == 5:
         n = _count(r, 0, 0x31, "NAMED_ITEMS")
         out = []
         for _ in range(n):
-            name, _ = r.bss(16)
-            out.append(NamedItem(name, struct.unpack("<9I", r.take(36, "named item"))))
+            nraw = r.take(16, "named item name")
+            name = nraw.split(b"\0", 1)[0].decode("latin1")
+            out.append(NamedItem(name, struct.unpack("<9I", r.take(36, "named item")), nraw))
         return NamedItems(out)
     if type_ == 6:
         n = _count(r, 0, 0x1F3, "SPRITES")
@@ -437,10 +468,11 @@ def _read_record(r: _R, type_: int) -> object:
         n = _count(r, 0, 0xC8, "SOB_TABLE")
         out = []
         for _ in range(n):
-            name, _ = r.bss(12)
+            nraw = r.take(12, "sob name")
+            name = nraw.split(b"\0", 1)[0].decode("latin1")
             amount = r.u32()
-            r.u32()  # stale runtime object pointer written at save time
-            out.append(SobEntry(name, amount))
+            ptr = r.u32()  # stale runtime object pointer written at save time
+            out.append(SobEntry(name, amount, ptr, nraw))
         return SobTable(out)
     if type_ in UNSUPPORTED:
         raise ValueError(f"record type {type_} is not supported by the loader")
@@ -464,16 +496,65 @@ def parse(data: bytes) -> Sbt:
         off = r.o
         type_ = r.u8()
         if type_ == END_OF_FILE:
-            records.append(Record(END_OF_FILE, "END_OF_FILE", off, 1, None))
+            records.append(Record(END_OF_FILE, "END_OF_FILE", off, 1, None, b""))
             break
+        p_off = r.o
         payload = _read_record(r, type_)
-        records.append(Record(type_, TYPE_NAMES[type_], off, r.o - off, payload))
+        records.append(Record(type_, TYPE_NAMES[type_], off, r.o - off,
+                              payload, data[p_off : r.o]))
 
     if not records or records[-1].type != END_OF_FILE:
         raise ValueError("record stream has no END_OF_FILE terminator")
     if r.o != len(data):
         raise ValueError(f"{len(data) - r.o} trailing bytes after END_OF_FILE")
-    return Sbt(version, records, HEADER_SIZE)
+    return Sbt(version, records, HEADER_SIZE, data[:HEADER_SIZE])
+
+
+# --- writer ------------------------------------------------------------------
+
+
+def encode_payload(type_: int, payload: object) -> bytes:
+    """Re-encode a record payload from its structured form.
+
+    Implemented for the fully-modelled record types (handle tables 15/16/17,
+    NAMED_ITEMS 5, THING_TYPES 4, SOB_TABLE 20); for every other type the raw
+    bytes kept on the payload/record are returned unchanged.
+    """
+    if isinstance(payload, HandleTable):
+        n = len(payload)
+        out = bytearray(struct.pack("<I", n))
+        for f in payload._fields:
+            out += struct.pack("<%dI" % n, *getattr(payload, f))
+        return bytes(out)
+    if isinstance(payload, NamedItems):
+        out = bytearray(struct.pack("<I", len(payload.entries)))
+        for e in payload.entries:
+            out += e.name_raw or e.name.encode("latin1")[:16].ljust(16, b"\0")
+            out += struct.pack("<9I", *e.params)
+        return bytes(out)
+    if isinstance(payload, ThingTypes):
+        out = bytearray(struct.pack("<I", len(payload.entries)))
+        for e in payload.entries:
+            out += e.name_raw or e.name.encode("latin1")[:16].ljust(16, b"\0")
+            out += struct.pack("<49d", *e.params) + e.tail
+        return bytes(out)
+    if isinstance(payload, SobTable):
+        out = bytearray(struct.pack("<I", len(payload.entries)))
+        for e in payload.entries:
+            out += e.name_raw or e.name.encode("latin1")[:12].ljust(12, b"\0")
+            out += struct.pack("<II", e.amount, e.ptr)
+        return bytes(out)
+    raw = getattr(payload, "raw", None)
+    if raw is not None:
+        return raw
+    raise ValueError(f"cannot re-encode a {type(payload).__name__} payload")
+
+
+def build_file(sbt: Sbt, path: str) -> int:
+    data = sbt.to_bytes()
+    with open(path, "wb") as f:
+        f.write(data)
+    return len(data)
 
 
 def parse_file(path: str) -> Sbt:

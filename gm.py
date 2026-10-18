@@ -634,6 +634,11 @@ def cmd_sbt(opts) -> int:
         if opts.verbose:
             for r in s.records:
                 print(f"    {r.offset:#08x} {r.name:20s} {r.size:7d}  {_sbt_brief(r.payload)}")
+        if opts.rebuild:
+            os.makedirs(opts.rebuild, exist_ok=True)
+            out = os.path.join(opts.rebuild, os.path.basename(p))
+            with open(out, "wb") as f:
+                f.write(s.to_bytes())
         if opts.resolve:
             sbw_path = os.path.splitext(p)[0] + ".sbw"
             if not os.path.exists(sbw_path):
@@ -825,6 +830,7 @@ def main(argv=None) -> int:
     p.add_argument("--resolve", action="store_true",
                    help="check the handle tables against the sibling .sbw geometry")
     p.add_argument("--json", help="write the parsed structure as JSON into this directory")
+    p.add_argument("--rebuild", help="write each .sbt back (re-serialised) into this directory")
     p.set_defaults(func=cmd_sbt)
 
     opts = ap.parse_args(argv)

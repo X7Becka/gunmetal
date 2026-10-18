@@ -45,7 +45,7 @@
 
 | Расш. | Заголовок / структура | Статус |
 |---|---|---|
-| `.sbt` | `BINARY SAVE\0…` — скомпилированная текстовая «World Things file»: записи с 1-байтовым тегом = id ключевого слова (`POLY_HANDLE`=15 и т. д.). Таблицы handle — по колонкам `(tag, sector, object, poly)`, где `(sector,object,poly)` есть адрес полигона движка | **разобран** (36/36 до EOF; таблицы handle сверены с `.sbw`) |
+| `.sbt` | `BINARY SAVE\0…` — скомпилированная текстовая «World Things file»: записи с 1-байтовым тегом = id ключевого слова (`POLY_HANDLE`=15 и т. д.). Таблицы handle — по колонкам `(tag, sector, object, poly)`, где `(sector,object,poly)` есть адрес полигона движка | **чтение+запись**: `Sbt.to_bytes` даёт побайтовый round-trip всех 36 файлов (`--rebuild`); `encode_payload` точно пересобирает handle-таблицы, `NAMED_ITEMS`, `THING_TYPES`, `SOB_TABLE` (205/205) |
 | `.sbw` | `u32 count` + таблица текстур `{name\0, u16, u32}` + таблица эффектов `{name\0, u32 kind, u32 start, u32 n, u16 ids[n]}` + `u32 count3` + стадия 1 (секторы/объекты/шапки) + стадия 2 (вершины + полигоны) | **чтение+запись**: `Sbw.to_bytes` даёт побайтовый round-trip всех 36 файлов (CLI `--rebuild`); декодеры `gundx.exe`: `0x42aa63`/`0x42ad65`/`0x425f4c`/`0x434463` |
 | `.sbc` | `char magic[4]` (`SBC1` 46 шт. / `SBC0` 5 шт.) + `u32 count` + `count × { u32 desc; u8 пиксели }`, где `w = 1 << (desc & 0xffff)`, `h = 1 << (desc >> 16)` | **разобран полностью**, сходится побайтово на всех 51 файле (34 в корне + 17 в `SOBS/`); данные — маленькие гладкие 8-битные карты, похоже на атласы лайтмапов |
 | `.sbv` | видео: `SBV0` + `u32 width; u32 height; u32 frame_count` + таблица `{u32 timestamp_ms; u32 end_offset}` | **разобран полностью вместе с кодеком** (по дизасму `gundx.exe` `0x49e1e8`/`0x49ee8c`); побайтовая сверка с эмулятором на 25 кадрах (см. §2b) |
@@ -246,7 +246,7 @@ look16.tab   look162.tab   neons.pin
 | `sog <path> [--music IDX]` | разбор песен `.sog` (плейлисты) |
 | `sbv <file> [out] [--png DIR] [--frames SPEC] [--scale N] [--no-raw]` | `.sbv`: заголовок/таблица, сырые блоки кадров и/или декодированные PNG |
 | `sbw <files...> [-v] [--obj DIR] [--transform] [--rebuild DIR]` | мир `.sbw`: таблицы + секторы/объекты/геометрия, экспорт в OBJ, `--rebuild` — запись обратно (побайтово) |
-| `sbt <paths...> [-v] [--resolve] [--json DIR]` | записи `.sbt` (мир/уровень); `--resolve` сверяет таблицы handle с соседним `.sbw` |
+| `sbt <paths...> [-v] [--resolve] [--json DIR] [--rebuild DIR]` | записи `.sbt` (мир/уровень); `--resolve` сверяет handle с соседним `.sbw`, `--rebuild` — запись обратно (побайтово) |
 | `sbc <paths...> <out>` | `.sbc` → градационные PNG + сводный лист |
 
 Установка (`D:\games\Gunmetal 3dfx`) **не изменяется**: все результаты идут в

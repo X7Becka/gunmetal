@@ -103,6 +103,30 @@ def write_path_checks(G: str, results: list[bool], out: str) -> None:
             break
     results.append(report("sbw / rebuild round-trip", same, "36 files byte-identical"))
 
+    # sbt: re-serialise + structured re-encode of the modelled records
+    from gm import sbt as sbtmod
+    sbt_paths = sorted(glob.glob(os.path.join(G, "*.sbt")))
+    rb = os.path.join(out, "sbt_rebuild")
+    run(["sbt", G, "--rebuild", rb])
+    same = True
+    for p in sbt_paths:
+        rp = os.path.join(rb, os.path.basename(p))
+        if not os.path.exists(rp) or open(rp, "rb").read() != open(p, "rb").read():
+            same = False
+            break
+    results.append(report("sbt / rebuild round-trip", same, f"{len(sbt_paths)} files byte-identical"))
+
+    enc_ok = enc_tot = 0
+    for p in sbt_paths:
+        s = sbtmod.parse(open(p, "rb").read())
+        for rec in s.records:
+            if rec.type in (4, 5, 15, 16, 17, 20):
+                enc_tot += 1
+                if sbtmod.encode_payload(rec.type, rec.payload) == rec.raw:
+                    enc_ok += 1
+    results.append(report("sbt / structured re-encode", enc_ok == enc_tot and enc_tot > 0,
+                          f"{enc_ok}/{enc_tot} records exact"))
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
