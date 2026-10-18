@@ -128,6 +128,11 @@ def _rdstr(code, i):
     return code[i:j].decode("latin1"), j + 1
 
 
+def record_size(sig):
+    """Total byte size of one record described by an operand signature."""
+    return sum(LETTER_SIZE[c] for c in sig if c != "S")
+
+
 def _letters(sig):
     if not sig:
         return []
