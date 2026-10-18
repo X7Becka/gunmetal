@@ -32,7 +32,8 @@ from . import bigfile, palette as palmod, png, sbm, sob as sobmod
 class LevelFace:
     """A `.sbw` polygon seen as a render face."""
 
-    __slots__ = ("indices", "texture", "normal", "u", "v", "origin")
+    __slots__ = ("indices", "texture", "normal", "u", "v", "origin",
+                 "material", "brightness", "overlay")
 
     def __init__(self, poly, name: str):
         self.indices = list(poly.indices)
@@ -41,6 +42,9 @@ class LevelFace:
         self.u = poly.u_axis
         self.v = poly.v_axis
         self.origin = poly.centre
+        self.material = poly.material
+        self.brightness = poly.brightness
+        self.overlay = poly.overlay
 
 
 class LevelMesh:
@@ -208,13 +212,21 @@ def _bounds(meshes) -> tuple[Vec3, float]:
 class Camera:
     def __init__(self, center: Vec3, radius: float, width: int, height: int,
                  az: float = 35.0, el: float = 22.0, zoom: float = 1.0,
-                 fov: float = 45.0):
-        a, e = math.radians(az), math.radians(el)
-        d = (math.cos(e) * math.cos(a), math.cos(e) * math.sin(a), math.sin(e))
-        self.dir = _norm(d)                       # from the object towards the eye
-        dist = radius / math.sin(math.radians(fov) / 2) / max(1e-3, zoom)
-        self.eye = tuple(center[k] + self.dir[k] * dist for k in range(3))
-        self.fwd = _norm(_sub(center, self.eye))
+                 fov: float = 45.0, pos: Vec3 | None = None,
+                 look: Vec3 | None = None):
+        if pos is not None:
+            self.eye = pos
+            target = look if look is not None else center
+            self.fwd = _norm(_sub(target, self.eye))
+            dist = max(1e-3, math.sqrt(_dot(_sub(target, self.eye),
+                                            _sub(target, self.eye))))
+        else:
+            a, e = math.radians(az), math.radians(el)
+            d = (math.cos(e) * math.cos(a), math.cos(e) * math.sin(a), math.sin(e))
+            self.dir = _norm(d)                   # from the object towards the eye
+            dist = radius / math.sin(math.radians(fov) / 2) / max(1e-3, zoom)
+            self.eye = tuple(center[k] + self.dir[k] * dist for k in range(3))
+            self.fwd = _norm(_sub(center, self.eye))
         up = (0.0, 0.0, 1.0)
         if abs(_dot(self.fwd, up)) > 0.99:
             up = (0.0, 1.0, 0.0)
@@ -222,7 +234,7 @@ class Camera:
         self.up = _cross(self.right, self.fwd)
         self.scale = (height / 2) / math.tan(math.radians(fov) / 2)
         self.cx, self.cy = width / 2.0, height / 2.0
-        self.near = max(1e-4, dist - radius * 3)
+        self.near = max(0.02, min(dist, radius) * 0.05)
 
     def project(self, p: Vec3):
         """World point -> ``(sx, sy, inv_z, z)`` or ``None`` when behind the camera."""
@@ -243,20 +255,67 @@ BG_BOTTOM = (12, 12, 16)
 AMBIENT = 0.28
 LIGHT = _norm((0.42, -0.5, 0.75))
 
+# Material table (name + the ``+0x2c`` intensity the loader fills in at
+# 0x4214d8..0x421549); index 0..5.  The engine sends a polygon to the second
+# (blended) pass when the material entry's first dword has bit 0 set
+# (0x437fba / 0x439e75 / 0x43d568).
+MATERIALS = ("none", "reflective", "translucent", "varadd", "add", "shade")
+MATERIAL_INTENSITY = (0, 64, 64, 100, 127, -128)
+BRIGHTNESS_GAIN = 0.5          # poly+0x70 (0..127) -> additive light term
+
+
+def face_blend(face, materials: bool = True):
+    """``(mode, weight)`` for the blend pass, or ``None`` for opaque faces.
+
+    The weights are the engine's own ``material+0x2c`` values; the exact
+    per-material blend maths was not traced, so ``translucent`` is mixed at
+    half strength and the rest are added (negative weight = subtractive).
+    """
+    if not materials:
+        return None
+    idx = None
+    if hasattr(face, "material"):
+        idx = face.material
+    else:
+        flags = getattr(face, "material_flags", None) or ()
+        for name in flags:
+            if name in MATERIALS:
+                idx = MATERIALS.index(name)
+    if not idx or not (0 < idx < len(MATERIALS)) or idx == 0:
+        return None
+    w = MATERIAL_INTENSITY[idx] / 127.0
+    if MATERIALS[idx] == "translucent":
+        return ("mix", 0.5)
+    return ("add", w)
+
+
+def _face_brightness(face) -> float:
+    b = getattr(face, "brightness", 0)
+    return (b / 127.0) * BRIGHTNESS_GAIN if b else 0.0
+
 
 def render(meshes, width: int = 480, height: int | None = None, *, az: float = 35.0,
            el: float = 22.0, zoom: float = 1.0, fov: float = 45.0,
            pool: TexturePool | None = None, lit: bool = True, wire: bool = False,
            solid: bool = True, uv: str = "fit", cull: bool = False,
-           color=(180, 180, 190), bg: bool = True) -> bytes:
-    """Render one mesh or a list of meshes into an RGB PNG."""
+           color=(180, 180, 190), bg: bool = True, pos=None, look=None,
+           clip: float | None = None, materials: bool = True,
+           brightness: bool = True) -> bytes:
+    """Render one mesh or a list of meshes into an RGB PNG.
+
+    ``pos``/``look`` override the auto-fitted camera (for level interiors),
+    ``clip`` drops faces farther than that many units from the eye, and
+    ``materials`` enables the two-pass material handling (see
+    :func:`face_blend`).
+    """
     if height is None:
         height = width
     if isinstance(meshes, sobmod.Sob):
         meshes = [meshes]
     meshes = list(meshes)
     center, radius = _bounds(meshes)
-    cam = Camera(center, radius, width, height, az, el, zoom, fov)
+    cam = Camera(center, radius, width, height, az, el, zoom, fov, pos, look)
+    eye = cam.eye
 
     buf = bytearray(width * height * 3)
     if bg:
@@ -266,26 +325,50 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
             buf[y * width * 3 : (y + 1) * width * 3] = row * width
 
     zbuf = [-1.0] * (width * height)
+    blended: list[tuple[float, object, object, list, object]] = []
 
     for mesh in meshes:
         for face in mesh.faces:
             idx = face.indices
             if len(idx) < 3:
                 continue
-            tex = pool.get(face.texture) if pool is not None else None
+            blend = face_blend(face, materials)
             pts = [cam.project(mesh.vertices[i]) for i in idx]
             if any(p is None for p in pts):
                 continue
+            if clip is not None:
+                c = _sub(face.origin, eye) if hasattr(face, "origin") else None
+                if c is None:
+                    vs = [mesh.vertices[i] for i in idx]
+                    c = _sub(tuple(sum(v[k] for v in vs) / len(vs) for k in range(3)), eye)
+                if _dot(c, c) > clip * clip:
+                    continue
             uvs = [mesh.uv(face, mesh.vertices[i]) for i in idx]
-            col = _face_color(face, tex, lit)
+            shade = _shade(face, lit)
+            if brightness:
+                shade += _face_brightness(face)
+            col = _face_color(face, tex := (pool.get(face.texture) if pool is not None
+                                            else None), lit)
+            if blend is not None:
+                vs = [mesh.vertices[i] for i in idx]
+                c = tuple(sum(v[k] for v in vs) / len(vs) for k in range(3))
+                d = _sub(c, eye)
+                blended.append((_dot(d, d), face, pts, uvs, (tex, shade, col, blend, uv, cull)))
+                continue
             if solid:
-                shade = _shade(face, lit)
                 _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col,
                            uv=uv, cull=cull)
             if wire:
                 for k in range(len(pts)):
                     a, b = pts[k], pts[(k + 1) % len(pts)]
                     _line(buf, width, height, a, b, (16, 16, 20))
+
+    # second pass: blended materials, back to front, z-tested but not z-written
+    if solid and blended:
+        blended.sort(key=lambda t: -t[0])
+        for _d, _face, pts, uvs, (tex, shade, col, blend, uv_, cull_) in blended:
+            _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col,
+                       uv=uv_, cull=cull_, blend=blend)
 
     return png.rgb(width, height, bytes(buf))
 
@@ -313,7 +396,7 @@ def _face_color(face, tex, lit: bool):
 
 
 def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
-               cull=False):
+               cull=False, blend=None):
     """Triangulate the (convex) face as a fan and rasterise the triangles."""
     if cull:
         area = ((pts[1][0] - pts[0][0]) * (pts[2][1] - pts[0][1])
@@ -329,14 +412,16 @@ def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
         u0, v0 = min(us), min(vs)
         su = max(1e-9, max(us) - u0)
         sv = max(1e-9, max(vs) - v0)
+    z_write = blend is None
     for k in range(1, len(pts) - 1):
         tri = (pts[0], pts[k], pts[k + 1])
         tuv = (uvs[0], uvs[k], uvs[k + 1])
         _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col,
-                  u0, v0, su, sv)
+                  u0, v0, su, sv, blend, z_write)
 
 
-def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, sv):
+def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, sv,
+              blend=None, z_write=True):
     (x0, y0, w0, z0), (x1, y1, w1, z1), (x2, y2, w2, z2) = tri
     minx = max(0, int(min(x0, x1, x2)))
     maxx = min(width - 1, int(max(x0, x1, x2)) + 1)
@@ -348,10 +433,11 @@ def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, s
     if abs(area) < 1e-9:
         return
     inv = 1.0 / area
-    tw = tex[0] if tex else 1
-    th = tex[1] if tex else 1
+    tex_w = tex[0] if tex else 1
+    tex_h = tex[1] if tex else 1
     tpx = tex[2] if tex else b""
-    tex_w, tex_h = tw, th
+    mode = blend[0] if blend is not None else None
+    bw = blend[1] if blend is not None else 0.0
     for y in range(miny, maxy + 1):
         py = y + 0.5
         for x in range(minx, maxx + 1):
@@ -369,31 +455,32 @@ def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, s
             iz = l0 * w0 + l1 * w1 + l2 * w2
             if iz <= zbuf[i]:
                 continue
-            zbuf[i] = iz
+            if z_write:
+                zbuf[i] = iz
             if tex is None:
                 r, g, b = col
-                f = shade
-                o = i * 3
-                buf[o] = _clamp(r * f)
-                buf[o + 1] = _clamp(g * f)
-                buf[o + 2] = _clamp(b * f)
-                continue
-            # perspective-correct UVs
-            uu = (l0 * tuv[0][0] * w0 + l1 * tuv[1][0] * w1 + l2 * tuv[2][0] * w2) / iz
-            vv = (l0 * tuv[0][1] * w0 + l1 * tuv[1][1] * w1 + l2 * tuv[2][1] * w2) / iz
-            su_t = (uu - u0) / su
-            sv_t = (vv - v0) / sv
-            tx = int(su_t * tex_w) % tex_w
-            ty = int(sv_t * tex_h) % tex_h
-            if tx < 0:
-                tx += tex_w
-            if ty < 0:
-                ty += tex_h
-            o = (ty * tex_w + tx) * 3
+            else:
+                # perspective-correct UVs
+                uu = (l0 * tuv[0][0] * w0 + l1 * tuv[1][0] * w1 + l2 * tuv[2][0] * w2) / iz
+                vv = (l0 * tuv[0][1] * w0 + l1 * tuv[1][1] * w1 + l2 * tuv[2][1] * w2) / iz
+                tx = int((uu - u0) / su * tex_w) % tex_w
+                ty = int((vv - v0) / sv * tex_h) % tex_h
+                o = (ty * tex_w + tx) * 3
+                r, g, b = tpx[o], tpx[o + 1], tpx[o + 2]
+            r, g, b = r * shade, g * shade, b * shade
             o2 = i * 3
-            buf[o2] = _clamp(tpx[o] * shade)
-            buf[o2 + 1] = _clamp(tpx[o + 1] * shade)
-            buf[o2 + 2] = _clamp(tpx[o + 2] * shade)
+            if mode == "add":
+                buf[o2] = _clamp(buf[o2] + r * bw)
+                buf[o2 + 1] = _clamp(buf[o2 + 1] + g * bw)
+                buf[o2 + 2] = _clamp(buf[o2 + 2] + b * bw)
+            elif mode == "mix":
+                buf[o2] = _clamp(buf[o2] * (1.0 - bw) + r * bw)
+                buf[o2 + 1] = _clamp(buf[o2 + 1] * (1.0 - bw) + g * bw)
+                buf[o2 + 2] = _clamp(buf[o2 + 2] * (1.0 - bw) + b * bw)
+            else:
+                buf[o2] = _clamp(r)
+                buf[o2 + 1] = _clamp(g)
+                buf[o2 + 2] = _clamp(b)
 
 
 def _clamp(v: float) -> int:

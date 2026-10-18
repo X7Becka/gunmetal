@@ -722,6 +722,17 @@ def _sbt_brief(payload) -> str:
     return ""
 
 
+def _vec3_opt(text, name):
+    """Parse a ``x,y,z`` command line value (None stays None)."""
+    if not text:
+        return None
+    parts = text.replace(";", ",").split(",")
+    if len(parts) != 3:
+        print(f"{name} wants three comma-separated numbers", file=sys.stderr)
+        raise SystemExit(2)
+    return tuple(float(p) for p in parts)
+
+
 def cmd_view(opts) -> int:
     import math
 
@@ -741,6 +752,14 @@ def cmd_view(opts) -> int:
         az, el = presets[opts.angle]
 
     pool = None if opts.no_textures else render.TexturePool(opts.game, _pal(opts))
+    kind_opts = dict(zoom=opts.zoom, uv=opts.uv, wire=opts.wire, cull=opts.cull,
+                     lit=not opts.flat, materials=not opts.no_materials,
+                     brightness=not opts.no_brightness, clip=opts.clip)
+    pos = _vec3_opt(opts.pos, "--pos")
+    look = _vec3_opt(opts.look, "--look")
+    if pos is None and look is not None:
+        print("--look needs --pos", file=sys.stderr)
+        return 2
     paths: list[str] = []
     for p in opts.paths:
         if os.path.isdir(p):
@@ -778,14 +797,10 @@ def cmd_view(opts) -> int:
         n_faces = sum(len(m.faces) for m in meshes)
         t0 = time.time()
         if opts.sheet:
-            data = render.contact_sheet(meshes, opts.size, pool=pool,
-                                        zoom=opts.zoom, uv=opts.uv,
-                                        wire=opts.wire, cull=opts.cull,
-                                        lit=not opts.flat)
+            data = render.contact_sheet(meshes, opts.size, pool=pool, **kind_opts)
         else:
             data = render.render(meshes, opts.size, pool=pool, az=az, el=el,
-                                 zoom=opts.zoom, uv=opts.uv, wire=opts.wire,
-                                 cull=opts.cull, lit=not opts.flat)
+                                 pos=pos, look=look, **kind_opts)
         dt = time.time() - t0
         name = os.path.splitext(os.path.basename(p))[0]
         out = os.path.join(opts.out, name + ".png") if out_is_dir else opts.out
@@ -906,6 +921,14 @@ def main(argv=None) -> int:
     p.add_argument("--cull", action="store_true", help="backface culling")
     p.add_argument("--sheet", action="store_true",
                    help="render four preset angles into one PNG (iso/front/left/top)")
+    p.add_argument("--pos", help="camera position 'x,y,z' (level interiors)")
+    p.add_argument("--look", help="camera target 'x,y,z' (default: model centre)")
+    p.add_argument("--clip", type=float,
+                   help="drop faces farther than this many units from the eye")
+    p.add_argument("--no-materials", action="store_true",
+                   help="disable the blended material pass (translucent/add/...)")
+    p.add_argument("--no-brightness", action="store_true",
+                   help="ignore the polygon brightness field (0x70)")
     p.add_argument("--ascii", type=int, nargs="?", const=78, default=0,
                    help="also print a coarse ASCII preview (optional width)")
     p.add_argument("--palette", help="BMP file to take the palette from")

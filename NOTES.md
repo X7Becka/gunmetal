@@ -323,8 +323,19 @@
   (ASCII-превью — используется и в регрессе), `--sheet` (контактный лист:
   iso/front/left/top в одном PNG). Уровни: `level0.sbw` — 192
   объекта, 1449 полигонов, 480² ≈ 0.5 с; модель с 1130 гранями — 0.08 с.
+  Материалы разобраны: таблица `ds:0x5670e0` (шаг 0x40, имя на `+0x34`)
+  заполняется загрузчиком `0x4214d8`…`0x421549`, параметр `+0x2c` =
+  `0 / 64 / 64 / 100 / 127 / -128` для `none/reflective/translucent/varadd/add/shade`;
+  первый dword записи, бит 0 — «особый проход», и движок действительно делит
+  полигоны на два прохода (`0x437fba`, `0x439e75`, `0x43d568`). В рендерере
+  второй проход рисуется после непрозрачного, «от дальних к ближним», без
+  записи z; веса — из `+0x2c` (`translucent` — mix 0.5, прочие — add;
+  приближение, математика смешения движка не прослежена). Яркость полигона
+  `+0x70` (0..127) — аддитивная добавка (тоже приближение). Для интерьера
+  есть ручная камера (`pos`/`look`) и отсечка по дальности (`clip`).
   Проверки в `regress.py`: детерминированность PNG, покрытие, пул текстур,
-  пакетный рендер всех 672 моделей (`--full`).
+  интерьер (`pos/look/clip`), влияние материалов, пакетный рендер всех 672
+  моделей (`--full`).
 
 ### Известные имена ресурсов (из строк `gun.exe`)
 
@@ -380,7 +391,7 @@ look16.tab   look162.tab   neons.pin
 | `sounds <game> <out>` | `sounds/SOU.DAT`: `SOU0` → WAV, `SOU1/2` → сырые дампы |
 | `frontend <game> <out>` | `FRONTEND/BMP.DAT` → BMP |
 | `sob <src> <out>` | `.sob` → OBJ + MTL |
-| `view <paths...> [--out O] [--size N] [--angle A] [--az A] [--el E] [--zoom Z] [--uv fit\|tile] [--no-textures] [--flat] [--wire] [--cull] [--sheet] [--ascii [N]] [--game DIR]` | софт-рендер моделей `.sob` и уровней `.sbw` в PNG (`gm/render.py`); `--sheet` — 4 ракурса в одном PNG |
+| `view <paths...> [--out O] [--size N] [--angle A] [--az A] [--el E] [--zoom Z] [--uv fit\|tile] [--no-textures] [--flat] [--wire] [--cull] [--sheet] [--pos X,Y,Z] [--look X,Y,Z] [--clip D] [--no-materials] [--no-brightness] [--ascii [N]] [--game DIR]` | софт-рендер моделей `.sob` и уровней `.sbw` в PNG (`gm/render.py`); `--sheet` — 4 ракурса в одном PNG, `--pos/--look/--clip` — вид изнутри уровня |
 | `soa <paths...> [--rebuild DIR]` | список анимаций `.soa`; `--rebuild` — запись обратно |
 | `soe <paths...> [-v] [--rebuild DIR]` | разбор `.soe` (текстовые «thing»-определения); `--rebuild` — запись обратно |
 | `look FILE [--png OUT] [--palette BMP] [--neons PIN] [--scale N]` | анализ кубов `LOOK16.TAB`/`LOOK162.TAB`; `--png` — монтаж 8×8 |

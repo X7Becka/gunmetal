@@ -77,9 +77,11 @@ python3 gm.py sbw      "…/Gunmetal 3dfx"/*.sbw --obj out/levels
 python3 gm.py sbw      "…/Gunmetal 3dfx"/*.sbw --rebuild out/levels_rebuilt   # правка геометрии
 
 # просмотр: софт-рендер модели/уровня в PNG (с текстурами из PICS)
-python3 gm.py view     "…/Gunmetal 3dfx/SOBS/kingtest.sob" --out out/view --size 640 --angle iso
-python3 gm.py view     "…/Gunmetal 3dfx/level0.sbw" --out out/view --size 640 --el 40 --ascii
+python3 gm.py view     "…/Gunmetal 3dfx/SOBS/kingtest.sob" --out out/view --size 640 --sheet
 python3 gm.py view     "…/Gunmetal 3dfx/SOBS" --out out/view --size 256 --game "…/Gunmetal 3dfx"
+# вид изнутри уровня: ручная камера + отсечка по дальности + материалы
+python3 gm.py view     "…/Gunmetal 3dfx/dm1.sbw" --out out/view --size 640 \
+                       --pos 0,0,20 --look 60,60,20 --clip 200 --cull
 
 # уровни: таблицы handle + сверка с соседним .sbw
 python3 gm.py sbt      "…/Gunmetal 3dfx" --resolve -v

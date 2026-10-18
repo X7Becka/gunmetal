@@ -89,6 +89,18 @@ def render_checks(G: str, results: list[bool], out: str, full: bool = False) -> 
     results.append(report("render / level (level0.sbw)", 0.05 < cov < 0.95,
                           f"{n_faces} faces, coverage {cov:.1%}"))
 
+    inside = render.render(meshes, 96, pool=pool, pos=(0.0, 0.0, 20.0),
+                           look=(60.0, 60.0, 20.0), clip=200.0)
+    results.append(report("render / level interior (pos/look/clip)",
+                          render.coverage(inside) > 0.5, "camera inside level0"))
+
+    r = sob.parse(os.path.join(G, "SOBS", "rays10.sob"))
+    on = render.render(r, 64, pool=pool, az=35, el=22)
+    off = render.render(r, 64, pool=pool, az=35, el=22, materials=False)
+    n_blend = sum(1 for f in r.faces if render.face_blend(f))
+    results.append(report("render / blended materials", on != off,
+                          f"{n_blend} additive faces change the image"))
+
     if full:
         bad = 0
         files = sorted(glob.glob(os.path.join(G, "SOBS", "*.sob")))
