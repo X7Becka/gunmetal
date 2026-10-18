@@ -320,7 +320,8 @@
   умолчанию UV-размах грани растягивается на всю текстуру (`--uv fit`),
   `--uv tile` повторяет её на мировую единицу; опции `--wire`, `--cull`,
   `--flat`, `--no-textures`, `--angle front|back|left|right|top|iso`, `--ascii`
-  (ASCII-превью — используется и в регрессе). Уровни: `level0.sbw` — 192
+  (ASCII-превью — используется и в регрессе), `--sheet` (контактный лист:
+  iso/front/left/top в одном PNG). Уровни: `level0.sbw` — 192
   объекта, 1449 полигонов, 480² ≈ 0.5 с; модель с 1130 гранями — 0.08 с.
   Проверки в `regress.py`: детерминированность PNG, покрытие, пул текстур,
   пакетный рендер всех 672 моделей (`--full`).
@@ -379,7 +380,7 @@ look16.tab   look162.tab   neons.pin
 | `sounds <game> <out>` | `sounds/SOU.DAT`: `SOU0` → WAV, `SOU1/2` → сырые дампы |
 | `frontend <game> <out>` | `FRONTEND/BMP.DAT` → BMP |
 | `sob <src> <out>` | `.sob` → OBJ + MTL |
-| `view <paths...> [--out O] [--size N] [--angle A] [--az A] [--el E] [--zoom Z] [--uv fit\|tile] [--no-textures] [--flat] [--wire] [--cull] [--ascii [N]] [--game DIR]` | софт-рендер моделей `.sob` и уровней `.sbw` в PNG (`gm/render.py`) |
+| `view <paths...> [--out O] [--size N] [--angle A] [--az A] [--el E] [--zoom Z] [--uv fit\|tile] [--no-textures] [--flat] [--wire] [--cull] [--sheet] [--ascii [N]] [--game DIR]` | софт-рендер моделей `.sob` и уровней `.sbw` в PNG (`gm/render.py`); `--sheet` — 4 ракурса в одном PNG |
 | `soa <paths...> [--rebuild DIR]` | список анимаций `.soa`; `--rebuild` — запись обратно |
 | `soe <paths...> [-v] [--rebuild DIR]` | разбор `.soe` (текстовые «thing»-определения); `--rebuild` — запись обратно |
 | `look FILE [--png OUT] [--palette BMP] [--neons PIN] [--scale N]` | анализ кубов `LOOK16.TAB`/`LOOK162.TAB`; `--png` — монтаж 8×8 |

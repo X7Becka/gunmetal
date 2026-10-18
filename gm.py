@@ -777,9 +777,15 @@ def cmd_view(opts) -> int:
             continue
         n_faces = sum(len(m.faces) for m in meshes)
         t0 = time.time()
-        data = render.render(meshes, opts.size, pool=pool, az=az, el=el,
-                             zoom=opts.zoom, uv=opts.uv, wire=opts.wire,
-                             cull=opts.cull, lit=not opts.flat)
+        if opts.sheet:
+            data = render.contact_sheet(meshes, opts.size, pool=pool,
+                                        zoom=opts.zoom, uv=opts.uv,
+                                        wire=opts.wire, cull=opts.cull,
+                                        lit=not opts.flat)
+        else:
+            data = render.render(meshes, opts.size, pool=pool, az=az, el=el,
+                                 zoom=opts.zoom, uv=opts.uv, wire=opts.wire,
+                                 cull=opts.cull, lit=not opts.flat)
         dt = time.time() - t0
         name = os.path.splitext(os.path.basename(p))[0]
         out = os.path.join(opts.out, name + ".png") if out_is_dir else opts.out
@@ -898,6 +904,8 @@ def main(argv=None) -> int:
     p.add_argument("--flat", action="store_true", help="no lighting (full brightness)")
     p.add_argument("--wire", action="store_true", help="overlay polygon edges")
     p.add_argument("--cull", action="store_true", help="backface culling")
+    p.add_argument("--sheet", action="store_true",
+                   help="render four preset angles into one PNG (iso/front/left/top)")
     p.add_argument("--ascii", type=int, nargs="?", const=78, default=0,
                    help="also print a coarse ASCII preview (optional width)")
     p.add_argument("--palette", help="BMP file to take the palette from")

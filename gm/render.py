@@ -418,6 +418,39 @@ def _line(buf, width, height, a, b, rgb):
 # ---------------------------------------------------------------------------
 
 
+SHEET_ANGLES = (("iso", 35.0, 22.0), ("front", 0.0, 0.0),
+                ("left", 90.0, 0.0), ("top", 0.0, 89.0))
+
+
+def contact_sheet(meshes, size: int = 480, *, pool: TexturePool | None = None,
+                  angles=SHEET_ANGLES, gap: int = 2, **kw) -> bytes:
+    """Render the same mesh from several angles into a 2x2-styled sheet."""
+    if isinstance(meshes, sobmod.Sob):
+        meshes = [meshes]
+    tiles = []
+    tile = max(16, (size - gap) // 2)
+    for _name, az, el in angles:
+        tiles.append(png.decode(render(meshes, tile, az=az, el=el, pool=pool, **kw)))
+    cols = 2
+    rows = (len(tiles) + cols - 1) // cols
+    width = cols * tile + (cols - 1) * gap
+    height = rows * tile + (rows - 1) * gap
+    buf = bytearray(width * height * 3)
+    for k, img in enumerate(tiles):
+        ox = (k % cols) * (tile + gap)
+        oy = (k // cols) * (tile + gap)
+        for y in range(img.height):
+            src = y * img.width * img.channels
+            dst = ((oy + y) * width + ox) * 3
+            row = img.pixels[src : src + img.width * img.channels]
+            if img.channels == 3:
+                buf[dst : dst + img.width * 3] = row
+            else:
+                for x in range(img.width):
+                    buf[dst + x * 3 : dst + x * 3 + 3] = row[x * img.channels : x * img.channels + 3]
+    return png.rgb(width, height, bytes(buf))
+
+
 def ascii_preview(data: bytes, cols: int = 78) -> str:
     """Coarse ASCII view of a rendered PNG (for tests and terminals)."""
     img = png.decode(data)
