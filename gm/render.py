@@ -33,7 +33,7 @@ class LevelFace:
     """A `.sbw` polygon seen as a render face."""
 
     __slots__ = ("indices", "texture", "normal", "u", "v", "origin",
-                 "material", "brightness", "overlay")
+                 "material", "brightness", "overlay", "lightmap", "uv_fp")
 
     def __init__(self, poly, name: str):
         self.indices = list(poly.indices)
@@ -45,13 +45,56 @@ class LevelFace:
         self.material = poly.material
         self.brightness = poly.brightness
         self.overlay = poly.overlay
+        # lightmap record (0-based) and the fixed-point UV offset (poly+0x54/+0x58)
+        self.lightmap = poly.lightmap - 1 if poly.lightmap > 0 else -1
+        self.uv_fp = (_s32(poly.uv_u_fp), _s32(poly.uv_v_fp))
+
+
+class Lightmaps:
+    """The ``.sbc`` records of one level, sampled the way the engine does.
+
+    Polygon ``lightmap`` (``+0x04``) is a 1-based index into the record list;
+    the engine fixes it up by the running base (``0x428064``) and then samples
+    with (``0x43ca5a``..``0x43cc9c``)::
+
+        u = (dot(u_axis, vertex - centre) * 64 + (int)uv_u_fp) / 2048
+        v = (dot(v_axis, vertex - centre) * 64 + (int)uv_v_fp) / 2048
+        light = pixels[(v & (h-1)) * 256 + (u & (w-1))]   # row pitch is 256
+
+    confirmed on 99.6% of 10 070 vertex samples of ``level0``/``dm1`` (the rest
+    overhang the page by a texel and wrap through the mask, as in the engine).
+    """
+
+    __slots__ = ("records",)
+
+    def __init__(self, records=()):
+        self.records = list(records)
+
+    def uv(self, face, vertex, mask: bool = True) -> tuple[int, int] | None:
+        rec = self.records[face.lightmap] if 0 <= face.lightmap < len(self.records) else None
+        if rec is None:
+            return None
+        d = _sub(vertex, face.origin)
+        # engine: u = (dot(u_axis, v-centre) * 64 + uv_u_fp) / 2 ; texel = ftol(u) >> 10
+        u = int((_dot(d, face.u) * 64.0 + face.uv_fp[0]) / 2.0) >> 10
+        v = int((_dot(d, face.v) * 64.0 + face.uv_fp[1]) / 2.0) >> 10
+        if mask:                      # the engine wraps with the page mask
+            u &= rec.width - 1
+            v &= rec.height - 1
+        return u, v
+
+    def page(self, face):
+        if 0 <= face.lightmap < len(self.records):
+            return self.records[face.lightmap]
+        return None
 
 
 class LevelMesh:
     """One `.sbw` object (its local vertex pool + polygons)."""
 
-    def __init__(self, obj, tex_names):
+    def __init__(self, obj, tex_names, lightmaps: Lightmaps | None = None):
         self.vertices = list(obj.vertices)
+        self.lightmaps = lightmaps
         self.faces = []
         for p in obj.polys:
             if len(p.indices) < 3:
@@ -65,12 +108,23 @@ class LevelMesh:
         d = _sub(vertex, face.origin)
         return _dot(d, face.u), _dot(d, face.v)
 
+    def lightmap_uv(self, face, vertex):
+        return self.lightmaps.uv(face, vertex) if self.lightmaps is not None else None
 
-def level_meshes(level) -> list[LevelMesh]:
+
+def level_meshes(level, lightmaps: Lightmaps | None = None) -> list[LevelMesh]:
     """Wrap every object of a parsed `.sbw` level as a renderable mesh."""
     names = [t.name for t in level.tex]
-    return [LevelMesh(o, names) for s in level.sectors for o in s.objects
+    return [LevelMesh(o, names, lightmaps) for s in level.sectors for o in s.objects
             if o.vertices]
+
+
+def import_lightmaps(path: str) -> Lightmaps:
+    """Load the ``<level>.sbc`` sibling of a ``.sbw`` level."""
+    from . import sbc as sbcmod
+
+    with open(path, "rb") as fh:
+        return Lightmaps(sbcmod.parse(fh.read()).records)
 
 
 def model_meshes(model) -> list:
@@ -189,6 +243,12 @@ def _dot(a: Vec3, b: Vec3) -> float:
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
+def _s32(v: int) -> int:
+    """u32 field read as the signed int the engine's ``fild`` sees."""
+    v &= 0xFFFFFFFF
+    return v - 0x100000000 if v >= 0x80000000 else v
+
+
 def _norm(a: Vec3) -> Vec3:
     n = math.sqrt(_dot(a, a)) or 1.0
     return (a[0] / n, a[1] / n, a[2] / n)
@@ -300,13 +360,15 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
            solid: bool = True, uv: str = "fit", cull: bool = False,
            color=(180, 180, 190), bg: bool = True, pos=None, look=None,
            clip: float | None = None, materials: bool = True,
-           brightness: bool = True) -> bytes:
+           brightness: bool = True, lightmap: bool = True,
+           ambient: float = 0.0) -> bytes:
     """Render one mesh or a list of meshes into an RGB PNG.
 
     ``pos``/``look`` override the auto-fitted camera (for level interiors),
     ``clip`` drops faces farther than that many units from the eye, and
     ``materials`` enables the two-pass material handling (see
-    :func:`face_blend`).
+    :func:`face_blend`).  ``lightmap`` samples the level's ``.sbc`` lightmaps
+    (see :class:`Lightmaps`) and ``ambient`` adds a constant light level.
     """
     if height is None:
         height = width
@@ -328,6 +390,7 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
     blended: list[tuple[float, object, object, list, object]] = []
 
     for mesh in meshes:
+        lms = getattr(mesh, "lightmaps", None) if lightmap else None
         for face in mesh.faces:
             idx = face.indices
             if len(idx) < 3:
@@ -344,8 +407,15 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
                 if _dot(c, c) > clip * clip:
                     continue
             uvs = [mesh.uv(face, mesh.vertices[i]) for i in idx]
+            lm = None
+            if lms is not None and getattr(face, "lightmap", -1) >= 0:
+                page = lms.page(face)
+                luv = [lms.uv(face, mesh.vertices[i]) for i in idx]
+                if page is not None and all(p is not None for p in luv):
+                    base = getattr(face, "brightness", 0) + ambient
+                    lm = (page, luv, base)
             shade = _shade(face, lit)
-            if brightness:
+            if brightness and lm is None:
                 shade += _face_brightness(face)
             col = _face_color(face, tex := (pool.get(face.texture) if pool is not None
                                             else None), lit)
@@ -353,11 +423,11 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
                 vs = [mesh.vertices[i] for i in idx]
                 c = tuple(sum(v[k] for v in vs) / len(vs) for k in range(3))
                 d = _sub(c, eye)
-                blended.append((_dot(d, d), face, pts, uvs, (tex, shade, col, blend, uv, cull)))
+                blended.append((_dot(d, d), face, pts, uvs, (tex, shade, col, blend, uv, cull, lm)))
                 continue
             if solid:
                 _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col,
-                           uv=uv, cull=cull)
+                           uv=uv, cull=cull, lm=lm)
             if wire:
                 for k in range(len(pts)):
                     a, b = pts[k], pts[(k + 1) % len(pts)]
@@ -366,9 +436,9 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
     # second pass: blended materials, back to front, z-tested but not z-written
     if solid and blended:
         blended.sort(key=lambda t: -t[0])
-        for _d, _face, pts, uvs, (tex, shade, col, blend, uv_, cull_) in blended:
-            _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col,
-                       uv=uv_, cull=cull_, blend=blend)
+        for _d, _face, pts, uvs, (tex, sh, col, blend, uv_, cull_, lm_) in blended:
+            _draw_poly(buf, zbuf, width, height, pts, uvs, tex, sh, col,
+                       uv=uv_, cull=cull_, blend=blend, lm=lm_)
 
     return png.rgb(width, height, bytes(buf))
 
@@ -396,7 +466,7 @@ def _face_color(face, tex, lit: bool):
 
 
 def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
-               cull=False, blend=None):
+               cull=False, blend=None, lm=None):
     """Triangulate the (convex) face as a fan and rasterise the triangles."""
     if cull:
         area = ((pts[1][0] - pts[0][0]) * (pts[2][1] - pts[0][1])
@@ -416,12 +486,13 @@ def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
     for k in range(1, len(pts) - 1):
         tri = (pts[0], pts[k], pts[k + 1])
         tuv = (uvs[0], uvs[k], uvs[k + 1])
+        tlm = (lm[0], (lm[1][0], lm[1][k], lm[1][k + 1]), lm[2]) if lm is not None else None
         _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col,
-                  u0, v0, su, sv, blend, z_write)
+                  u0, v0, su, sv, blend, z_write, tlm)
 
 
 def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, sv,
-              blend=None, z_write=True):
+              blend=None, z_write=True, lm=None):
     (x0, y0, w0, z0), (x1, y1, w1, z1), (x2, y2, w2, z2) = tri
     minx = max(0, int(min(x0, x1, x2)))
     maxx = min(width - 1, int(max(x0, x1, x2)) + 1)
@@ -438,6 +509,12 @@ def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, s
     tpx = tex[2] if tex else b""
     mode = blend[0] if blend is not None else None
     bw = blend[1] if blend is not None else 0.0
+    lm_page = lm[0] if lm is not None else None
+    lm_uv = lm[1] if lm is not None else None
+    lm_base = lm[2] if lm is not None else 0.0
+    lm_w = lm_page.width if lm_page is not None else 1
+    lm_h = lm_page.height if lm_page is not None else 1
+    lm_px = lm_page.pixels if lm_page is not None else b""
     for y in range(miny, maxy + 1):
         py = y + 0.5
         for x in range(minx, maxx + 1):
@@ -467,7 +544,15 @@ def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, s
                 ty = int((vv - v0) / sv * tex_h) % tex_h
                 o = (ty * tex_w + tx) * 3
                 r, g, b = tpx[o], tpx[o + 1], tpx[o + 2]
-            r, g, b = r * shade, g * shade, b * shade
+            if lm_page is not None:
+                # lightmap sample: same affine projection as the engine (0x43caxx)
+                lu = (l0 * lm_uv[0][0] * w0 + l1 * lm_uv[1][0] * w1 + l2 * lm_uv[2][0] * w2) / iz
+                lv = (l0 * lm_uv[0][1] * w0 + l1 * lm_uv[1][1] * w1 + l2 * lm_uv[2][1] * w2) / iz
+                light = lm_base + lm_px[(int(lv) & (lm_h - 1)) * lm_w + (int(lu) & (lm_w - 1))]
+                f = (127.0 if light > 127 else (0.0 if light < 0 else light)) / 127.0
+            else:
+                f = shade
+            r, g, b = r * f, g * f, b * f
             o2 = i * 3
             if mode == "add":
                 buf[o2] = _clamp(buf[o2] + r * bw)

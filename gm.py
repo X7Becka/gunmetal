@@ -754,7 +754,8 @@ def cmd_view(opts) -> int:
     pool = None if opts.no_textures else render.TexturePool(opts.game, _pal(opts))
     kind_opts = dict(zoom=opts.zoom, uv=opts.uv, wire=opts.wire, cull=opts.cull,
                      lit=not opts.flat, materials=not opts.no_materials,
-                     brightness=not opts.no_brightness, clip=opts.clip)
+                     brightness=not opts.no_brightness, clip=opts.clip,
+                     lightmap=not opts.no_lightmap, ambient=opts.ambient)
     pos = _vec3_opt(opts.pos, "--pos")
     look = _vec3_opt(opts.look, "--look")
     if pos is None and look is not None:
@@ -784,8 +785,14 @@ def cmd_view(opts) -> int:
         try:
             if ext == ".sbw":
                 w = sbw.parse_file(p)
-                meshes = render.level_meshes(w)
+                lms = None
+                sbc_path = os.path.splitext(p)[0] + ".sbc"
+                if not opts.no_lightmap and os.path.isfile(sbc_path):
+                    lms = render.import_lightmaps(sbc_path)
+                meshes = render.level_meshes(w, lms)
                 kind = f"level {len(w.sectors)}s/{w.n_objects}o"
+                if lms:
+                    kind += f" +{len(lms.records)} lightmaps"
             else:
                 m = sob.parse(p)
                 meshes = render.model_meshes(m)
@@ -929,6 +936,10 @@ def main(argv=None) -> int:
                    help="disable the blended material pass (translucent/add/...)")
     p.add_argument("--no-brightness", action="store_true",
                    help="ignore the polygon brightness field (0x70)")
+    p.add_argument("--no-lightmap", action="store_true",
+                   help="do not load/sample the sibling <level>.sbc lightmaps")
+    p.add_argument("--ambient", type=float, default=0.0,
+                   help="constant light level added to polygons (0..127)")
     p.add_argument("--ascii", type=int, nargs="?", const=78, default=0,
                    help="also print a coarse ASCII preview (optional width)")
     p.add_argument("--palette", help="BMP file to take the palette from")

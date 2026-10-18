@@ -26,7 +26,7 @@ regress.py            сквозная регрессия по установк�
 gm/                   модули по форматам:
   bigfile.py          архивы BIGFILE (.idx + .dat)
   sbm.py              текстуры/спрайты .sbm
-  sbc.py              уровневые «лайтмапы» .sbc
+  sbc.py              лайтмапы уровня .sbc
   sob.py              модели .sob (и таблицы .soe)
   soa.py              анимации .soa
   sog.py              песни .sog (текстовые плейлисты)
@@ -82,6 +82,7 @@ python3 gm.py view     "…/Gunmetal 3dfx/SOBS" --out out/view --size 256 --game
 # вид изнутри уровня: ручная камера + отсечка по дальности + материалы
 python3 gm.py view     "…/Gunmetal 3dfx/dm1.sbw" --out out/view --size 640 \
                        --pos 0,0,20 --look 60,60,20 --clip 200 --cull
+# лайтмапы уровня берутся из <уровень>.sbc автоматически (--no-lightmap, --ambient N)
 
 # уровни: таблицы handle + сверка с соседним .sbw
 python3 gm.py sbt      "…/Gunmetal 3dfx" --resolve -v

@@ -16,12 +16,25 @@ The records are stored back to back; ``sum(4 + 2**w * 2**h) + 8`` equals the
 file size exactly for every shipped file, which is how the layout was pinned
 down.
 
-What the data *is*: each record is a small rectangular 8-bit map with arbitrary
-power-of-two sides (``2x4``, ``4x8``, ``64x8``, ``128x2``, ``128x128``); the
-**values all lie in the range 0..127** and are very smooth (mean horizontal
-gradient ≈ 2.4–4.5 on the 0..127 scale).  That points at lighting/lightmap
-data — the engine logs a ``Lightmap mem`` budget — rather than textures.
-``gm.py sbc`` dumps them as grayscale PNG so the guess can be checked by eye.
+What the data *is*: **level lightmaps**.  The level loader builds
+``"<level>.SBC"`` next to the ``.sbw`` and warns
+``Warning, unable to load level lightmaps (SBC file missing).`` when it is
+absent (0x442482); the records land in one global array (``[0x5a45cc]``,
+8-byte entries: pixel pointer + ``(w-1) | ((h-1) << 8)``, count at
+``0x5a45c8``) that the render context hands to the rasteriser (0x4223b9).
+``SBC0`` blobs store 2-bit levels (the loader shifts every byte by 2), so
+both magics end up on the same 0..127 scale the engine shades with.
+Records are stored with a packed row pitch on disk (``w`` bytes per row)
+while the engine's buffers use a 256-byte pitch.
+
+Sampling (proven, ``0x43ca5a``..``0x43cc9c``) — see ``gm/render.py``
+(``Lightmaps``) for the viewer side::
+
+    u = (dot(u_axis, vertex - centre) * 64 + (int)uv_u_fp) / 2 ; texel = ftol(u) >> 10
+    v = (dot(v_axis, vertex - centre) * 64 + (int)uv_v_fp) / 2 ; texel = ftol(v) >> 10
+    light = clamp(poly.brightness + object[0x74] + level[0x16]
+                  + pixels[(v & (h-1)) * 256 + (u & (w-1))], -128, 127)
+
 """
 
 from __future__ import annotations

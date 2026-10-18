@@ -101,6 +101,27 @@ def render_checks(G: str, results: list[bool], out: str, full: bool = False) -> 
     results.append(report("render / blended materials", on != off,
                           f"{n_blend} additive faces change the image"))
 
+    # lightmaps: <level>.sbc sampling (0x43ca5a..0x43cc9c) + projected texels
+    lms = render.import_lightmaps(os.path.join(G, "level0.sbc"))
+    lmsh = render.level_meshes(w, lms)
+    lit = render.render(lmsh, 96, pool=pool, az=35, el=40)
+    unlit = render.render(lmsh, 96, pool=pool, az=35, el=40, lightmap=False)
+    inside = total = 0
+    for m in lmsh:
+        for f in m.faces:
+            if f.lightmap < 0:
+                continue
+            page = m.lightmaps.page(f)
+            for i in f.indices:
+                u, v = m.lightmaps.uv(f, m.vertices[i], mask=False)
+                total += 1
+                inside += 0 <= u < page.width and 0 <= v < page.height
+    results.append(report("render / lightmap projection",
+                          total and inside / total > 0.99,
+                          f"{inside}/{total} vertices inside their page"))
+    results.append(report("render / lightmaps change shading", lit != unlit,
+                          f"{len(lms.records)} records, {(lit, unlit) and 'ok'}"))
+
     if full:
         bad = 0
         files = sorted(glob.glob(os.path.join(G, "SOBS", "*.sob")))
