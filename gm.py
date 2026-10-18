@@ -79,6 +79,38 @@ def cmd_extract(opts) -> int:
     return 0
 
 
+def cmd_pack(opts) -> int:
+    blobs = []
+    for f in sorted(os.listdir(opts.src)):
+        p = os.path.join(opts.src, f)
+        if not os.path.isfile(p):
+            continue
+        if opts.ext and not f.lower().endswith(opts.ext.lower()):
+            continue
+        blobs.append((os.path.splitext(f)[0], open(p, "rb").read()))
+    if not blobs:
+        print(f"pack: no files found in {opts.src}", file=sys.stderr)
+        return 1
+    try:
+        n, size = bigfile.pack(blobs, opts.out)
+    except ValueError as exc:
+        print(f"pack: {exc}", file=sys.stderr)
+        return 1
+    print(f"pack: {n} entries, {size} bytes -> {opts.out}")
+    return 0
+
+
+def cmd_set(opts) -> int:
+    blob = open(opts.file, "rb").read()
+    try:
+        dat = bigfile.replace_entry(opts.idx, opts.name, blob, opts.out)
+    except ValueError as exc:
+        print(f"set: {exc}", file=sys.stderr)
+        return 1
+    print(f"set: {opts.name} ({len(blob)} bytes) -> {opts.out} + {dat}")
+    return 0
+
+
 def cmd_textures(opts) -> int:
     pal = _pal(opts)
     src = opts.game
@@ -607,6 +639,19 @@ def main(argv=None) -> int:
     p.add_argument("idx")
     p.add_argument("out")
     p.set_defaults(func=cmd_extract)
+
+    p = sub.add_parser("pack", help="build a BIGFILE .idx/.dat pair from a directory of files")
+    p.add_argument("out", help="output .idx (the .DAT is written next to it)")
+    p.add_argument("src", help="directory whose files become entries (name = file stem)")
+    p.add_argument("--ext", help="only include files with this extension (e.g. .sbm)")
+    p.set_defaults(func=cmd_pack)
+
+    p = sub.add_parser("set", help="replace/add one entry in a BIGFILE archive")
+    p.add_argument("idx", help="source .idx to copy")
+    p.add_argument("name", help="virtual entry name (1..8 bytes)")
+    p.add_argument("file", help="payload file")
+    p.add_argument("out", help="output .idx (the .DAT is written next to it)")
+    p.set_defaults(func=cmd_set)
 
     p = sub.add_parser("textures", help="PICS/SBM.DAT -> PNG")
     p.add_argument("game")

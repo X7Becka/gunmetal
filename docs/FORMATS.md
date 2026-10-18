@@ -40,8 +40,15 @@ DAT:
 | `sounds/SOU.IDX` | 999 | 26 738 998 | `.sou` (звуки/музыка) |
 | `FRONTEND/BMP.IDX` | 143 | 2 845 582 | Windows BMP |
 
-Реализация: `gm/bigfile.py` (`BigFile`, `Entry`).
-CLI: `gm.py list <idx>` — таблица; `gm.py extract <idx> <out>` — сырые блобы.
+Между блобами нет паддинга (смещения строго непрерывны), а имена — NUL-дополненные
+8-байтные поля. Поэтому архив **пересобирается побайтово точно**: пересборка всех
+пяти архивов из их же блобов даёт идентичные `.idx` и `.dat` (проверено).
+
+Реализация: `gm/bigfile.py` (`BigFile`, `Entry`, `build_index`, `pack`,
+`replace_entry`).
+CLI: `gm.py list <idx>` — таблица; `gm.py extract <idx> <out>` — сырые блобы;
+`gm.py pack <out.idx> <dir> [--ext .EXT]` — собрать архив из каталога;
+`gm.py set <idx> <name> <file> <out.idx>` — заменить/добавить одну запись.
 
 ---
 

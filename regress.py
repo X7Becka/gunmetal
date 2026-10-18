@@ -53,6 +53,13 @@ def check(name: str, args: list[str], expect: list[str] | None = None) -> bool:
     return ok
 
 
+def report(name: str, ok: bool, detail: str = "") -> bool:
+    print(f"[{'ok  ' if ok else 'FAIL'}] {name}" + (f"  ({detail})" if ok and detail else ""))
+    if not ok and detail:
+        print(f"        {detail}")
+    return ok
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -76,6 +83,29 @@ def main() -> int:
     results.append(check("archives / sounds",   ["list", f"{G}/sounds/SOU.IDX"],   ["999 entries"]))
     results.append(check("archives / frontend", ["list", f"{G}/FRONTEND/BMP.IDX"], ["143 entries"]))
     results.append(check("archives / music",    ["list", f"{G}/MUSIC/SOU.IDX"],    ["3092 entries"]))
+
+    # --- BIGFILE write path: extract -> pack must reproduce the archive ----
+    raw = os.path.join(out, "raw_spr")
+    rep = os.path.join(out, "repack.IDX")
+    run(["extract", f"{G}/sprites/SBM.IDX", raw])
+    run(["pack", rep, raw, "--ext", ".bin"])
+    idx_same = (os.path.exists(rep)
+                and open(rep, "rb").read() == open(f"{G}/sprites/SBM.IDX", "rb").read())
+    dat_same = (os.path.exists(os.path.join(out, "repack.DAT"))
+                and open(os.path.join(out, "repack.DAT"), "rb").read()
+                == open(f"{G}/sprites/SBM.DAT", "rb").read())
+    results.append(report("repack / sprites round-trip", idx_same and dat_same,
+                          "IDX+DAT byte-identical"))
+    mod = os.path.join(out, "mod.IDX")
+    blob = os.path.join(out, "regress_blob.bin")
+    with open(blob, "wb") as f:
+        f.write(b"REGRESS!")
+    rc, _ = run(["set", f"{G}/sprites/SBM.IDX", "REGTEST", blob, mod])
+    ok = rc == 0
+    if ok:
+        rc2, out2 = run(["list", mod])
+        ok = rc2 == 0 and "REGTEST" in out2
+    results.append(report("repack / set adds an entry", ok, "REGTEST present"))
 
     # --- level formats ----------------------------------------------------
     results.append(check("sbw / all levels", ["sbw", *sbw_files()], ["sbw: 36 parsed, 0 failed"]))

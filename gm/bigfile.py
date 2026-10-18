@@ -101,3 +101,72 @@ class BigFile:
                 f.write(blob)
             n += 1
         return n
+
+    def dat_blobs(self) -> list[tuple[str, bytes]]:
+        """Every entry as ``(name, data)``, in index order."""
+        data = open(self.dat_path, "rb").read()
+        return [(e.name, e.data(data)) for e in self.entries]
+
+
+# ---------------------------------------------------------------------------
+# writing / repacking
+#
+# The shipped indexes are gap-free: entry i+1 starts exactly where entry i
+# ends, and the names are NUL-padded 8-byte fields.  Rebuilding an index this
+# way reproduces the original bytes exactly (verified on all five archives),
+# so a rewrite only has to keep blobs contiguous and names <= 8 chars.
+# ---------------------------------------------------------------------------
+
+def encode_name(name: str) -> bytes:
+    raw = name.encode("latin1")
+    if not 1 <= len(raw) <= 8:
+        raise ValueError(f"BIGFILE name must be 1..8 bytes: {name!r}")
+    return raw + b"\0" * (8 - len(raw))
+
+
+def build_index(pairs) -> bytes:
+    """Build index bytes from ``(name, size)`` pairs (offsets are cumulative)."""
+    pairs = list(pairs)
+    out = bytearray(MAGIC + b"\x1a" + struct.pack("<I", len(pairs)))
+    off = 0
+    for name, size in pairs:
+        out += encode_name(name) + struct.pack("<I", off)
+        off += size
+    return bytes(out)
+
+
+def pack(blobs, idx_path: str, dat_path: str | None = None) -> tuple[int, int]:
+    """Write a new ``.idx``/``.dat`` pair from ``(name, data)`` blobs.
+
+    Returns ``(count, dat_size)``.  The ``.dat`` path defaults to the ``.IDX``
+    sibling (uppercase ``.DAT`` first, like the shipped archives).
+    """
+    blobs = list(blobs)
+    dat_path = dat_path or os.path.splitext(idx_path)[0] + ".DAT"
+    idx = build_index((name, len(data)) for name, data in blobs)
+    with open(dat_path, "wb") as f:
+        for _name, data in blobs:
+            f.write(data)
+    with open(idx_path, "wb") as f:
+        f.write(idx)
+    return len(blobs), sum(len(d) for _n, d in blobs)
+
+
+def replace_entry(idx_path: str, name: str, blob: bytes,
+                  out_idx_path: str, out_dat_path: str | None = None) -> str:
+    """Copy the archive, replacing/adding entry *name* with *blob*.
+
+    Existing entry order is preserved (the new data may be any size).  Returns
+    the written ``.dat`` path.
+    """
+    bf = BigFile(idx_path)
+    items = bf.dat_blobs()
+    key = name.lower()
+    for i, (n, _d) in enumerate(items):
+        if n.lower() == key:
+            items[i] = (n, blob)
+            break
+    else:
+        items.append((name, blob))
+    _count, _size = pack(items, out_idx_path, out_dat_path)
+    return out_dat_path or os.path.splitext(out_idx_path)[0] + ".DAT"
