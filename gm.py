@@ -1074,6 +1074,8 @@ def cmd_scene(opts) -> int:
                   f"{cnt['things']} things "
                   f"({sum(1 for t in sc.things if t.absolute)} placed, "
                   f"{len({t.model for t in sc.things if t.model})} models), "
+                  f"{cnt['doors']} doors, {cnt['switches']} switches, "
+                  f"{cnt['lifts']} lifts, "
                   f"{cnt['other']} other placement commands, "
                   f"{cnt['entities']} entities")
             for l in sc.lights[:opts.show]:
@@ -1091,8 +1093,16 @@ def cmd_scene(opts) -> int:
             for t in sc.things[:opts.show]:
                 pos = "(%d,%d,%d)" % t.pos if t.absolute else f"@{t.kind}"
                 print(f"  thing {t.kind} type={t.type_index:3d} {t.type_name:12s} "
-                      f"model={t.model or '-':10s} pos={pos} angles="
+                      f"model={t.model or '-':10s} pos={pos} doubles="
                       f"({','.join('%g' % a for a in t.angles)})")
+            for x in sc.doors[:opts.show]:
+                print(f"  door flags={x.flags} ids={x.ids} state={x.state} "
+                      f"angles=({','.join('%g' % a for a in x.angles)})")
+            for x in sc.switches[:opts.show]:
+                print(f"  switch id={x.id} kind={x.kind} pos={x.pos} "
+                      f"radius={x.radius}")
+            for x in sc.lifts[:opts.show]:
+                print(f"  lift stops={len(x.stops)} head={len(x.head)}B")
             if sc.other:
                 top = sorted(sc.other.items(), key=lambda kv: -kv[1])[:4]
                 print(f"  other: {', '.join(f'{k}x{v}' for k, v in top)}")
@@ -1112,6 +1122,15 @@ def cmd_scene(opts) -> int:
                         "model": t.model, "pos": list(t.pos) if t.absolute else None,
                         "angles": list(t.angles), "owner": t.owner}
                        for t in sc.things],
+            "doors": [{"flags": d.flags, "ids": list(d.ids),
+                       "angles": list(d.angles), "params": list(d.params),
+                       "values": list(d.values), "tail": list(d.tail)}
+                      for d in sc.doors],
+            "switches": [{"kind": s.kind, "id": s.id, "radius": s.radius,
+                          "pos": list(s.pos), "extra": list(s.extra)}
+                         for s in sc.switches],
+            "lifts": [{"stops": [list(x) for x in l.stops],
+                       "head": len(l.head)} for l in sc.lifts],
             "entities": [{"id": i, "flags": f, "offset": o}
                          for i, f, o in sc.entities],
             "other": sc.other,

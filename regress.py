@@ -700,6 +700,17 @@ def main() -> int:
                           "%d things (%d placed, %d models, %d with a model)"
                           % (n_things, n_abs, len(models), n_models)))
 
+    # --- doors / switches / lifts (tools/re/doors.py) ---------------------
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "doors.py"),
+                        "--game", G], capture_output=True, text=True, cwd=HERE)
+    tail = [l.strip() for l in p.stdout.strip().splitlines()[-2:]]
+    ok = (p.returncode == 0 and len(tail) == 2
+          and "1779 doors, 3964 switches, 45 lifts" in tail[0]
+          and "switch ids in the level's entity table: 3281/3964" in tail[1])
+    results.append(report("scene / doors, switches, lifts", ok,
+                          "; ".join(tail) or "no output"))
+
     # --- optional heavy extraction ---------------------------------------
     if opts.full:
         results.append(check("textures / PICS -> PNG",

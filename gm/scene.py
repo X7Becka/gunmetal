@@ -187,6 +187,67 @@ class Thing:
 
 
 @dataclass
+class Door:
+    """``ADD_DOOR``: the world editor's door record.
+
+    The handler (``0x459b5b``) forwards the operands to ``0x44e250``, which
+    stores them **permuted** into the door array ``0x8381a0`` (stride ``0xB8``,
+    count ``0x5a9450``, at most 100; the ids therefore sit at ``+0x68`` flags,
+    ``+0x6c``..``+0x7c`` ids).  ``GENERATE`` finds a door by the id in
+    ``0x44f690`` -- it compares ``+0x6c/+0x70/+0x74`` (the first three ``E``
+    operands) and toggles the state words at ``+0x80`` and ``+0x8c``.
+    """
+
+    flags: int            # operand 1 -> door+0x68 (its low nibble is tested)
+    ids: tuple = ()       # the five ``E`` operands -> door+0x6c..+0x7c
+    angles: tuple = ()    # the three ``A`` doubles (0 / pi/2 / -pi/2 in data)
+    params: tuple = ()    # the seven ``L`` ints (200/300/500/600/700/120/99999)
+    values: tuple = ()    # the nine ``D`` doubles (bbox/centre, derived at load)
+    tail: tuple = ()      # ``VNVNVN`` (0/1/120/700/1500/99999 in data)
+
+    #: the two state slots ``GENERATE`` toggles (``params[4]``/``params[3]``)
+    @property
+    def state(self) -> tuple:
+        p = self.params
+        return (p[4] if len(p) > 4 else 0, p[3] if len(p) > 3 else 0)
+
+
+@dataclass
+class Switch:
+    """``ADD_SWITCH``: a trigger, stored **verbatim** in ``0x5a4af0``.
+
+    Handler ``0x45b6ff`` -> ``0x44e5f0`` copies the eight operands as-is (array
+    ``0x5a4af0``, stride ``0x20``, count ``0x5a945c``, at most 512).  The
+    consumer ``0x44f960`` tests operand 1 against ``0x101``, takes **operand 2 as
+    the id** and calls ``0x479960`` (GENERATE) with operands 4/5/6 as the source
+    context -- and 86.9% of those triples fall inside the level's core geometry
+    box, i.e. operands 4..6 are the trigger's position.
+    """
+
+    kind: int             # operand 1 (compared with 0x101)
+    id: int               # operand 2: the entity the switch generates
+    radius: int = 0       # operand 3 (radius/delay, not proven)
+    pos: tuple = ()       # operands 4..6 (verified as a position)
+    extra: tuple = ()     # operands 7..8 (0, -1)
+
+    @property
+    def absolute(self) -> bool:
+        return len(self.pos) == 3
+
+
+@dataclass
+class Lift:
+    """``ADD_LIFT`` (structural op 188): ``0x94`` bytes + ``n`` stops of ``0xc``.
+
+    None of the fields are decoded yet -- the payload is kept verbatim (45
+    lifts in the whole game, ``level2``/``level17``/... only).
+    """
+
+    head: bytes = b""
+    stops: tuple = ()
+
+
+@dataclass
 class Scene:
     lights: list[Light] = field(default_factory=list)
     locations: list[Location] = field(default_factory=list)
@@ -197,6 +258,10 @@ class Scene:
     entities: list = field(default_factory=list)
     #: things built by the entity sub-scripts (``ADD_THING*``)
     things: list = field(default_factory=list)
+    #: doors / switches / lifts (``ADD_DOOR``, ``ADD_SWITCH``, ``ADD_LIFT``)
+    doors: list = field(default_factory=list)
+    switches: list = field(default_factory=list)
+    lifts: list = field(default_factory=list)
     #: commands seen whose operand layout is still opaque (name -> count)
     other: dict = field(default_factory=dict)
 
@@ -204,7 +269,8 @@ class Scene:
         return {"lights": len(self.lights), "locations": len(self.locations),
                 "items": len(self.items), "sounds": len(self.sounds),
                 "sprites": len(self.sprites), "entities": len(self.entities),
-                "things": len(self.things),
+                "things": len(self.things), "doors": len(self.doors),
+                "switches": len(self.switches), "lifts": len(self.lifts),
                 "other": sum(self.other.values())}
 
     def scaled(self, factor: float = SCALE) -> Scene:
@@ -237,6 +303,9 @@ class Scene:
             out.append((tuple(v * scale for v in x.pos), (100, 220, 255)))
         for x in self.sounds:
             out.append((tuple(v * scale for v in x.pos), (150, 150, 160)))
+        for x in self.switches:
+            if x.absolute:
+                out.append((tuple(v * scale for v in x.pos), (255, 90, 220)))
         return out
 
     def render_lights(self, scale: float = SCALE):
@@ -256,9 +325,12 @@ _ITEM = _op("ADD_ITEM")
 _ITEM_FIXED = _op("ADD_ITEM_FIXED")
 _SOUND = _op("ADD_SOUND_SOURCE")
 _SPRITE = _op("ADD_SPRITE")
+_DOOR = _op("ADD_DOOR")
+_SWITCH = _op("ADD_SWITCH")
+_LIFT = 188                       # structural keyword, decoded by gm.sbtvm
 
 #: placement commands that are seen but not decoded (opaque operand layout)
-_SEEN = ("ADD_NAMED_ITEM", "ADD_NAMED_ITEM_EX", "ADD_SWITCH", "ADD_DOOR",
+_SEEN = ("ADD_NAMED_ITEM", "ADD_NAMED_ITEM_EX",
          "ADD_SPRITE_AT_SOURCE", "ADD_SPRITE_MOVING", "ADD_SPRITE_MOVING_AT_SOURCE",
          "ADD_ITEM_AT_SOURCE", "ADD_ITEM_AT_SOURCE_FIXED",
          "ADD_WEAPON_AT_SOURCE")
@@ -390,7 +462,8 @@ def extract(script: sbt.Script) -> Scene:
     scene = Scene(entities=entities(script))
     for i in _walk(ins):
         op = getattr(i, "op", None)
-        if op not in (_SKY, _LOCAL, _LOCATION, _ITEM, _ITEM_FIXED, _SOUND, _SPRITE):
+        if op not in (_SKY, _LOCAL, _LOCATION, _ITEM, _ITEM_FIXED, _SOUND,
+                      _SPRITE, _DOOR, _SWITCH, _LIFT):
             if isinstance(i.name, str) and i.name in _SEEN:
                 scene.other[i.name] = scene.other.get(i.name, 0) + 1
             continue
@@ -424,6 +497,27 @@ def extract(script: sbt.Script) -> Scene:
             scene.sprites.append(Sprite((float(a[1]), float(a[2]), float(a[3])),
                                         _s32(a[8]), _s32(a[0]),
                                         tuple(_s32(v) for v in a[4:9])))
+        elif op == _DOOR and len(a) >= 7:
+            # handler 0x459b5b -> 0x44e250 (door array 0x8381a0, stride 0xB8)
+            scene.doors.append(Door(
+                _s32(a[0]),
+                tuple(_s32(v) for v in a[1:6]),
+                tuple(float(v) for v in a[6:9]),
+                tuple(_s32(v) for v in a[9:16]),
+                tuple(float(v) for v in a[16:25]),
+                tuple(_s32(v) for v in a[25:31])))
+        elif op == _SWITCH and len(a) >= 6:
+            # handler 0x45b6ff -> 0x44e5f0 (verbatim into 0x5a4af0, stride 0x20)
+            scene.switches.append(Switch(
+                _s32(a[0]), _s32(a[1]), _s32(a[2]),
+                tuple(_s32(v) for v in a[3:6]),
+                tuple(_s32(v) for v in a[6:8])))
+        elif op == _LIFT:
+            data = i.data
+            if isinstance(data, tuple) and len(data) == 2:
+                head, stops = data
+                scene.lifts.append(Lift(bytes(head),
+                                        tuple(tuple(r) for r in stops)))
     return scene
 
 
