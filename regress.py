@@ -673,12 +673,32 @@ def main() -> int:
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
                                                      "entities.py"),
                         "--game", G], capture_output=True, text=True, cwd=HERE)
-    tail = p.stdout.strip().splitlines()[-2:]
-    ok = (p.returncode == 0 and len(tail) == 2
+    tail = [l.strip() for l in p.stdout.strip().splitlines()[-3:]]
+    ok = (p.returncode == 0 and len(tail) == 3
           and "blocks ending on the next row 15025/15061" in tail[0]
-          and "ADD_THING types valid 4005/4005" in tail[1])
+          and "ADD_THING type operands: 4005 valid, 3 null (0xffffffff), 0 invalid" in tail[1]
+          and "GENERATE ids in the entity table: 7923/8957" in tail[2])
     results.append(report("entities / id -> sub-script -> thing type", ok,
-                          " ".join(s.strip() for s in tail) or "no output"))
+                          "; ".join(tail) or "no output"))
+
+    # --- things built by the entity sub-scripts (gm/scene.py) --------------
+    from gm import scene as scenemod
+    n_things = n_abs = n_models = 0
+    models: set = set()
+    for p in sorted(glob.glob(os.path.join(G, "*.sbt"))):
+        sc = scenemod.load(p)
+        for t in sc.things:
+            n_things += 1
+            if t.absolute:
+                n_abs += 1
+            if t.model:
+                models.add(t.model)
+                n_models += 1
+    results.append(report("scene / things (ADD_THING* in sub-scripts)",
+                          n_things == 4008 and n_abs == 2844
+                          and n_models == 4005 and len(models) == 138,
+                          "%d things (%d placed, %d models, %d with a model)"
+                          % (n_things, n_abs, len(models), n_models)))
 
     # --- optional heavy extraction ---------------------------------------
     if opts.full:

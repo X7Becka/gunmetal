@@ -140,6 +140,29 @@ def model_meshes(model) -> list:
     return [model]
 
 
+def place_model(model, pos, scale: float = 1.0):
+    """A translated (and optionally rescaled) copy of a parsed `.sob`.
+
+    The level's file frame is used for *pos*.  Scaling happens about the model's
+    own origin: the vertices and the per-face planes are multiplied by *scale*,
+    while the ``u``/``v`` axes are divided by it, so ``uv()`` (which measures
+    from ``face.origin``) stays unchanged.
+    """
+    dx, dy, dz = pos
+    s = scale
+    verts = [(v[0] * s + dx, v[1] * s + dy, v[2] * s + dz)
+             for v in model.vertices]
+    inv = 1.0 / s if s else 1.0
+    faces = [sobmod.SobFace(f.textures, f.flags, f.indices,
+                            (f.origin[0] * s + dx, f.origin[1] * s + dy,
+                             f.origin[2] * s + dz),
+                            tuple(c * inv for c in f.u),
+                            tuple(c * inv for c in f.v),
+                            f.normal, f.spare)
+             for f in model.faces]
+    return sobmod.Sob(verts, faces, model.name)
+
+
 # ---------------------------------------------------------------------------
 # textures
 # ---------------------------------------------------------------------------

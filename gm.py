@@ -945,6 +945,17 @@ def cmd_view(opts) -> int:
                         markers = sc.markers(scale)
                     if opts.scene_lights:
                         lights = sc.render_lights(scale)
+                if opts.things:
+                    scale = scenemod.SCALE if opts.scene_scale is None else opts.scene_scale
+                    sc = scenemod.load(os.path.splitext(p)[0] + ".sbt")
+                    placed = _place_things(sc, opts.game, scale, opts.thing_scale,
+                                           meshes, render)
+                    kind += f" +{placed}/{len(sc.things)} things"
+                if opts.no_background:
+                    keep = [m for m in meshes if not _is_background(m, 4000.0)]
+                    dropped = len(meshes) - len(keep)
+                    meshes = keep
+                    kind += f" -{dropped} bg"
             else:
                 m = sob.parse(p)
                 meshes = render.model_meshes(m)
@@ -973,6 +984,60 @@ def cmd_view(opts) -> int:
         if opts.ascii:
             print(render.ascii_preview(data, opts.ascii))
     return rc
+
+
+def _is_background(mesh, limit: float) -> bool:
+    """True when a mesh spans more than *limit* along any axis (sky/backdrop)."""
+    vs = getattr(mesh, "vertices", ())
+    if not vs:
+        return False
+    for k in range(3):
+        lo = min(v[k] for v in vs)
+        hi = max(v[k] for v in vs)
+        if hi - lo > limit:
+            return True
+    return False
+
+
+def _place_things(sc, game, scale, thing_scale, meshes, render) -> int:
+    """Append the models of the scene's things to *meshes*; return how many.
+
+    Only things with an absolute position and a resolved ``SOB`` are placed.
+    ``SOBS/<model>.sob`` is tried first, then ``Sobanim/<model>.soo``; the
+    models are cached by name.  Orientation doubles are *not* applied (their
+    meaning is unproven), so the models are only translated -- ``--thing-scale``
+    multiplies the model size if the shipped assets need it.
+    """
+    if not game:
+        return 0
+    from gm import sob as sobmod
+
+    cache: dict = {}
+    placed = 0
+    for t in sc.things:
+        if not t.absolute or not t.model:
+            continue
+        if t.model not in cache:
+            m = None
+            for sub in ("SOBS", "Sobanim"):
+                for ext in (".sob", ".soo"):
+                    path = os.path.join(game, sub, t.model + ext)
+                    if os.path.isfile(path):
+                        try:
+                            m = sobmod.parse(path)
+                        except Exception:       # noqa: BLE001 - skip bad model
+                            m = None
+                        break
+                if m is not None:
+                    break
+            cache[t.model] = m
+        m = cache[t.model]
+        if m is None or not m.vertices:
+            continue
+        pos = tuple(v * scale for v in t.pos)
+        meshes.append(render.place_model(m, pos, thing_scale))
+        placed += 1
+    return placed
 
 
 def cmd_scene(opts) -> int:
@@ -1006,6 +1071,9 @@ def cmd_scene(opts) -> int:
             print(f"{os.path.basename(p)}: {cnt['lights']} lights, "
                   f"{cnt['locations']} locations/things, {cnt['items']} items, "
                   f"{cnt['sounds']} sound sources, {cnt['sprites']} sprites, "
+                  f"{cnt['things']} things "
+                  f"({sum(1 for t in sc.things if t.absolute)} placed, "
+                  f"{len({t.model for t in sc.things if t.model})} models), "
                   f"{cnt['other']} other placement commands, "
                   f"{cnt['entities']} entities")
             for l in sc.lights[:opts.show]:
@@ -1020,6 +1088,11 @@ def cmd_scene(opts) -> int:
             for x in sc.sprites[:opts.show]:
                 print(f"  sprite id={x.id} pos=({x.pos[0]:g},{x.pos[1]:g},{x.pos[2]:g}) "
                       f"jitter={x.jitter}")
+            for t in sc.things[:opts.show]:
+                pos = "(%d,%d,%d)" % t.pos if t.absolute else f"@{t.kind}"
+                print(f"  thing {t.kind} type={t.type_index:3d} {t.type_name:12s} "
+                      f"model={t.model or '-':10s} pos={pos} angles="
+                      f"({','.join('%g' % a for a in t.angles)})")
             if sc.other:
                 top = sorted(sc.other.items(), key=lambda kv: -kv[1])[:4]
                 print(f"  other: {', '.join(f'{k}x{v}' for k, v in top)}")
@@ -1034,6 +1107,11 @@ def cmd_scene(opts) -> int:
                         "pitch": x.pitch} for x in sc.sounds],
             "sprites": [{"id": x.id, "pos": list(x.pos), "jitter": x.jitter,
                          "extra": list(x.extra)} for x in sc.sprites],
+            "things": [{"entity": t.entity, "kind": t.kind,
+                        "type": t.type_index, "type_name": t.type_name,
+                        "model": t.model, "pos": list(t.pos) if t.absolute else None,
+                        "angles": list(t.angles), "owner": t.owner}
+                       for t in sc.things],
             "entities": [{"id": i, "flags": f, "offset": o}
                          for i, f, o in sc.entities],
             "other": sc.other,
@@ -1189,6 +1267,14 @@ def main(argv=None) -> int:
                         "(default 1/1.875, the .sbw object basis)")
     p.add_argument("--scene-markers-depth", action="store_true",
                    help="depth-test the scene markers (hide them behind geometry)")
+    p.add_argument("--things", action="store_true",
+                   help="place the models of the level's things (ADD_THING* in "
+                        "the entity sub-scripts) alongside the geometry")
+    p.add_argument("--thing-scale", type=float, default=1.0,
+                   help="extra scale for the placed thing models (default 1)")
+    p.add_argument("--no-background", action="store_true",
+                   help="drop the level's sky/background objects (any axis "
+                        "longer than 4000 file units), e.g. for overviews")
     p.add_argument("--ascii", type=int, nargs="?", const=78, default=0,
                    help="also print a coarse ASCII preview (optional width)")
     p.add_argument("--palette", help="BMP file to take the palette from")

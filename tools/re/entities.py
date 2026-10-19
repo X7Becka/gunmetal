@@ -98,7 +98,7 @@ def block_end(code, off):
 
 
 def thing_types_of(code, off, qtypes):
-    """Thing-type operands of the ``ADD_THING*`` conditions in one block."""
+    """``(condition name, type operand)`` of every ``ADD_THING*`` in a block."""
     out = []
     try:
         ins, _ = sbtvm.decode(code, off, len(code))
@@ -112,10 +112,8 @@ def thing_types_of(code, off, qtypes):
         name, args = i.args[0]
         sig = sbtvm.CONDITIONS.get(_cond_id(name), (None, None))[1]
         pos = thing_pos(name, sig)
-        if pos is not None and len(args) > pos:
-            v = args[pos]
-            if isinstance(v, int) and 0 <= v < qtypes:
-                out.append((name, v))
+        if pos is not None and len(args) > pos and isinstance(args[pos], int):
+            out.append((name, args[pos]))
     return out
 
 
@@ -161,7 +159,7 @@ def main(argv=None):
 
     data = {}
     n_rows = tot_blocks = chained = 0
-    type_ops = bad_type = 0
+    type_ops = bad_type = null_type = 0
     gens = tot_gen = 0
     min_type = None
     for path in files:
@@ -192,15 +190,21 @@ def main(argv=None):
                     chained += 1
             for _nm, v in tt:
                 type_ops += 1
-                min_type = v if min_type is None else min(min_type, v)
+                if v == 0xFFFFFFFF:           # a null reference, 3 in the data
+                    null_type += 1
+                elif isinstance(v, int) and 0 <= v < len(names):
+                    min_type = v if min_type is None else min(min_type, v)
+                else:
+                    bad_type += 1
             for t in tg:
                 tot_gen += 1
                 if t in ids or t == 0xFFFFFFFF:
                     gens += 1
             out.append({"flags": fl, "id": eid, "offset": off, "end": end,
                         "first": first,
-                        "thing_types": [[nm, v, names[v],
-                                         model[_type_model(s, v)]]
+                        "thing_types": [[nm, v, names[v], model[_type_model(s, v)]]
+                                        if isinstance(v, int) and 0 <= v < len(names)
+                                        else [nm, v, None, None]
                                         for nm, v in tt],
                         "generates": tg})
         data[stem] = {"n": script.n, "types": len(names), "rows": out}
@@ -222,10 +226,12 @@ def main(argv=None):
                   % (r["id"], r["flags"], r["offset"], r["end"], r["first"],
                      tt, gg))
 
-    print("\nentities: %d rows in %d levels; blocks ending on the next row %d/%d;"
+    print("\nentities: %d rows in %d levels; blocks ending on the next row %d/%d"
           % (n_rows, len(data), chained, tot_blocks))
-    print("  ADD_THING types valid %d/%d (min index %s); GENERATE ids in table %d/%d"
-          % (type_ops - bad_type, type_ops, min_type, gens, tot_gen))
+    print("  ADD_THING type operands: %d valid, %d null (0xffffffff), %d invalid"
+          " (min index %s)"
+          % (type_ops - bad_type - null_type, null_type, bad_type, min_type))
+    print("  GENERATE ids in the entity table: %d/%d" % (gens, tot_gen))
     return 0
 
 

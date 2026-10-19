@@ -1,9 +1,11 @@
 """Script-driven level scene: lights and placed objects the SCRIPT block builds.
 
 The shipped ``.sbt`` blocks contain **no** pre-placed object list: the
-``SCRIPT`` record's ``things`` array is empty in all 36 levels and no script
-emits an ``ADD_THING*`` command.  The scene is built at run time by the compiled
-code, so the code itself is the only static source for it.
+``SCRIPT`` record's ``things`` array is empty in all 36 levels, and the world is
+built at run time by the compiled code -- which is therefore the only static
+source for the scene.  Things are *not* placed by commands, but by the
+``ADD_THING*`` family of **conditions** (ids 1..5), which the entity sub-scripts
+evaluate; see :func:`things` and ``docs/FORMATS.md`` 12.4.
 
 This module decodes that code (see :mod:`gm.sbtvm`) and pulls out the placement
 commands whose operand layout is proven from the engine handlers:
@@ -157,6 +159,34 @@ class Sprite:
 
 
 @dataclass
+class Thing:
+    """A thing built by an ``ADD_THING*`` condition inside an entity's sub-script.
+
+    The type is the condition's ``G`` operand, an index into ``THING_TYPES``
+    (all 4005 real ones in the shipped levels are valid; three are
+    ``0xFFFFFFFF`` = "none").  The handler of the family calls the thing builder
+    ``0x46d000(type, ...)``, which reads ``fild`` of the three *integer*
+    operands for the position and the doubles for an orientation -- the same
+    convention as ``ADD_LOCATION``.  The ``AT_SOURCE``/``RELATIVE`` variants take
+    the position from a (moving) source, so only ``ADD_THING`` and
+    ``ADD_THING_EX`` carry an absolute ``pos`` here.
+    """
+
+    entity: int          # id of the entity whose sub-script builds it
+    kind: str            # the ADD_THING* condition name
+    type_index: int
+    type_name: str = ""
+    model: str = ""
+    pos: tuple | None = None   # world coordinates, None when source-relative
+    angles: tuple = ()
+    owner: int = 0       # the L operand in front of the type (player/source)
+
+    @property
+    def absolute(self) -> bool:
+        return self.pos is not None
+
+
+@dataclass
 class Scene:
     lights: list[Light] = field(default_factory=list)
     locations: list[Location] = field(default_factory=list)
@@ -165,6 +195,8 @@ class Scene:
     sprites: list[Sprite] = field(default_factory=list)
     #: the level's entity table as ``(id, flags, offset)`` triples
     entities: list = field(default_factory=list)
+    #: things built by the entity sub-scripts (``ADD_THING*``)
+    things: list = field(default_factory=list)
     #: commands seen whose operand layout is still opaque (name -> count)
     other: dict = field(default_factory=dict)
 
@@ -172,6 +204,7 @@ class Scene:
         return {"lights": len(self.lights), "locations": len(self.locations),
                 "items": len(self.items), "sounds": len(self.sounds),
                 "sprites": len(self.sprites), "entities": len(self.entities),
+                "things": len(self.things),
                 "other": sum(self.other.values())}
 
     def scaled(self, factor: float = SCALE) -> Scene:
@@ -262,6 +295,95 @@ def entities(script: sbt.Script) -> list[tuple[int, int, int]]:
     return [(_s32(cols[n + i]), cols[i], cols[2 * n + i]) for i in range(n)]
 
 
+def _cond(name: str) -> str:
+    for _cid, (nm, sig) in sbtvm.CONDITIONS.items():
+        if nm == name:
+            return sig or ""
+    return ""
+
+
+#: ``ADD_THING*`` kinds and whether their position is absolute (the others take
+#: it from a moving source: ``ADD_THING_AT_SOURCE``, ``..._RELATIVE``, ...)
+_THINGS_ABS = ("ADD_THING", "ADD_THING_EX")
+
+
+def _thing_args(args, sig):
+    """Split the operands of an ``ADD_THING*`` by signature letter.
+
+    Returns ``(type_index, ints, doubles, owner)``: the ``G`` operand is the
+    thing type, the other 4-byte letters are integers and ``A``/``B``/``D`` are
+    doubles, in operand order.  The first integer (if any precedes the type) is
+    the owner/source or player index.
+    """
+    ti = None
+    owner = 0
+    ints: list = []
+    dbls: list = []
+    for ch, v in zip(sig, args):
+        if ch == "G":
+            ti = v
+        elif ch in "ABD":
+            dbls.append(float(v))
+        elif isinstance(v, int):
+            if ti is None and not ints:
+                owner = _s32(v)
+            else:
+                ints.append(_s32(v))
+    return ti, ints, dbls, owner
+
+
+def things(script: sbt.Script, sbt_file=None) -> list[Thing]:
+    """Every ``ADD_THING*`` built by the level's entity sub-scripts.
+
+    Each entity row of the table names a sub-script (its ``offset``, run by
+    ``GENERATE`` through ``0x457390``); decoding that block yields the
+    ``ADD_THING*`` conditions that build the entity's thing.  With *sbt_file*
+    (a parsed :class:`gm.sbt.Sbt`) the type name and the ``SOB`` model are
+    resolved through ``THING_TYPES``/``SOB_TABLE``.
+    """
+    out: list[Thing] = []
+    names: list = []
+    models: list = []
+    if sbt_file is not None:
+        names = [t.name for t in sbt_file.records_of(4)[0].payload.entries]
+        models = [e.name for e in sbt_file.records_of(20)[0].payload.entries]
+    code = script.code
+    for eid, _flags, off in entities(script):
+        if not 0 <= off < len(code):
+            continue
+        try:
+            ins, _end = sbtvm.decode(code, off, len(code))
+        except Exception:                       # noqa: BLE001 - skip bad block
+            continue
+        for i in ins:
+            if i.name == "END":
+                break
+            if i.op != 0xC9 or not i.args:      # 0xC9 = EVAL <cond>
+                continue
+            cname, args = i.args[0]
+            if not cname.startswith("ADD_THING"):
+                continue
+            ti, ints, dbls, owner = _thing_args(args, _cond(cname))
+            if ti is None:
+                continue
+            name = model = ""
+            if 0 <= ti < len(names):
+                name = names[ti]
+                if sbt_file is not None:
+                    model = models[_thing_model(sbt_file, ti)]
+            pos = tuple(ints[:3]) if (cname in _THINGS_ABS and len(ints) >= 3) else None
+            out.append(Thing(eid, cname, _s32(ti), name, model, pos,
+                             tuple(dbls), owner))
+    return out
+
+
+def _thing_model(sbt_file, idx: int) -> int:
+    """``SOB_TABLE`` index of ``THING_TYPES[idx]`` (its ``+0x1a4`` field)."""
+    tt = sbt_file.records_of(4)[0].payload.entries[idx]
+    tail = struct.unpack_from("<%dI" % (len(tt.tail) // 4), tt.tail)
+    return tail[(0x1A4 - 0x198) // 4]
+
+
 def extract(script: sbt.Script) -> Scene:
     """Decode a ``SCRIPT`` record into its lights and placed objects."""
     ins, _end = sbtvm.decode(script.code)
@@ -313,7 +435,9 @@ def from_sbt(path_or_file) -> Scene:
     recs = f.records_of(11)
     if not recs:
         raise ValueError("no SCRIPT record")
-    return extract(recs[0].payload)
+    scene = extract(recs[0].payload)
+    scene.things = things(recs[0].payload, f)
+    return scene
 
 
 def load(path: str) -> Scene:
