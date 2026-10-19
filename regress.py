@@ -721,6 +721,19 @@ def main() -> int:
         == open(p, "rb").read() for p in src)
     results.append(report("soo / 40 byte-exact round-trips", same,
                           "Sobanim -> DIR"))
+    p = subprocess.run([sys.executable, GM, "film", f"{G}/Film", "--json"],
+                       capture_output=True, text=True, cwd=HERE)
+    rows = [json.loads(line) for line in p.stdout.splitlines()
+            if line.startswith("{")]
+    ok = (p.returncode == 0 and len(rows) == 48
+          and all(r["bytes"] % 8192 == 0 and r["tiles"] > 0 for r in rows))
+    results.append(report("film / 48 .sof are 8 KB tile-aligned", ok,
+                          "%d films, %d tiles" % (len(rows),
+                                                  sum(r["tiles"] for r in rows))))
+    film_png = os.path.join(out, "film.png")
+    run(["film", f"{G}/Film/AMMO4.SOF", "--frame", "0", "--png", film_png])
+    results.append(report("film / tile export", os.path.exists(film_png)
+                          and os.path.getsize(film_png) > 0, film_png))
     results.append(check("soe / thing types", ["soe", G], ["soe: 1 parsed, 0 failed"]))
     results.append(check("sog / songs", ["sog", f"{G}/MUSIC", "--music", f"{G}/MUSIC/SOU.IDX"],
                          ["sog: 651 songs"]))

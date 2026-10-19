@@ -428,6 +428,69 @@ def cmd_soa(opts) -> int:
 
 
 
+
+def cmd_film(opts) -> int:
+    """Inspect ``.sof`` HUD films (8 KB tiles) and their ``.fdx`` indexes."""
+    from gm import png, sof as sofmod
+    paths = []
+    for p in opts.paths:
+        if os.path.isdir(p):
+            paths += sorted(os.path.join(p, n) for n in os.listdir(p)
+                            if n.lower().endswith(".sof"))
+        else:
+            paths.append(p)
+    palette = None
+    if opts.palette:
+        from gm import bmp
+        palette = bmp.parse(open(opts.palette, "rb").read()).palette
+    n = bad = 0
+    for path in paths:
+        try:
+            tiles, size = sofmod.tile_count(path)
+            idx = sofmod.find_fdx(path)
+            seqs = sofmod.parse_fdx(idx) if idx else []
+        except (OSError, ValueError) as exc:
+            bad += 1
+            print("  FAIL %s: %s" % (path, exc), file=sys.stderr)
+            continue
+        if opts.json:
+            print(json.dumps({"file": os.path.basename(path), "bytes": size,
+                              "tiles": tiles, "fdx": idx,
+                              "sequences": seqs}))
+        else:
+            print("%-14s %8d bytes, %d tiles (%dx%d)%s"
+                  % (os.path.basename(path), size, tiles,
+                     sofmod.TILE_W, sofmod.TILE_H,
+                     "" if size % sofmod.TILE_BYTES == 0 else "  [not tile-aligned]"))
+            if seqs:
+                print("    %s: %d sequences, %s"
+                      % (os.path.basename(idx), len(seqs),
+                         ", ".join("%d@%d" % (s["count"], s["fps"]) for s in seqs[:6])
+                         + (" ..." if len(seqs) > 6 else "")))
+        if opts.png:
+            try:
+                data = sofmod.frame(path, opts.frame)
+            except ValueError as exc:
+                print("  FAIL %s: %s" % (path, exc), file=sys.stderr)
+                bad += 1
+                continue
+            out = opts.png
+            if len(paths) > 1:
+                stem = os.path.splitext(os.path.basename(path))[0]
+                out = os.path.join(opts.png, "%s_%03d.png" % (stem, opts.frame))
+                os.makedirs(opts.png, exist_ok=True)
+            if palette:
+                blob = png.indexed(data, sofmod.TILE_W, sofmod.TILE_H, palette)
+            else:
+                blob = png.gray(sofmod.TILE_W, sofmod.TILE_H, data)
+            with open(out, "wb") as fh:
+                fh.write(blob)
+        n += 1
+    if not opts.json:
+        print("film: %d inspected, %d failed" % (n, bad))
+    return 0 if bad == 0 else 1
+
+
 def cmd_soo(opts) -> int:
     """Parse ``.soo`` flipbook animations (text: mode, count, name+time)."""
     from gm import soo as soomod
@@ -1590,6 +1653,16 @@ def main(argv=None) -> int:
                    help="dump every field of the token stream")
     p.add_argument("--rebuild", help="write each .soe back (re-serialised) into this directory")
     p.set_defaults(func=cmd_soe)
+
+    p = sub.add_parser("film", help="inspect .sof HUD films (8 KB tiles) and "
+                                     "their .fdx indexes")
+    p.add_argument("paths", nargs="+", help=".sof files or the Film directory")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--frame", type=int, default=0, help="tile to export")
+    p.add_argument("--png", metavar="OUT",
+                   help="write the tile as PNG (a file, or a directory for many)")
+    p.add_argument("--palette", help="BMP whose palette to apply to --png")
+    p.set_defaults(func=cmd_film)
 
     p = sub.add_parser("soo", help="parse .soo flipbook animations (text)")
     p.add_argument("paths", nargs="+", help=".soo files or the Sobanim directory")
