@@ -7,6 +7,10 @@
 #include "core/time.h"
 #include "platform/window.h"
 #include "res/bigfile.h"
+#include "res/bmp.h"
+#include "res/png.h"
+#include "res/sbm.h"
+#include "core/hash.h"
 
 #include <cmath>
 #include <cstdio>
@@ -241,6 +245,109 @@ void test_bigfile() {
     fs::remove_all(root, ec);
 }
 
+void test_sbm_png() {
+    std::vector<std::uint8_t> blob(12 + 16 + 4, 0);
+    blob[4] = 2; // 4x4
+    blob[5] = 2;
+    blob[6] = 1; // two mips
+    for (int i = 0; i < 16; ++i) {
+        blob[12 + i] = static_cast<std::uint8_t>(i * 16);
+    }
+    for (int i = 0; i < 4; ++i) {
+        blob[28 + i] = static_cast<std::uint8_t>(i * 64);
+    }
+
+    std::string error;
+    const auto sbm = gm::parse_sbm(blob, error);
+    CHECK(sbm.has_value());
+    if (sbm) {
+        CHECK_EQ(sbm->width, 4);
+        CHECK_EQ(sbm->height, 4);
+        CHECK_EQ(sbm->levels, 2);
+        CHECK_EQ(sbm->mips.size(), std::size_t{2});
+        CHECK_EQ(sbm->mips[1].width, 2);
+        CHECK_EQ(sbm->mips[1].pixels.size(), std::size_t{4});
+        std::vector<std::uint8_t> palette(256 * 4, 0);
+        for (int i = 0; i < 256; ++i) {
+            palette[i * 4 + 0] = static_cast<std::uint8_t>(i);
+            palette[i * 4 + 1] = static_cast<std::uint8_t>(i);
+            palette[i * 4 + 2] = static_cast<std::uint8_t>(i);
+        }
+        const auto rgba = gm::sbm_to_rgba(sbm->mips[0], palette);
+        CHECK_EQ(rgba.size(), std::size_t{64});
+        // pixel 0: index 0 -> black; pixel 1: index 16 -> 16; alpha 255.
+        CHECK_EQ(rgba[3], std::uint8_t{255});
+        CHECK_EQ(rgba[4], std::uint8_t{16});
+        CHECK_EQ(rgba[7], std::uint8_t{255});
+    }
+
+    // Truncated chain must be rejected.
+    std::vector<std::uint8_t> truncated(blob.begin(), blob.begin() + 20);
+    CHECK(!gm::parse_sbm(truncated, error).has_value());
+
+    const auto png = gm::encode_png_rgba(2, 2, std::vector<std::uint8_t>(16, 128));
+    CHECK_EQ(png.size() > 40, true);
+    const std::uint8_t signature[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    CHECK(std::memcmp(png.data(), signature, 8) == 0);
+    const auto be32 = [](const std::uint8_t* p) {
+        return (static_cast<std::uint32_t>(p[0]) << 24) | (static_cast<std::uint32_t>(p[1]) << 16) |
+               (static_cast<std::uint32_t>(p[2]) << 8) | p[3];
+    };
+    CHECK_EQ(be32(png.data() + 8), 13u);      // IHDR length
+    CHECK(std::memcmp(png.data() + 12, "IHDR", 4) == 0);
+    CHECK_EQ(be32(png.data() + 16), 2u);      // width
+    CHECK_EQ(be32(png.data() + 20), 2u);      // height
+
+    // Real data, when installed: Python-computed golden hashes.
+    const fs::path pics = "/mnt/d/games/Gunmetal 3dfx/PICS/SBM.IDX";
+    std::error_code ec;
+    if (fs::is_regular_file(pics, ec)) {
+        const auto big = gm::BigFile::open(pics, error);
+        CHECK(big.has_value());
+        if (big && !big->entries().empty()) {
+            const auto bytes = big->read(big->entries()[0], error);
+            CHECK(bytes.has_value());
+            if (bytes) {
+                const auto real = gm::parse_sbm(*bytes, error);
+                CHECK(real.has_value());
+                if (real) {
+                    CHECK_EQ(real->width, 256);
+                    CHECK_EQ(real->levels, 9);
+                    CHECK_EQ(gm::fnv1a64(real->mips[0].pixels), 0xeca77c01c92266c7ull);
+                }
+            }
+        }
+    }
+    const fs::path sprites = "/mnt/d/games/Gunmetal 3dfx/sprites/SBM.IDX";
+    if (fs::is_regular_file(sprites, ec)) {
+        const auto big = gm::BigFile::open(sprites, error);
+        if (big && !big->entries().empty()) {
+            const auto bytes = big->read(big->entries()[0], error);
+            if (bytes) {
+                const auto real = gm::parse_sbm(*bytes, error);
+                CHECK(real.has_value());
+                if (real) {
+                    CHECK_EQ(real->width, 64);
+                    CHECK_EQ(gm::fnv1a64(real->mips[0].pixels), 0x4f3ae259926f703aull);
+                }
+            }
+        }
+    }
+
+    const fs::path flag = "/mnt/d/games/Gunmetal 3dfx/FLAG/naUSA.BMP";
+    if (fs::is_regular_file(flag, ec)) {
+        std::ifstream in(flag, std::ios::binary);
+        std::vector<std::uint8_t> bmp_bytes((std::istreambuf_iterator<char>(in)),
+                                            std::istreambuf_iterator<char>());
+        const auto bmp = gm::parse_bmp(bmp_bytes, error);
+        CHECK(bmp.has_value());
+        if (bmp) {
+            CHECK_EQ(bmp->palette.size(), std::size_t{1024});
+            CHECK_EQ(bmp->bpp, 8);
+        }
+    }
+}
+
 void test_log() {
     gm::set_log_level(gm::LogLevel::Off);
     CHECK(!gm::log_enabled(gm::LogLevel::Error));
@@ -263,6 +370,7 @@ int main() {
     test_time_and_window();
     test_bigfile();
     test_log();
+    test_sbm_png();
 
     if (g_failures != 0) {
         std::fprintf(stderr, "gm_tests: %d failure(s)\n", g_failures);

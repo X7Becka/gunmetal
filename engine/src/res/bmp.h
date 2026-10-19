@@ -1,0 +1,28 @@
+#pragma once
+
+#include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <span>
+#include <string>
+#include <vector>
+
+namespace gm {
+
+struct BmpImage {
+    int width = 0;
+    int height = 0;
+    int bpp = 0;
+    bool top_down = false;
+    std::vector<std::uint8_t> palette; // RGBA quads
+    std::vector<std::uint8_t> pixels;  // top-down palette indices
+};
+
+/// Parse an 8-bit palettised BMP (the only variant the game ships).
+std::optional<BmpImage> parse_bmp(std::span<const std::uint8_t> data, std::string& error);
+
+/// The shared 256-colour palette: the first candidate BMP that exists.
+std::optional<std::vector<std::uint8_t>> installed_palette(const std::filesystem::path& game,
+                                                           std::string& error);
+
+} // namespace gm

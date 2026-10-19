@@ -13,6 +13,7 @@ struct Options {
     std::filesystem::path game;
     std::string level;
     std::filesystem::path dump;
+    std::filesystem::path png;
     bool headless = false;
     int frames = -1; // < 0: run until the window is closed
     bool verbose = false;

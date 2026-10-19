@@ -64,6 +64,12 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.dump = std::filesystem::path(std::string(*v));
+        } else if (arg == "--png") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.png = std::filesystem::path(std::string(*v));
         } else if (arg == "--frames" || arg == "-n") {
             const auto v = value(arg);
             if (!v) {
@@ -99,6 +105,7 @@ std::string usage() {
        << "                    /mnt/d/games/Gunmetal 3dfx)\n"
        << "  -l, --level NAME  level to load (not implemented yet)\n"
        << "  -d, --dump FILE   print size and the first bytes of FILE, then exit\n"
+       << "      --png OUT     with --dump of a .sbm/.bmp: write OUT as PNG\n"
        << "      --headless    do not create a window\n"
        << "  -n, --frames N    stop after N frames (default: until closed)\n"
        << "  -v, --verbose     debug logging\n"

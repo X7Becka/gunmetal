@@ -76,10 +76,11 @@ gunmetal [--game DIR] [--level NAME] [--dump FILE] [--headless]
 
 | тест | что проверяет |
 |---|---|
-| `core` | `resolve_ci`, арена, vec-математика, `rd16/24/32/64`, hex/ascii, разбор CLI, часы, headless-окно, уровни лога, BIGFILE-ридер (синтетический + реальный `sounds/SOU.IDX`: 999 записей) |
+| `core` | `resolve_ci`, арена, vec-математика, `rd16/24/32/64`, hex/ascii, разбор CLI, часы, headless-окно, уровни лога, BIGFILE-ридер (синтетический + реальный `sounds/SOU.IDX`: 999 записей), `.sbm`/`.bmp`/PNG (сверка FNV с Python на реальных текстурах) |
 | `cli_version` | `gunmetal --version` |
 | `cli_headless` | `--headless --frames 2` доходит до конца |
 | `cli_dump` | дамп существующего файла печатает `size:` |
+| `cli_dump` (вручную) | `--dump tex.sbm --png out.png` — валидный RGBA-PNG |
 | `cli_dump_missing` | отсутствующий файл — код возврата ≠ 0 (не падение) |
 
 Регрессия ассетов (`regress.py`) не зависит от C++-сборки и остаётся отдельной.
