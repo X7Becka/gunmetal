@@ -13,6 +13,7 @@ inline constexpr std::string_view kVersion = "0.1.0";
 struct Options {
     std::filesystem::path game;
     std::string level;
+    std::string play;
     std::filesystem::path dump;
     std::filesystem::path png;
     std::filesystem::path render; // output PNG for --render

@@ -16,6 +16,7 @@
 #include "res/text.h"
 #include "res/level.h"
 #include "res/sbv.h"
+#include "res/sbv_video.h"
 #include "res/anim.h"
 #include "render/render.h"
 
@@ -600,8 +601,90 @@ int show_level(const gm::Options& options) {
     return 0;
 }
 
+int play_video(const gm::Options& options) {
+    std::string error;
+    std::string name = options.play;
+    if (name.size() < 4 || name.substr(name.size() - 4) != ".sbv") {
+        name += ".sbv";
+    }
+    auto path = gm::resolve_ci(options.game / "Vid", name);
+    if (!path) {
+        path = gm::resolve_ci(options.game, name);
+    }
+    if (!path) {
+        gm::logf(gm::LogLevel::Error, "video", "clip not found: " + name);
+        return 2;
+    }
+    const auto bytes = read_file(*path, error);
+    if (!bytes) {
+        gm::logf(gm::LogLevel::Error, "video", error);
+        return 2;
+    }
+    const auto clip = gm::parse_sbv(*bytes, error);
+    if (!clip) {
+        gm::logf(gm::LogLevel::Error, "video", error);
+        return 2;
+    }
+
+    auto window = gm::Window::open("Gunmetal", options.width, options.height, options.headless,
+                                   error);
+    if (!window) {
+        gm::logf(gm::LogLevel::Error, "video", error);
+        return 1;
+    }
+    gm::logf(gm::LogLevel::Info, "video", "clip=", path->filename().string(), " ",
+             clip->width, "x", clip->height, " frames=", clip->frame_count);
+
+    gm::FrameClock clock;
+    std::size_t next = 0;
+    int frame = 0;
+    std::uint32_t previous_end = 0;
+    const std::uint32_t first_ts = clip->table.empty() ? 0 : clip->table.front().timestamp_ms;
+    while (window->pump()) {
+        if (next >= clip->table.size()) {
+            break;
+        }
+        const std::uint32_t ts = clip->table[next].timestamp_ms;
+        if (!window->headless()) {
+            const double now_ms = clock.elapsed() * 1000.0;
+            if (now_ms + 0.5 < static_cast<double>(ts - first_ts)) {
+                window->delay_ms(1);
+                continue;
+            }
+        }
+        const std::size_t begin = clip->data_start + previous_end;
+        const std::size_t end = clip->data_start + clip->table[next].end_offset;
+        previous_end = clip->table[next].end_offset;
+        if (end > bytes->size() || begin > end) {
+            gm::logf(gm::LogLevel::Error, "video", "frame ", next, " outside the file");
+            return 2;
+        }
+        const auto decoded = gm::decode_sbv_frame(
+            std::span<const std::uint8_t>(bytes->data() + begin, end - begin), clip->width,
+            clip->height, error);
+        if (!decoded) {
+            gm::logf(gm::LogLevel::Error, "video", "frame ", next, ": ", error);
+            return 2;
+        }
+        window->blit_rgb(decoded->rgb.data(), decoded->width, decoded->height);
+        window->present();
+        ++next;
+        ++frame;
+        if (options.frames >= 0 && frame >= options.frames) {
+            break;
+        }
+    }
+    gm::logf(gm::LogLevel::Info, "run", "frames=", frame, " clip frames=",
+             clip->frame_count);
+    return 0;
+}
+
 int run(const gm::Options& options) {
     std::string error;
+
+    if (!options.play.empty()) {
+        return play_video(options);
+    }
 
     std::optional<gm::LevelBundle> level;
     std::vector<gm::RenderMesh> meshes;
@@ -776,6 +859,9 @@ int main(int argc, char** argv) {
     }
     if (options->verbose) {
         gm::set_log_level(gm::LogLevel::Debug);
+    }
+    if (!options->play.empty()) {
+        return play_video(*options);
     }
     if (!options->dump.empty()) {
         return dump_file(*options);

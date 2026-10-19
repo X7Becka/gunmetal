@@ -282,6 +282,17 @@ void Window::fill_gradient(int t) {
 #endif
 }
 
+void Window::delay_ms(int ms) {
+    if (impl_ == nullptr || impl_->headless || ms <= 0) {
+        return;
+    }
+#if GM_HAVE_SDL3
+    SDL_Delay(static_cast<Uint32>(ms));
+#else
+    (void)ms;
+#endif
+}
+
 void Window::present() {
     if (impl_ == nullptr) {
         return;

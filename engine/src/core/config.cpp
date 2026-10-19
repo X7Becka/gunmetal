@@ -82,6 +82,12 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.level = std::string(*v);
+        } else if (arg == "--play") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.play = std::string(*v);
         } else if (arg == "--dump" || arg == "-d") {
             const auto v = value(arg);
             if (!v) {
@@ -235,6 +241,7 @@ std::string usage() {
        << "      --no-lightmaps ignore .sbc lightmaps\n"
        << "      --wire        draw polygon edges\n"
        << "      --info        print the level summary instead of opening the viewer\n"
+       << "      --play NAME   play Vid/NAME.sbv (--frames limits the frame count)\n"
        << "      --pos X,Y,Z   camera eye in world space (with --look)\n"
        << "      --look X,Y,Z  camera target in world space\n"
        << "      --clip N      drop faces farther than N from the eye\n"

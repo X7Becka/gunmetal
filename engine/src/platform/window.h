@@ -53,6 +53,9 @@ public:
 
     void present();
 
+    /// Sleep for *ms* milliseconds (no-op in headless mode).
+    void delay_ms(int ms);
+
     bool headless() const;
     int width() const;
     int height() const;
