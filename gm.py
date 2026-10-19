@@ -116,8 +116,8 @@ def cmd_list(opts) -> int:
 def cmd_extract(opts) -> int:
     bf = bigfile.BigFile(opts.idx)
     os.makedirs(opts.out, exist_ok=True)
-    planned = [(os.path.join(opts.out, (e.name or f"unnamed_{e.offset:08x}") + ".bin"), e)
-               for e in bf.entries]
+    planned = [(os.path.join(opts.out, bigfile.safe_name(
+        e.name, f"unnamed_{e.offset:08x}") + ".bin"), e) for e in bf.entries]
     if not opts.force:
         for path, _e in planned:
             if os.path.exists(path):
@@ -248,7 +248,7 @@ def cmd_textures(opts) -> int:
             bad += 1
             continue
         png = img.to_png(pal, opts.transparent)
-        with _wopen(os.path.join(opts.out, e.name + ".png"), opts) as f:
+        with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".png"), opts) as f:
             f.write(png)
         ok += 1
     print(f"textures: {ok} PNG written, {bad} failed -> {opts.out}")
@@ -267,7 +267,7 @@ def cmd_sprites(opts) -> int:
         except ValueError:
             bad += 1
             continue
-        with _wopen(os.path.join(opts.out, e.name + ".png"), opts) as f:
+        with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".png"), opts) as f:
             f.write(img.to_png(pal, opts.transparent))
         ok += 1
     print(f"sprites: {ok} PNG written, {bad} failed -> {opts.out}")
@@ -288,14 +288,15 @@ def cmd_sounds(opts) -> int:
             continue
         codecs[snd.magic] = codecs.get(snd.magic, 0) + 1
         if snd.is_pcm:
-            with _wopen(os.path.join(opts.out, e.name + ".wav"), opts) as f:
+            with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".wav"), opts) as f:
                 f.write(snd.to_wav())
             pcm += 1
         else:
             # Honest raw dump: the payload is a driver-side codec, not PCM, so
             # no WAV is written (see gm/sou.py and docs/FORMATS.md).
             tag = "mono" if snd.channels == 1 else "stereo"
-            name = f"{e.name}.{snd.magic.lower()}.{snd.sample_rate}.{tag}.bin"
+            name = (f"{bigfile.safe_name(e.name)}."
+                    f"{snd.magic.lower()}.{snd.sample_rate}.{tag}.bin")
             with _wopen(os.path.join(opts.out, name), opts) as f:
                 f.write(snd.payload)
             coded += 1
@@ -312,7 +313,7 @@ def cmd_frontend(opts) -> int:
     for e in bf.entries:
         blob = e.data(dat)
         ext = ".bmp" if blob[:2] == b"BM" else ".bin"
-        with _wopen(os.path.join(opts.out, e.name + ext), opts) as f:
+        with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ext), opts) as f:
             f.write(blob)
         n += 1
     print(f"frontend: {n} files -> {opts.out}")

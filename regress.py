@@ -86,6 +86,21 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
     results.append(report("trust / impossible .sbv height rejected",
                           rc != 0 and "Traceback" not in text, "exit 1, no traceback"))
 
+    # A crafted entry name must not escape the output directory.
+    evil_name = b"../../X\0"
+    evil = b"BIGFILE\x1a" + struct.pack("<I", 1) + evil_name + struct.pack("<I", 0)
+    with open(os.path.join(audit, "evil.IDX"), "wb") as f:
+        f.write(evil)
+    with open(os.path.join(audit, "evil.DAT"), "wb") as f:
+        f.write(b"DATA")
+    evil_out = os.path.join(audit, "evil_out")
+    rc, _ = run_raw(["extract", os.path.join(audit, "evil.IDX"), evil_out])
+    escaped = os.path.exists(os.path.join(audit, "X.bin"))
+    inside = os.path.join(evil_out, "______X.bin")
+    results.append(report("trust / archive names cannot escape the output dir",
+                          rc == 0 and not escaped and os.path.exists(inside),
+                          os.path.basename(inside)))
+
     # Re-running an extraction must not silently clobber the first result.
     target = os.path.join(audit, "extract")
     rc1, _ = run_raw(["extract", os.path.join(G, "sprites", "SBM.IDX"), target])

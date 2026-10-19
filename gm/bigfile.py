@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import struct
+import tempfile
 from dataclasses import dataclass
 
 MAGIC = b"BIGFILE"
@@ -31,6 +32,20 @@ MAGIC = b"BIGFILE"
 MAX_ENTRIES = 1_000_000
 
 
+_SAFE_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+
+
+def safe_name(name: str, fallback: str = "unnamed") -> str:
+    """Turn an 8-byte index name into a filename that cannot escape a directory.
+
+    The shipped archives only use ``[A-Z0-9_-]``; a crafted index could put
+    ``/`` or ``..`` in the name, so extraction maps everything else to ``_``.
+    """
+    cleaned = "".join(ch if ch in _SAFE_CHARS else "_" for ch in name)
+    return cleaned or fallback
+
+
 @dataclass
 class Entry:
     name: str
@@ -38,6 +53,9 @@ class Entry:
     size: int
 
     def data(self, dat: bytes) -> bytes:
+        if self.offset < 0 or self.size < 0 or self.offset + self.size > len(dat):
+            raise ValueError(f"entry {self.name!r} range "
+                             f"{self.offset}+{self.size} outside {len(dat)} bytes")
         return dat[self.offset : self.offset + self.size]
 
 
@@ -111,7 +129,7 @@ class BigFile:
         done = set()
         n = 0
         for e in self.entries:
-            name = e.name or f"unnamed_{e.offset:08x}"
+            name = safe_name(e.name, f"unnamed_{e.offset:08x}")
             key = name.lower()
             if key in done:
                 name = f"{name}_{e.offset:08x}"
@@ -179,11 +197,34 @@ def pack(blobs, idx_path: str, dat_path: str | None = None, *, overwrite: bool =
             if os.path.exists(path):
                 raise FileExistsError(f"refusing to overwrite {path} (use --force)")
     idx = build_index((name, len(data)) for name, data in blobs)
-    with open(dat_path, "wb") as f:
-        for _name, data in blobs:
-            f.write(data)
-    with open(idx_path, "wb") as f:
-        f.write(idx)
+    # Write both files next to their targets and rename only when both are
+    # complete: a failure can never leave a new .DAT with an old .IDX (or a
+    # half-written archive) behind.
+    temps: list[str] = []
+    try:
+        for path, payload in ((dat_path, None), (idx_path, idx)):
+            directory = os.path.dirname(os.path.abspath(path)) or "."
+            fd, tmp = tempfile.mkstemp(dir=directory, prefix=".gm-pack-")
+            temps.append(tmp)
+            with os.fdopen(fd, "wb") as f:
+                if payload is None:
+                    for _name, data in blobs:
+                        f.write(data)
+                else:
+                    f.write(payload)
+            try:
+                os.chmod(tmp, 0o644)
+            except OSError:
+                pass
+        os.replace(temps[0], dat_path)
+        os.replace(temps[1], idx_path)
+    except BaseException:
+        for tmp in temps:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        raise
     return len(blobs), sum(len(d) for _n, d in blobs)
 
 
