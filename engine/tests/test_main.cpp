@@ -1283,6 +1283,35 @@ void test_render() {
         }
     }
 
+    // A few single-face models: cheap coverage of different texture atlases.
+    struct ModelGolden {
+        const char* name;
+        std::uint64_t fnv;
+    };
+    const ModelGolden model_goldens[] = {
+        {"code492.sob", 0xd3fa091674e86a7aull},
+        {"desertpc.sob", 0x1de0c4538c49b7c7ull},
+        {"moonfb.sob", 0x4fb421bc5a2ff221ull},
+    };
+    for (const auto& golden : model_goldens) {
+        const fs::path path = fs::path(game) / "SOBS" / golden.name;
+        if (!fs::is_regular_file(path, ec)) {
+            continue;
+        }
+        const auto bytes = read(path);
+        const auto model = gm::parse_sob(bytes, error);
+        CHECK(model.has_value());
+        if (!model) {
+            continue;
+        }
+        gm::RenderOptions options;
+        options.width = 160;
+        options.height = 160;
+        const auto image =
+            gm::render_scene(gm::build_model_meshes(*model), options, &pool, nullptr);
+        CHECK_EQ(fnv_rgb(image.rgb), golden.fnv);
+    }
+
     // level0 at 320x200, exactly as gm/render.py renders it (its lightmap UVs
     // are computed from the world vertex, hence lightmap_world = true).
     if (fs::is_regular_file(game / "level0.sbw", ec)) {
@@ -1307,6 +1336,43 @@ void test_render() {
             const auto local = gm::render_scene(meshes, options, &pool, lightmaps);
             CHECK(local.rgb != image.rgb);
             CHECK_EQ(local.rgb.size(), image.rgb.size());
+
+            // LEVEL10 interior: the same eye/target as gm/render.py's pos/look,
+            // derived from the scene bounds (the scene is far larger, so this
+            // also exercises the z-buffer over more polygons).
+            if (fs::is_regular_file(game / "LEVEL10.sbw", ec)) {
+                const auto big = gm::load_level(game, "LEVEL10", error);
+                CHECK(big.has_value());
+                if (big && big->world) {
+                    const gm::Sbc* maps = big->lightmaps ? &*big->lightmaps : nullptr;
+                    const auto big_meshes = gm::build_level_meshes(*big->world, maps);
+                    gm::Vec3d lo{1e30, 1e30, 1e30};
+                    gm::Vec3d hi{-1e30, -1e30, -1e30};
+                    for (const auto& mesh : big_meshes) {
+                        for (const auto& v : mesh.vertices) {
+                            lo = {std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z)};
+                            hi = {std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z)};
+                        }
+                    }
+                    const gm::Vec3d center{(lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0,
+                                           (lo.z + hi.z) / 2.0};
+                    const double dx = hi.x - lo.x;
+                    const double dy = hi.y - lo.y;
+                    const double dz = hi.z - lo.z;
+                    const double big_radius =
+                        std::max(1e-6, 0.5 * std::sqrt(dx * dx + dy * dy + dz * dz));
+                    gm::RenderOptions inner;
+                    inner.width = 320;
+                    inner.height = 200;
+                    inner.lightmap_world = true;
+                    inner.camera_override = true;
+                    inner.eye = center;
+                    inner.eye.z += big_radius * 0.6;
+                    inner.target = center;
+                    const auto image = gm::render_scene(big_meshes, inner, &pool, maps);
+                    CHECK_EQ(fnv_rgb(image.rgb), 0x25e40d77af2f01baull);
+                }
+            }
 
             // Explicit camera (pos/look) and face clipping, both identical to
             // gm/render.py's output for the same parameters.
