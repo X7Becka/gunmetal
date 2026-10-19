@@ -788,10 +788,11 @@ def main() -> int:
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
                                                      "doors.py"),
                         "--game", G], capture_output=True, text=True, cwd=HERE)
-    tail = [l.strip() for l in p.stdout.strip().splitlines()[-2:]]
-    ok = (p.returncode == 0 and len(tail) == 2
+    tail = [l.strip() for l in p.stdout.strip().splitlines()[-3:]]
+    ok = (p.returncode == 0 and len(tail) == 3
           and "1779 doors (1534 sliding, 200 linked), 3964 switches, 45 lifts" in tail[0]
-          and "switch ids in the level's entity table: 3281/3964" in tail[1])
+          and "doors -> level objects: 1779/1779 valid (sector, object), 1779 distinct" in tail[1]
+          and "switch ids in the level's entity table: 3281/3964" in tail[2])
     results.append(report("scene / doors, switches, lifts", ok,
                           "; ".join(tail) or "no output"))
 

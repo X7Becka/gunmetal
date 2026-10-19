@@ -226,6 +226,21 @@ class Door:
     #: switch positions (same command family) land within ~5 units of the level
     #: mesh, while door corners stay ~1363 units away in ``dm1`` and no constant
     #: offset or axis permutation fixes that.  Treat them as raw operands.
+    #: ``params[0]``/``params[1]`` are a **sector index and an object index**
+    #: into the `.sbw` level: the door toggle calls ``0x434419(params[0],
+    #: params[1])``, which walks a two-level table (``ds:0x5670d8``, stride
+    #: ``0x18``: ``{count, pointer}``) and returns the object.  Across all 36
+    #: levels the indices are valid 1779/1779 and each door names a *different*
+    #: object (1779 distinct), i.e. one leaf per door.  ``params[2]`` is a
+    #: separate value (``1500``/``300``/``9999``), not part of the index.
+    @property
+    def sector(self) -> int:
+        return self.params[0] if self.params else -1
+
+    @property
+    def object(self) -> int:
+        return self.params[1] if len(self.params) > 1 else -1
+
     @property
     def corner(self) -> tuple:
         """First ``D`` triple -- the box corner (raw operand, not a world pos)."""

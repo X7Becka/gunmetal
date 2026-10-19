@@ -73,6 +73,7 @@ def main(argv=None):
 
     data = {}
     totals = {"doors": 0, "switches": 0, "lifts": 0, "sliding": 0, "linked": 0,
+              "parts": 0, "part_ok": 0, "part_distinct": set(),
               "sw_id": 0, "sw_id_ok": 0, "pos": 0, "pos_ok": 0}
     for path in files:
         stem = os.path.splitext(os.path.basename(path))[0]
@@ -91,6 +92,13 @@ def main(argv=None):
         totals["doors"] += len(sc.doors)
         totals["sliding"] += sum(1 for x in sc.doors if x.moving)
         totals["linked"] += sum(1 for x in sc.doors if len(x.ids) >= 4 and x.ids[3])
+        lvl = sbwmod.parse_file(os.path.splitext(path)[0] + ".sbw")
+        for x in sc.doors:
+            totals["parts"] += 1
+            si, oi = x.sector, x.object
+            if 0 <= si < len(lvl.sectors) and 0 <= oi < len(lvl.sectors[si].objects):
+                totals["part_ok"] += 1
+                totals["part_distinct"].add((stem, si, oi))
         totals["switches"] += len(sc.switches)
         totals["lifts"] += len(sc.lifts)
         for s in sc.switches:
@@ -129,6 +137,8 @@ def main(argv=None):
           "%d switches, %d lifts"
           % (totals["doors"], totals["sliding"], totals["linked"],
              totals["switches"], totals["lifts"]))
+    print("doors -> level objects: %d/%d valid (sector, object), %d distinct"
+          % (totals["part_ok"], totals["parts"], len(totals["part_distinct"])))
     print("  switch ids in the level's entity table: %d/%d"
           % (totals["sw_id_ok"], totals["sw_id"]))
     if args.frame:
