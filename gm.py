@@ -280,7 +280,8 @@ def cmd_sbc(opts) -> int:
         print("no .sbc files found", file=sys.stderr)
         return 1
 
-    os.makedirs(opts.out, exist_ok=True)
+    if not opts.check:
+        os.makedirs(opts.out, exist_ok=True)
     ok = bad = 0
     for p, rel in paths:
         stem = os.path.splitext(rel)[0]
@@ -295,15 +296,17 @@ def cmd_sbc(opts) -> int:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             with open(dst, "wb") as f:
                 f.write(blob.to_bytes())
-        out = os.path.join(opts.out, stem)
-        os.makedirs(out, exist_ok=True)
-        for i, rec in enumerate(blob.records):
-            with open(os.path.join(out, f"{i:04d}_{rec.width}x{rec.height}.png"), "wb") as f:
-                f.write(rec.to_png())
-        with open(os.path.join(out, "_sheet.png"), "wb") as f:
-            f.write(_sbc_sheet(blob))
+        if not opts.check:
+            out = os.path.join(opts.out, stem)
+            os.makedirs(out, exist_ok=True)
+            for i, rec in enumerate(blob.records):
+                with open(os.path.join(out, f"{i:04d}_{rec.width}x{rec.height}.png"), "wb") as f:
+                    f.write(rec.to_png())
+            with open(os.path.join(out, "_sheet.png"), "wb") as f:
+                f.write(_sbc_sheet(blob))
         ok += 1
-    print(f"sbc: {ok} files, {bad} failed -> {opts.out}")
+    print(f"sbc: {ok} files, {bad} failed -> "
+          f"{'(parsed only)' if opts.check else opts.out}")
     return 0 if bad == 0 else 1
 
 
@@ -1561,12 +1564,16 @@ def cmd_sob(opts) -> int:
     errs = 0
     for p in files:
         try:
-            sob.to_obj_file(p, opts.out)
+            if opts.check:
+                sob.parse(p)
+            else:
+                sob.to_obj_file(p, opts.out)
             ok += 1
         except Exception as exc:  # noqa: BLE001 - report and continue
             errs += 1
             print(f"  FAIL {os.path.basename(p)}: {exc}", file=sys.stderr)
-    print(f"sob: {ok} converted, {errs} failed -> {opts.out}")
+    print(f"sob: {ok} converted, {errs} failed -> "
+          f"{'(parsed only)' if opts.check else opts.out}")
     return 0 if errs == 0 else 1
 
 
@@ -1629,8 +1636,9 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("sbc", help=".sbc lightmap blobs -> per-record grayscale PNG + contact sheet")
     p.add_argument("paths", nargs="+", help="one or more .sbc files, or directories to scan")
-    p.add_argument("out")
+    p.add_argument("out", nargs="?")
     p.add_argument("--rebuild", help="write each .sbc back (re-serialised) into this directory")
+    p.add_argument("--check", action="store_true", help="parse only, write nothing")
     p.set_defaults(func=cmd_sbc)
 
     p = sub.add_parser("frontend", help="FRONTEND/BMP.DAT -> BMP")
@@ -1640,7 +1648,8 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("sob", help="convert .sob models to OBJ/MTL")
     p.add_argument("src")
-    p.add_argument("out")
+    p.add_argument("out", nargs="?")
+    p.add_argument("--check", action="store_true", help="parse only, write nothing")
     p.set_defaults(func=cmd_sob)
 
     p = sub.add_parser("scene", help="dump the scripted scene of .sbt levels")

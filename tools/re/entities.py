@@ -41,6 +41,7 @@ blocks are contiguous.
 Usage:  python3 entities.py [--game DIR] [--level STEM] [--rows N] [--json]
 """
 import argparse
+import bisect
 import collections
 import glob
 import json
@@ -88,22 +89,38 @@ def models(sbt):
     return [e.name for e in sbt.records_of(20)[0].payload.entries]
 
 
-def block_end(code, off):
-    """Offset just past the block starting at *off* (its terminating 0xFF)."""
-    ins, _ = sbtvm.decode(code, off, len(code))
-    for i in ins:
+def split_blocks(insns):
+    """Split a top-level instruction list into sub-script blocks.
+
+    Every entity row's ``offset`` points at the first instruction of a block;
+    the block ends at the next top-level ``END`` (0xFF).  Returning the segments
+    once turns the per-entity decode into a flat lookup (the old code decoded
+    the whole rest of the script for every row, 45k times in the supply).
+    """
+    segs, starts, cur = [], [], []
+    for i in insns:
+        cur.append(i)
         if i.name == "END":
-            return i.off + 1
+            segs.append((cur[0].off, i.off + 1, cur))
+            starts.append(cur[0].off)
+            cur = []
+    return segs, starts
+
+
+def block_for(segs, starts, off):
+    """The segment containing *off*, or ``None``."""
+    i = bisect.bisect_right(starts, off) - 1
+    if i >= 0 and segs[i][0] <= off < segs[i][1]:
+        return segs[i]
+    for seg in segs:
+        if seg[0] <= off < seg[1]:
+            return seg
     return None
 
 
-def thing_types_of(code, off, qtypes):
+def thing_types_of(ins):
     """``(condition name, type operand)`` of every ``ADD_THING*`` in a block."""
     out = []
-    try:
-        ins, _ = sbtvm.decode(code, off, len(code))
-    except Exception:
-        return out
     for i in ins:
         if i.name == "END":
             break
@@ -124,13 +141,9 @@ def _cond_id(name):
     return -1
 
 
-def generate_targets(code, off):
+def generate_targets(ins):
     """Ids passed to ``GENERATE`` inside one block."""
     out = []
-    try:
-        ins, _ = sbtvm.decode(code, off, len(code))
-    except Exception:
-        return out
     for i in ins:
         if i.name == "END":
             break
@@ -170,19 +183,19 @@ def main(argv=None):
         model = models(s)
         rows_ = rows(script)
         ids = {i & 0xFFFFFFFF for _f, i, _o in rows_}
+        try:
+            top, _end = sbtvm.decode(script.code)
+        except Exception:
+            top = []
+        segs, starts = split_blocks(top)
         out = []
         for k, (fl, eid, off) in enumerate(rows_):
-            end = block_end(script.code, off) if off < len(script.code) else None
+            seg = block_for(segs, starts, off) if off < len(script.code) else None
+            end = seg[1] if seg else None
             nxt = rows_[k + 1][2] if k + 1 < len(rows_) else None
-            tt = thing_types_of(script.code, off, len(names))
-            tg = generate_targets(script.code, off)
-            first = "?"
-            if off < len(script.code):
-                try:
-                    ins, _e = sbtvm.decode(script.code, off, off + 8)
-                    first = ins[0].name
-                except Exception:
-                    first = "?"
+            tt = thing_types_of(seg[2]) if seg else []
+            tg = generate_targets(seg[2]) if seg else []
+            first = seg[2][0].name if seg else "?"
             n_rows += 1
             if end is not None:
                 tot_blocks += 1

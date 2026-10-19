@@ -23,10 +23,17 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GM = os.path.join(HERE, "gm.py")
 DEFAULT_GAME = "/mnt/d/games/Gunmetal 3dfx"
+T0 = time.time()
+
+
+def stamp() -> str:
+    """Wall-clock stamp, so a slow check is visible in the log."""
+    return "t+%5.1fs" % (time.time() - T0)
 
 
 def run(args: list[str]) -> tuple[int, str]:
@@ -37,15 +44,75 @@ def run(args: list[str]) -> tuple[int, str]:
     return p.returncode, (p.stdout + p.stderr)
 
 
-def check(name: str, args: list[str], expect: list[str] | None = None) -> bool:
-    rc, out = run(args)
+# --- process-pool workers for the 36-level scene scans ----------------------
+# scene.load() is CPU-bound (parse + VM decode), so threads do not help; with
+# 32 cores a process pool turns a 45 s sweep into a few seconds.
+def _scan_counts(path: str) -> tuple:
+    from gm import scene
+    try:
+        return path, scene.load(path).counts()
+    except Exception:  # noqa: BLE001 - counted as a failure
+        return path, None
+
+
+def _scan_ratio(path: str):
+    import statistics
+
+    from gm import sbw, scene
+    try:
+        wb = sbw.parse_file(os.path.splitext(path)[0] + ".sbw")
+        spr = scene.load(path).sprites
+    except Exception:  # noqa: BLE001 - levels without a sibling .sbw
+        return path, None
+    if len(spr) < 4:
+        return path, None
+    lo, hi = [1e30] * 3, [-1e30] * 3
+    for s in wb.sectors:
+        for o in s.objects:
+            vs = o.vertices
+            if not vs:
+                continue
+            ext = max(max(v[k] for v in vs) - min(v[k] for v in vs)
+                      for k in range(3))
+            if ext > 4000:  # sky box
+                continue
+            for v in vs:
+                for k in range(3):
+                    lo[k] = min(lo[k], v[k])
+                    hi[k] = max(hi[k], v[k])
+    gspan = [hi[k] - lo[k] for k in range(3)]
+    pspan = [max(q.pos[k] for q in spr) - min(q.pos[k] for q in spr)
+             for k in range(3)]
+    r = [pspan[k] / gspan[k] for k in range(3) if gspan[k] > 1]
+    return path, (statistics.median(r) if r else None)
+
+
+def _scan_things(path: str) -> tuple:
+    from gm import scene
+    try:
+        sc = scene.load(path)
+    except Exception:  # noqa: BLE001 - keep the sweep going
+        return path, 0, 0, []
+    return (path, len(sc.things), sum(1 for t in sc.things if t.absolute),
+            [t.model for t in sc.things if t.model])
+
+
+def _pool_map(fn, files: list[str], workers: int = 8) -> list:
+    from concurrent.futures import ProcessPoolExecutor
+    workers = max(1, min(workers, len(files), os.cpu_count() or 1))
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(fn, files))
+
+
+def check_result(name: str, args: list[str], expect: list[str] | None,
+                 rc: int, out: str) -> bool:
     tail = out.strip().splitlines()[-1] if out.strip() else "(no output)"
     ok = rc == 0
     for e in expect or []:
         if e not in out:
             ok = False
     status = "ok  " if ok else "FAIL"
-    print(f"[{status}] {name}")
+    print(f"[{status}] {name}  [{stamp()}]")
     if not ok:
         print(f"        cmd: gm.py {' '.join(args)}")
         print(f"        last: {tail}")
@@ -55,8 +122,35 @@ def check(name: str, args: list[str], expect: list[str] | None = None) -> bool:
     return ok
 
 
+def check(name: str, args: list[str], expect: list[str] | None = None) -> bool:
+    rc, out = run(args)
+    return check_result(name, args, expect, rc, out)
+
+
+def check_many(specs: list[tuple], workers: int = 4) -> list[bool]:
+    """Run independent checks concurrently, print them in submission order.
+
+    The extraction checks (textures/sprites/sounds/frontend) are independent
+    gm.py invocations and dominate ``--full``; with 32 cores there is no reason
+    to serialise them.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    results: list[bool] = []
+
+    def work(spec):
+        name, args, expect = spec
+        rc, out = run(args)
+        return name, args, expect, rc, out
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        for name, args, expect, rc, out in pool.map(work, specs):
+            results.append(check_result(name, args, expect, rc, out))
+    return results
+
+
 def report(name: str, ok: bool, detail: str = "") -> bool:
-    print(f"[{'ok  ' if ok else 'FAIL'}] {name}" + (f"  ({detail})" if ok and detail else ""))
+    print(f"[{'ok  ' if ok else 'FAIL'}] {name}" + (f"  ({detail})" if ok and detail else "")
+          + f"  [{stamp()}]")
     if not ok and detail:
         print(f"        {detail}")
     return ok
@@ -201,7 +295,8 @@ def sbv_checks(G: str, results: list[bool], out: str) -> None:
                           "Intro.sbv encoded back through frames.txt"))
 
 
-def scene_checks(G: str, results: list[bool], out: str) -> None:
+def scene_checks(G: str, results: list[bool], out: str,
+                 cache: dict | None = None) -> None:
     """Scripted scene extraction (gm.scene) and its viewer overlay.
 
     The shipped levels carry no placed-object list at all, so the scene is
@@ -237,10 +332,8 @@ def scene_checks(G: str, results: list[bool], out: str) -> None:
     tot = {"lights": 0, "locations": 0, "items": 0, "sounds": 0, "sprites": 0}
     files = sorted(glob.glob(os.path.join(G, "*.sbt")))
     bad = 0
-    for f in files:
-        try:
-            c = scene.load(f).counts()
-        except Exception:  # noqa: BLE001 - count and continue
+    for f, c in _pool_map(_scan_counts, files):
+        if c is None:
             bad += 1
             continue
         for k in tot:
@@ -260,35 +353,7 @@ def scene_checks(G: str, results: list[bool], out: str) -> None:
     # the basis itself.
     import statistics
 
-    ratios = []
-    for f in files:
-        try:
-            wb = sbw.parse_file(os.path.splitext(f)[0] + ".sbw")
-            spr = scene.load(f).sprites
-        except Exception:  # noqa: BLE001 - skip levels without a sibling .sbw
-            continue
-        if len(spr) < 4:
-            continue
-        lo, hi = [1e30] * 3, [-1e30] * 3
-        for s in wb.sectors:
-            for o in s.objects:
-                vs = o.vertices
-                if not vs:
-                    continue
-                ext = max(max(v[k] for v in vs) - min(v[k] for v in vs)
-                          for k in range(3))
-                if ext > 4000:  # sky box
-                    continue
-                for v in vs:
-                    for k in range(3):
-                        lo[k] = min(lo[k], v[k])
-                        hi[k] = max(hi[k], v[k])
-        gspan = [hi[k] - lo[k] for k in range(3)]
-        pspan = [max(p.pos[k] for p in spr) - min(p.pos[k] for p in spr)
-                 for k in range(3)]
-        r = [pspan[k] / gspan[k] for k in range(3) if gspan[k] > 1]
-        if r:
-            ratios.append(statistics.median(r))
+    ratios = [r for _f, r in _pool_map(_scan_ratio, files) if r is not None]
     med = statistics.median(ratios) if ratios else 0.0
     results.append(report("scene / world frame is the 1.875 basis",
                           1.2 <= med <= 2.4 and len(ratios) >= 15,
@@ -711,11 +776,14 @@ def main() -> int:
     results.append(check("sbt / all levels + resolve", ["sbt", G, "--resolve"],
                          ["sbt: 36 parsed, 0 failed"]))
     results.append(check("sbc / all levels",
-                         ["sbc", *sorted(glob.glob(os.path.join(G, "*.sbc"))), out],
+                         ["sbc", *sorted(glob.glob(os.path.join(G, "*.sbc"))), out]
+                         + ([] if opts.full else ["--check"]),
                          ["sbc: 36 files, 0 failed"]))
 
     # --- models / animations / audio -------------------------------------
-    results.append(check("sob / models", ["sob", f"{G}/SOBS", out], ["sob: 672 converted, 0 failed"]))
+    results.append(check("sob / models", ["sob", f"{G}/SOBS", out]
+                         + ([] if opts.full else ["--check"]),
+                         ["sob: 672 converted, 0 failed"]))
     render_checks(G, results, out, opts.full)
     scene_checks(G, results, out)
     results.append(check("soa / animations", ["soa", G], ["soa: 104 parsed, 0 failed"]))
@@ -821,15 +889,12 @@ def main() -> int:
     from gm import scene as scenemod
     n_things = n_abs = n_models = 0
     models: set = set()
-    for p in sorted(glob.glob(os.path.join(G, "*.sbt"))):
-        sc = scenemod.load(p)
-        for t in sc.things:
-            n_things += 1
-            if t.absolute:
-                n_abs += 1
-            if t.model:
-                models.add(t.model)
-                n_models += 1
+    for _p, n, n_a, names in _pool_map(_scan_things,
+                                       sorted(glob.glob(os.path.join(G, "*.sbt")))):
+        n_things += n
+        n_abs += n_a
+        models.update(names)
+        n_models += len(names)
     results.append(report("scene / things (ADD_THING* in sub-scripts)",
                           n_things == 4008 and n_abs == 2844
                           and n_models == 4005 and len(models) == 138,
@@ -949,17 +1014,20 @@ def main() -> int:
 
     # --- optional heavy extraction ---------------------------------------
     if opts.full:
-        results.append(check("textures / PICS -> PNG",
-                             ["textures", G, os.path.join(out, "tex")], ["0 failed"]))
-        results.append(check("sprites / sprites -> PNG",
-                             ["sprites", G, os.path.join(out, "spr")], ["0 failed"]))
-        results.append(check("sounds / sounds -> WAV",
-                             ["sounds", G, os.path.join(out, "snd")], ["0 failed"]))
-        results.append(check("frontend / BMP.DAT",
-                             ["frontend", G, os.path.join(out, "fe")], ["143 files"]))
+        results.extend(check_many([
+            ("textures / PICS -> PNG",
+             ["textures", G, os.path.join(out, "tex")], ["0 failed"]),
+            ("sprites / sprites -> PNG",
+             ["sprites", G, os.path.join(out, "spr")], ["0 failed"]),
+            ("sounds / sounds -> WAV",
+             ["sounds", G, os.path.join(out, "snd")], ["0 failed"]),
+            ("frontend / BMP.DAT",
+             ["frontend", G, os.path.join(out, "fe")], ["143 files"]),
+        ]))
 
     passed = sum(results)
-    print(f"\nregress: {passed}/{len(results)} checks passed"
+    print(f"\nregress: {passed}/{len(results)} checks passed in "
+          f"{time.time() - T0:.1f}s"
           + ("" if opts.full else "  (use --full for extraction checks)"))
     return 0 if passed == len(results) else 1
 
