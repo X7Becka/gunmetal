@@ -179,7 +179,16 @@ def scene_checks(G: str, results: list[bool], out: str) -> None:
     sure the viewer overlay stays wired to them.
     """
     sys.path.insert(0, HERE)
-    from gm import render, sbw, scene
+    from gm import render, sbt, sbtvm, sbw, scene
+
+    def _script(path):
+        return [r.payload for r in sbt.parse_file(path).records if r.type == 11][0]
+
+    def _walk_all(insns):
+        for i in insns:
+            yield i
+            if isinstance(i.body, list):
+                yield from _walk_all(i.body)
 
     sc = scene.load(os.path.join(G, "dm1.sbt"))
     cnt = sc.counts()
@@ -254,6 +263,31 @@ def scene_checks(G: str, results: list[bool], out: str) -> None:
                           1.2 <= med <= 2.4 and len(ratios) >= 15,
                           "sprite/geometry spread ratio %.2f over %d levels"
                           % (med, len(ratios))))
+
+    # the SCRIPT handle columns are the level's entity table: (flags, id,
+    # record offset).  Its ids are what the ADD_* commands address entities by.
+    ents = scene.entities(_script(os.path.join(G, "dm1.sbt")))
+    ids = {e[0] & 0xFFFFFFFF for e in ents}
+    ins, _ = sbtvm.decode(_script(os.path.join(G, "dm1.sbt")).code)
+    switched = {i.args[1] & 0xFFFFFFFF for i in _walk_all(ins)
+                if getattr(i, "op", None) == 183 and len(i.args) > 1}
+    flags_ok = {e[1] for e in ents} <= {0, 511, 1023}
+    results.append(report(
+        "scene / entity table",
+        len(ents) == 363 and flags_ok and len(switched & ids) >= 25,
+        "dm1: %d entities, flags %s, %d/%d unique ADD_SWITCH ids in the table"
+        % (len(ents), sorted({e[1] for e in ents}), len(switched & ids),
+           len(switched))))
+
+    # column 2 is a byte offset into a variable-length compiled record buffer:
+    # the *steps* between consecutive entities repeat level to level
+    # (the levels are built from the same editor templates).
+    steps_dm1 = [ents[i + 1][2] - ents[i][2] for i in range(1, 7)]
+    ents13 = scene.entities(_script(os.path.join(G, "level13.sbt")))
+    steps_13 = [ents13[i + 1][2] - ents13[i][2] for i in range(1, 7)]
+    results.append(report("scene / entity record offsets",
+                          steps_dm1 == steps_13 and steps_dm1 == [6, 11, 34, 122, 994, 3],
+                          "steps 2..7 %s (identical in level13)" % steps_dm1))
 
     # the overlay and the light shading must reach the renderer
     pool = render.TexturePool(G)

@@ -866,7 +866,8 @@ def cmd_scene(opts) -> int:
             print(f"{os.path.basename(p)}: {cnt['lights']} lights, "
                   f"{cnt['locations']} locations/things, {cnt['items']} items, "
                   f"{cnt['sounds']} sound sources, {cnt['sprites']} sprites, "
-                  f"{cnt['other']} other placement commands")
+                  f"{cnt['other']} other placement commands, "
+                  f"{cnt['entities']} entities")
             for l in sc.lights[:opts.show]:
                 print(f"  light {l.kind:5s} pos=({l.pos[0]},{l.pos[1]},{l.pos[2]}) "
                       f"rgb={l.rgb} param={l.param}")
@@ -893,6 +894,8 @@ def cmd_scene(opts) -> int:
                         "pitch": x.pitch} for x in sc.sounds],
             "sprites": [{"id": x.id, "pos": list(x.pos), "jitter": x.jitter,
                          "extra": list(x.extra)} for x in sc.sprites],
+            "entities": [{"id": i, "flags": f, "offset": o}
+                         for i, f, o in sc.entities],
             "other": sc.other,
         }
     if opts.json:

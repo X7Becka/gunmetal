@@ -163,13 +163,16 @@ class Scene:
     items: list[Item] = field(default_factory=list)
     sounds: list[SoundSource] = field(default_factory=list)
     sprites: list[Sprite] = field(default_factory=list)
+    #: the level's entity table as ``(id, flags, offset)`` triples
+    entities: list = field(default_factory=list)
     #: commands seen whose operand layout is still opaque (name -> count)
     other: dict = field(default_factory=dict)
 
     def counts(self) -> dict:
         return {"lights": len(self.lights), "locations": len(self.locations),
                 "items": len(self.items), "sounds": len(self.sounds),
-                "sprites": len(self.sprites), "other": sum(self.other.values())}
+                "sprites": len(self.sprites), "entities": len(self.entities),
+                "other": sum(self.other.values())}
 
     def scaled(self, factor: float = SCALE) -> Scene:
         """A copy with every position multiplied by ``factor``."""
@@ -183,6 +186,7 @@ class Scene:
             [Item(x.item_id, s(x.pos), x.fixed, x.extra) for x in self.items],
             [SoundSource(s(x.pos), x.sample, x.volume, x.pitch) for x in self.sounds],
             [Sprite(s(x.pos), x.jitter, x.id, x.extra) for x in self.sprites],
+            list(self.entities),
             dict(self.other),
         )
 
@@ -235,10 +239,30 @@ def _walk(insns):
             yield from _walk(i.body)
 
 
+def entities(script: sbt.Script) -> list[tuple[int, int, int]]:
+    """The level's entity table: ``(id, flags, offset)`` per record.
+
+    The ``SCRIPT`` block keeps three columns of ``n`` u32 right after the things
+    array (loader ``0x462b03``..``0x462bb0``: flags -> ``0x5b0df0``, ids ->
+    ``0x5e4680``, offsets -> ``0x616658``, the count -> ``0x5b1df0``).  The
+    commands address an entity by the *id* (a linear search over the id column,
+    e.g. ``0x457c49``/``0x457c80``/``0x457cd5`` setting or clearing bits of the
+    flags word), the compiler writes ``0x3ff`` into flags and appends the record
+    (``0x460843``..``0x4608a8``, the id coming from the name token the lexer at
+    ``0x45fb90``/``0x460ea0`` interns), and the last column is a byte offset into
+    the variable-length compiled entity buffer.
+    """
+    n = script.n
+    if n <= 0 or len(script.handles) < 12 * n:
+        return []
+    cols = struct.unpack_from("<%dI" % (3 * n), script.handles, 0)
+    return [(_s32(cols[n + i]), cols[i], cols[2 * n + i]) for i in range(n)]
+
+
 def extract(script: sbt.Script) -> Scene:
     """Decode a ``SCRIPT`` record into its lights and placed objects."""
     ins, _end = sbtvm.decode(script.code)
-    scene = Scene()
+    scene = Scene(entities=entities(script))
     for i in _walk(ins):
         op = getattr(i, "op", None)
         if op not in (_SKY, _LOCAL, _LOCATION, _ITEM, _ITEM_FIXED, _SOUND, _SPRITE):
