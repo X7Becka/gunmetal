@@ -412,6 +412,55 @@ def write_path_checks(G: str, results: list[bool], out: str) -> None:
                               f"{n} files byte-identical"))
 
 
+def sbw_field_checks(G: str, results: list[bool]) -> None:
+    """Scan all levels for the invariants behind the residual ``.sbw`` fields."""
+    sys.path.insert(0, HERE)
+    import math
+    import struct
+
+    from gm import sbw
+
+    tot = u_ok = v_ok = 0
+    kinds: set[int] = set()
+    flags: set[int] = set()
+    f32_bad = 0
+    for path in sorted(glob.glob(os.path.join(G, "*.sbw"))):
+        w = sbw.parse_file(path)
+        for s in w.sectors:
+            kinds.add(s.kind)
+            for o in s.objects:
+                for p in o.polys:
+                    tot += 1
+                    if p.u_scale == ((_s32(p.uv_u_fp) >> 7) & 0xFFFF):
+                        u_ok += 1
+                    if p.v_scale == ((_s32(p.uv_v_fp) >> 7) & 0xFFFF):
+                        v_ok += 1
+                    flags.add(p.flags)
+                    for lo, hi in ((p.scroll_u, p.anim0), (p.scroll_v, p.anim1)):
+                        f = struct.unpack("<f", struct.pack("<I", (hi << 16) | lo))[0]
+                        if not math.isfinite(f) or f == 0.0:
+                            f32_bad += 1
+    results.append(report(
+        "sbw / u_scale is derived (uv_fp >> 7)",
+        u_ok >= tot - 12 and v_ok >= tot - 10,
+        "%d polys: u %d, v %d match (text loader 0x425db4/0x425ddc)"
+        % (tot, u_ok, v_ok)))
+    results.append(report("sbw / poly flags", flags == {0x8000, 0x8002, 0x8004, 0x8006},
+                          "flag set %s (0x8000 = UV/frame valid)"
+                          % sorted(hex(f) for f in flags)))
+    results.append(report("sbw / sector kind = 6 x type",
+                          kinds == {0, 6, 12, 18, 24},
+                          "kinds %s (SET_SECTOR_TYPE writes type*6)"
+                          % sorted(kinds)))
+    results.append(report("sbw / anim pairs are f32", f32_bad == 0,
+                          "%d polys, %d (0x5c,0x5e)/(0x60,0x62) pairs are finite f32"
+                          % (tot, 2 * tot)))
+
+
+def _s32(v: int) -> int:
+    return v - 0x100000000 if v >= 0x80000000 else v
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -487,6 +536,9 @@ def main() -> int:
     results.append(check("look / LOOK162 vs NEONS.PIN",
                          ["look", f"{G}/LOOK162.TAB", "--neons", f"{G}/NEONS.PIN"],
                          ["20 distinct", "value-set match: True"]))
+
+    # --- residual .sbw fields (fast: parses all 36 levels in ~2 s) --------
+    sbw_field_checks(G, results)
 
     # --- optional heavy extraction ---------------------------------------
     if opts.full:

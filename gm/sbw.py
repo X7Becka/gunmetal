@@ -25,7 +25,8 @@ loop at ``0x42ad65`` and the stage-2 loop ``0x425f4c`` -> ``0x422b88`` /
     u32 count3;                                     // sectors
     count3 * {                                      // stage 1 (transforms)
         u32 objects;            // objects in this sector
-        u16 kind;               // sector kind/flag
+        u16 kind;               // sector type * 6 (SET_SECTOR_TYPE; getter
+                                // 0x42d9a0 divides by 6); render never reads it
         u8  sub;                // sector sub-flag
         objects * {
             u32 id;             // object id
@@ -71,37 +72,51 @@ Engine offsets -> meaning (evidence in parentheses):
                        (stride 0x40, name at +0x34)
     0x04 u16 lightmap  lightmap index (signed): 0 = none, >0 = lightmap slot;
                        rebased by the level's lightmap base at load time
-    0x06 u16 u_scale   texture-coordinate scale (see 0x54/0x58)
+    0x06 u16 u_scale   derived: uv_u_fp >> 7 (text loader 0x425db4; holds for
+                       235057/235069 shipped polys)
     0x08 3f  centre    object-local polygon centre
     0x14 3f  normal    face normal (unit)
     0x20 3f  u_axis    texture U axis (unit)
     0x2c 3f  v_axis    texture V axis (unit)
     0x38 3f  corner_a  reference corner (lightmap-plane projected)
     0x44 3f  corner_b  reference corner
-    0x50 u16 uv_u      texture coordinate, 1/128 units (text loader rounds)
-    0x52 u16 uv_v      texture coordinate, 1/128 units
-    0x54 u32 uv_u_fp   u32 companion of 0x50
-    0x58 u32 uv_v_fp   u32 companion of 0x52
-    0x5c u16 scroll_u  animated texture scroll U (SET_POLY_SCROLL, id 0x11)
-    0x5e u16 anim0     animated UV scalar
-    0x60 u16 scroll_v  animated texture scroll V (SET_POLY_SCROLL)
-    0x62 u16 anim1     animated UV scalar
-    0x64 u16 v_scale   texture-coordinate scale
-    0x66 u16 anim2     animated UV scalar
+    0x50 u16 uv_u      texture coordinate; the text loader's auto UV adds
+                       dot(u_axis, v-centre)*256 per unit (0x4a2258 = 256.0)
+    0x52 u16 uv_v      same for V
+    0x54 u32 uv_u_fp   signed int offset: texel = ftol((dot(u_axis,
+                       v-centre)*64 + 0x54)/2) >> 10 (consts 0x4a2298 = 64.0,
+                       0x4a2280 = 2.0) -- the lightmap sampling formula
+    0x58 u32 uv_v_fp   same for V
+    0x5c u16 scroll_u  U scroll weight: helper 0x434c80 reads it as s16 and
+                       builds t*(s16[0x5c]*u_axis + s16[0x60]*v_axis)/256.0
+                       (SET_POLY_SCROLL relates)
+    0x5e u16 anim0     animated s16; 0x4342f0 lerps the 16-bit halves between
+                       two key polys
+    0x60 u16 scroll_v  see 0x5c
+    0x62 u16 anim1     see 0x5e
+    0x64 u16 v_scale   derived: uv_v_fp >> 7 (text loader 0x425ddc)
+    0x66 u16 anim2     see 0x5e
     0x68 u32 reserved  always 0
     0x6c u16 idx[]     vertex indices (n_idx of them, stored after 0x71)
     0x70 u8  bright    brightness byte (SET_POLY_BRIGHTNESS, id 0x10)
     0x71 u8  n_idx     number of vertex indices
     0x72 u16 handle    slot id; text loader maps input 1->0x7ff8, 2->0x7ff9
-    0x74 u16 f74       auxiliary
-    0x76 u16 f76       auxiliary
+    0x74 u16 f74       runtime auxiliary: the text loader zeroes it (0x425df2)
+    0x76 u16 f76       same (0x425de6)
     0x78 u16 overlay   overlay texture index (same encoding as 0x00)
     0x7a u16 f7a       auxiliary
-    0x7c u32 flags     flag word; 0x8000 base, bit 0x2 = transparent (set when
-                       the base texture is a "sprites"/transparent texture)
+    0x7c u32 flags     bit 0x8000 = "UV/frame computed" (set on every shipped
+                       poly; when clear 0x43e02d recomputes the UVs), bit 0x2
+                       = transparent ("sprites" texture), bit 0x4 toggled by
+                       a command (xor [poly+0x7c],4 at 0x46adbc/0x46aefa)
 
-The five animated scalars 0x5c/0x5e/0x60/0x62/0x66 are interpolated together
-by the engine (``0x4342f0``), which is how texture scrolling is animated.
+The five animated scalars 0x5c/0x5e/0x60/0x62/0x66 are interpolated *per 16-bit
+half* by ``0x4342f0`` (between two key polys).  Empirically (but never read as
+such by the engine, which only ever loads these slots as ``s16``) the shipped
+pairs ``(0x5c,0x5e)`` and ``(0x60,0x62)`` are bit-exact finite non-zero ``f32``
+values clustered at powers of two (72 % within 5 % of ``2**k``, the most
+common being exactly ``2**k*(1+1/128)``; the link to ``u_scale`` is only
+statistical, median ``u_scale*f`` = 0.77) -- apparently an export artefact.
 """
 
 from __future__ import annotations
