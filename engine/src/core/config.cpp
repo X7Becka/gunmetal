@@ -70,6 +70,69 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.png = std::filesystem::path(std::string(*v));
+        } else if (arg == "--render") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.render = std::filesystem::path(std::string(*v));
+        } else if (arg == "--model") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.model = std::filesystem::path(std::string(*v));
+        } else if (arg == "--width") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            if (!parse_int(*v, options.width) || options.width <= 0) {
+                error = "--width expects a positive integer";
+                return std::nullopt;
+            }
+        } else if (arg == "--height") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            if (!parse_int(*v, options.height) || options.height <= 0) {
+                error = "--height expects a positive integer";
+                return std::nullopt;
+            }
+        } else if (arg == "--az" || arg == "--el" || arg == "--zoom" || arg == "--fov") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            float number = 0.0f;
+            try {
+                std::size_t used = 0;
+                number = std::stof(std::string(*v), &used);
+                if (used != v->size()) {
+                    throw std::invalid_argument("trailing");
+                }
+            } catch (const std::exception&) {
+                error = std::string(arg) + " expects a number";
+                return std::nullopt;
+            }
+            if (arg == "--az") {
+                options.az = number;
+            } else if (arg == "--el") {
+                options.el = number;
+            } else if (arg == "--zoom") {
+                options.zoom = number;
+            } else {
+                options.fov = number;
+            }
+        } else if (arg == "--no-textures") {
+            options.no_textures = true;
+        } else if (arg == "--no-lightmaps") {
+            options.no_lightmaps = true;
+        } else if (arg == "--lm-world") {
+            options.lightmap_world = true;
+        } else if (arg == "--wire") {
+            options.wire = true;
         } else if (arg == "--frames" || arg == "-n") {
             const auto v = value(arg);
             if (!v) {
@@ -103,9 +166,20 @@ std::string usage() {
        << "usage: gunmetal [options]\n\n"
        << "  -g, --game DIR    installation root (default: $GUNMETAL_DIR or\n"
        << "                    /mnt/d/games/Gunmetal 3dfx)\n"
-       << "  -l, --level NAME  level to load (not implemented yet)\n"
+       << "  -l, --level NAME  level to load (world + entities + lightmaps)\n"
        << "  -d, --dump FILE   print size and the first bytes of FILE, then exit\n"
        << "      --png OUT     with --dump of a .sbm/.bmp: write OUT as PNG\n"
+       << "      --render OUT  render --level or --model into OUT (PNG)\n"
+       << "      --model FILE  render a .sob model instead of a level\n"
+       << "      --width N     render width (default 480)\n"
+       << "      --height N    render height (default 480)\n"
+       << "      --az DEG      camera azimuth (default 35)\n"
+       << "      --el DEG      camera elevation (default 22)\n"
+       << "      --zoom X      camera zoom (default 1)\n"
+       << "      --fov DEG     field of view (default 45)\n"
+       << "      --no-textures flat colours instead of archive textures\n"
+       << "      --no-lightmaps ignore .sbc lightmaps\n"
+       << "      --wire        draw polygon edges\n"
        << "      --headless    do not create a window\n"
        << "  -n, --frames N    stop after N frames (default: until closed)\n"
        << "  -v, --verbose     debug logging\n"

@@ -17,8 +17,12 @@
 #include "res/level.h"
 #include "res/sbv.h"
 #include "res/anim.h"
+#include "render/render.h"
 
+#include <algorithm>
+#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -460,6 +464,88 @@ int dump_file(const gm::Options& options) {
     return 0;
 }
 
+int render_image(const gm::Options& options) {
+    std::string error;
+    std::vector<gm::RenderMesh> meshes;
+    const gm::Sbc* lightmaps = nullptr;
+
+    std::optional<gm::LevelBundle> level;
+    std::optional<gm::Sob> model;
+    if (!options.model.empty()) {
+        const auto bytes = read_file(options.model, error);
+        if (!bytes) {
+            gm::logf(gm::LogLevel::Error, "render", error);
+            return 2;
+        }
+        model = gm::parse_sob(*bytes, error);
+        if (!model) {
+            gm::logf(gm::LogLevel::Error, "render", options.model.string() + ": " + error);
+            return 2;
+        }
+        meshes = gm::build_model_meshes(*model);
+    } else {
+        if (options.level.empty()) {
+            gm::logf(gm::LogLevel::Error, "render", "--render needs --level NAME or --model FILE");
+            return 2;
+        }
+        level = gm::load_level(options.game, options.level, error);
+        if (!level || !level->world) {
+            gm::logf(gm::LogLevel::Error, "render", error);
+            return 2;
+        }
+        lightmaps = level->lightmaps ? &*level->lightmaps : nullptr;
+        meshes = gm::build_level_meshes(*level->world, lightmaps);
+    }
+
+    gm::TexturePool pool(options.game);
+    gm::RenderOptions render;
+    render.width = options.width;
+    render.height = options.height;
+    render.az = options.az;
+    render.el = options.el;
+    render.zoom = options.zoom;
+    render.fov = options.fov;
+    render.textures = !options.no_textures;
+    render.lightmaps = !options.no_lightmaps;
+    render.lightmap_world = options.lightmap_world;
+    render.wire = options.wire;
+
+    std::size_t faces = 0;
+    for (const auto& mesh : meshes) {
+        faces += mesh.faces.size();
+    }
+    if (!meshes.empty() && !meshes.front().vertices.empty()) {
+        gm::Vec3d lo{1e30, 1e30, 1e30};
+        gm::Vec3d hi{-1e30, -1e30, -1e30};
+        for (const auto& mesh : meshes) {
+            for (const auto& v : mesh.vertices) {
+                lo = {std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z)};
+                hi = {std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z)};
+            }
+        }
+        std::printf("bounds: (%g, %g, %g) .. (%g, %g, %g)\n", lo.x, lo.y, lo.z, hi.x, hi.y,
+                    hi.z);
+    }
+    const auto image = gm::render_scene(meshes, render, &pool, lightmaps);
+
+    std::vector<std::uint8_t> rgba(static_cast<std::size_t>(image.width) * image.height * 4, 255);
+    for (std::size_t i = 0; i < image.rgb.size() / 3; ++i) {
+        rgba[i * 4 + 0] = image.rgb[i * 3 + 0];
+        rgba[i * 4 + 1] = image.rgb[i * 3 + 1];
+        rgba[i * 4 + 2] = image.rgb[i * 3 + 2];
+    }
+    const auto png = gm::encode_png_rgba(image.width, image.height, rgba);
+    if (!write_file(options.render, png)) {
+        gm::logf(gm::LogLevel::Error, "render", "cannot write " + options.render.string());
+        return 2;
+    }
+    std::printf("render: %dx%d\n", image.width, image.height);
+    std::printf("meshes: %zu faces: %zu\n", meshes.size(), faces);
+    std::printf("textures: %zu loaded, %zu missing\n", pool.loads(), pool.misses());
+    std::printf("output: %s (%zu bytes)\n", options.render.string().c_str(), png.size());
+    return 0;
+}
+
 int show_level(const gm::Options& options) {
     std::string error;
     const auto level = gm::load_level(options.game, options.level, error);
@@ -546,6 +632,9 @@ int main(int argc, char** argv) {
     }
     if (!options->dump.empty()) {
         return dump_file(*options);
+    }
+    if (!options->render.empty()) {
+        return render_image(*options);
     }
     if (!options->level.empty()) {
         return show_level(*options);

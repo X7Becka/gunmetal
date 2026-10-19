@@ -14,6 +14,18 @@ struct Options {
     std::string level;
     std::filesystem::path dump;
     std::filesystem::path png;
+    std::filesystem::path render; // output PNG for --render
+    std::filesystem::path model;  // .sob to render instead of a level
+    int width = 480;
+    int height = 480;
+    float az = 35.0f;
+    float el = 22.0f;
+    float zoom = 1.0f;
+    float fov = 45.0f;
+    bool no_textures = false;
+    bool no_lightmaps = false;
+    bool lightmap_world = false;
+    bool wire = false;
     bool headless = false;
     int frames = -1; // < 0: run until the window is closed
     bool verbose = false;

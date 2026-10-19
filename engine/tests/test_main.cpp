@@ -19,6 +19,7 @@
 #include "res/level.h"
 #include "res/sbv.h"
 #include "res/cache.h"
+#include "render/render.h"
 #include "res/anim.h"
 #include "core/hash.h"
 
@@ -1225,6 +1226,101 @@ void test_cache() {
     CHECK_EQ(cache.stats().bytes, 0u);
 }
 
+void test_render() {
+    const fs::path game = "/mnt/d/games/Gunmetal 3dfx";
+    std::error_code ec;
+    if (!fs::is_directory(game, ec)) {
+        return;
+    }
+    auto fnv_rgb = [](const std::vector<std::uint8_t>& rgb) {
+        std::uint64_t h = 0xcbf29ce484222325ull;
+        for (std::uint8_t b : rgb) {
+            h ^= b;
+            h *= 0x100000001b3ull;
+        }
+        return h;
+    };
+    auto read = [](const fs::path& path) {
+        std::ifstream in(path, std::ios::binary);
+        return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(in)),
+                                         std::istreambuf_iterator<char>());
+    };
+
+    gm::TexturePool pool(game);
+    std::string error;
+
+    // 20mmclp.sob: 8 vertices / 6 faces, texture CLIP1.
+    const fs::path clip_path = game / "SOBS/20mmclp.sob";
+    if (fs::is_regular_file(clip_path, ec)) {
+        const auto bytes = read(clip_path);
+        const auto model = gm::parse_sob(bytes, error);
+        CHECK(model.has_value());
+        if (model) {
+            gm::RenderOptions options;
+            options.width = 160;
+            options.height = 160;
+            const auto image =
+                gm::render_scene(gm::build_model_meshes(*model), options, &pool, nullptr);
+            CHECK_EQ(image.width, 160);
+            CHECK_EQ(image.rgb.size(), std::size_t{160 * 160 * 3});
+            CHECK_EQ(fnv_rgb(image.rgb), 0xc376475e890d6879ull);
+        }
+    }
+
+    // MOCLASS.SOB: the largest model (957 vertices / 1130 faces).
+    const fs::path moclass_path = game / "SOBS/MOCLASS.SOB";
+    if (fs::is_regular_file(moclass_path, ec)) {
+        const auto bytes = read(moclass_path);
+        const auto model = gm::parse_sob(bytes, error);
+        CHECK(model.has_value());
+        if (model) {
+            gm::RenderOptions options;
+            options.width = 160;
+            options.height = 160;
+            const auto image =
+                gm::render_scene(gm::build_model_meshes(*model), options, &pool, nullptr);
+            CHECK_EQ(fnv_rgb(image.rgb), 0xdff93879e03ce1abull);
+        }
+    }
+
+    // level0 at 320x200, exactly as gm/render.py renders it (its lightmap UVs
+    // are computed from the world vertex, hence lightmap_world = true).
+    if (fs::is_regular_file(game / "level0.sbw", ec)) {
+        const auto level = gm::load_level(game, "level0", error);
+        CHECK(level.has_value());
+        if (level && level->world) {
+            const gm::Sbc* lightmaps = level->lightmaps ? &*level->lightmaps : nullptr;
+            const auto meshes = gm::build_level_meshes(*level->world, lightmaps);
+            gm::RenderOptions options;
+            options.width = 320;
+            options.height = 200;
+            options.lightmap_world = true;
+            const auto image = gm::render_scene(meshes, options, &pool, lightmaps);
+            CHECK_EQ(image.width, 320);
+            CHECK_EQ(image.height, 200);
+            CHECK_EQ(fnv_rgb(image.rgb), 0x20e80d077fd4f6bcull);
+
+            // The engine-faithful frame (lightmaps sampled in the polygon's
+            // local frame) must differ, but stay close: same geometry, other
+            // lightmap texels on some faces.
+            options.lightmap_world = false;
+            const auto local = gm::render_scene(meshes, options, &pool, lightmaps);
+            CHECK(local.rgb != image.rgb);
+            CHECK_EQ(local.rgb.size(), image.rgb.size());
+
+            // A fourth of the frame must be covered (a blank render is a bug).
+            std::size_t covered = 0;
+            for (std::size_t i = 0; i < image.rgb.size(); i += 3) {
+                const bool background =
+                    (image.rgb[i] == 12 && image.rgb[i + 1] == 12 && image.rgb[i + 2] == 16) ||
+                    (image.rgb[i] == 34 && image.rgb[i + 1] == 38 && image.rgb[i + 2] == 52);
+                covered += background ? 0 : 1;
+            }
+            CHECK(covered > image.rgb.size() / 3 / 4);
+        }
+    }
+}
+
 void test_log() {
     gm::set_log_level(gm::LogLevel::Off);
     CHECK(!gm::log_enabled(gm::LogLevel::Error));
@@ -1258,6 +1354,7 @@ int main() {
     test_level();
     test_sbv();
     test_cache();
+    test_render();
 
     if (g_failures != 0) {
         std::fprintf(stderr, "gm_tests: %d failure(s)\n", g_failures);

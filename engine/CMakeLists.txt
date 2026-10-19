@@ -9,6 +9,7 @@ add_library(gm_engine STATIC
     src/res/level.cpp
     src/res/sbv.cpp
     src/res/cache.cpp
+    src/render/render.cpp
     src/res/bigfile.cpp
     src/res/bmp.cpp
     src/res/png.cpp
@@ -29,7 +30,8 @@ if(GM_WARNINGS_AS_ERRORS)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    target_compile_options(gm_engine PRIVATE -Wall -Wextra -Wpedantic ${GM_WARN_FLAGS})
+    target_compile_options(gm_engine PRIVATE -Wall -Wextra -Wpedantic -ffp-contract=off
+                                            ${GM_WARN_FLAGS})
 endif()
 
 if(GM_WITH_SDL3)
