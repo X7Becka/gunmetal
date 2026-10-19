@@ -12,6 +12,9 @@
 #include "res/sou.h"
 #include "res/sbt.h"
 #include "res/sbc.h"
+#include "res/sob.h"
+#include "res/text.h"
+#include "res/level.h"
 #include "res/anim.h"
 
 #include <cstdio>
@@ -136,6 +139,91 @@ int dump_file(const gm::Options& options) {
             const auto& level = sbm->mips[0];
             const auto rgba = gm::sbm_to_rgba(level, *palette);
             return export_png(options, level.width, level.height, rgba);
+        }
+        return 0;
+    }
+
+    if (gm::iequals_ascii(ext, ".sog")) {
+        const auto bytes = read_file(path, error);
+        if (!bytes) {
+            gm::logf(gm::LogLevel::Error, "dump", error);
+            return 2;
+        }
+        const auto sog = gm::parse_sog(*bytes, error);
+        if (!sog) {
+            gm::logf(gm::LogLevel::Error, "sog", error);
+            return 2;
+        }
+        std::printf("kind: SOG song playlist\n");
+        std::printf("tracks: %zu\n", sog->names.size());
+        std::printf("first: %s\n", sog->names.front().c_str());
+        std::printf("last: %s\n", sog->names.back().c_str());
+        return 0;
+    }
+
+    if (gm::iequals_ascii(ext, ".soe")) {
+        const auto bytes = read_file(path, error);
+        if (!bytes) {
+            gm::logf(gm::LogLevel::Error, "dump", error);
+            return 2;
+        }
+        const auto soe = gm::parse_soe_text(*bytes, error);
+        if (!soe) {
+            gm::logf(gm::LogLevel::Error, "soe", error);
+            return 2;
+        }
+        std::printf("kind: SOE thing template\n");
+        std::printf("tokens: %zu\n", soe->tokens.size());
+        if (soe->tokens.size() >= 4) {
+            std::printf("head: %s %s %s %s\n", soe->tokens[0].c_str(),
+                        soe->tokens[1].c_str(), soe->tokens[2].c_str(),
+                        soe->tokens[3].c_str());
+        }
+        return 0;
+    }
+
+    if (gm::iequals_ascii(ext, ".sml") || gm::iequals_ascii(ext, ".sme")) {
+        const auto bytes = read_file(path, error);
+        if (!bytes) {
+            gm::logf(gm::LogLevel::Error, "dump", error);
+            return 2;
+        }
+        const bool encoded = gm::iequals_ascii(ext, ".sme");
+        const auto plain = encoded ? gm::sml_decode(*bytes) : *bytes;
+        const std::string_view text(reinterpret_cast<const char*>(plain.data()), plain.size());
+        const auto tags = gm::sml_tags(text);
+        std::printf("kind: SML markup\n");
+        std::printf("encoded: %s\n", encoded ? "yes" : "no");
+        std::printf("bytes: %zu\n", plain.size());
+        std::printf("tags: %zu\n", tags.size());
+        if (!tags.empty()) {
+            std::printf("first tag: <%s%s>\n", tags.front().closing ? "/" : "",
+                        tags.front().name.c_str());
+        }
+        const auto stripped = gm::sml_plain(text);
+        const std::size_t newline = stripped.find('\n');
+        std::printf("text: %s\n",
+                    stripped.substr(0, newline == std::string::npos ? stripped.size() : newline)
+                        .c_str());
+        return 0;
+    }
+
+    if (gm::iequals_ascii(ext, ".sob")) {
+        const auto bytes = read_file(path, error);
+        if (!bytes) {
+            gm::logf(gm::LogLevel::Error, "dump", error);
+            return 2;
+        }
+        const auto sob = gm::parse_sob(*bytes, error);
+        if (!sob) {
+            gm::logf(gm::LogLevel::Error, "sob", error);
+            return 2;
+        }
+        std::printf("kind: SOB model\n");
+        std::printf("vertices: %zu\n", sob->vertices.size());
+        std::printf("faces: %zu\n", sob->faces.size());
+        if (!sob->faces.empty()) {
+            std::printf("first texture: %s\n", sob->faces.front().texture().c_str());
         }
         return 0;
     }
@@ -349,6 +437,41 @@ int dump_file(const gm::Options& options) {
     return 0;
 }
 
+int show_level(const gm::Options& options) {
+    std::string error;
+    const auto level = gm::load_level(options.game, options.level, error);
+    if (!level) {
+        gm::logf(gm::LogLevel::Error, "level", error);
+        return 2;
+    }
+    std::printf("level: %s\n", level->name.c_str());
+    if (level->world) {
+        std::printf("world: textures=%zu effects=%zu sectors=%zu objects=%zu "
+                    "vertices=%zu polygons=%zu bytes=%zu\n",
+                    level->world->header.textures.size(), level->world->header.effects.size(),
+                    level->world->header.sectors.size(), level->world->header.object_count,
+                    level->world->total_vertices, level->world->total_polygons,
+                    level->world->file_end);
+    }
+    if (level->entities) {
+        std::printf("entities: records=%zu poly=%zu object=%zu sector=%zu sobs=%zu "
+                    "script=%u/%u\n",
+                    level->entities->records.size(), level->entities->poly_handles.size(),
+                    level->entities->object_handles.size(),
+                    level->entities->sector_handles.size(), level->entities->sobs.size(),
+                    level->entities->script.handles, level->entities->script.code_size);
+    }
+    if (level->lightmaps) {
+        std::size_t texels = 0;
+        for (const auto& record : level->lightmaps->records) {
+            texels += record.pixels.size();
+        }
+        std::printf("lightmaps: magic=%s records=%zu texels=%zu\n",
+                    level->lightmaps->magic.c_str(), level->lightmaps->records.size(), texels);
+    }
+    return 0;
+}
+
 int run(const gm::Options& options) {
     std::string error;
     auto window = gm::Window::open("Gunmetal", 320, 200, options.headless, error);
@@ -358,10 +481,6 @@ int run(const gm::Options& options) {
     }
     gm::logf(gm::LogLevel::Info, "run", "game=", options.game.string(),
              options.headless ? " headless" : "");
-    if (!options.level.empty()) {
-        gm::logf(gm::LogLevel::Warn, "run",
-                 "level loading is not implemented yet (M3.2): ", options.level);
-    }
 
     gm::FrameClock clock;
     int frame = 0;
@@ -404,6 +523,9 @@ int main(int argc, char** argv) {
     }
     if (!options->dump.empty()) {
         return dump_file(*options);
+    }
+    if (!options->level.empty()) {
+        return show_level(*options);
     }
     if (!options->png.empty()) {
         gm::logf(gm::LogLevel::Error, "png", "--png needs --dump FILE");

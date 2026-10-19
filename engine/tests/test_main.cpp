@@ -14,6 +14,9 @@
 #include "res/sou.h"
 #include "res/sbt.h"
 #include "res/sbc.h"
+#include "res/sob.h"
+#include "res/text.h"
+#include "res/level.h"
 #include "res/anim.h"
 #include "core/hash.h"
 
@@ -865,6 +868,236 @@ void test_anim() {
     CHECK(soa_count == 0 || soa_count == 77);
 }
 
+void test_sob() {
+    auto fnv_sob = [](const gm::Sob& sob) {
+        std::vector<std::uint8_t> raw;
+        auto put = [&](const void* p, std::size_t n) {
+            const auto* b = static_cast<const std::uint8_t*>(p);
+            raw.insert(raw.end(), b, b + n);
+        };
+        for (const auto& v : sob.vertices) {
+            const float xyz[3] = {v.x, v.y, v.z};
+            put(xyz, 12);
+        }
+        for (const auto& f : sob.faces) {
+            const std::int32_t hdr[2] = {f.flags, static_cast<std::int32_t>(f.indices.size())};
+            put(hdr, 8);
+            for (int index : f.indices) {
+                put(&index, 4);
+            }
+            for (const auto* vec : {&f.origin, &f.u, &f.v, &f.normal, &f.spare}) {
+                const float xyz[3] = {vec->x, vec->y, vec->z};
+                put(xyz, 12);
+            }
+        }
+        return gm::fnv1a64(raw);
+    };
+
+    std::string text = "3 1 0 0 0 1 0 0 0 1 0 "
+                       "TEX none none none none none none none 0 3 0 1 2 "
+                       "0 0 0 0 0 0 0 0 0 0 1 0 0 0 0";
+    std::vector<std::uint8_t> bytes(text.begin(), text.end());
+    std::string error;
+    const auto sob = gm::parse_sob(bytes, error);
+    CHECK(sob.has_value());
+    if (sob) {
+        CHECK_EQ(sob->vertices.size(), std::size_t{3});
+        CHECK_EQ(sob->faces.size(), std::size_t{1});
+        CHECK_EQ(sob->faces[0].texture(), std::string("TEX"));
+        CHECK_EQ(sob->faces[0].indices.size(), std::size_t{3});
+        CHECK_EQ(sob->faces[0].indices[2], 2);
+        CHECK(std::fabs(sob->faces[0].normal.y - 1.0f) < 1e-6f);
+    }
+
+    // The optional lone -1 sentinel must also parse.
+    std::string with_sentinel = text + " -1";
+    std::vector<std::uint8_t> sentinel_bytes(with_sentinel.begin(), with_sentinel.end());
+    const auto sob2 = gm::parse_sob(sentinel_bytes, error);
+    CHECK(sob2.has_value());
+    if (sob2) {
+        CHECK_EQ(sob2->faces.size(), std::size_t{1});
+    }
+
+    std::vector<std::uint8_t> broken = {'3', ' ', '1', ' ', 'x'};
+    CHECK(!gm::parse_sob(broken, error).has_value());
+
+    const fs::path dir = "/mnt/d/games/Gunmetal 3dfx/SOBS";
+    std::error_code ec;
+    const fs::path clip = dir / "20mmclp.sob";
+    if (fs::is_regular_file(clip, ec)) {
+        std::ifstream in(clip, std::ios::binary);
+        std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                      std::istreambuf_iterator<char>());
+        const auto s = gm::parse_sob(raw, error);
+        CHECK(s.has_value());
+        if (s) {
+            CHECK_EQ(s->vertices.size(), std::size_t{8});
+            CHECK_EQ(s->faces.size(), std::size_t{6});
+            CHECK_EQ(fnv_sob(*s), 0x8ca3f5ae6f81d07eull);
+        }
+    }
+    const fs::path moclass = dir / "MOCLASS.SOB";
+    if (fs::is_regular_file(moclass, ec)) {
+        std::ifstream in(moclass, std::ios::binary);
+        std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                      std::istreambuf_iterator<char>());
+        const auto s = gm::parse_sob(raw, error);
+        CHECK(s.has_value());
+        if (s) {
+            CHECK_EQ(s->vertices.size(), std::size_t{957});
+            CHECK_EQ(s->faces.size(), std::size_t{1130});
+            CHECK_EQ(fnv_sob(*s), 0x43876fd038d99bb0ull);
+        }
+    }
+
+    std::size_t models = 0;
+    if (fs::is_directory(dir, ec)) {
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file() ||
+                !gm::iequals_ascii(entry.path().extension().string(), ".sob")) {
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                          std::istreambuf_iterator<char>());
+            const auto s = gm::parse_sob(raw, error);
+            CHECK(s.has_value() && !s->faces.empty());
+            ++models;
+        }
+    }
+    CHECK(models == 0 || models == 672);
+}
+
+void test_text() {
+    std::string sog_text = "SND1\r\nSND2\r\n\r\nSND3\r\n";
+    std::vector<std::uint8_t> sog_bytes(sog_text.begin(), sog_text.end());
+    std::string error;
+    const auto sog = gm::parse_sog(sog_bytes, error);
+    CHECK(sog.has_value());
+    if (sog) {
+        CHECK_EQ(sog->names.size(), std::size_t{3});
+        CHECK_EQ(sog->names[2], std::string("SND3"));
+    }
+
+    // The .sme cipher is a positional Caesar (i % 10).
+    const std::string abc = "ABC";
+    const auto abc_dec = gm::sml_decode(std::span<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(abc.data()), abc.size()));
+    CHECK_EQ(std::string(abc_dec.begin(), abc_dec.end()), std::string("AAA"));
+    const std::string hello = "Hello";
+    const auto enc = gm::sml_encode(std::span<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(hello.data()), hello.size()));
+    const auto dec = gm::sml_decode(enc);
+    CHECK_EQ(std::string(dec.begin(), dec.end()), hello);
+
+    const std::string markup = "<d><r><f s=\"2\">dmills</f><s><p>Morning, <k>.</r>";
+    const auto tags = gm::sml_tags(markup);
+    CHECK_EQ(tags.size(), std::size_t{8});
+    if (!tags.empty()) {
+        CHECK_EQ(tags.front().name, std::string("d"));
+        CHECK_EQ(tags[2].name, std::string("f"));
+        CHECK(tags[2].raw.find("s=\"2\"") != std::string::npos);
+    }
+    const auto plain = gm::sml_plain(markup);
+    CHECK(plain.find("Morning, Soldier.") != std::string::npos);
+
+    // Real pair: decode(LEVEL1.SME) == level1.sml.
+    const fs::path sml_dir = "/mnt/d/games/Gunmetal 3dfx/SML/brief";
+    std::error_code ec;
+    const fs::path sme = sml_dir / "LEVEL1.SME";
+    const fs::path sml = sml_dir / "level1.sml";
+    if (fs::is_regular_file(sme, ec) && fs::is_regular_file(sml, ec)) {
+        std::ifstream a(sme, std::ios::binary);
+        std::ifstream b(sml, std::ios::binary);
+        std::vector<std::uint8_t> enc_bytes((std::istreambuf_iterator<char>(a)),
+                                            std::istreambuf_iterator<char>());
+        std::vector<std::uint8_t> plain_bytes((std::istreambuf_iterator<char>(b)),
+                                              std::istreambuf_iterator<char>());
+        CHECK(gm::sml_decode(enc_bytes) == plain_bytes);
+    }
+
+    // Corpus counts.
+    std::size_t sogs = 0;
+    const fs::path music = "/mnt/d/games/Gunmetal 3dfx/MUSIC";
+    if (fs::is_directory(music, ec)) {
+        for (const auto& entry : fs::directory_iterator(music, ec)) {
+            if (entry.is_regular_file() &&
+                gm::iequals_ascii(entry.path().extension().string(), ".sog")) {
+                ++sogs;
+            }
+        }
+    }
+    CHECK(sogs == 0 || sogs == 651);
+
+    std::size_t smes = 0;
+    std::size_t smls = 0;
+    const fs::path ui = "/mnt/d/games/Gunmetal 3dfx/SML";
+    if (fs::is_directory(ui, ec)) {
+        for (const auto& entry : fs::recursive_directory_iterator(ui, ec)) {
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+            const auto ext = entry.path().extension().string();
+            if (gm::iequals_ascii(ext, ".sme")) {
+                ++smes;
+                std::ifstream in(entry.path(), std::ios::binary);
+                std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                              std::istreambuf_iterator<char>());
+                const auto dec_bytes = gm::sml_decode(raw);
+                const std::string_view view(reinterpret_cast<const char*>(dec_bytes.data()),
+                                            dec_bytes.size());
+                CHECK(!gm::sml_tags(view).empty());
+            } else if (gm::iequals_ascii(ext, ".sml")) {
+                ++smls;
+            }
+        }
+    }
+    CHECK(smes == 0 || smes == 151);
+    CHECK(smls == 0 || smls == 149);
+
+    const fs::path soe = "/mnt/d/games/Gunmetal 3dfx/SOBS/railrock.soe";
+    if (fs::is_regular_file(soe, ec)) {
+        std::ifstream in(soe, std::ios::binary);
+        std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                      std::istreambuf_iterator<char>());
+        const auto t = gm::parse_soe_text(raw, error);
+        CHECK(t.has_value());
+        if (t) {
+            CHECK(t->tokens.size() > 20);
+        }
+    }
+}
+
+void test_level() {
+    const fs::path dir = "/mnt/d/games/Gunmetal 3dfx";
+    std::error_code ec;
+    std::string error;
+    if (!fs::is_regular_file(dir / "level0.sbw", ec)) {
+        return;
+    }
+    const auto level = gm::load_level(dir, "level0", error);
+    CHECK(level.has_value());
+    if (!level) {
+        return;
+    }
+    CHECK_EQ(level->name, std::string("level0"));
+    CHECK(level->world.has_value());
+    CHECK(level->entities.has_value());
+    CHECK(level->lightmaps.has_value());
+    if (level->world) {
+        CHECK_EQ(level->world->total_vertices, std::size_t{2173});
+        CHECK_EQ(level->world->total_polygons, std::size_t{1449});
+    }
+    if (level->entities) {
+        CHECK_EQ(level->entities->poly_handles.size(), std::size_t{104});
+        CHECK_EQ(level->entities->sobs.size(), std::size_t{67});
+    }
+    if (level->lightmaps) {
+        CHECK_EQ(level->lightmaps->records.size(), std::size_t{405});
+    }
+    CHECK(!gm::load_level(dir, "no_such_level", error).has_value());
+}
+
 void test_log() {
     gm::set_log_level(gm::LogLevel::Off);
     CHECK(!gm::log_enabled(gm::LogLevel::Error));
@@ -893,6 +1126,9 @@ int main() {
     test_sbt();
     test_sbc();
     test_anim();
+    test_sob();
+    test_text();
+    test_level();
 
     if (g_failures != 0) {
         std::fprintf(stderr, "gm_tests: %d failure(s)\n", g_failures);

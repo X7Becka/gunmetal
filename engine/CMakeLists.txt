@@ -6,14 +6,17 @@ add_library(gm_engine STATIC
     src/core/time.cpp
     src/platform/window.cpp
     src/res/anim.cpp
+    src/res/level.cpp
     src/res/bigfile.cpp
     src/res/bmp.cpp
     src/res/png.cpp
     src/res/sbm.cpp
     src/res/sbw.cpp
     src/res/sbc.cpp
+    src/res/sob.cpp
     src/res/sbt.cpp
     src/res/sou.cpp
+    src/res/text.cpp
 )
 
 target_include_directories(gm_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
