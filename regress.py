@@ -186,7 +186,6 @@ def scene_checks(G: str, results: list[bool], out: str) -> None:
     got = (cnt["lights"], cnt["locations"], cnt["items"], cnt["sounds"])
     results.append(report("scene / dm1 extraction", got == (60, 8, 1, 21),
                           "dm1: %d lights, %d locations, %d items, %d sounds" % got))
-
     # ADD_SKY_LIGHT_SOURCE is stored as (x, y, z, param, r, g, b) by 0x47e130
     sky = [l for l in sc.lights if l.kind == "sky"]
     results.append(report(
@@ -195,7 +194,7 @@ def scene_checks(G: str, results: list[bool], out: str) -> None:
         and sky[0].rgb == (255, 255, 255) and sky[0].param == 112,
         "sky lights: " + ", ".join(f"{l.pos} rgb={l.rgb}" for l in sky)))
 
-    tot = {"lights": 0, "locations": 0, "items": 0, "sounds": 0}
+    tot = {"lights": 0, "locations": 0, "items": 0, "sounds": 0, "sprites": 0}
     files = sorted(glob.glob(os.path.join(G, "*.sbt")))
     bad = 0
     for f in files:
@@ -209,10 +208,52 @@ def scene_checks(G: str, results: list[bool], out: str) -> None:
     results.append(report(
         "scene / all levels decode",
         bad == 0 and tot["lights"] == 4470 and tot["locations"] == 461
-        and tot["sounds"] == 1173,
-        "%d levels: %d lights, %d locations, %d items, %d sounds, %d failed"
-        % (len(files), tot["lights"], tot["locations"], tot["items"],
-           tot["sounds"], bad)))
+        and tot["sounds"] == 1173 and tot["sprites"] == 555,
+        "%d levels: %d lights, %d locations, %d items, %d sounds, %d sprites, "
+        "%d failed" % (len(files), tot["lights"], tot["locations"], tot["items"],
+                       tot["sounds"], tot["sprites"], bad)))
+
+    # Coordinate frame: scripted coordinates are engine world, i.e. 1.875x the
+    # .sbw file frame (the object header basis).  Unlike the biased "inside the
+    # AABB" test, this spread ratio is scale-covariant: sprite positions are
+    # props that must sit inside their level, so the ratio has to come out as
+    # the basis itself.
+    import statistics
+
+    ratios = []
+    for f in files:
+        try:
+            wb = sbw.parse_file(os.path.splitext(f)[0] + ".sbw")
+            spr = scene.load(f).sprites
+        except Exception:  # noqa: BLE001 - skip levels without a sibling .sbw
+            continue
+        if len(spr) < 4:
+            continue
+        lo, hi = [1e30] * 3, [-1e30] * 3
+        for s in wb.sectors:
+            for o in s.objects:
+                vs = o.vertices
+                if not vs:
+                    continue
+                ext = max(max(v[k] for v in vs) - min(v[k] for v in vs)
+                          for k in range(3))
+                if ext > 4000:  # sky box
+                    continue
+                for v in vs:
+                    for k in range(3):
+                        lo[k] = min(lo[k], v[k])
+                        hi[k] = max(hi[k], v[k])
+        gspan = [hi[k] - lo[k] for k in range(3)]
+        pspan = [max(p.pos[k] for p in spr) - min(p.pos[k] for p in spr)
+                 for k in range(3)]
+        r = [pspan[k] / gspan[k] for k in range(3) if gspan[k] > 1]
+        if r:
+            ratios.append(statistics.median(r))
+    med = statistics.median(ratios) if ratios else 0.0
+    results.append(report("scene / world frame is the 1.875 basis",
+                          1.2 <= med <= 2.4 and len(ratios) >= 15,
+                          "sprite/geometry spread ratio %.2f over %d levels"
+                          % (med, len(ratios))))
 
     # the overlay and the light shading must reach the renderer
     pool = render.TexturePool(G)

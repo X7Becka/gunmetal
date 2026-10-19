@@ -800,7 +800,7 @@ def cmd_view(opts) -> int:
                     sc = scenemod.load(os.path.splitext(p)[0] + ".sbt")
                     cnt = sc.counts()
                     kind += (f" +scene {cnt['lights']}L/{cnt['locations']}T/"
-                             f"{cnt['items']}I/{cnt['sounds']}S")
+                             f"{cnt['items']}I/{cnt['sounds']}S/{cnt['sprites']}P")
                     if opts.scene:
                         markers = sc.markers(scale)
                     if opts.scene_lights:
@@ -865,7 +865,8 @@ def cmd_scene(opts) -> int:
         if not opts.json:
             print(f"{os.path.basename(p)}: {cnt['lights']} lights, "
                   f"{cnt['locations']} locations/things, {cnt['items']} items, "
-                  f"{cnt['sounds']} sound sources, {cnt['other']} other placement commands")
+                  f"{cnt['sounds']} sound sources, {cnt['sprites']} sprites, "
+                  f"{cnt['other']} other placement commands")
             for l in sc.lights[:opts.show]:
                 print(f"  light {l.kind:5s} pos=({l.pos[0]},{l.pos[1]},{l.pos[2]}) "
                       f"rgb={l.rgb} param={l.param}")
@@ -875,6 +876,9 @@ def cmd_scene(opts) -> int:
                 print(f"  item id={x.item_id} pos={x.pos} fixed={x.fixed}")
             for x in sc.sounds[:opts.show]:
                 print(f"  sound pos={x.pos} sample={x.sample} volume={x.volume}")
+            for x in sc.sprites[:opts.show]:
+                print(f"  sprite id={x.id} pos=({x.pos[0]:g},{x.pos[1]:g},{x.pos[2]:g}) "
+                      f"jitter={x.jitter}")
             if sc.other:
                 top = sorted(sc.other.items(), key=lambda kv: -kv[1])[:4]
                 print(f"  other: {', '.join(f'{k}x{v}' for k, v in top)}")
@@ -887,6 +891,8 @@ def cmd_scene(opts) -> int:
                        "extra": list(x.extra)} for x in sc.items],
             "sounds": [{"pos": list(x.pos), "sample": x.sample, "volume": x.volume,
                         "pitch": x.pitch} for x in sc.sounds],
+            "sprites": [{"id": x.id, "pos": list(x.pos), "jitter": x.jitter,
+                         "extra": list(x.extra)} for x in sc.sprites],
             "other": sc.other,
         }
     if opts.json:

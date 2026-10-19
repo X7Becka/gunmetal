@@ -42,6 +42,14 @@ commands whose operand layout is proven from the engine handlers:
     arrays is x/y/z is not proven from the code; the first three operands are
     taken as the position because they behave like one (see the frame note).
 
+``ADD_SPRITE`` (op 66, ``RDDDLLLLMDDL``) -- a billboard/model at a literal spot
+    Handler ``0x4592c2`` reads the ``DDD`` triple at ``+0x04/+0x0c/+0x14`` and
+    calls ``0x40e0e0`` after adding a per-axis random offset bounded by ``a8``
+    (``idiv (2*a8+1)``), i.e. the triple is the sprite's position and ``a8`` its
+    placement jitter.  ``ADD_SPRITE_AT_SOURCE`` never carries a position (it is
+    taken from the source object), so only ``ADD_SPRITE`` can be placed
+    statically.
+
 Coordinate frame
 ----------------
 Script coordinates are **engine world** coordinates, and the engine scales every
@@ -49,11 +57,22 @@ Script coordinates are **engine world** coordinates, and the engine scales every
 (``object.points[0]`` is the origin).  That is, ``world = origin + 1.875 * v``
 for the file's vertex ``v``, while the renderer and every lightmap projection
 work in the raw file frame.  ``SCALE`` below is the factor that maps world
-coordinates into the file frame; it is not a guess: with it the scripted
-positions land inside the level's vertex AABB far more often than without
-(``ADD_SKY_LIGHT_SOURCE`` 93% vs 85%, ``ADD_LOCATION`` 62% vs 40%,
-``ADD_LIGHT_SOURCE`` 62% vs 40%, ``ADD_SOUND_SOURCE`` 48% vs 27% over all 36
-levels, and the frame is the one the 1.875 basis predicts).
+coordinates into the file frame.
+
+The frame is supported by a scale-covariant argument: sprite positions are props
+that must sit **inside** their level, so over one level the sprite spread cannot
+exceed the geometry spread of that same level.  Measured over 23 levels (levels
+with at least four ``ADD_SPRITE`` commands) the median ratio between the two
+spreads is **1.52** (1.88 if levels with three sprites are included) -- i.e. the
+script coordinates are ~1.5-1.9x the raw file frame, which only the 1.875 basis
+explains (a same-frame reading would have to come out at <= 1).  The earlier
+"fraction of positions inside the level AABB" test points the same way but is
+biased (shrinking the positions towards the origin raises it monotonically), and
+so is "distance to the nearest vertex"; the baked lightmaps do not correlate
+with the light positions at all (|r| < 0.18), and the ``ADD_LIGHT_SOURCE`` /
+``ADD_SOUND_SOURCE`` operands do not fit this frame either (their spread is ~5x
+the level's), so those two positions stay unproven: use them for markers only or
+tune ``--scene-scale``.
 """
 
 from __future__ import annotations
@@ -128,18 +147,29 @@ class SoundSource:
 
 
 @dataclass
+class Sprite:
+    """``ADD_SPRITE``: a billboard/model at a literal position."""
+
+    pos: tuple
+    jitter: int = 0  # a8: spawn scatter radius (rand in [-a8, a8] per axis)
+    id: int = 0  # a0
+    extra: tuple = ()
+
+
+@dataclass
 class Scene:
     lights: list[Light] = field(default_factory=list)
     locations: list[Location] = field(default_factory=list)
     items: list[Item] = field(default_factory=list)
     sounds: list[SoundSource] = field(default_factory=list)
+    sprites: list[Sprite] = field(default_factory=list)
     #: commands seen whose operand layout is still opaque (name -> count)
     other: dict = field(default_factory=dict)
 
     def counts(self) -> dict:
         return {"lights": len(self.lights), "locations": len(self.locations),
                 "items": len(self.items), "sounds": len(self.sounds),
-                "other": sum(self.other.values())}
+                "sprites": len(self.sprites), "other": sum(self.other.values())}
 
     def scaled(self, factor: float = SCALE) -> Scene:
         """A copy with every position multiplied by ``factor``."""
@@ -152,6 +182,7 @@ class Scene:
             [Location(x.thing_id, s(x.pos), x.orientation) for x in self.locations],
             [Item(x.item_id, s(x.pos), x.fixed, x.extra) for x in self.items],
             [SoundSource(s(x.pos), x.sample, x.volume, x.pitch) for x in self.sounds],
+            [Sprite(s(x.pos), x.jitter, x.id, x.extra) for x in self.sprites],
             dict(self.other),
         )
 
@@ -161,6 +192,8 @@ class Scene:
         for l in self.lights:
             col = l.rgb if l.kind == "sky" else tuple(min(255, c) for c in l.rgb)
             out.append((tuple(v * scale for v in l.pos), col))
+        for x in self.sprites:
+            out.append((tuple(v * scale for v in x.pos), (255, 150, 60)))
         for x in self.locations:
             out.append((tuple(v * scale for v in x.pos), (255, 240, 90)))
         for x in self.items:
@@ -185,11 +218,13 @@ _LOCATION = _op("ADD_LOCATION")
 _ITEM = _op("ADD_ITEM")
 _ITEM_FIXED = _op("ADD_ITEM_FIXED")
 _SOUND = _op("ADD_SOUND_SOURCE")
+_SPRITE = _op("ADD_SPRITE")
 
 #: placement commands that are seen but not decoded (opaque operand layout)
 _SEEN = ("ADD_NAMED_ITEM", "ADD_NAMED_ITEM_EX", "ADD_SWITCH", "ADD_DOOR",
-         "ADD_SPRITE", "ADD_SPRITE_AT_SOURCE", "ADD_ITEM_AT_SOURCE",
-         "ADD_ITEM_AT_SOURCE_FIXED", "ADD_SPRITE_MOVING", "ADD_WEAPON_AT_SOURCE")
+         "ADD_SPRITE_AT_SOURCE", "ADD_SPRITE_MOVING", "ADD_SPRITE_MOVING_AT_SOURCE",
+         "ADD_ITEM_AT_SOURCE", "ADD_ITEM_AT_SOURCE_FIXED",
+         "ADD_WEAPON_AT_SOURCE")
 
 
 def _walk(insns):
@@ -206,7 +241,7 @@ def extract(script: sbt.Script) -> Scene:
     scene = Scene()
     for i in _walk(ins):
         op = getattr(i, "op", None)
-        if op not in (_SKY, _LOCAL, _LOCATION, _ITEM, _ITEM_FIXED, _SOUND):
+        if op not in (_SKY, _LOCAL, _LOCATION, _ITEM, _ITEM_FIXED, _SOUND, _SPRITE):
             if isinstance(i.name, str) and i.name in _SEEN:
                 scene.other[i.name] = scene.other.get(i.name, 0) + 1
             continue
@@ -235,6 +270,11 @@ def extract(script: sbt.Script) -> Scene:
                                             _s32(a[3]) if len(a) > 3 else 0,
                                             _s32(a[4]) if len(a) > 4 else 0,
                                             float(a[5]) if len(a) > 5 else 0.0))
+        elif op == _SPRITE and len(a) >= 9:
+            # handler 0x4592c2 scatters DDD by a random offset of +-a8 per axis
+            scene.sprites.append(Sprite((float(a[1]), float(a[2]), float(a[3])),
+                                        _s32(a[8]), _s32(a[0]),
+                                        tuple(_s32(v) for v in a[4:9])))
     return scene
 
 
