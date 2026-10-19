@@ -710,6 +710,17 @@ def main() -> int:
     render_checks(G, results, out, opts.full)
     scene_checks(G, results, out)
     results.append(check("soa / animations", ["soa", G], ["soa: 104 parsed, 0 failed"]))
+    results.append(check("soo / animations", ["soo", f"{G}/Sobanim"],
+                         ["soo: 40 parsed, 0 failed, 8 frame names without a .sob"]))
+    rb = os.path.join(out, "soo")
+    run(["soo", f"{G}/Sobanim", "--rebuild", rb])
+    src = sorted(glob.glob(os.path.join(G, "Sobanim", "*.[sS][oO][oO]")))
+    same = bool(src) and all(
+        os.path.exists(os.path.join(rb, os.path.basename(p)))
+        and open(os.path.join(rb, os.path.basename(p)), "rb").read()
+        == open(p, "rb").read() for p in src)
+    results.append(report("soo / 40 byte-exact round-trips", same,
+                          "Sobanim -> DIR"))
     results.append(check("soe / thing types", ["soe", G], ["soe: 1 parsed, 0 failed"]))
     results.append(check("sog / songs", ["sog", f"{G}/MUSIC", "--music", f"{G}/MUSIC/SOU.IDX"],
                          ["sog: 651 songs"]))

@@ -427,6 +427,52 @@ def cmd_soa(opts) -> int:
     return 0 if bad == 0 else 1
 
 
+
+def cmd_soo(opts) -> int:
+    """Parse ``.soo`` flipbook animations (text: mode, count, name+time)."""
+    from gm import soo as soomod
+    sobs = set()
+    if opts.game and os.path.isdir(os.path.join(opts.game, "SOBS")):
+        sobs = {os.path.splitext(n)[0].lower()
+                for n in os.listdir(os.path.join(opts.game, "SOBS"))}
+    n = bad = missing = 0
+    report = []
+    for p, rel in _iter_with_rel(opts.paths, ".soo"):
+        try:
+            a = soomod.parse(open(p, "rb").read())
+        except ValueError as exc:
+            bad += 1
+            print("  FAIL %s: %s" % (p, exc), file=sys.stderr)
+            continue
+        gap = len(a.frames) - a.count
+        miss = [f.name for f in a.frames if sobs and f.name.lower() not in sobs]
+        missing += len(miss)
+        report.append({"file": os.path.basename(p), "path": p, "mode": a.mode,
+                       "count": a.count, "frames": len(a.frames),
+                       "duration": a.duration, "missing": miss})
+        if not opts.json:
+            extra = "" if gap == 0 else " (%+d vs declared)" % gap
+            print("%-16s mode=%d frames=%d%s total=%d ms"
+                  % (os.path.basename(p), a.mode, len(a.frames), extra,
+                     a.duration))
+            if opts.verbose:
+                for f in a.frames:
+                    mark = "" if not sobs or f.name.lower() in sobs else "  (no .sob)"
+                    print("    %-12s %6d%s" % (f.name, f.duration, mark))
+        if opts.rebuild:
+            dst = os.path.join(opts.rebuild, rel)
+            os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+            with open(dst, "wb") as f:
+                f.write(a.to_bytes())
+        n += 1
+    if opts.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print("soo: %d parsed, %d failed, %d frame names without a .sob"
+              % (n, bad, missing))
+    return 0 if bad == 0 else 1
+
+
 def cmd_look(opts) -> int:
     t = look.load(opts.file)
     st = t.stats()
@@ -1544,6 +1590,16 @@ def main(argv=None) -> int:
                    help="dump every field of the token stream")
     p.add_argument("--rebuild", help="write each .soe back (re-serialised) into this directory")
     p.set_defaults(func=cmd_soe)
+
+    p = sub.add_parser("soo", help="parse .soo flipbook animations (text)")
+    p.add_argument("paths", nargs="+", help=".soo files or the Sobanim directory")
+    p.add_argument("--game", default="/mnt/d/games/Gunmetal 3dfx",
+                   help="installation, to check frame models against SOBS/")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="list every frame")
+    p.add_argument("--rebuild", metavar="DIR", help="write re-serialised copies")
+    p.set_defaults(func=cmd_soo)
 
     p = sub.add_parser("look", help="analyse LOOK16.TAB / LOOK162.TAB lookup cubes")
     p.add_argument("file")
