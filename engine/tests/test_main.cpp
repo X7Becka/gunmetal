@@ -13,6 +13,7 @@
 #include "res/sbw.h"
 #include "res/sou.h"
 #include "res/sbt.h"
+#include "res/scene.h"
 #include "res/sbc.h"
 #include "res/sob.h"
 #include "res/text.h"
@@ -1401,6 +1402,96 @@ void test_render() {
     }
 }
 
+void test_scene() {
+    const fs::path game = "/mnt/d/games/Gunmetal 3dfx";
+    std::error_code ec;
+    if (!fs::is_directory(game, ec)) {
+        return;
+    }
+    std::vector<fs::path> paths;
+    for (const auto& entry : fs::directory_iterator(game, ec)) {
+        if (entry.is_regular_file() &&
+            gm::iequals_ascii(entry.path().extension().string(), ".sbt")) {
+            paths.push_back(entry.path());
+        }
+    }
+    std::sort(paths.begin(), paths.end(), [](const fs::path& a, const fs::path& b) {
+        return a.stem().string() < b.stem().string();
+    });
+
+    std::uint64_t hash = 0xcbf29ce484222325ull;
+    auto mix = [&](const void* data, std::size_t size) {
+        const auto* bytes = static_cast<const std::uint8_t*>(data);
+        for (std::size_t i = 0; i < size; ++i) {
+            hash ^= bytes[i];
+            hash *= 0x100000001b3ull;
+        }
+    };
+    auto mix_count = [&](std::size_t value) {
+        const std::uint64_t v = value;
+        mix(&v, sizeof(v));
+    };
+
+    std::size_t levels = 0;
+    std::string error;
+    for (const auto& path : paths) {
+        std::ifstream in(path, std::ios::binary);
+        std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                        std::istreambuf_iterator<char>());
+        const auto level = gm::parse_sbt(bytes, error);
+        CHECK(level.has_value());
+        if (!level) {
+            continue;
+        }
+        const auto scene = gm::extract_scene(*level, error);
+        CHECK(scene.has_value());
+        if (!scene) {
+            continue;
+        }
+        ++levels;
+        const std::string stem = path.stem().string();
+        mix(stem.data(), stem.size());
+        mix_count(scene->lights.size());
+        mix_count(scene->locations.size());
+        mix_count(scene->items.size());
+        mix_count(scene->sounds.size());
+        mix_count(scene->sprites.size());
+        mix_count(scene->doors.size());
+        mix_count(scene->switches.size());
+        mix_count(scene->entities.size());
+        for (const auto& [name, count] : scene->other) {
+            mix(name.data(), name.size());
+            mix_count(static_cast<std::size_t>(count));
+        }
+    }
+    CHECK(levels == 0 || levels == 36);
+    CHECK_EQ(hash, 0x9bcf08aeb6ef0ba0ull);
+
+    // level0, the reference level from the docs.
+    const fs::path level0 = game / "level0.sbt";
+    if (fs::is_regular_file(level0, ec)) {
+        std::ifstream in(level0, std::ios::binary);
+        std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                        std::istreambuf_iterator<char>());
+        const auto level = gm::parse_sbt(bytes, error);
+        CHECK(level.has_value());
+        if (level) {
+            const auto scene = gm::extract_scene(*level, error);
+            CHECK(scene.has_value());
+            if (scene) {
+                CHECK_EQ(scene->lights.size(), std::size_t{29});
+                CHECK_EQ(scene->locations.size(), std::size_t{10});
+                CHECK_EQ(scene->items.size(), std::size_t{2});
+                CHECK_EQ(scene->sounds.size(), std::size_t{6});
+                CHECK_EQ(scene->sprites.size(), std::size_t{4});
+                CHECK_EQ(scene->doors.size(), std::size_t{25});
+                CHECK_EQ(scene->switches.size(), std::size_t{24});
+                CHECK_EQ(scene->entities.size(), std::size_t{350});
+            }
+        }
+    }
+}
+
 void test_log() {
     gm::set_log_level(gm::LogLevel::Off);
     CHECK(!gm::log_enabled(gm::LogLevel::Error));
@@ -1435,6 +1526,7 @@ int main() {
     test_sbv();
     test_cache();
     test_render();
+    test_scene();
 
     if (g_failures != 0) {
         std::fprintf(stderr, "gm_tests: %d failure(s)\n", g_failures);

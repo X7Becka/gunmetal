@@ -46,6 +46,13 @@ struct SbtLevel {
     std::vector<SbtHandle> sector_handles;
     std::vector<SbtSob> sobs;
     SbtScript script;
+    // SCRIPT record payload, kept for the VM/scene layer: per-thing rows,
+    // the handle columns (3*n u32), the compiled bytecode and the optional
+    // 9*0x400 tables.
+    std::vector<std::uint8_t> script_things;
+    std::vector<std::uint8_t> script_handles_data;
+    std::vector<std::uint8_t> script_code;
+    std::vector<std::uint8_t> script_tables;
     std::size_t file_end = 0;
 };
 

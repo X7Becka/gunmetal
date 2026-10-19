@@ -50,6 +50,16 @@ struct Reader {
         offset += n;
         return true;
     }
+
+    bool bytes(std::size_t n, std::vector<std::uint8_t>& out) {
+        if (!need(n)) {
+            return false;
+        }
+        out.assign(data.begin() + static_cast<std::ptrdiff_t>(offset),
+                   data.begin() + static_cast<std::ptrdiff_t>(offset + n));
+        offset += n;
+        return true;
+    }
 };
 
 bool read_n(Reader& r, std::uint32_t limit, std::uint32_t& n) {
@@ -199,22 +209,24 @@ std::optional<SbtLevel> parse_sbt(std::span<const std::uint8_t> data, std::strin
         case 11: {
             // SCRIPT: things, handles, bytecode, optional 9*0x400 tables.
             std::uint32_t count = 0;
-            if (!r.u32(count) || !r.skip(static_cast<std::size_t>(count) * 40)) {
+            if (!r.u32(count) ||
+                !r.bytes(static_cast<std::size_t>(count) * 40, level.script_things)) {
                 error = "bad SCRIPT things";
                 return std::nullopt;
             }
             std::uint32_t handles = 0;
-            if (!r.u32(handles) || !r.skip(static_cast<std::size_t>(handles) * 12)) {
+            if (!r.u32(handles) ||
+                !r.bytes(static_cast<std::size_t>(handles) * 12, level.script_handles_data)) {
                 error = "bad SCRIPT handles";
                 return std::nullopt;
             }
             std::uint32_t code = 0;
-            if (!r.u32(code) || !r.skip(code)) {
+            if (!r.u32(code) || !r.bytes(code, level.script_code)) {
                 error = "bad SCRIPT bytecode";
                 return std::nullopt;
             }
             std::uint8_t flag = 0;
-            if (!r.u8(flag) || (flag && !r.skip(9 * 0x400))) {
+            if (!r.u8(flag) || (flag && !r.bytes(9 * 0x400, level.script_tables))) {
                 error = "bad SCRIPT tables";
                 return std::nullopt;
             }

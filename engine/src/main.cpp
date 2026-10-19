@@ -12,6 +12,7 @@
 #include "res/sou.h"
 #include "res/sou2.h"
 #include "res/sbt.h"
+#include "res/scene.h"
 #include "res/sbc.h"
 #include "res/sob.h"
 #include "res/text.h"
@@ -602,6 +603,46 @@ int show_level(const gm::Options& options) {
     return 0;
 }
 
+int show_scene(const gm::Options& options) {
+    std::string error;
+    auto path = gm::resolve_ci(options.game, options.scene + ".sbt");
+    if (!path) {
+        gm::logf(gm::LogLevel::Error, "scene", ".sbt not found: " + options.scene);
+        return 2;
+    }
+    const auto bytes = read_file(*path, error);
+    if (!bytes) {
+        gm::logf(gm::LogLevel::Error, "scene", error);
+        return 2;
+    }
+    const auto level = gm::parse_sbt(*bytes, error);
+    if (!level) {
+        gm::logf(gm::LogLevel::Error, "scene", error);
+        return 2;
+    }
+    const auto scene = gm::extract_scene(*level, error);
+    if (!scene) {
+        gm::logf(gm::LogLevel::Error, "scene", error);
+        return 2;
+    }
+    std::size_t sky = 0;
+    for (const auto& light : scene->lights) {
+        sky += light.kind == "sky" ? 1 : 0;
+    }
+    std::printf("scene: %s\n", path->filename().string().c_str());
+    std::printf("lights: %zu (sky %zu, local %zu)\n", scene->lights.size(), sky,
+                scene->lights.size() - sky);
+    std::printf("locations: %zu items: %zu sounds: %zu sprites: %zu\n",
+                scene->locations.size(), scene->items.size(), scene->sounds.size(),
+                scene->sprites.size());
+    std::printf("doors: %zu switches: %zu entities: %zu\n", scene->doors.size(),
+                scene->switches.size(), scene->entities.size());
+    for (const auto& [name, count] : scene->other) {
+        std::printf("other: %s %d\n", name.c_str(), count);
+    }
+    return 0;
+}
+
 std::vector<std::uint8_t> make_wav(const gm::PcmClip& clip) {
     const std::uint32_t data_bytes = static_cast<std::uint32_t>(clip.samples.size() * 2);
     const std::uint16_t channels = static_cast<std::uint16_t>(std::max(1, clip.channels));
@@ -1008,6 +1049,9 @@ int main(int argc, char** argv) {
     }
     if (options->verbose) {
         gm::set_log_level(gm::LogLevel::Debug);
+    }
+    if (!options->scene.empty()) {
+        return show_scene(*options);
     }
     if (!options->sou2.empty()) {
         return export_sou2(*options);
