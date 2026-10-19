@@ -5,11 +5,14 @@ add_library(gm_engine STATIC
     src/core/config.cpp
     src/core/time.cpp
     src/platform/window.cpp
+    src/res/anim.cpp
     src/res/bigfile.cpp
     src/res/bmp.cpp
     src/res/png.cpp
     src/res/sbm.cpp
     src/res/sbw.cpp
+    src/res/sbc.cpp
+    src/res/sbt.cpp
     src/res/sou.cpp
 )
 

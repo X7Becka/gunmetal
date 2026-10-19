@@ -12,6 +12,9 @@
 #include "res/sbm.h"
 #include "res/sbw.h"
 #include "res/sou.h"
+#include "res/sbt.h"
+#include "res/sbc.h"
+#include "res/anim.h"
 #include "core/hash.h"
 
 #include <cmath>
@@ -579,6 +582,289 @@ void test_sou() {
     }
 }
 
+void test_sbt() {
+    std::vector<std::uint8_t> blob(84, 0);
+    std::memcpy(blob.data(), "BINARY SAVE", 11);
+    auto u32 = [&](std::uint32_t v) {
+        blob.push_back(v & 0xFF);
+        blob.push_back((v >> 8) & 0xFF);
+        blob.push_back((v >> 16) & 0xFF);
+        blob.push_back((v >> 24) & 0xFF);
+    };
+    // SOB_TABLE with one entry
+    blob.push_back(20);
+    u32(1);
+    blob.insert(blob.end(), {'T', 'E', 'S', 'T', 0, 0, 0, 0, 0, 0, 0, 0});
+    u32(5);
+    u32(0x1234);
+    // POLY_HANDLE with one entry (4 columns)
+    blob.push_back(15);
+    u32(1);
+    u32(1); u32(2); u32(3); u32(4);
+    // SCRIPT: 0 things, 1 handle, 2 code bytes
+    blob.push_back(11);
+    u32(0);
+    u32(1);
+    for (int i = 0; i < 12; ++i) {
+        blob.push_back(static_cast<std::uint8_t>(i));
+    }
+    u32(2);
+    blob.push_back(0xAA);
+    blob.push_back(0xBB);
+    blob.push_back(0);
+    blob.push_back(255);
+
+    std::string error;
+    const auto level = gm::parse_sbt(blob, error);
+    CHECK(level.has_value());
+    if (level) {
+        CHECK_EQ(level->version, 0u);
+        CHECK_EQ(level->records.size(), std::size_t{4});
+        CHECK_EQ(level->records[0].type, std::uint8_t{20});
+        CHECK_EQ(level->sobs.size(), std::size_t{1});
+        CHECK_EQ(level->sobs[0].name, std::string("TEST"));
+        CHECK_EQ(level->sobs[0].amount, 5u);
+        CHECK_EQ(level->poly_handles.size(), std::size_t{1});
+        CHECK_EQ(level->poly_handles[0].tag, 1u);
+        CHECK_EQ(level->poly_handles[0].a, 2u);
+        CHECK_EQ(level->poly_handles[0].b, 3u);
+        CHECK_EQ(level->poly_handles[0].c, 4u);
+        CHECK_EQ(level->script.handles, 1u);
+        CHECK_EQ(level->script.code_size, 2u);
+        CHECK_EQ(level->file_end, blob.size());
+    }
+    std::vector<std::uint8_t> cut(blob.begin(), blob.end() - 3);
+    CHECK(!gm::parse_sbt(cut, error).has_value());
+
+    // Real levels: Python-computed goldens.
+    const fs::path dir = "/mnt/d/games/Gunmetal 3dfx";
+    std::error_code ec;
+    struct Golden {
+        const char* name;
+        std::vector<std::uint8_t> types;
+        std::size_t poly, object, sector, sobs, things, handles, code;
+    };
+    const Golden golden[] = {
+        {"level0.sbt", {12, 20, 15, 17, 5, 4, 11, 255}, 104, 0, 26, 67, 0, 350, 62497},
+        {"level7.sbt", {12, 20, 15, 16, 17, 5, 4, 11, 255}, 187, 1, 39, 109, 0, 425, 99859},
+        {"secrt1.sbt", {12, 20, 15, 16, 17, 5, 4, 11, 255}, 11, 7, 14, 104, 0, 392, 86089},
+    };
+    for (const auto& g : golden) {
+        const fs::path path = dir / g.name;
+        if (!fs::is_regular_file(path, ec)) {
+            continue;
+        }
+        std::ifstream in(path, std::ios::binary);
+        std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                        std::istreambuf_iterator<char>());
+        const auto h = gm::parse_sbt(bytes, error);
+        CHECK(h.has_value());
+        if (!h) {
+            continue;
+        }
+        CHECK_EQ(h->records.size(), g.types.size());
+        for (std::size_t i = 0; i < g.types.size() && i < h->records.size(); ++i) {
+            CHECK_EQ(h->records[i].type, g.types[i]);
+        }
+        CHECK_EQ(h->poly_handles.size(), g.poly);
+        CHECK_EQ(h->object_handles.size(), g.object);
+        CHECK_EQ(h->sector_handles.size(), g.sector);
+        CHECK_EQ(h->sobs.size(), g.sobs);
+        CHECK_EQ(h->script.things, g.things);
+        CHECK_EQ(h->script.handles, g.handles);
+        CHECK_EQ(h->script.code_size, g.code);
+        CHECK_EQ(h->file_end, bytes.size());
+    }
+
+    std::size_t levels = 0;
+    if (fs::is_directory(dir, ec)) {
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file() ||
+                !gm::iequals_ascii(entry.path().extension().string(), ".sbt")) {
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                            std::istreambuf_iterator<char>());
+            const auto h = gm::parse_sbt(bytes, error);
+            CHECK(h.has_value() && h->file_end == bytes.size() &&
+                  !h->records.empty() && h->records.back().type == 255);
+            ++levels;
+        }
+    }
+    CHECK(levels == 0 || levels == 36);
+}
+
+void test_sbc() {
+    std::vector<std::uint8_t> blob = {'S', 'B', 'C', '1'};
+    auto u32 = [&](std::uint32_t v) {
+        blob.push_back(v & 0xFF);
+        blob.push_back((v >> 8) & 0xFF);
+        blob.push_back((v >> 16) & 0xFF);
+        blob.push_back((v >> 24) & 0xFF);
+    };
+    u32(2);
+    u32(0x10001); // 2x2 (w_log=1, h_log=1)
+    for (int i = 0; i < 4; ++i) {
+        blob.push_back(static_cast<std::uint8_t>(i * 10));
+    }
+    u32(0); // 1x1
+    blob.push_back(77);
+
+    std::string error;
+    const auto sbc = gm::parse_sbc(blob, error);
+    CHECK(sbc.has_value());
+    if (sbc) {
+        CHECK_EQ(sbc->magic, std::string("SBC1"));
+        CHECK_EQ(sbc->records.size(), std::size_t{2});
+        CHECK_EQ(sbc->records[0].width, 2);
+        CHECK_EQ(sbc->records[0].height, 2);
+        CHECK_EQ(sbc->records[0].pixels[3], std::uint8_t{30});
+        CHECK_EQ(sbc->records[1].width, 1);
+        CHECK_EQ(sbc->records[1].height, 1);
+        CHECK_EQ(sbc->records[1].pixels[0], std::uint8_t{77});
+        CHECK_EQ(sbc->file_end, blob.size());
+    }
+    std::vector<std::uint8_t> cut(blob.begin(), blob.end() - 1);
+    CHECK(!gm::parse_sbc(cut, error).has_value());
+
+    // Real: level0 golden + every shipped .sbc must parse to EOF.
+    const fs::path dir = "/mnt/d/games/Gunmetal 3dfx";
+    std::error_code ec;
+    const fs::path level0 = dir / "level0.sbc";
+    if (fs::is_regular_file(level0, ec)) {
+        std::ifstream in(level0, std::ios::binary);
+        std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                        std::istreambuf_iterator<char>());
+        const auto s = gm::parse_sbc(bytes, error);
+        CHECK(s.has_value());
+        if (s) {
+            CHECK_EQ(s->magic, std::string("SBC1"));
+            CHECK_EQ(s->records.size(), std::size_t{405});
+            CHECK_EQ(s->records[0].width, 16);
+            CHECK_EQ(s->records[0].height, 8);
+            CHECK_EQ(gm::fnv1a64(s->records[0].pixels), 0x6c79973b66efff25ull);
+            CHECK_EQ(s->file_end, bytes.size());
+        }
+    }
+
+    std::size_t files = 0;
+    auto scan = [&](const fs::path& root) {
+        if (!fs::is_directory(root, ec)) {
+            return;
+        }
+        for (const auto& entry : fs::directory_iterator(root, ec)) {
+            if (!entry.is_regular_file() ||
+                !gm::iequals_ascii(entry.path().extension().string(), ".sbc")) {
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                            std::istreambuf_iterator<char>());
+            const auto s = gm::parse_sbc(bytes, error);
+            CHECK(s.has_value() && s->file_end == bytes.size());
+            ++files;
+        }
+    };
+    scan(dir);
+    scan(dir / "SOBS");
+    CHECK(files == 0 || files == 51);
+}
+
+void test_anim() {
+    std::string text = "0 3\r\nBigGate1 200\r\nBigGate2 6000\r\nBigGate3 10\r\n";
+    std::vector<std::uint8_t> bytes(text.begin(), text.end());
+    std::string error;
+    const auto soo = gm::parse_soo(bytes, error);
+    CHECK(soo.has_value());
+    if (soo) {
+        CHECK_EQ(soo->mode, 0);
+        CHECK_EQ(soo->declared, 3);
+        CHECK_EQ(soo->frames.size(), std::size_t{3});
+        CHECK_EQ(soo->frames[1].name, std::string("BigGate2"));
+        CHECK_EQ(soo->frames[1].duration, 6000);
+    }
+    std::vector<std::uint8_t> bad = {'0', ' ', '3', ' ', 'A'};
+    CHECK(!gm::parse_soo(bad, error).has_value());
+
+    std::string soa_text = "1 72 2 1\r\nBaby1\r\nBaby2\r\n";
+    std::vector<std::uint8_t> soa_bytes(soa_text.begin(), soa_text.end());
+    const auto soa = gm::parse_soa(soa_bytes, error);
+    CHECK(soa.has_value());
+    if (soa) {
+        CHECK_EQ(soa->mode, 1);
+        CHECK_EQ(soa->period, 72);
+        CHECK_EQ(soa->loop, 1);
+        CHECK_EQ(soa->names.size(), std::size_t{2});
+        CHECK_EQ(soa->names[1], std::string("Baby2"));
+    }
+
+    const fs::path dir = "/mnt/d/games/Gunmetal 3dfx";
+    std::error_code ec;
+    const fs::path biggate = dir / "Sobanim" / "BigGate.soo";
+    if (fs::is_regular_file(biggate, ec)) {
+        std::ifstream in(biggate, std::ios::binary);
+        std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                      std::istreambuf_iterator<char>());
+        const auto s = gm::parse_soo(raw, error);
+        CHECK(s.has_value());
+        if (s) {
+            CHECK_EQ(s->frames.size(), std::size_t{3});
+            CHECK_EQ(s->frames.back().duration, 10);
+        }
+    }
+    const fs::path baby = dir / "anims" / "Baby.SOA";
+    if (fs::is_regular_file(baby, ec)) {
+        std::ifstream in(baby, std::ios::binary);
+        std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                      std::istreambuf_iterator<char>());
+        const auto a = gm::parse_soa(raw, error);
+        CHECK(a.has_value());
+        if (a) {
+            CHECK_EQ(a->mode, 1);
+            CHECK_EQ(a->period, 72);
+            CHECK_EQ(a->declared, 2);
+            CHECK_EQ(a->names.size(), std::size_t{2});
+        }
+    }
+
+    std::size_t soo_count = 0;
+    const fs::path soo_dir = dir / "Sobanim";
+    if (fs::is_directory(soo_dir, ec)) {
+        for (const auto& entry : fs::directory_iterator(soo_dir, ec)) {
+            if (!entry.is_regular_file() ||
+                !gm::iequals_ascii(entry.path().extension().string(), ".soo")) {
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                          std::istreambuf_iterator<char>());
+            const auto s = gm::parse_soo(raw, error);
+            CHECK(s.has_value() && !s->frames.empty());
+            ++soo_count;
+        }
+    }
+    CHECK(soo_count == 0 || soo_count == 40);
+
+    std::size_t soa_count = 0;
+    const fs::path soa_dir = dir / "anims";
+    if (fs::is_directory(soa_dir, ec)) {
+        for (const auto& entry : fs::directory_iterator(soa_dir, ec)) {
+            if (!entry.is_regular_file() ||
+                !gm::iequals_ascii(entry.path().extension().string(), ".soa")) {
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                          std::istreambuf_iterator<char>());
+            const auto a = gm::parse_soa(raw, error);
+            CHECK(a.has_value() && !a->names.empty());
+            ++soa_count;
+        }
+    }
+    CHECK(soa_count == 0 || soa_count == 77);
+}
+
 void test_log() {
     gm::set_log_level(gm::LogLevel::Off);
     CHECK(!gm::log_enabled(gm::LogLevel::Error));
@@ -604,6 +890,9 @@ int main() {
     test_sbm_png();
     test_sbw();
     test_sou();
+    test_sbt();
+    test_sbc();
+    test_anim();
 
     if (g_failures != 0) {
         std::fprintf(stderr, "gm_tests: %d failure(s)\n", g_failures);
