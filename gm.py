@@ -1095,6 +1095,61 @@ INVENTORY = {
 }
 
 
+
+def cmd_manifest(opts) -> int:
+    """SHA-256 manifest of the installation (names + hashes only, no data)."""
+    import hashlib
+    root = opts.path or opts.game
+    if not os.path.isdir(root):
+        print("manifest: %s is not a directory" % root, file=sys.stderr)
+        return 1
+    game_only = not opts.all
+    rows = []
+    total = 0
+    for base, dirs, files in os.walk(root):
+        dirs.sort()
+        for name in sorted(files):
+            path = os.path.join(base, name)
+            ext = os.path.splitext(name)[1].lower()
+            module, status = INVENTORY.get(ext, ("—", "не разобран"))
+            if game_only and status.startswith("не игровой"):
+                continue
+            try:
+                size = os.path.getsize(path)
+                h = hashlib.sha256()
+                with open(path, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        h.update(chunk)
+            except OSError as exc:
+                print("  FAIL %s: %s" % (path, exc), file=sys.stderr)
+                continue
+            rel = os.path.relpath(path, root).replace(os.sep, "/")
+            if game_only and rel.split("/")[0].upper() == "SAVEGAME":
+                continue          # user saves, not shipped assets
+            rows.append((rel, h.hexdigest(), size))
+            total += size
+    rows.sort()
+    digest = hashlib.sha256()
+    for rel, h, size in rows:
+        digest.update(("%s  %s\n" % (h, rel)).encode("utf-8"))
+    lines = ["%s  %s" % (h, rel) for rel, h, _size in rows]
+    if opts.out:
+        os.makedirs(os.path.dirname(os.path.abspath(opts.out)), exist_ok=True)
+        with open(opts.out, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("\n".join(lines) + "\n")
+    if opts.json:
+        print(json.dumps({"root": root, "files": len(rows), "bytes": total,
+                          "digest": digest.hexdigest(),
+                          "entries": [{"path": r, "sha256": h, "bytes": s}
+                                      for r, h, s in rows]}, indent=2))
+    else:
+        print("%s: %d files, %.1f MiB, manifest digest %s"
+              % (root, len(rows), total / 1048576, digest.hexdigest()))
+        if opts.out:
+            print("  written: %s" % opts.out)
+    return 0
+
+
 def cmd_inventory(opts) -> int:
     """Map every file in the installation: extension, count, bytes, module."""
     root = opts.path or opts.game
@@ -1794,6 +1849,16 @@ def main(argv=None) -> int:
     p.add_argument("--inplace", action="store_true",
                    help="with --set: overwrite the save (explicit!)")
     p.set_defaults(func=cmd_save)
+
+    p = sub.add_parser("manifest", help="SHA-256 manifest of the installation "
+                                        "(game files by default)")
+    p.add_argument("path", nargs="?", help="directory (default: --game)")
+    p.add_argument("--game", default="/mnt/d/games/Gunmetal 3dfx")
+    p.add_argument("--all", action="store_true",
+                   help="include non-game files (DXWnd exports, docs, images)")
+    p.add_argument("--out", metavar="FILE", help="write sha256sum-compatible lines")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_manifest)
 
     p = sub.add_parser("inventory", help="map the installation: extension, "
                                          "count, size, module, status")
