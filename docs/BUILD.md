@@ -85,6 +85,7 @@ gunmetal [--game DIR] [--level NAME] [--dump FILE] [--headless]
 | `cli_level` (вручную) | `--level level0 --info` печатает world/entities/lightmaps |
 | `cli_play` | `--headless --play Intro --frames 3` декодирует SBV и проходит путь видео |
 | `cli_level_frames` | `--headless --level level0 --frames 2` проходит путь вьювера |
+| `sbtvm` | 36/36 `.sbt`: декодер SCRIPT = Python (100 487 инструкций, FNV) |
 | `parity_levels` | `tools/parity_levels.py`: счётчики 36/36 уровней совпадают с Python |
 | `cli_render` (вручную) | `--render out.png --level level0 [--pos --look --clip]` пишет PNG |
 

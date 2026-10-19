@@ -178,6 +178,9 @@
 * **Паритет данных** — `tools/parity_levels.py` сверяет `gunmetal --info` с
   `gm/sbw|sbt|sbc` по всем 36 уровням (world, запись-гистограмма, лайтмапы):
   36/36; добавлен в CTest как `parity_levels`.
+* **SBT-VM** — `engine/src/res/sbtvm.*`: порт `gm/sbtvm.py` (192 команды,
+  59 условий, structural opcodes), канонический текст совпадает с Python;
+  36/36 `.sbt`, 100 487 инструкций, FNV `e0d46e033fa0b415` (CTest `sbtvm`).
 * **Кэш ассетов** — `engine/src/res/cache.*`: LRU по (архив, имя), бюджет в байтах,
   `shared_ptr`-refcount (занятые блобы не вытесняются), статистика; архивы
   открываются по требованию и живут в кэше.
