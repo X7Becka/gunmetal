@@ -141,6 +141,7 @@ python3 gm.py sbv      out/intro_raw out/intro.sbv                     # соб�
 | `.sbw` | мир: геометрия + поля полигонов/объектов | разобран (36/36 до EOF); **писатель** (rebuild побайтово); **рендер в PNG** (`gm.py view`) |
 | `.sbt` | мир/уровень (World Things file) | разобран (36/36; handle сверены с `.sbw`); **писатель** (rebuild побайтово, структурные записи 205/205); **скриптовая ВМ SCRIPT** разобрана — имена опкодов (в т.ч. `DEFINE_WEAPONS`/`DEFINE_AMMO`/`DEFINE_EQUIPMENT`/`DEFINE_PLAYER_TYPES`/`DEFINE_LEVEL_OBJECTIVES`/`ADD_LIFT`/`SOURCEPLAYER_PATH`, `IF`/`ELSE`/`END`), декомпилятор, 36/36 в байтовый конец |
 | `LOOK16.TAB`/`LOOK162.TAB` | кубы 64³ «6-6-6 RGB → индекс палитры» | разобран |
+| `LVLNAMES.SLU` | таблица имён уровней (`СТВОЛ Имя`, ASCII+CRLF) | разобран вручную (загрузчик `0x48b3f0`); секретные уровни (`secrt1`/`secrt2`) и патчевый DM5 `temple` — §15 в `docs/FORMATS.md` |
 
 Детали и точные структуры — в `docs/FORMATS.md`; карта адресов движка — в
 `NOTES.md`.
@@ -163,5 +164,8 @@ python3 regress.py --game "…/Gunmetal 3dfx" --out /tmp/opencode/regress
   `/tmp`, а не на медленных монтированиях `/mnt/c`/`/mnt/d`.
 * `gun.exe` — DOS/4GW-сборка (нужен отсутствующий `GLIDE2X.OVL`); играбельная —
   `gundx.exe`, она и служит источником для дизассемблирования.
+* Секретные уровни: `secrt1` (Foundry) и `secrt2` (Processor) открываются
+  скрытыми «прыжковыми воротами» в `level4`/`level16`; `temple` (DM5) добавлен
+  патчем 1.36 и играется только в deathmatch. Подробности — §15 FORMATS.
 * Символы/структуры модулей менять свободно — это внутренний инструмент, обратная
   совместимость не требуется.

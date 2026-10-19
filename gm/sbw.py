@@ -10,7 +10,11 @@ loop at ``0x42ad65`` and the stage-2 loop ``0x425f4c`` -> ``0x422b88`` /
     count1 * {
         char name[];            // NUL-terminated ASCII
         u16 flag;               // 0/1/256 in shipped data
-        u32 value;              // global texture id (index into PICS/SBM.IDX)
+        u32 value;              // per-level texture weight: the loader seeds the
+                                // engine refcount array 0x5310c0[i] with it
+                                // (0x42aba9), 0x424eab/0x424e50 then inc/dec it.
+                                // NOT an index into PICS/SBM.IDX -- the same name
+                                // carries different values in different levels
     };
 
     u32 count2;                                     // effect/animation table
