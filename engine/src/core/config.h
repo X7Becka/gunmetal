@@ -16,6 +16,7 @@ struct Options {
     std::string play;
     std::string song;
     std::string scene;
+    std::string music;
     std::string sou2;
     std::filesystem::path wav;
     std::filesystem::path dump;

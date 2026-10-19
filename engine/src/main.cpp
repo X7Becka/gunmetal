@@ -4,6 +4,7 @@
 #include "core/path.h"
 #include "core/time.h"
 #include "platform/window.h"
+#include "platform/audio.h"
 #include "res/bigfile.h"
 #include "res/bmp.h"
 #include "res/png.h"
@@ -738,6 +739,104 @@ int export_sou2(const gm::Options& options) {
     return 0;
 }
 
+int play_music(const gm::Options& options) {
+    std::string error;
+    auto sog_path = gm::resolve_ci(options.game / "MUSIC", options.music + ".sog");
+    if (!sog_path) {
+        gm::logf(gm::LogLevel::Error, "music", "playlist not found: " + options.music);
+        return 2;
+    }
+    const auto sog_bytes = read_file(*sog_path, error);
+    if (!sog_bytes) {
+        gm::logf(gm::LogLevel::Error, "music", error);
+        return 2;
+    }
+    const auto sog = gm::parse_sog(*sog_bytes, error);
+    if (!sog) {
+        gm::logf(gm::LogLevel::Error, "music", error);
+        return 2;
+    }
+    auto idx = gm::resolve_ci(options.game / "MUSIC", "SOU.IDX");
+    if (!idx) {
+        gm::logf(gm::LogLevel::Error, "music", "MUSIC/SOU.IDX not found");
+        return 2;
+    }
+    const auto archive = gm::BigFile::open(*idx, error);
+    if (!archive) {
+        gm::logf(gm::LogLevel::Error, "music", error);
+        return 2;
+    }
+
+    std::vector<gm::PcmClip> clips;
+    std::uint64_t total_samples = 0;
+    for (const auto& name : sog->names) {
+        const gm::BigEntry* entry = nullptr;
+        for (const auto& candidate : archive->entries()) {
+            if (gm::iequals_ascii(candidate.name, name)) {
+                entry = &candidate;
+                break;
+            }
+        }
+        if (entry == nullptr) {
+            gm::logf(gm::LogLevel::Error, "music", "missing entry " + name);
+            return 2;
+        }
+        const auto blob = archive->read(*entry, error);
+        if (!blob) {
+            gm::logf(gm::LogLevel::Error, "music", error);
+            return 2;
+        }
+        auto clip = gm::decode_sou2(*blob, error);
+        if (!clip) {
+            gm::logf(gm::LogLevel::Error, "music", name + ": " + error);
+            return 2;
+        }
+        total_samples += clip->samples.size();
+        clips.push_back(std::move(*clip));
+    }
+    if (clips.empty()) {
+        gm::logf(gm::LogLevel::Error, "music", "playlist is empty");
+        return 2;
+    }
+    const int rate = clips.front().sample_rate;
+    const int channels = clips.front().channels;
+    const double seconds = rate > 0 && channels > 0
+                               ? static_cast<double>(total_samples) / channels / rate
+                               : 0.0;
+    gm::logf(gm::LogLevel::Info, "music", sog_path->filename().string(), " tracks=",
+             clips.size(), " ", rate, " Hz ", channels, " ch ", seconds, "s");
+    if (options.headless) {
+        std::printf("music: %zu tracks, %.3f s\n", clips.size(), seconds);
+        return 0;
+    }
+    auto device = gm::AudioDevice::open(rate, channels, false, error);
+    if (!device) {
+        gm::logf(gm::LogLevel::Error, "music", error);
+        return 1;
+    }
+    auto window = gm::Window::open("Gunmetal", options.width, options.height, false, error);
+    if (!window) {
+        gm::logf(gm::LogLevel::Error, "music", error);
+        return 1;
+    }
+    for (const auto& clip : clips) {
+        device->queue(clip.samples.data(), clip.samples.size() / std::max(1, clip.channels));
+    }
+    gm::FrameClock clock;
+    int frame = 0;
+    while (window->pump()) {
+        window->fill_gradient(frame);
+        window->present();
+        (void)clock.tick();
+        ++frame;
+        if (clock.elapsed() > seconds + 0.2) {
+            break;
+        }
+        window->delay_ms(10);
+    }
+    return 0;
+}
+
 int show_song(const gm::Options& options) {
     std::string error;
     auto path = gm::resolve_ci(options.game / "MUSIC", options.song + ".sog");
@@ -1049,6 +1148,9 @@ int main(int argc, char** argv) {
     }
     if (options->verbose) {
         gm::set_log_level(gm::LogLevel::Debug);
+    }
+    if (!options->music.empty()) {
+        return play_music(*options);
     }
     if (!options->scene.empty()) {
         return show_scene(*options);

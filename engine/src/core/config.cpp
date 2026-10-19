@@ -94,6 +94,12 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.wav = std::filesystem::path(std::string(*v));
+        } else if (arg == "--music") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.music = std::string(*v);
         } else if (arg == "--scene") {
             const auto v = value(arg);
             if (!v) {
@@ -267,6 +273,7 @@ std::string usage() {
        << "      --info        print the level summary instead of opening the viewer\n"
        << "      --play NAME   play Vid/NAME.sbv (--frames limits the frame count)\n"
        << "      --song NAME   list the MUSIC/NAME.sog playlist and its SOU.DAT entries\n"
+       << "      --music NAME  play MUSIC/NAME.sog through the SOG playlist\n"
        << "      --scene NAME  print the level script scene (lights/doors/items...)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"
