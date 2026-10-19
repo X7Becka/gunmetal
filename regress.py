@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import math
 import os
 import subprocess
 import sys
@@ -738,6 +739,50 @@ def main() -> int:
         ok_tf == len(offs) and uv_ok and max(offs) < 16,
         "%d objects: world = origin + basis*local, max |origin| %.1f, UV kept: %s"
         % (len(offs), max(offs), uv_ok)))
+
+    # --- script positions vs the level mesh (gm/scene.py) -----------------
+    from gm import scene as scenemod
+    sc_dm1 = scenemod.load(os.path.join(G, "dm1.sbt"))
+    core = []
+    for sec in lvl.sectors:
+        for o in sec.objects:
+            if not o.vertices:
+                continue
+            vs = o.vertices
+            if max(max(v[i] for v in vs) - min(v[i] for v in vs)
+                   for i in range(3)) <= 4000:
+                core.extend(vs)
+    CELL = 150.0
+    grid = {}
+    for v in core:
+        grid.setdefault((int(v[0] // CELL), int(v[1] // CELL),
+                         int(v[2] // CELL)), []).append(v)
+
+    def _nearest(p):
+        k = (int(p[0] // CELL), int(p[1] // CELL), int(p[2] // CELL))
+        best = 1e18
+        for dx in range(-4, 5):
+            for dy in range(-4, 5):
+                for dz in range(-4, 5):
+                    for v in grid.get((k[0] + dx, k[1] + dy, k[2] + dz), ()):
+                        d = ((v[0] - p[0]) ** 2 + (v[1] - p[1]) ** 2
+                             + (v[2] - p[2]) ** 2)
+                        if d < best:
+                            best = d
+        return best ** 0.5
+
+    sc_scale = scenemod.SCALE
+    sw = sorted(_nearest(tuple(c * sc_scale for c in x.pos))
+                for x in sc_dm1.switches)
+    dr = sorted(min(math.dist(tuple(c * sc_scale for c in d.corner), v)
+                    for v in core) for d in sc_dm1.doors)
+    med_sw = sw[len(sw) // 2]
+    med_dr = dr[len(dr) // 2]
+    results.append(report(
+        "scene / switch positions land on the mesh",
+        med_sw <= 20 and med_dr > 300 and len(sw) == 129 and len(dr) == 61,
+        "dm1: switches median %.1f units from a vertex, door corners %.1f "
+        "(doors are not in the world frame)" % (med_sw, med_dr)))
 
     # --- doors / switches / lifts (tools/re/doors.py) ---------------------
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",

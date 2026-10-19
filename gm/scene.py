@@ -211,58 +211,60 @@ class Door:
         p = self.params
         return (p[4] if len(p) > 4 else 0, p[3] if len(p) > 3 else 0)
 
-    #: The nine ``D`` doubles come in three triples: the closed position, the
-    #: open one (equal for swinging doors; a delta for sliding ones, e.g.
-    #: ``+192/+192`` in ``dm1``) and a swing axis (zero for sliding/unlinked).
-    #: ``0x44e368``..``0x44e3f6`` fold them into a bounding box at record
-    #: ``+0x00``..``+0x40`` -- that box is how the engine finds the polygons of
-    #: the door at load, the record itself carries no handles.
+    #: The nine ``D`` doubles are stored **in order** into the record
+    #: (``+0x00``..``+0x40``): ``D1..D3`` is a corner, ``D4..D6`` a second
+    #: point, ``D7..D9`` a size vector.  The loader then folds them with
+    #: ``+0x00 += +0x30``, ``+0x08 += +0x38``, ``+0x10 += +0x40``
+    #: (``0x44e368``..``0x44e3f6``, simulated from the x87 stack), i.e. the
+    #: record's box is ``corner .. corner + size``.  ``0x44e0b1``..``0x44e162``
+    #: and ``0x450701``..``0x450787`` interpolate that box and hand it to the
+    #: volume query ``0x434887`` and to the obstacle update
+    #: ``0x4795b0(..., -22, box)``: a door is a *moving collision volume*.
+    #:
+    #: Neither the record nor the command carries a handle, so no polygon set
+    #: is addressed.  The frame of these numbers is **not** the world frame:
+    #: switch positions (same command family) land within ~5 units of the level
+    #: mesh, while door corners stay ~1363 units away in ``dm1`` and no constant
+    #: offset or axis permutation fixes that.  Treat them as raw operands.
     @property
-    def pos(self) -> tuple:
+    def corner(self) -> tuple:
+        """First ``D`` triple -- the box corner (raw operand, not a world pos)."""
         return tuple(self.values[:3])
 
     @property
-    def open_pos(self) -> tuple:
+    def point2(self) -> tuple:
+        """Second ``D`` triple (differs from the corner on the sliding doors)."""
         return tuple(self.values[3:6])
 
     @property
-    def axis(self) -> tuple:
+    def size(self) -> tuple:
+        """``D7..D9`` -- added to the corner to make the opposite box corner."""
         return tuple(self.values[6:9])
+
+    #: backwards-compatible aliases used by the viewer / JSON dumps
+    pos = corner
+    open_pos = point2
 
     @property
     def moving(self) -> bool:
-        """A sliding door (open position differs from the closed one)."""
+        """Sliding door: the second point differs from the corner."""
         return (len(self.values) >= 6
                 and any(abs(a - b) > 1e-6
                         for a, b in zip(self.values[:3], self.values[3:6])))
 
     def bbox(self) -> tuple:
-        """``(min, max)`` of the door's box, from the closed/open points.
-
-        The engine keeps the box in the record (``+0x00``..``+0x40``) and
-        ``0x44e0b1``..``0x44e162`` / ``0x450701``..``0x450787`` interpolate it
-        with ``min + t*(max-min)`` before a volume query (``0x434887``) or an
-        obstacle update (``0x4795b0`` with ``-22``); the swing axis is used as
-        a half-extent, so the volume covers the swept leaf.
-        """
-        pts = [self.values[:3]]
-        if len(self.values) >= 6:
-            pts.append(self.values[3:6])
-        lo = [min(p[i] for p in pts) for i in range(3)]
-        hi = [max(p[i] for p in pts) for i in range(3)]
-        if len(self.values) >= 9:
-            for i in range(3):
-                h = abs(self.values[6 + i]) / 2.0
-                lo[i] -= h
-                hi[i] += h
-        return (tuple(lo), tuple(hi))
+        """``(min, max)`` of the door box exactly as the loader builds it."""
+        lo = self.values[:3] if len(self.values) >= 3 else (0.0, 0.0, 0.0)
+        sz = self.values[6:9] if len(self.values) >= 9 else (0.0, 0.0, 0.0)
+        hi = tuple(lo[i] + sz[i] for i in range(3))
+        return (tuple(min(lo[i], hi[i]) for i in range(3)),
+                tuple(max(lo[i], hi[i]) for i in range(3)))
 
     def volume(self, t: float = 0.0) -> tuple:
         """The interpolated box the engine passes to the volume query."""
         lo, hi = self.bbox()
         return (tuple(lo[i] + t * (hi[i] - lo[i]) for i in range(3)),
-                tuple(lo[i] + (1.0 - t) * (hi[i] - lo[i]) for i in range(3)))
-
+                tuple(hi[i] - t * (hi[i] - lo[i]) for i in range(3)))
 
 @dataclass
 class Switch:

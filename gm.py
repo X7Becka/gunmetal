@@ -1127,7 +1127,7 @@ def cmd_scene(opts) -> int:
             "doors": [{"flags": d.flags, "ids": list(d.ids),
                        "angles": list(d.angles), "params": list(d.params),
                        "pos": list(d.pos), "open_pos": list(d.open_pos),
-                       "axis": list(d.axis), "moving": d.moving,
+                       "size": list(d.size), "moving": d.moving,
                        "values": list(d.values), "tail": list(d.tail)}
                       for d in sc.doors],
             "switches": [{"kind": s.kind, "id": s.id, "radius": s.radius,
