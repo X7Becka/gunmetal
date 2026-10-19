@@ -68,15 +68,21 @@ def main() -> int:
     args = ap.parse_args()
 
     data = open(args.save, "rb").read()
-    if data[:len(MAGIC)] != MAGIC:
-        print("not a save: %r" % data[:12], file=sys.stderr)
-        return 1
-    version = struct.unpack("<I", data[VERSION_AT:VERSION_AT + 4])[0]
+    # the first 12 bytes hold the save's display name: "A SAVED GAME" for a
+    # manually named save, otherwise whatever the slot name is (e.g. "2").
+    title = data[:12].split(b"\0")[0].decode("latin1")
+    if data[:len(MAGIC)] == MAGIC:
+        version = struct.unpack("<I", data[VERSION_AT:VERSION_AT + 4])[0]
+    else:
+        version = struct.unpack("<I", data[:4])[0]
     name = data[NAME_AT:NAME_AT + NAME_LEN].split(b"\0")[0].decode("latin1")
+    if not name.startswith("LEVEL") and not name[:1].isalpha():
+        print("not a save: %r" % data[:16], file=sys.stderr)
+        return 1
 
     src = match_level(data, args.game)
     info = {"file": os.path.basename(args.save), "bytes": len(data),
-            "magic": MAGIC.decode(), "version": version, "level_name": name}
+            "title": title, "version": version, "level_name": name}
     if src:
         level, hits = src
         info["source_level"] = level
@@ -98,9 +104,9 @@ def main() -> int:
         print(json.dumps(info, indent=2))
         return 0
 
-    print("%s: %d bytes, container %r, version 0x%x"
-          % (info["file"], info["bytes"], info["magic"], version))
-    print("  level name in header: %r" % name)
+    print("%s: %d bytes, save name %r, version 0x%x"
+          % (info["file"], info["bytes"], title, version))
+    print("  level name in header (0x54): %r" % name)
     if src:
         print("  source level: %s (%d matching anchors)"
               % (info["source_level"], info["script_hits"]))
