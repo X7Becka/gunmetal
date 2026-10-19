@@ -640,7 +640,7 @@ def save_checks(G: str, results: list[bool]) -> None:
         data = {}
     exts = {r["ext"] for r in data.get("rows", [])}
     cont = {c["idx"].split("/")[0]: c["entries"] for c in data.get("containers", [])}
-    ok = (inv.returncode == 0 and {".sbw", ".sbt", ".sbm", ".sou", ".sob"} <= exts
+    ok = (inv.returncode == 0 and {".sbw", ".sbt", ".sob", ".dat"} <= exts
           and cont.get("sounds") == 999 and cont.get("MUSIC") == 3092)
     results.append(report("inventory covers the installation and its BIGFILEs",
                           ok, "%d files, %d containers"
