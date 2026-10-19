@@ -734,6 +734,18 @@ def main() -> int:
     run(["film", f"{G}/Film/AMMO4.SOF", "--frame", "0", "--png", film_png])
     results.append(report("film / tile export", os.path.exists(film_png)
                           and os.path.getsize(film_png) > 0, film_png))
+    misc_dir = os.path.join(out, "misc")
+    rc, text = run(["misc", G, "--rebuild", misc_dir])
+    srcs = [os.path.join(G, p) for p in (
+        "PICS/textures.sub", "sprites/sprites.sub", "sounds/sounds.sub",
+        "FRONTEND/KILLED.skk", "FRONTEND/KILLED.skb", "path.sni",
+        "KEYCFG/PERFECT.key", "KEYCFG/SPLIT1.KEY", "KEYCFG/SPLIT2.KEY",
+        "gunmetal.hi", "GUNMETAL.CFG", "CONTROLS.CFG")]
+    same = all(os.path.exists(os.path.join(misc_dir, os.path.basename(p)))
+               and open(os.path.join(misc_dir, os.path.basename(p)), "rb").read()
+               == open(p, "rb").read() for p in srcs)
+    results.append(report("misc / 10 small formats round-trip", rc == 0 and same,
+                          "sub/kk/kb/sni/key/hi"))
     results.append(check("soe / thing types", ["soe", G], ["soe: 1 parsed, 0 failed"]))
     results.append(check("sog / songs", ["sog", f"{G}/MUSIC", "--music", f"{G}/MUSIC/SOU.IDX"],
                          ["sog: 651 songs"]))

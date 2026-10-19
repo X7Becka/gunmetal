@@ -429,6 +429,83 @@ def cmd_soa(opts) -> int:
 
 
 
+
+def cmd_misc(opts) -> int:
+    """Inspect the small formats: ``.sub``, ``.skk``/``.skb``, ``.sni``,
+    ``.key``, ``.hi``."""
+    from gm import small
+    paths = []
+    for p in opts.paths:
+        if os.path.isdir(p):
+            for base, _dirs, files in os.walk(p):
+                paths += [os.path.join(base, f) for f in sorted(files)
+                          if os.path.splitext(f)[1].lower() in
+                          (".sub", ".skk", ".skb", ".sni", ".key", ".hi",
+                           ".cfg")]
+        else:
+            paths.append(p)
+    n = bad = 0
+    for path in paths:
+        ext = os.path.splitext(path)[1].lower()
+        try:
+            raw = open(path, "rb").read()
+            if ext == ".sub":
+                obj = small.parse_sub(raw)
+                summary = "%d entries%s" % (
+                    len(obj.entries),
+                    "" if obj.count is None else ", count %d" % obj.count)
+                info = {"entries": [{"value": e.value, "left": e.left,
+                                     "right": e.right} for e in obj.entries]}
+            elif ext in (".skk", ".skb"):
+                obj = small.parse_kill(raw)
+                summary = "%d messages" % len(obj.messages)
+                info = {"messages": obj.messages}
+            elif ext == ".sni":
+                obj = None
+                text = small.parse_sni(raw)
+                out = small.sni_to_bytes(text)
+                summary = "%r" % text
+                info = {"path": text}
+            elif ext == ".key":
+                obj = small.parse_key(raw)
+                summary = "%r, %d records" % (obj.name, len(obj.entries))
+                info = {"name": obj.name,
+                        "codes": [c for c, _ in obj.entries]}
+            elif ext == ".cfg":
+                obj = small.parse_cfg(raw)
+                summary = "%r, version %s" % (obj.header, obj.version)
+                info = {"header": obj.header, "version": obj.version}
+            elif ext == ".hi":
+                obj = small.parse_hi(raw)
+                summary = "%d records" % len(obj.records)
+                info = {"records": [{"score": r["score"],
+                                     "name": small.record_name(r)}
+                                    for r in obj.records]}
+            else:
+                print("  SKIP %s: unsupported extension" % path)
+                continue
+        except (OSError, ValueError) as exc:
+            bad += 1
+            print("  FAIL %s: %s" % (path, exc), file=sys.stderr)
+            continue
+        blob = out if ext == ".sni" else obj.to_bytes()
+        if opts.json:
+            print(json.dumps({"file": os.path.basename(path), "type": ext,
+                              "bytes": len(raw), **info},
+                             ensure_ascii=False))
+        else:
+            print("%-22s %5d B  %s" % (os.path.basename(path), len(raw), summary))
+        if opts.rebuild:
+            dst = os.path.join(opts.rebuild, os.path.basename(path))
+            os.makedirs(opts.rebuild, exist_ok=True)
+            with open(dst, "wb") as fh:
+                fh.write(blob)
+        n += 1
+    if not opts.json:
+        print("misc: %d parsed, %d failed" % (n, bad))
+    return 0 if bad == 0 else 1
+
+
 def cmd_film(opts) -> int:
     """Inspect ``.sof`` HUD films (8 KB tiles) and their ``.fdx`` indexes."""
     from gm import png, sof as sofmod
@@ -966,9 +1043,9 @@ INVENTORY = {
     ".sbt": ("gm/sbt.py", "чтение + запись, VM, сцена"),
     ".sbc": ("gm/sbc.py", "чтение + запись"),
     ".sob": ("gm/sob.py", "чтение + OBJ + рендер"),
-    ".soo": ("—", "не разобран"),
-    ".sof": ("—", "не разобран"),
-    ".fdx": ("—", "не разобран"),
+    ".soo": ("gm/soo.py", "чтение + запись (текст)"),
+    ".sof": ("gm/sof.py", "тайлы 8 КБ, кадр 128x64 (research)"),
+    ".fdx": ("gm/sof.py", "индекс фильма (текст)"),
     ".sbm": ("gm/sbm.py", "чтение + запись + PNG/BMP"),
     ".sou": ("gm/sou.py", "контейнер; SOU1/2 не разобраны"),
     ".sog": ("gm/sog.py", "чтение + запись"),
@@ -994,14 +1071,14 @@ INVENTORY = {
     ".ico": ("—", "не игровой"),
     ".isu": ("—", "не игровой"),
     ".pin": ("gm/look.py", "NEONS.PIN — разобран"),
-    ".skk": ("—", "не разобран"),
-    ".skb": ("—", "не разобран"),
-    ".sdb": ("—", "не разобран"),
-    ".hi": ("—", "не разобран"),
-    ".sni": ("—", "не разобран"),
-    ".key": ("—", "не разобран"),
-    ".sub": ("—", "не разобран"),
-    ".cfg": ("—", "не разобран"),
+    ".skk": ("gm/small.py", "чтение + запись (текст)"),
+    ".skb": ("gm/small.py", "чтение + запись (текст)"),
+    ".sdb": ("—", "база патча (не игровой)"),
+    ".hi": ("gm/small.py", "чтение + запись (рекорды)"),
+    ".sni": ("gm/small.py", "чтение + запись (текст)"),
+    ".key": ("gm/small.py", "чтение + запись (376 Б)"),
+    ".sub": ("gm/small.py", "чтение + запись (текст)"),
+    ".cfg": ("gm/small.py", "шапка/версия, поля не размечены"),
     ".exe": ("tools/re", "PE-карта, дизасм, xref"),
     ".dll": ("—", "бинарь/система"),
     ".pif": ("—", "не игровой"),
@@ -1653,6 +1730,12 @@ def main(argv=None) -> int:
                    help="dump every field of the token stream")
     p.add_argument("--rebuild", help="write each .soe back (re-serialised) into this directory")
     p.set_defaults(func=cmd_soe)
+
+    p = sub.add_parser("misc", help="inspect .sub, .skk/.skb, .sni, .key, .hi")
+    p.add_argument("paths", nargs="+", help="files or a directory")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--rebuild", metavar="DIR", help="write re-serialised copies")
+    p.set_defaults(func=cmd_misc)
 
     p = sub.add_parser("film", help="inspect .sof HUD films (8 KB tiles) and "
                                      "their .fdx indexes")
