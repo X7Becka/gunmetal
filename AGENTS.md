@@ -13,6 +13,8 @@
   и рабочие заметки; `tools/re/README.md` — инструментарий реверса.
 - Python-тулкит (`gm.py`) — оракул. C++-движок должен сходиться с ним по
   данным, а с оригиналом — по поведению и картинке.
+- Раскладка: `engine/src/{core,platform,res,...}` (C++), `engine/tests/`,
+  `tools/re/` (реверс), `tools/win/` (Windows-сторона), `docs/`.
 
 ## Roadmap и прогресс
 
@@ -30,6 +32,44 @@
 - В сообщении коммита ссылайся на id пункта (`M4.2.3`).
 - Если новый факт меняет `docs/FORMATS.md` или `NOTES.md` — обнови и их, и
   статус соответствующего пункта roadmap.
+
+## Сборка и тесты
+
+- Python-оракул: `python3 regress.py` (80 проверок, ~80 с) и
+  `python3 regress.py --full` (84, включая извлечение). Во время прогона не
+  редактировать `gm.py`, `gm/*`, `tools/re/*`.
+- C++: CMake ≥ 3.25, C++20, Ninja; SDL3 опционален (`-DGM_WITH_SDL3=OFF` —
+  headless). Системного компилятора в этой среде нет, поэтому используется
+  портативный тулчейн в `~/tools` (Zig 0.17, CMake 4.4.4, Ninja, SDL3 3.4.18);
+  подробности — `docs/BUILD.md`.
+- Канонический прогон:
+
+```sh
+export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
+cmake -S . -B build/sandbox -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_C_COMPILER=$HOME/tools/bin/zigcc \
+      -DCMAKE_CXX_COMPILER=$HOME/tools/bin/zigcxx \
+      -DSDL3_DIR=$HOME/tools/sdl3/lib/cmake/SDL3
+cmake --build build/sandbox -j
+ctest --test-dir build/sandbox --output-on-failure
+```
+
+- Артефакты — только в `build/` (в git не попадают). Окно без дисплея:
+  `SDL_VIDEODRIVER=dummy ./build/sandbox/engine/gunmetal --frames 3`.
+
+## Паритет C++ ↔ Python
+
+- Python-тулкит — эталон раскладки. C++-читатель обязан совпадать с ним на
+  **всём** корпусе, а не на одном файле.
+- Golden-константы (counts, `header_end`, FNV-1a 64) считаются Python-скриптом
+  и зашиваются в `engine/tests/test_main.cpp`; тест использует реальные файлы,
+  если установка есть, но синтетические границы/обрезка проверяются всегда.
+- Новый формат в C++ = (1) синтетический тест, (2) сверка с Python на реальных
+  данных, (3) строка в `--dump`, (4) факт в `NOTES.md`/`docs/FORMATS.md`.
+- Новых зависимостей не добавлять: только stdlib C++ и SDL3. PNG-писатель —
+  свой (stored-deflate), как `gm/png.py`.
+- C++-код портируется по спецификации, а не копированием декомпилятора
+  (clean-room, см. ниже).
 
 ## Реверс-инжиниринг: практики
 
@@ -83,6 +123,8 @@
 
 - Маленькие коммиты с проверяемым результатом; в сообщении — что доказано.
 - Обновляй `FORMATS.md`/`NOTES.md` сразу, а не храни факты только в чате.
-- Не коммить артефакты сборки, дампы и чужие незавершённые файлы.
+- Не коммить артефакты сборки (`build/`, `out/`, `tmp/`), дампы и чужие
+  незавершённые файлы. `ROADMAP.md`, `AGENTS.md`, `README.md` — в git:
+  обновление статуса идёт тем же коммитом, что и работа.
 - Clean-room: не копируй декомпилированный код в движок; фиксируй интерфейсы и
   поведение, а не дампы.

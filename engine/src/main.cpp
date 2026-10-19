@@ -188,19 +188,22 @@ int dump_file(const gm::Options& options) {
             gm::logf(gm::LogLevel::Error, "dump", error);
             return 2;
         }
-        const auto header = gm::parse_sbw_header(*bytes, error);
-        if (!header) {
+        const auto level = gm::parse_sbw(*bytes, error);
+        if (!level) {
             gm::logf(gm::LogLevel::Error, "sbw", error);
             return 2;
         }
         std::printf("kind: SBW level\n");
-        std::printf("textures: %zu\n", header->textures.size());
-        std::printf("effects: %zu\n", header->effects.size());
-        std::printf("sectors: %zu\n", header->sectors.size());
-        std::printf("objects: %zu\n", header->object_count);
-        std::printf("header: %zu bytes\n", header->header_end);
-        if (!header->textures.empty()) {
-            std::printf("first texture: %s\n", header->textures.front().name.c_str());
+        std::printf("textures: %zu\n", level->header.textures.size());
+        std::printf("effects: %zu\n", level->header.effects.size());
+        std::printf("sectors: %zu\n", level->header.sectors.size());
+        std::printf("objects: %zu\n", level->header.object_count);
+        std::printf("vertices: %zu\n", level->total_vertices);
+        std::printf("polygons: %zu\n", level->total_polygons);
+        std::printf("header: %zu bytes\n", level->header.header_end);
+        std::printf("data end: %zu bytes\n", level->file_end);
+        if (!level->header.textures.empty()) {
+            std::printf("first texture: %s\n", level->header.textures.front().name.c_str());
         }
         return 0;
     }

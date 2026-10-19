@@ -399,14 +399,66 @@ void test_sbw() {
     std::vector<std::uint8_t> cut(blob.begin(), blob.begin() + blob.size() - 50);
     CHECK(!gm::parse_sbw_header(cut, error).has_value());
 
+    // Full parse with one object (3 vertices, 1 triangle, 112-byte poly tail).
+    std::vector<std::uint8_t> full = blob;
+    full.push_back(3);
+    full.push_back(0);
+    full.push_back(1);
+    full.push_back(0);
+    for (int v = 0; v < 3; ++v) {
+        for (int c = 0; c < 3; ++c) {
+            const float f = static_cast<float>(v * 3 + c);
+            const auto* bytes = reinterpret_cast<const std::uint8_t*>(&f);
+            full.insert(full.end(), bytes, bytes + 4);
+        }
+    }
+    full.insert(full.end(), 50, 0);
+    full.push_back(0); // texture
+    full.push_back(0);
+    full.push_back(0); // lightmap
+    full.push_back(0);
+    full.push_back(0); // material
+    full.push_back(0);
+    full.push_back(0); // overlay
+    full.push_back(0);
+    full.push_back(0); // f7a
+    full.push_back(0);
+    full.push_back(0); // brightness
+    full.push_back(3); // n_idx
+    full.push_back(0); full.push_back(0);
+    full.push_back(1); full.push_back(0);
+    full.push_back(2); full.push_back(0);
+    full.insert(full.end(), 112, 0);
+
+    const auto level = gm::parse_sbw(full, error);
+    CHECK(level.has_value());
+    if (level) {
+        CHECK_EQ(level->total_vertices, std::size_t{3});
+        CHECK_EQ(level->total_polygons, std::size_t{1});
+        CHECK_EQ(level->geometry.size(), std::size_t{1});
+        CHECK_EQ(level->geometry[0].vertices.size(), std::size_t{3});
+        CHECK_EQ(level->geometry[0].polys[0].indices.size(), std::size_t{3});
+        CHECK_EQ(level->geometry[0].polys[0].indices[2], std::uint16_t{2});
+        CHECK_EQ(level->file_end, full.size());
+    }
+
     // Real levels: Python-computed golden values.
     const fs::path dir = "/mnt/d/games/Gunmetal 3dfx";
     std::error_code ec;
-    struct Golden { const char* name; std::size_t tex, eff, sec, obj, end; std::uint64_t fnv; };
+    struct Golden {
+        const char* name;
+        std::size_t tex, eff, sec, obj, end;
+        std::uint64_t fnv;
+        std::size_t verts, polys;
+        std::uint64_t vfnv, idxsum;
+    };
     const Golden golden[] = {
-        {"level0.sbw", 381, 37, 58, 192, 26195, 0x5cd9bb6033c473c1ull},
-        {"level7.sbw", 512, 40, 122, 835, 92847, 0x92338789ca88bb60ull},
-        {"secrt1.sbw", 444, 36, 116, 432, 51496, 0x821ee6466cb5cbc6ull},
+        {"level0.sbw", 381, 37, 58, 192, 26195, 0x5cd9bb6033c473c1ull,
+         2173, 1449, 0xc54cc67faaff0eecull, 0x4892a617780b38e4ull},
+        {"level7.sbw", 512, 40, 122, 835, 92847, 0x92338789ca88bb60ull,
+         9553, 6580, 0xa1b11d8b1108f046ull, 0xf8b8faeba6410f74ull},
+        {"secrt1.sbw", 444, 36, 116, 432, 51496, 0x821ee6466cb5cbc6ull,
+         5252, 3622, 0x7c0e8f8945740486ull, 0x21a783fccf4c6111ull},
     };
     for (const auto& g : golden) {
         const fs::path path = dir / g.name;
@@ -416,17 +468,35 @@ void test_sbw() {
         std::ifstream in(path, std::ios::binary);
         std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
                                         std::istreambuf_iterator<char>());
-        const auto h = gm::parse_sbw_header(bytes, error);
+        const auto h = gm::parse_sbw(bytes, error);
         CHECK(h.has_value());
         if (!h) {
             continue;
         }
-        CHECK_EQ(h->textures.size(), g.tex);
-        CHECK_EQ(h->effects.size(), g.eff);
-        CHECK_EQ(h->sectors.size(), g.sec);
-        CHECK_EQ(h->object_count, g.obj);
-        CHECK_EQ(h->header_end, g.end);
+        CHECK_EQ(h->header.textures.size(), g.tex);
+        CHECK_EQ(h->header.effects.size(), g.eff);
+        CHECK_EQ(h->header.sectors.size(), g.sec);
+        CHECK_EQ(h->header.object_count, g.obj);
+        CHECK_EQ(h->header.header_end, g.end);
         CHECK_EQ(gm::fnv1a64(std::span<const std::uint8_t>(bytes.data(), g.end)), g.fnv);
+        CHECK_EQ(h->file_end, bytes.size());
+        CHECK_EQ(h->total_vertices, g.verts);
+        CHECK_EQ(h->total_polygons, g.polys);
+        std::vector<std::uint8_t> vertex_bytes;
+        vertex_bytes.reserve(h->total_vertices * 12);
+        std::uint64_t idx_sum = 0;
+        for (const auto& geom : h->geometry) {
+            for (const auto& v : geom.vertices) {
+                const float xyz[3] = {v.x, v.y, v.z};
+                const auto* p = reinterpret_cast<const std::uint8_t*>(xyz);
+                vertex_bytes.insert(vertex_bytes.end(), p, p + 12);
+            }
+            for (const auto& poly : geom.polys) {
+                idx_sum = idx_sum * 131 + poly.indices.size();
+            }
+        }
+        CHECK_EQ(gm::fnv1a64(vertex_bytes), g.vfnv);
+        CHECK_EQ(idx_sum, g.idxsum);
     }
 
     // Every shipped level must parse.
@@ -439,8 +509,9 @@ void test_sbw() {
             std::ifstream in(entry.path(), std::ios::binary);
             std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
                                             std::istreambuf_iterator<char>());
-            const auto h = gm::parse_sbw_header(bytes, error);
-            CHECK(h.has_value() && h->header_end < bytes.size());
+            const auto h = gm::parse_sbw(bytes, error);
+            CHECK(h.has_value() && h->header.header_end < bytes.size() &&
+                  h->file_end == bytes.size());
             ++levels;
         }
     }
