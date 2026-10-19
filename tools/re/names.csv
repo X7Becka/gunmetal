@@ -69,3 +69,23 @@ va,name,kind,subsystem,status,evidence
 0x425f4c,sbw_object_loader,code,world,код,NOTES — .sbw объект
 0x49e1e8,sbv_decoder,code,video,код,NOTES — видеокодек
 0x49ee8c,sbv_frame_block,code,video,код,NOTES — видеокодек
+0x401000,crt_start,code,main,код,"PE entry; Watcom CRT, call 0x404680"
+0x404680,winmain,code,main,код,message pump: PeekMessage/Translate/Dispatch; 0x44c230
+0x404070,wndproc,code,main,код,WNDCLASS.lpfnWndProc = 0x404070 (перед RegisterClassA)
+0x404320,app_init,code,main,код,вызывается из WinMain 0x404692; 0 = ошибка
+0x404670,idle_tick,code,main,код,jmp 0x405450; вызов из WinMain при простое
+0x405450,input_poll,code,input,код,EnumDevices/GetDeviceState; строка 'GetDeviceState Keyboard OK.'
+0x44c230,frame,code,main,код,"кадр: часы, 0x83cb7c, 0x44c620/0x44c710/0x44b490/0x44d4c0"
+0x44c760,frame_alt,code,main,код,"[0x83cb7c] == 1; чтение 0x4bc440, 0x405ae0"
+0x447610,keys_state,code,input,код,[0x83d2dc] & 0x800; биты клавиш
+0x48b4d0,frontend_input,code,frontend,код,0x498ac0 + переходы 0x4bc440 (9: Esc -> 6)
+0x48b0c0,start_game_flow,code,frontend,код,[0x68cd84] 0..4 -> 0x4bc440 = 0x11/0x15
+0x407550,quit_flag,code,main,код,[0x4c0608] = 1 (WM_QUIT)
+0x404740,post_quit,code,main,код,PostQuitMessageA
+0x4bc440,game_mode,data,main,код,"режим игры; 9 = уровень, 0x11/0x15 = старт"
+0x83cb7c,frame_mode,data,main,код,"подрежим кадра: 0,1,2,4,5"
+0x4a598c,window_inactive,data,main,код,WndProc WM_ACTIVATE: 1 = окно неактивно -> WaitMessage
+0x403fe0,fclose_wrapper,code,io,код,SetFilePointer + free; таблица 0x840a60
+0x4059c0,input_acquire,code,input,код,DirectInput Acquire/Unacquire по WM_ACTIVATE
+0x404630,memory_status,code,main,код,GlobalMemoryStatus -> [0x4bf290] МБ
+0x44a460,game_init,code,main,код,вызывается из 0x404320 после создания окна

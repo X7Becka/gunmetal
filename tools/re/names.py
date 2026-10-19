@@ -36,9 +36,13 @@ def load(path: str = CSV_PATH) -> list[dict]:
 
 
 def section_of(sections: list[tuple], va: int):
-    """``(name, vma, rawsize, fileoff)`` containing *va*, or ``None``."""
-    for name, vma, size, _foff in sections:
-        if vma <= va < vma + size:
+    """Name of the section containing *va*, or ``None``.
+
+    Uses the *virtual* size: the ``.bss`` tail of ``.data`` (``0x4bf000`` and
+    above) is mapped but absent from the file.
+    """
+    for name, vma, vsize, _raw, _foff in sections:
+        if vma <= va < vma + vsize:
             return name
     return None
 
@@ -58,7 +62,7 @@ def main(argv=None) -> int:
         exelib = importlib.reload(exelib)
 
     rows = load()
-    sections = exelib.sections()
+    sections = exelib.virtual_sections()
     names = set()
     bad = []
     for r in rows:

@@ -74,6 +74,26 @@ def sections():
     return _sections
 
 
+def virtual_sections():
+    """``[(name, vma, vsize, rawsize, fileoff)]`` — like :func:`sections` but
+    with the *virtual* size, which is what the loader maps (``.data`` keeps its
+    ``.bss`` tail in memory only: ``0x4bf000..0x840b60`` is not in the file).
+    """
+    d = data()
+    pe = struct.unpack_from("<I", d, 0x3C)[0]
+    nsec = struct.unpack_from("<H", d, pe + 6)[0]
+    optsz = struct.unpack_from("<H", d, pe + 20)[0]
+    image_base = struct.unpack_from("<I", d, pe + 24 + 28)[0]
+    base = pe + 24 + optsz
+    out = []
+    for i in range(nsec):
+        o = base + 40 * i
+        name = d[o:o + 8].rstrip(b"\0").decode("latin1")
+        vsize, rva, rawsize, rawoff = struct.unpack_from("<IIII", d, o + 8)
+        out.append((name, image_base + rva, vsize or rawsize, rawsize, rawoff))
+    return out
+
+
 def va2off(v):
     """Virtual address -> file offset, or ``None`` when unmapped."""
     for _name, vma, vsize, foff in sections():
