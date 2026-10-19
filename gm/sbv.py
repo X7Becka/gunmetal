@@ -86,6 +86,8 @@ from dataclasses import dataclass, field
 
 MAGIC = b"SBV0"
 MAX_WIDTH = 0x140               # the loader rejects anything wider (320 px)
+MAX_HEIGHT = 1024               # trust-boundary guard (shipped clips: 160)
+MAX_FRAMES = 200_000            # trust-boundary guard (largest clip: 4523)
 
 # --- diagnostics ----------------------------------------------------------
 # Number of blocks decoded through a "family" handler (class 2 or 4..16).  Zero
@@ -154,12 +156,29 @@ def parse(blob: bytes, path: str = "<mem>") -> Sbv:
     if len(blob) < 16 or blob[:4] != MAGIC:
         raise ValueError(f"not an SBV0 file (magic {blob[:4]!r})")
     width, height, count = struct.unpack_from("<III", blob, 4)
-    if width > MAX_WIDTH:
-        raise ValueError(f"implausible width {width} (> {MAX_WIDTH})")
+    # The pixel codec halves chroma and builds an 8-pixel pyramid: odd or zero
+    # dimensions would make the loops divide by zero / walk out of the planes.
+    if not 2 <= width <= MAX_WIDTH or width % 2:
+        raise ValueError(f"implausible width {width} (2..{MAX_WIDTH}, even)")
+    if not 16 <= height <= MAX_HEIGHT or height % 16:
+        raise ValueError(f"implausible height {height} (16..{MAX_HEIGHT}, /16)")
+    if count > MAX_FRAMES:
+        raise ValueError(f"implausible frame count {count} (> {MAX_FRAMES})")
     need = 16 + 8 * count
     if len(blob) < need:
         raise ValueError(f"table truncated: want {need}, have {len(blob)}")
     table = [struct.unpack_from("<II", blob, 16 + 8 * i) for i in range(count)]
+    # Every frame end is a size relative to data_start; reject non-monotonic
+    # offsets (negative block sizes) and blocks that run past EOF.
+    previous = 0
+    for i, (_ts, end) in enumerate(table):
+        if end < previous:
+            raise ValueError(f"frame {i} end offset {end} goes backwards "
+                             f"(previous {previous})")
+        if need + end > len(blob):
+            raise ValueError(f"frame {i} runs past EOF: "
+                             f"{need}+{end} > {len(blob)}")
+        previous = end
     return Sbv(path, width, height, count, need, table, len(blob))
 
 
@@ -223,12 +242,18 @@ class _Mem:
     def __init__(self, size: int):
         self.m = bytearray(size)
 
-    def g16(self, a: int) -> int:
+    def _check(self, a: int) -> int:
         o = a - PLANE_BASE
+        if o < 0 or o + 2 > len(self.m):
+            raise ValueError(f"plane address 0x{a:x} outside the {len(self.m)}-byte buffer")
+        return o
+
+    def g16(self, a: int) -> int:
+        o = self._check(a)
         return int.from_bytes(self.m[o:o + 2], "little")
 
     def p16(self, a: int, v: int) -> None:
-        o = a - PLANE_BASE
+        o = self._check(a)
         self.m[o:o + 2] = (v & 0xFFFF).to_bytes(2, "little")
 
 
@@ -360,6 +385,11 @@ def _vidseg(st: _BitState, n: int) -> list[int]:
         nonlocal bc, acc, pos
         bc -= 1
         if bc < 0:
+            # Shipped frames may over-read a few padding bytes; anything past
+            # that is a corrupt stream that would otherwise decode zeros for
+            # an unbounded number of blocks.
+            if pos > len(src) + 64:
+                raise ValueError("entropy stream overrun")
             acc = int.from_bytes(src[pos:pos + 4].ljust(4, b"\x00"), "little")
             pos += 4
             bc = 31

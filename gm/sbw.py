@@ -337,11 +337,40 @@ def _parse_poly(data: bytes, o: int) -> Poly:
         flags=flags, raw=raw)
 
 
+#: Trust-boundary guards.  Shipped levels stay far below these (381 textures,
+#: 155 sectors, 1038 objects); the caps only stop hostile counts from driving
+#: long loops before the first out-of-bounds read.
+MAX_TABLE = 65_536
+MAX_OBJECTS = 65_536
+
+
+def _need(data: bytes, o: int, n: int, what: str) -> None:
+    if o < 0 or n < 0 or o + n > len(data):
+        raise ValueError(f"truncated .sbw at {o} ({what}: need {n} bytes, "
+                         f"have {len(data) - o})")
+
+
+def _u32(data: bytes, o: int, what: str) -> int:
+    _need(data, o, 4, what)
+    return struct.unpack_from("<I", data, o)[0]
+
+
 def parse(data: bytes) -> Sbw:
+    try:
+        return _parse(data)
+    except (struct.error, IndexError, UnicodeDecodeError) as exc:
+        # Normalise low-level failures so the CLI reports a format error, not a
+        # traceback.  Bounds checks above already raise ValueError with context.
+        raise ValueError(f"corrupt .sbw: {exc}") from exc
+
+
+def _parse(data: bytes) -> Sbw:
     if len(data) < 4:
         raise ValueError("too short for .sbw")
     o = 0
-    count1 = struct.unpack_from("<I", data, o)[0]
+    count1 = _u32(data, o, "texture count")
+    if count1 > MAX_TABLE:
+        raise ValueError(f"implausible texture count {count1}")
     o += 4
     tex: list[TexRef] = []
     for _ in range(count1):
@@ -352,27 +381,36 @@ def parse(data: bytes) -> Sbw:
     t1_end = o
 
     effects: list[EffectRef] = []
-    count2 = struct.unpack_from("<I", data, o)[0]
+    count2 = _u32(data, o, "effect count")
+    if count2 > MAX_TABLE:
+        raise ValueError(f"implausible effect count {count2}")
     o += 4
     for _ in range(count2):
         name, o = _cstr(data, o)
         kind, start, n = struct.unpack_from("<III", data, o)
         o += 12
+        _need(data, o, 2 * n, "effect ids")
         ids = list(struct.unpack_from("<%dH" % n, data, o)) if n else []
         o += 2 * n
         effects.append(EffectRef(name, kind, start, ids))
     t2_end = o
 
     # stage 1: sector/object transform headers
-    count3 = struct.unpack_from("<I", data, o)[0]
+    count3 = _u32(data, o, "sector count")
+    if count3 > MAX_OBJECTS:
+        raise ValueError(f"implausible sector count {count3}")
     o += 4
     sectors: list[Sector] = []
     for _ in range(count3):
-        objs = struct.unpack_from("<I", data, o)[0]
+        objs = _u32(data, o, "object count")
+        if objs > MAX_OBJECTS:
+            raise ValueError(f"implausible object count {objs}")
+        _need(data, o, 7, "sector header")
         kind, sub = struct.unpack_from("<HB", data, o + 4)
         o += 7
         sect = Sector(kind, sub)
         for _j in range(objs):
+            _need(data, o, 4 + 96, "object header")
             oid = struct.unpack_from("<I", data, o)[0]
             header = data[o + 4 : o + 4 + 96]
             o += 4 + 96
@@ -382,8 +420,10 @@ def parse(data: bytes) -> Sbw:
     # stage 2: per-object geometry, same sector/object order
     for sect in sectors:
         for obj in sect.objects:
+            _need(data, o, 4, "geometry header")
             nv, np_ = struct.unpack_from("<HH", data, o)
             o += 4
+            _need(data, o, 12 * nv + 50, "geometry vertices/tail")
             verts = tuple(_vec3(data, o + 12 * k) for k in range(nv))
             o += 12 * nv
             obj.n_verts = nv

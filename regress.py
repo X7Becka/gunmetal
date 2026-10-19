@@ -20,6 +20,8 @@ import glob
 import json
 import math
 import os
+import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -28,6 +30,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 GM = os.path.join(HERE, "gm.py")
 DEFAULT_GAME = "/mnt/d/games/Gunmetal 3dfx"
+FORCE = ["--force"]
 T0 = time.time()
 
 
@@ -36,12 +39,68 @@ def stamp() -> str:
     return "t+%5.1fs" % (time.time() - T0)
 
 
-def run(args: list[str]) -> tuple[int, str]:
+def run_raw(args: list[str]) -> tuple[int, str]:
     p = subprocess.run(
         [sys.executable, GM, *args],
         capture_output=True, text=True, cwd=HERE,
     )
     return p.returncode, (p.stdout + p.stderr)
+
+
+def run(args: list[str]) -> tuple[int, str]:
+    # The suite owns its --out directory and is expected to be re-runnable, so
+    # it explicitly consents to replacing previous results.
+    return run_raw([*args, "--force"])
+
+
+def security_checks(G: str, results: list[bool], out: str) -> None:
+    """Trust-boundary checks: malformed input fails cleanly, outputs are guarded."""
+    audit = os.path.join(out, "audit")
+    shutil.rmtree(audit, ignore_errors=True)
+    os.makedirs(audit)
+
+    def write(name: str, blob: bytes) -> str:
+        path = os.path.join(audit, name)
+        with open(path, "wb") as f:
+            f.write(blob)
+        return path
+
+    # An index offset past EOF must be rejected before any read.
+    idx = bytearray(open(os.path.join(G, "PICS", "SBM.IDX"), "rb").read())
+    struct.pack_into("<I", idx, 20, 0xFFFFFF00)
+    rc, text = run_raw(["list", write("bad.IDX", bytes(idx))])
+    results.append(report("trust / out-of-range archive offset rejected",
+                          rc != 0 and "Traceback" not in text, "exit 1, no traceback"))
+
+    # Truncated geometry and impossible video dimensions fail with one line.
+    with open(os.path.join(G, "LEVEL0.SBW"), "rb") as f:
+        sbw_cut = f.read(100)
+    rc, text = run_raw(["sbw", write("trunc.SBW", sbw_cut)])
+    results.append(report("trust / truncated .sbw rejected",
+                          rc != 0 and "Traceback" not in text, "exit 1, no traceback"))
+
+    with open(os.path.join(G, "Vid", "Intro.sbv"), "rb") as f:
+        sbv_blob = bytearray(f.read())
+    struct.pack_into("<I", sbv_blob, 8, 0)          # height = 0
+    rc, text = run_raw(["sbv", write("bad.sbv", bytes(sbv_blob)), "--list-only"])
+    results.append(report("trust / impossible .sbv height rejected",
+                          rc != 0 and "Traceback" not in text, "exit 1, no traceback"))
+
+    # Re-running an extraction must not silently clobber the first result.
+    target = os.path.join(audit, "extract")
+    rc1, _ = run_raw(["extract", os.path.join(G, "sprites", "SBM.IDX"), target])
+    rc2, text2 = run_raw(["extract", os.path.join(G, "sprites", "SBM.IDX"), target])
+    rc3, _ = run_raw(["extract", "--force", os.path.join(G, "sprites", "SBM.IDX"), target])
+    results.append(report("trust / extract refuses silent overwrite",
+                          rc1 == 0 and rc2 != 0 and "refusing to overwrite" in text2
+                          and rc3 == 0, "needs --force"))
+
+    # The full hostile-input matrix lives in its own tool; run the cheap pass.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
+                        "--game", G, "--quick"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("trust / malformed-input fuzz matrix",
+                          p.returncode == 0, p.stdout.strip().splitlines()[0]
+                          if p.stdout.strip() else "no output"))
 
 
 # --- process-pool worker for the 36-level sweeps ---------------------------
@@ -689,7 +748,7 @@ def save_checks(G: str, results: list[bool]) -> None:
         out = os.path.join("/tmp/opencode", "regress_patched.sbt")
         p = subprocess.run([sys.executable, GM, "save", saves[0], "--game", G,
                             "--set", "armor=50", "--set", "ammo=0:1234",
-                            "--set", "door=0:1", "--out", out],
+                            "--set", "door=0:1", "--out", out, "--force"],
                            capture_output=True, text=True, cwd=HERE)
         back = _json.loads(subprocess.run(
             [sys.executable, tool, out, "--game", G, "--json"],
@@ -700,7 +759,7 @@ def save_checks(G: str, results: list[bool]) -> None:
               and (back.get("doors") or {}).get("records", [{}])[0].get("state") == 1)
         results.append(report("save / --set writes a patched copy", ok, out))
         p = subprocess.run([sys.executable, GM, "save", saves[0], "--game", G,
-                            "--set", "ammo=0:999999", "--out", out + ".bad"],
+                            "--set", "ammo=0:999999", "--out", out + ".bad", "--force"],
                            capture_output=True, text=True, cwd=HERE)
         results.append(report("save / --set rejects ammo above the limit",
                               p.returncode != 0 and not os.path.exists(out + ".bad")))
@@ -751,6 +810,8 @@ def main() -> int:
     results.append(check("archives / sounds",   ["list", f"{G}/sounds/SOU.IDX"],   ["999 entries"]))
     results.append(check("archives / frontend", ["list", f"{G}/FRONTEND/BMP.IDX"], ["143 entries"]))
     results.append(check("archives / music",    ["list", f"{G}/MUSIC/SOU.IDX"],    ["3092 entries"]))
+
+    security_checks(G, results, out)
 
     # --- BIGFILE write path: extract -> pack must reproduce the archive ----
     raw = os.path.join(out, "raw_spr")
@@ -818,11 +879,11 @@ def main() -> int:
                           "%d films, %d tiles" % (len(rows),
                                                   sum(r["tiles"] for r in rows))))
     film_png = os.path.join(out, "film.png")
-    run(["film", f"{G}/Film/AMMO4.SOF", "--frame", "0", "--png", film_png])
+    run(["film", f"{G}/Film/AMMO4.SOF", "--frame", "0", "--png", film_png] + FORCE)
     results.append(report("film / tile export", os.path.exists(film_png)
                           and os.path.getsize(film_png) > 0, film_png))
     misc_dir = os.path.join(out, "misc")
-    rc, text = run(["misc", G, "--rebuild", misc_dir])
+    rc, text = run(["misc", G, "--rebuild", misc_dir] + FORCE)
     srcs = [os.path.join(G, p) for p in (
         "PICS/textures.sub", "sprites/sprites.sub", "sounds/sounds.sub",
         "FRONTEND/KILLED.skk", "FRONTEND/KILLED.skb", "path.sni",

@@ -26,6 +26,10 @@ from dataclasses import dataclass
 
 MAGIC = b"BIGFILE"
 
+#: Refuse implausible counts before allocating/looping.  The shipped archives
+#: have 143..3092 entries; this is a trust-boundary guard, not a format limit.
+MAX_ENTRIES = 1_000_000
+
 
 @dataclass
 class Entry:
@@ -45,9 +49,11 @@ class BigFile:
             self.dat_path = os.path.splitext(idx_path)[0] + ".dat"
 
         idx = open(idx_path, "rb").read()
-        if idx[: len(MAGIC)] != MAGIC:
+        if len(idx) < 12 or idx[: len(MAGIC)] != MAGIC:
             raise ValueError(f"{idx_path}: not a BIGFILE index")
         self.count = struct.unpack_from("<I", idx, 8)[0]
+        if self.count > MAX_ENTRIES:
+            raise ValueError(f"{idx_path}: implausible entry count {self.count}")
         need = 12 + self.count * 12
         if len(idx) < need:
             raise ValueError(f"{idx_path}: index too short for {self.count} entries")
@@ -61,7 +67,18 @@ class BigFile:
 
         self.dat_size = os.path.getsize(self.dat_path)
         self.entries: list[Entry] = []
+        previous = 0
         for i, (name, off) in enumerate(raw):
+            # Trust boundary: the index controls both the seek offset and the
+            # read size, so reject anything that could seek past EOF or make a
+            # negative slice (``bytes[-n:]`` would silently read to EOF).
+            if off > self.dat_size:
+                raise ValueError(f"{idx_path}: entry {i} offset {off} beyond DAT "
+                                 f"({self.dat_size} bytes)")
+            if off < previous:
+                raise ValueError(f"{idx_path}: entry {i} offset {off} goes backwards "
+                                 f"(previous {previous})")
+            previous = off
             end = raw[i + 1][1] if i + 1 < len(raw) else self.dat_size
             self.entries.append(Entry(name, off, end - off))
 
@@ -76,25 +93,32 @@ class BigFile:
         raise KeyError(name)
 
     def read(self, entry: Entry) -> bytes:
+        if entry.size < 0 or entry.offset < 0:
+            raise ValueError(f"bad entry range off={entry.offset} size={entry.size}")
+        if entry.offset + entry.size > self.dat_size:
+            raise ValueError(f"entry {entry.name!r} runs past EOF: "
+                             f"{entry.offset}+{entry.size} > {self.dat_size}")
         with open(self.dat_path, "rb") as f:
             f.seek(entry.offset)
-            return f.read(entry.size)
+            blob = f.read(entry.size)
+        if len(blob) != entry.size:
+            raise ValueError(f"short read for {entry.name!r}: "
+                             f"{len(blob)} of {entry.size} bytes")
+        return blob
 
     def extract_all(self, outdir: str, suffix: str = ".bin", on_entry=None) -> int:
         os.makedirs(outdir, exist_ok=True)
         done = set()
         n = 0
-        data = open(self.dat_path, "rb").read()
         for e in self.entries:
             name = e.name or f"unnamed_{e.offset:08x}"
             key = name.lower()
             if key in done:
                 name = f"{name}_{e.offset:08x}"
             done.add(key)
+            blob = self.read(e)
             if on_entry is not None:
-                blob = on_entry(e, e.data(data))
-            else:
-                blob = e.data(data)
+                blob = on_entry(e, blob)
             if blob is None:
                 continue
             with open(os.path.join(outdir, name + suffix), "wb") as f:
@@ -104,8 +128,7 @@ class BigFile:
 
     def dat_blobs(self) -> list[tuple[str, bytes]]:
         """Every entry as ``(name, data)``, in index order."""
-        data = open(self.dat_path, "rb").read()
-        return [(e.name, e.data(data)) for e in self.entries]
+        return [(e.name, self.read(e)) for e in self.entries]
 
 
 # ---------------------------------------------------------------------------
@@ -127,22 +150,34 @@ def encode_name(name: str) -> bytes:
 def build_index(pairs) -> bytes:
     """Build index bytes from ``(name, size)`` pairs (offsets are cumulative)."""
     pairs = list(pairs)
+    if len(pairs) > MAX_ENTRIES:
+        raise ValueError(f"too many BIGFILE entries: {len(pairs)}")
     out = bytearray(MAGIC + b"\x1a" + struct.pack("<I", len(pairs)))
     off = 0
     for name, size in pairs:
+        if not isinstance(size, int) or size < 0:
+            raise ValueError(f"bad entry size for {name!r}: {size!r}")
         out += encode_name(name) + struct.pack("<I", off)
         off += size
+        if off > 0xFFFFFFFF:
+            raise ValueError("BIGFILE payload exceeds 4 GiB offsets")
     return bytes(out)
 
 
-def pack(blobs, idx_path: str, dat_path: str | None = None) -> tuple[int, int]:
+def pack(blobs, idx_path: str, dat_path: str | None = None, *, overwrite: bool = False
+         ) -> tuple[int, int]:
     """Write a new ``.idx``/``.dat`` pair from ``(name, data)`` blobs.
 
     Returns ``(count, dat_size)``.  The ``.dat`` path defaults to the ``.IDX``
-    sibling (uppercase ``.DAT`` first, like the shipped archives).
+    sibling (uppercase ``.DAT`` first, like the shipped archives).  Existing
+    output files are never overwritten unless *overwrite* is true.
     """
     blobs = list(blobs)
     dat_path = dat_path or os.path.splitext(idx_path)[0] + ".DAT"
+    if not overwrite:
+        for path in (idx_path, dat_path):
+            if os.path.exists(path):
+                raise FileExistsError(f"refusing to overwrite {path} (use --force)")
     idx = build_index((name, len(data)) for name, data in blobs)
     with open(dat_path, "wb") as f:
         for _name, data in blobs:
@@ -153,7 +188,8 @@ def pack(blobs, idx_path: str, dat_path: str | None = None) -> tuple[int, int]:
 
 
 def replace_entry(idx_path: str, name: str, blob: bytes,
-                  out_idx_path: str, out_dat_path: str | None = None) -> str:
+                  out_idx_path: str, out_dat_path: str | None = None, *,
+                  overwrite: bool = False) -> str:
     """Copy the archive, replacing/adding entry *name* with *blob*.
 
     Existing entry order is preserved (the new data may be any size).  Returns
@@ -168,5 +204,5 @@ def replace_entry(idx_path: str, name: str, blob: bytes,
             break
     else:
         items.append((name, blob))
-    _count, _size = pack(items, out_idx_path, out_dat_path)
+    _count, _size = pack(items, out_idx_path, out_dat_path, overwrite=overwrite)
     return out_dat_path or os.path.splitext(out_idx_path)[0] + ".DAT"

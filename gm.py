@@ -28,6 +28,7 @@ import argparse
 import dataclasses
 import json
 import os
+import struct
 import sys
 import time
 
@@ -55,6 +56,17 @@ from gm import (  # noqa: E402
 )
 
 
+def _wopen(path: str, opts):
+    """Open an output file, refusing to clobber it unless ``--force``.
+
+    Trust boundary: every command that writes derived data goes through this
+    helper, so a stray re-run cannot silently overwrite user files.
+    """
+    if os.path.exists(path) and not getattr(opts, "force", False):
+        raise FileExistsError(f"refusing to overwrite {path} (use --force)")
+    return open(path, "wb")
+
+
 def _pal(opts) -> bytes:
     if opts.palette:
         return palette.load_from_bmp(opts.palette)
@@ -72,14 +84,16 @@ def cmd_list(opts) -> int:
 def cmd_extract(opts) -> int:
     bf = bigfile.BigFile(opts.idx)
     os.makedirs(opts.out, exist_ok=True)
-    n = 0
-    for e in bf.entries:
-        blob = e.data(open(bf.dat_path, "rb").read())
-        name = e.name or f"unnamed_{e.offset:08x}"
-        with open(os.path.join(opts.out, name + ".bin"), "wb") as f:
-            f.write(blob)
-        n += 1
-    print(f"wrote {n} blobs to {opts.out}")
+    planned = [(os.path.join(opts.out, (e.name or f"unnamed_{e.offset:08x}") + ".bin"), e)
+               for e in bf.entries]
+    if not opts.force:
+        for path, _e in planned:
+            if os.path.exists(path):
+                raise FileExistsError(f"refusing to overwrite {path} (use --force)")
+    for path, e in planned:
+        with open(path, "wb") as f:
+            f.write(bf.read(e))
+    print(f"wrote {len(planned)} blobs to {opts.out}")
     return 0
 
 
@@ -96,7 +110,7 @@ def cmd_pack(opts) -> int:
         print(f"pack: no files found in {opts.src}", file=sys.stderr)
         return 1
     try:
-        n, size = bigfile.pack(blobs, opts.out)
+        n, size = bigfile.pack(blobs, opts.out, overwrite=opts.force)
     except ValueError as exc:
         print(f"pack: {exc}", file=sys.stderr)
         return 1
@@ -107,7 +121,7 @@ def cmd_pack(opts) -> int:
 def cmd_set(opts) -> int:
     blob = open(opts.file, "rb").read()
     try:
-        dat = bigfile.replace_entry(opts.idx, opts.name, blob, opts.out)
+        dat = bigfile.replace_entry(opts.idx, opts.name, blob, opts.out, overwrite=opts.force)
     except ValueError as exc:
         print(f"set: {exc}", file=sys.stderr)
         return 1
@@ -180,7 +194,7 @@ def cmd_sbm(opts) -> int:
     except ValueError as exc:
         print(f"sbm: {exc}", file=sys.stderr)
         return 1
-    with open(opts.out, "wb") as f:
+    with _wopen(opts.out, opts) as f:
         f.write(blob)
     print(f"sbm: {img.width}x{img.height}, {len(cache)} colours, {opts.mips} mip level(s), "
           f"{len(blob)} bytes -> {opts.out}")
@@ -202,7 +216,7 @@ def cmd_textures(opts) -> int:
             bad += 1
             continue
         png = img.to_png(pal, opts.transparent)
-        with open(os.path.join(opts.out, e.name + ".png"), "wb") as f:
+        with _wopen(os.path.join(opts.out, e.name + ".png"), opts) as f:
             f.write(png)
         ok += 1
     print(f"textures: {ok} PNG written, {bad} failed -> {opts.out}")
@@ -221,7 +235,7 @@ def cmd_sprites(opts) -> int:
         except ValueError:
             bad += 1
             continue
-        with open(os.path.join(opts.out, e.name + ".png"), "wb") as f:
+        with _wopen(os.path.join(opts.out, e.name + ".png"), opts) as f:
             f.write(img.to_png(pal, opts.transparent))
         ok += 1
     print(f"sprites: {ok} PNG written, {bad} failed -> {opts.out}")
@@ -242,7 +256,7 @@ def cmd_sounds(opts) -> int:
             continue
         codecs[snd.magic] = codecs.get(snd.magic, 0) + 1
         if snd.is_pcm:
-            with open(os.path.join(opts.out, e.name + ".wav"), "wb") as f:
+            with _wopen(os.path.join(opts.out, e.name + ".wav"), opts) as f:
                 f.write(snd.to_wav())
             pcm += 1
         else:
@@ -250,7 +264,7 @@ def cmd_sounds(opts) -> int:
             # no WAV is written (see gm/sou.py and docs/FORMATS.md).
             tag = "mono" if snd.channels == 1 else "stereo"
             name = f"{e.name}.{snd.magic.lower()}.{snd.sample_rate}.{tag}.bin"
-            with open(os.path.join(opts.out, name), "wb") as f:
+            with _wopen(os.path.join(opts.out, name), opts) as f:
                 f.write(snd.payload)
             coded += 1
     print(f"sounds: {pcm} PCM WAV, {coded} coded payloads dumped raw, {bad} failed")
@@ -266,7 +280,7 @@ def cmd_frontend(opts) -> int:
     for e in bf.entries:
         blob = e.data(dat)
         ext = ".bmp" if blob[:2] == b"BM" else ".bin"
-        with open(os.path.join(opts.out, e.name + ext), "wb") as f:
+        with _wopen(os.path.join(opts.out, e.name + ext), opts) as f:
             f.write(blob)
         n += 1
     print(f"frontend: {n} files -> {opts.out}")
@@ -294,15 +308,15 @@ def cmd_sbc(opts) -> int:
         if opts.rebuild:
             dst = os.path.join(opts.rebuild, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            with open(dst, "wb") as f:
+            with _wopen(dst, opts) as f:
                 f.write(blob.to_bytes())
         if not opts.check:
             out = os.path.join(opts.out, stem)
             os.makedirs(out, exist_ok=True)
             for i, rec in enumerate(blob.records):
-                with open(os.path.join(out, f"{i:04d}_{rec.width}x{rec.height}.png"), "wb") as f:
+                with _wopen(os.path.join(out, f"{i:04d}_{rec.width}x{rec.height}.png"), opts) as f:
                     f.write(rec.to_png())
-            with open(os.path.join(out, "_sheet.png"), "wb") as f:
+            with _wopen(os.path.join(out, "_sheet.png"), opts) as f:
                 f.write(_sbc_sheet(blob))
         ok += 1
     print(f"sbc: {ok} files, {bad} failed -> "
@@ -385,7 +399,7 @@ def cmd_sml(opts) -> int:
             # the exact original file (encode/decode are inverse)
             dst = os.path.join(opts.rebuild, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            with open(dst, "wb") as f:
+            with _wopen(dst, opts) as f:
                 f.write(sml.encode(text.encode("latin1")))
         tags_seen |= {t.name for t in sml.tags(text)}
     note = f", {fixed} repaired" if fixed else ""
@@ -423,7 +437,7 @@ def cmd_soa(opts) -> int:
         if opts.rebuild:
             dst = os.path.join(opts.rebuild, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            with open(dst, "wb") as f:
+            with _wopen(dst, opts) as f:
                 f.write(a.to_bytes())
         n += 1
     print(f"soa: {n} parsed, {bad} failed")
@@ -501,7 +515,7 @@ def cmd_misc(opts) -> int:
         if opts.rebuild:
             dst = os.path.join(opts.rebuild, os.path.basename(path))
             os.makedirs(opts.rebuild, exist_ok=True)
-            with open(dst, "wb") as fh:
+            with _wopen(dst, opts) as fh:
                 fh.write(blob)
         n += 1
     if not opts.json:
@@ -563,7 +577,7 @@ def cmd_film(opts) -> int:
                 blob = png.indexed(data, sofmod.TILE_W, sofmod.TILE_H, palette)
             else:
                 blob = png.gray(sofmod.TILE_W, sofmod.TILE_H, data)
-            with open(out, "wb") as fh:
+            with _wopen(out, opts) as fh:
                 fh.write(blob)
         n += 1
     if not opts.json:
@@ -605,7 +619,7 @@ def cmd_soo(opts) -> int:
         if opts.rebuild:
             dst = os.path.join(opts.rebuild, rel)
             os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
-            with open(dst, "wb") as f:
+            with _wopen(dst, opts) as f:
                 f.write(a.to_bytes())
         n += 1
     if opts.json:
@@ -654,7 +668,7 @@ def cmd_soe(opts) -> int:
         if opts.rebuild:
             dst = os.path.join(opts.rebuild, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            with open(dst, "wb") as f:
+            with _wopen(dst, opts) as f:
                 f.write(tt.to_bytes())
     print(f"soe: {n} parsed, {bad} failed")
     return 0 if bad == 0 else 1
@@ -680,7 +694,7 @@ def cmd_sog(opts) -> int:
         if opts.rebuild:
             dst = os.path.join(opts.rebuild, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            with open(dst, "wb") as f:
+            with _wopen(dst, opts) as f:
                 f.write(s.to_bytes())
         missing = sum(1 for nm in s.names if nm.lower() not in known) if known else 0
         if opts.verbose or missing:
@@ -777,7 +791,7 @@ def _cmd_sbv_build(opts) -> int:
         dst = os.path.join(dst, os.path.basename(os.path.normpath(opts.file)) + ".sbv")
     elif os.path.dirname(dst):
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-    with open(dst, "wb") as f:
+    with _wopen(dst, opts) as f:
         f.write(blob)
     print(f"sbv: {width}x{height}, {len(frames)} frames, {len(blob)} bytes -> {dst}")
     return 0
@@ -806,7 +820,7 @@ def cmd_sbv(opts) -> int:
             if opts.scale != 1:
                 rgb = _scale_rgb(rgb, clip.width, clip.height, opts.scale)
             out = os.path.join(opts.png, f"{i:05d}.png")
-            with open(out, "wb") as f:
+            with _wopen(out, opts) as f:
                 f.write(png.rgb(W, H, rgb))
         print(f"sbv: {len(frames)} frame(s) decoded -> {opts.png}")
         if sbv.FAMILY_BLOCKS:
@@ -824,7 +838,7 @@ def cmd_sbv(opts) -> int:
                 f.write(f"{i} {ts} {clip.data_start + prev} {end - prev}\n")
                 prev = end
         for fr in clip.frames(blob):
-            with open(os.path.join(opts.out, f"{fr.index:05d}.sbvf"), "wb") as f:
+            with _wopen(os.path.join(opts.out, f"{fr.index:05d}.sbvf"), opts) as f:
                 f.write(fr.data)
         print(f"sbv: {clip.frame_count} frames -> {opts.out} (raw blocks + frames.txt)")
 
@@ -832,7 +846,7 @@ def cmd_sbv(opts) -> int:
         os.makedirs(opts.rebuild, exist_ok=True)
         dst = os.path.join(opts.rebuild, os.path.basename(opts.file))
         out = clip.to_bytes(blob)
-        with open(dst, "wb") as f:
+        with _wopen(dst, opts) as f:
             f.write(out)
         print(f"sbv: re-serialised -> {dst}"
               + ("" if out == blob else "  (differs from the source)"))
@@ -886,7 +900,7 @@ def cmd_sbw(opts) -> int:
         if opts.rebuild:
             os.makedirs(opts.rebuild, exist_ok=True)
             out = os.path.join(opts.rebuild, os.path.basename(p))
-            with open(out, "wb") as f:
+            with _wopen(out, opts) as f:
                 f.write(w.to_bytes())
     print(f"sbw: {ok} parsed, {bad} failed")
     return 0 if bad == 0 else 1
@@ -980,7 +994,7 @@ def cmd_save(opts) -> int:
         for line in report:
             print("  " + line)
         if opts.out:
-            with open(opts.out, "wb") as fh:
+            with _wopen(opts.out, opts) as fh:
                 fh.write(data)
             print("written: %s" % opts.out)
             return 0
@@ -1247,7 +1261,7 @@ def cmd_sbt(opts) -> int:
         if opts.rebuild:
             os.makedirs(opts.rebuild, exist_ok=True)
             out = os.path.join(opts.rebuild, os.path.basename(p))
-            with open(out, "wb") as f:
+            with _wopen(out, opts) as f:
                 f.write(s.to_bytes())
         if opts.resolve:
             sbw_path = os.path.splitext(p)[0] + ".sbw"
@@ -1436,7 +1450,7 @@ def cmd_view(opts) -> int:
         dt = time.time() - t0
         name = os.path.splitext(os.path.basename(p))[0]
         out = os.path.join(opts.out, name + ".png") if out_is_dir else opts.out
-        with open(out, "wb") as f:
+        with _wopen(out, opts) as f:
             f.write(data)
         tex_used = len({fc.texture for m in meshes for fc in m.faces})
         print(f"{os.path.basename(p)}: {kind}, {n_faces} faces, "
@@ -1909,8 +1923,21 @@ def main(argv=None) -> int:
                    help="lines of the decompiled script to preview on stdout (default 40)")
     p.set_defaults(func=cmd_sbt)
 
+    for _sp in sub.choices.values():
+        _sp.add_argument("--force", action="store_true",
+                         help="overwrite existing output files (default: refuse)")
+
     opts = ap.parse_args(argv)
-    return opts.func(opts)
+    try:
+        return opts.func(opts)
+    except FileExistsError as exc:
+        print(f"gm.py: {exc}", file=sys.stderr)
+        return 1
+    except (ValueError, OSError, struct.error) as exc:
+        # Malformed input is a normal outcome for this toolkit; report it as a
+        # one-line error instead of a traceback (and keep the exit code 1).
+        print(f"gm.py: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

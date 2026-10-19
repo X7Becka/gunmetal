@@ -128,9 +128,29 @@ def _is_float(tok: str) -> bool:
         return False
 
 
+#: Trust-boundary guards.  The largest shipped model has 957 vertices / 1130
+#: faces; the parser recurses once per face, so hostile counts must be rejected
+#: before they can exhaust the C stack or drive a huge vertex loop.
+MAX_VERTS = 200_000
+MAX_FACES = 20_000
+
+
 def parse_tokens(tokens: list[str], name: str = "") -> Sob:
-    nverts = int(tokens[0])
-    nfaces = int(tokens[1])
+    if len(tokens) < 2:
+        raise ValueError(f"{name}: .sob has fewer than two numbers")
+    try:
+        nverts = int(tokens[0])
+        nfaces = int(tokens[1])
+    except ValueError as exc:
+        raise ValueError(f"{name}: bad vertex/face count") from exc
+    if not 0 <= nverts <= MAX_VERTS or not 0 <= nfaces <= MAX_FACES:
+        raise ValueError(f"{name}: implausible counts {nverts} vertices / {nfaces} faces")
+    if 2 + 3 * nverts > len(tokens):
+        raise ValueError(f"{name}: truncated vertex list")
+    # Each face needs at least 8 texture tokens + flags/nv + 3 indices + 15
+    # plane numbers; reject counts the stream cannot possibly hold.
+    if 2 + 3 * nverts + nfaces * 28 > len(tokens) + 27:
+        raise ValueError(f"{name}: face count {nfaces} does not fit the stream")
     pos = 2
 
     # walk() recurses once per face; the largest model (MOCLASS.SOB) has 1130.
