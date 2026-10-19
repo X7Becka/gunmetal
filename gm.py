@@ -352,7 +352,7 @@ def cmd_sml(opts) -> int:
         print("no .sml/.sme files found", file=sys.stderr)
         return 1
     os.makedirs(opts.out, exist_ok=True)
-    decoded = 0
+    decoded = fixed = 0
     tags_seen: set = set()
     for p, rel in paths:
         with open(p, "rb") as f:
@@ -360,7 +360,13 @@ def cmd_sml(opts) -> int:
         encoded = os.path.splitext(p)[1].lower() == ".sme"
         if encoded:
             decoded += 1
-        text = sml.decode_text(blob) if encoded else blob.decode("latin1")
+        if encoded:
+            # decode_auto repairs a stray CR/LF only when the plain decode
+            # yields unknown tag letters (see gm/sml.py)
+            text, repaired = sml.decode_auto(blob)
+            fixed += repaired
+        else:
+            text = blob.decode("latin1")
         plain = sml.plain(text)
         if opts.verbose:
             print(f"  {rel}: {len(blob)} B, "
@@ -379,7 +385,8 @@ def cmd_sml(opts) -> int:
             with open(dst, "wb") as f:
                 f.write(sml.encode(text.encode("latin1")))
         tags_seen |= {t.name for t in sml.tags(text)}
-    print(f"sml: {len(paths)} files ({decoded} decoded from .sme), "
+    note = f", {fixed} repaired" if fixed else ""
+    print(f"sml: {len(paths)} files ({decoded} decoded from .sme{note}), "
           f"{len(tags_seen)} distinct tags -> {opts.out}")
     return 0
 

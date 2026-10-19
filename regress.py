@@ -443,6 +443,40 @@ def sml_checks(G: str, results: list[bool]) -> None:
                           "%d pairs: %d decode byte-identically, %d are revisions"
                           % (pairs, same, diff)))
 
+    # tag semantics: the engine dispatches only on TAG_ROLES (0x497d30 through
+    # the class table 0x498448 / jump table 0x4983f8); <k> is the callsign.
+    # decode_auto also validates the shift through the tag letters.
+    seen: set = set()
+    bad = repaired = 0
+    for base, _dirs, files in os.walk(root):
+        for f in files:
+            if os.path.splitext(f)[1].lower() not in (".sml", ".sme"):
+                continue
+            p = os.path.join(base, f)
+            blob = open(p, "rb").read()
+            if f.lower().endswith(".sme"):
+                text, fixed = sml.decode_auto(blob)
+                repaired += fixed
+            else:
+                text = blob.decode("latin1")
+            letters = sml.tag_letters(text)
+            seen |= letters
+            if not letters <= sml.SHIPPED_TAGS:
+                bad += 1
+    active = {c for c in sml.TAG_ROLES if c != "/"}
+    results.append(report("sml / tag vocabulary",
+                          bad == 0 and repaired == 1 and seen == sml.SHIPPED_TAGS,
+                          "%d tag letters (%s; the engine handles %s, d/D are "
+                          "ignored); %d repaired"
+                          % (len(seen), "".join(sorted(seen)),
+                             "".join(sorted(active)), repaired)))
+    results.append(report("sml / placeholder semantics",
+                          sml.plain("Morning, <k>.") == "Morning, Soldier."
+                          and sml.plain("<r><c>A</c><c>B</c>") == "A  B"
+                          and sml.plain("<D>x") == "x",
+                          "<k> -> Soldier (ds:0x4bc2b8), <c> separates columns, "
+                          "<d>/<D> ignored"))
+
 
 def sbw_field_checks(G: str, results: list[bool]) -> None:
     """Scan all levels for the invariants behind the residual ``.sbw`` fields."""
@@ -576,7 +610,7 @@ def main() -> int:
     sml_checks(G, results)
     results.append(check("sml / extract markup + text",
                          ["sml", f"{G}/SML", os.path.join(out, "sml")],
-                         ["sml: 300 files (151 decoded from .sme)"]))
+                         ["sml: 300 files (151 decoded from .sme, 1 repaired)"]))
 
     # --- optional heavy extraction ---------------------------------------
     if opts.full:
