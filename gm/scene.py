@@ -236,6 +236,33 @@ class Door:
                 and any(abs(a - b) > 1e-6
                         for a, b in zip(self.values[:3], self.values[3:6])))
 
+    def bbox(self) -> tuple:
+        """``(min, max)`` of the door's box, from the closed/open points.
+
+        The engine keeps the box in the record (``+0x00``..``+0x40``) and
+        ``0x44e0b1``..``0x44e162`` / ``0x450701``..``0x450787`` interpolate it
+        with ``min + t*(max-min)`` before a volume query (``0x434887``) or an
+        obstacle update (``0x4795b0`` with ``-22``); the swing axis is used as
+        a half-extent, so the volume covers the swept leaf.
+        """
+        pts = [self.values[:3]]
+        if len(self.values) >= 6:
+            pts.append(self.values[3:6])
+        lo = [min(p[i] for p in pts) for i in range(3)]
+        hi = [max(p[i] for p in pts) for i in range(3)]
+        if len(self.values) >= 9:
+            for i in range(3):
+                h = abs(self.values[6 + i]) / 2.0
+                lo[i] -= h
+                hi[i] += h
+        return (tuple(lo), tuple(hi))
+
+    def volume(self, t: float = 0.0) -> tuple:
+        """The interpolated box the engine passes to the volume query."""
+        lo, hi = self.bbox()
+        return (tuple(lo[i] + t * (hi[i] - lo[i]) for i in range(3)),
+                tuple(lo[i] + (1.0 - t) * (hi[i] - lo[i]) for i in range(3)))
+
 
 @dataclass
 class Switch:
