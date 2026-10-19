@@ -75,6 +75,8 @@ add_executable(gm_sou2_tests test_sou2.cpp)
 target_link_libraries(gm_sou2_tests PRIVATE gm_engine)
 add_test(NAME sou2 COMMAND gm_sou2_tests)
 gm_label(sou2 quick)
+add_test(NAME sou2_full COMMAND gm_sou2_tests --full)
+gm_label(sou2_full full)
 
 add_executable(gm_sbv_video_tests test_sbv_video.cpp)
 target_link_libraries(gm_sbv_video_tests PRIVATE gm_engine)
