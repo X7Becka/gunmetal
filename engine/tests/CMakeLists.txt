@@ -9,6 +9,11 @@ set_tests_properties(cli_version PROPERTIES PASS_REGULAR_EXPRESSION "gunmetal 0.
 add_test(NAME cli_headless COMMAND gunmetal --headless --frames 2)
 set_tests_properties(cli_headless PROPERTIES PASS_REGULAR_EXPRESSION "frames=2")
 
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbw")
+    add_test(NAME cli_level_frames COMMAND gunmetal --headless --level level0 --frames 2)
+    set_tests_properties(cli_level_frames PROPERTIES PASS_REGULAR_EXPRESSION "frames=2")
+endif()
+
 add_test(NAME cli_dump COMMAND gunmetal --dump ${CMAKE_CURRENT_SOURCE_DIR}/test_main.cpp)
 set_tests_properties(cli_dump PROPERTIES PASS_REGULAR_EXPRESSION "size: [0-9]+ bytes")
 

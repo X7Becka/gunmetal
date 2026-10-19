@@ -626,46 +626,118 @@ int run(const gm::Options& options) {
              options.headless ? " headless" : "", level ? " level=" + level->name : "");
 
     gm::TexturePool pool(options.game);
-    double az = options.az;
-    double el = options.el;
-    double zoom = options.zoom;
+
+    // Free camera: start at --pos/--look when given, otherwise frame the level
+    // the same way the auto camera does.
+    gm::Vec3d eye{0.0, 0.0, 0.0};
+    gm::Vec3d target{0.0, 0.0, 0.0};
+    double radius = 1.0;
+    if (!meshes.empty()) {
+        gm::Vec3d lo{1e30, 1e30, 1e30};
+        gm::Vec3d hi{-1e30, -1e30, -1e30};
+        for (const auto& mesh : meshes) {
+            for (const auto& v : mesh.vertices) {
+                lo = {std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z)};
+                hi = {std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z)};
+            }
+        }
+        const gm::Vec3d center{(lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0, (lo.z + hi.z) / 2.0};
+        const double dx = hi.x - lo.x;
+        const double dy = hi.y - lo.y;
+        const double dz = hi.z - lo.z;
+        radius = std::max(1e-6, 0.5 * std::sqrt(dx * dx + dy * dy + dz * dz));
+        if (options.has_pos && options.has_look) {
+            eye = {options.pos[0], options.pos[1], options.pos[2]};
+            target = {options.look[0], options.look[1], options.look[2]};
+        } else {
+            const double a = options.az * 0.017453292519943295;
+            const double e = options.el * 0.017453292519943295;
+            const gm::Vec3d dir{std::cos(e) * std::cos(a), std::cos(e) * std::sin(a),
+                                std::sin(e)};
+            const double dist = radius / std::sin(options.fov * 0.017453292519943295 / 2.0) /
+                                std::max(1e-3f, options.zoom);
+            eye = {center.x + dir.x * dist, center.y + dir.y * dist, center.z + dir.z * dist};
+            target = center;
+        }
+    }
 
     gm::FrameClock clock;
     int frame = 0;
     while (window->pump()) {
         const double dt = clock.tick();
         const double turn = 70.0 * dt;
+        gm::Vec3d forward{target.x - eye.x, target.y - eye.y, target.z - eye.z};
+        const double flen = std::sqrt(forward.x * forward.x + forward.y * forward.y +
+                                      forward.z * forward.z);
+        if (flen > 1e-9) {
+            forward = {forward.x / flen, forward.y / flen, forward.z / flen};
+        }
+        const gm::Vec3d right{forward.y, -forward.x, 0.0};
+        const double rlen = std::sqrt(right.x * right.x + right.y * right.y);
+        const gm::Vec3d strafe = rlen > 1e-9 ? gm::Vec3d{right.x / rlen, right.y / rlen, 0.0}
+                                             : gm::Vec3d{1.0, 0.0, 0.0};
+
         if (window->key_down(gm::Key::Left)) {
-            az -= turn;
+            const double a = -turn * 0.017453292519943295;
+            const double c = std::cos(a);
+            const double s = std::sin(a);
+            const double x = forward.x * c - forward.y * s;
+            const double y = forward.x * s + forward.y * c;
+            forward = {x, y, forward.z};
+            target = {eye.x + forward.x * flen, eye.y + forward.y * flen,
+                      eye.z + forward.z * flen};
         }
         if (window->key_down(gm::Key::Right)) {
-            az += turn;
+            const double a = turn * 0.017453292519943295;
+            const double c = std::cos(a);
+            const double s = std::sin(a);
+            const double x = forward.x * c - forward.y * s;
+            const double y = forward.x * s + forward.y * c;
+            forward = {x, y, forward.z};
+            target = {eye.x + forward.x * flen, eye.y + forward.y * flen,
+                      eye.z + forward.z * flen};
         }
-        if (window->key_down(gm::Key::Up)) {
-            el = std::min(89.0, el + turn);
+        if (window->key_down(gm::Key::Up) || window->key_down(gm::Key::W)) {
+            const double step = radius * 0.5 * dt;
+            eye = {eye.x + forward.x * step, eye.y + forward.y * step, eye.z + forward.z * step};
+            target = {target.x + forward.x * step, target.y + forward.y * step,
+                      target.z + forward.z * step};
         }
-        if (window->key_down(gm::Key::Down)) {
-            el = std::max(-89.0, el - turn);
+        if (window->key_down(gm::Key::Down) || window->key_down(gm::Key::S)) {
+            const double step = radius * 0.5 * dt;
+            eye = {eye.x - forward.x * step, eye.y - forward.y * step, eye.z - forward.z * step};
+            target = {target.x - forward.x * step, target.y - forward.y * step,
+                      target.z - forward.z * step};
+        }
+        if (window->key_down(gm::Key::A)) {
+            const double step = radius * 0.5 * dt;
+            eye = {eye.x - strafe.x * step, eye.y - strafe.y * step, eye.z};
+            target = {target.x - strafe.x * step, target.y - strafe.y * step, target.z};
+        }
+        if (window->key_down(gm::Key::D)) {
+            const double step = radius * 0.5 * dt;
+            eye = {eye.x + strafe.x * step, eye.y + strafe.y * step, eye.z};
+            target = {target.x + strafe.x * step, target.y + strafe.y * step, target.z};
         }
         if (window->key_down(gm::Key::Plus)) {
-            zoom *= 1.0 + 1.5 * dt;
+            radius = std::max(1e-3, radius * (1.0 - dt));
         }
         if (window->key_down(gm::Key::Minus)) {
-            zoom = std::max(0.1, zoom / (1.0 + 1.5 * dt));
+            radius = std::max(1e-3, radius * (1.0 + dt));
         }
 
         if (!meshes.empty()) {
             gm::RenderOptions render;
             render.width = window->width();
             render.height = window->height();
-            render.az = static_cast<float>(az);
-            render.el = static_cast<float>(el);
-            render.zoom = static_cast<float>(zoom);
             render.fov = options.fov;
             render.textures = !options.no_textures;
             render.lightmaps = !options.no_lightmaps;
             render.lightmap_world = options.lightmap_world;
             render.wire = options.wire;
+            render.camera_override = true;
+            render.eye = eye;
+            render.target = target;
             const auto image = gm::render_scene(meshes, render, &pool, lightmaps);
             window->blit_rgb(image.rgb.data(), image.width, image.height);
         } else {

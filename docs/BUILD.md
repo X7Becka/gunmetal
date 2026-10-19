@@ -83,6 +83,7 @@ gunmetal [--game DIR] [--level NAME] [--dump FILE] [--headless]
 | `cli_dump` (вручную) | `--dump tex.sbm --png out.png` — валидный RGBA-PNG |
 | `cli_dump_missing` | отсутствующий файл — код возврата ≠ 0 (не падение) |
 | `cli_level` (вручную) | `--level level0 --info` печатает world/entities/lightmaps |
+| `cli_level_frames` | `--headless --level level0 --frames 2` проходит путь вьювера |
 | `parity_levels` | `tools/parity_levels.py`: счётчики 36/36 уровней совпадают с Python |
 | `cli_render` (вручную) | `--render out.png --level level0 [--pos --look --clip]` пишет PNG |
 

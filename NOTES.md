@@ -185,7 +185,8 @@
   проверка непрерывности смещений); пиксельный кодек остался в Python.
 * **Модели/тексты в движке** — `engine/src/res/sob.*` (672/672, golden-FNV),
   `text.*` (`.sog` 651/651, `.soe`, шифр `.sme` + теги `.sml`; пара
-  `LEVEL1.SME` = `level1.sml`), `level.*`: `gunmetal --level level0 --info` грузит
+  `LEVEL1.SME` = `level1.sml`), `level.*`: `gunmetal --level level0` открывает вьювер (стрелки — поворот, WASD — движение,
+  +/- — скорость/near); `--info` печатает сводку. `gunmetal --level level0 --info` грузит
   `.sbw/.sbt/.sbc` и печатает counts.
 * **SBT/лайтмапы/анимации в движке** — `engine/src/res/sbt.*` (записи,
   handle-таблицы column-major, SOB_TABLE, SCRIPT; 36/36), `sbc.*`
