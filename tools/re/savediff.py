@@ -72,6 +72,44 @@ def describe(data: bytes, start: int, end: int) -> str:
     return " ".join(ints)
 
 
+
+def block_spans(info: dict) -> dict:
+    """Map block id -> ``(marker offset, size)`` inside the state tail."""
+    spans = {}
+    doors = info.get("doors")
+    if doors:
+        n = len(doors["records"])
+        spans["2 doors"] = (doors["offset"] - 1, 5 + n * 0xB8)
+    switches = info.get("switches")
+    if switches:
+        n = len(switches["records"])
+        spans["1 switches"] = (switches["offset"] - 1, 5 + n * 0x20)
+    for b in info.get("chain") or []:
+        if b.get("size"):
+            label = {9: "9 player"}.get(b["id"], str(b["id"]))
+            spans[label] = (b["offset"], b["size"])
+    return spans
+
+
+def byte_runs(a: bytes, b: bytes, limit: int = 8) -> tuple[int, list]:
+    """Count differing bytes and return up to *limit* ``(start, end)`` runs."""
+    n = min(len(a), len(b))
+    runs, start, total = [], None, 0
+    for i in range(n):
+        if a[i] != b[i]:
+            total += 1
+            if start is None:
+                start = i
+        elif start is not None:
+            runs.append((start, i))
+            start = None
+            if len(runs) >= limit:
+                return total + 0, runs
+    if start is not None:
+        runs.append((start, n))
+    return total, runs
+
+
 def diff(first: str, second: str, game: str, limit: int = 40,
          phases: bool = False) -> int:
     a = load(first, game)
@@ -134,6 +172,47 @@ def diff(first: str, second: str, game: str, limit: int = 40,
             va, vb = pa["shields"][n], pb["shields"][n]
             print("  shield %-5s %6.2f -> %6.2f%s"
                   % (n, va, vb, "" if va == vb else "  (%+.2f)" % (vb - va)))
+
+    # per-block attribution: the chain is walked from the same decoded state
+    ta = a["data"][a["tail"]:]
+    tb = b["data"][b["tail"]:]
+    sa, sb = block_spans(da), block_spans(db)
+    print("\nstate blocks (differing bytes inside each block):")
+    for label in sa:
+        if label not in sb:
+            print("  %-12s only in A" % label)
+            continue
+        oa, na = sa[label]
+        ob, nb = sb[label]
+        ca, cb = ta[oa:oa + na], tb[ob:ob + nb]
+        total, runs = byte_runs(ca, cb)
+        note = ""
+        if label == "2 doors":
+            recs = []
+            for k in range(min(len(ca), len(cb)) // 0xB8):
+                if ca[k * 0xB8:(k + 1) * 0xB8] != cb[k * 0xB8:(k + 1) * 0xB8]:
+                    recs.append(k)
+            if recs:
+                note = "  records: %s" % ", ".join(str(k) for k in recs[:12])
+        elif label.startswith("9 "):
+            note = "  (gauges/weapons/ammo)"
+        elif label == "3":
+            def slot_map(buf):
+                out, i = {}, 0
+                for k in range(260):
+                    if i >= len(buf):
+                        break
+                    size = 1 + (0x528 if buf[i] else 0)
+                    out[k] = buf[i:i + size]
+                    i += size
+                return out
+            ma, mb = slot_map(ca), slot_map(cb)
+            slots = [k for k in ma if k in mb and ma[k] != mb[k]]
+            if slots:
+                note = "  thing slots: %s" % ", ".join(str(k) for k in slots[:12])
+        rel = ", ".join("+%d" % lo for lo, _hi in runs[:4])
+        print("  %-12s at +0x%05x  %6d B  %6d differ%s%s"
+              % (label, oa, na, total, ("  [" + rel + "]") if rel else "", note))
 
     for tag, start in (("header", 0), ("state", a["tail"])):
         stop = 0x8e8 if tag == "header" else min(len(a["data"]), len(b["data"]))

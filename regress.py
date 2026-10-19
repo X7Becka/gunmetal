@@ -632,6 +632,15 @@ def save_checks(G: str, results: list[bool]) -> None:
                            capture_output=True, text=True, cwd=HERE)
         results.append(report("save / --set rejects ammo above the limit",
                               p.returncode != 0 and not os.path.exists(out + ".bad")))
+        p = subprocess.run([sys.executable, GM, "save", saves[0], "--game", G,
+                            "--diff", saves[-1]], capture_output=True,
+                           text=True, cwd=HERE)
+        results.append(report("save / diff attributes differences to blocks",
+                              p.returncode == 0
+                              and "state blocks" in p.stdout
+                              and "9 player" in p.stdout
+                              and "2 doors" in p.stdout,
+                              "per-block byte counts"))
     inv = subprocess.run([sys.executable, GM, "inventory", "--game", G, "--json"],
                          capture_output=True, text=True, cwd=HERE)
     try:
