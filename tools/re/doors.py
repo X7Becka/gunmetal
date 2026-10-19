@@ -72,7 +72,7 @@ def main(argv=None):
         return 1
 
     data = {}
-    totals = {"doors": 0, "switches": 0, "lifts": 0,
+    totals = {"doors": 0, "switches": 0, "lifts": 0, "sliding": 0, "linked": 0,
               "sw_id": 0, "sw_id_ok": 0, "pos": 0, "pos_ok": 0}
     for path in files:
         stem = os.path.splitext(os.path.basename(path))[0]
@@ -89,6 +89,8 @@ def main(argv=None):
              "lifts": [{"stops": len(x.stops), "head": len(x.head)}
                        for x in sc.lifts]}
         totals["doors"] += len(sc.doors)
+        totals["sliding"] += sum(1 for x in sc.doors if x.moving)
+        totals["linked"] += sum(1 for x in sc.doors if len(x.ids) >= 4 and x.ids[3])
         totals["switches"] += len(sc.switches)
         totals["lifts"] += len(sc.lifts)
         for s in sc.switches:
@@ -123,8 +125,10 @@ def main(argv=None):
                       % (x["id"], x["kind"], x["pos"], x["radius"]))
             for x in d["lifts"]:
                 print("lift   stops=%d head=%dB" % (x["stops"], x["head"]))
-    print("\ndoors/switches/lifts: %d doors, %d switches, %d lifts"
-          % (totals["doors"], totals["switches"], totals["lifts"]))
+    print("\ndoors/switches/lifts: %d doors (%d sliding, %d linked), "
+          "%d switches, %d lifts"
+          % (totals["doors"], totals["sliding"], totals["linked"],
+             totals["switches"], totals["lifts"]))
     print("  switch ids in the level's entity table: %d/%d"
           % (totals["sw_id_ok"], totals["sw_id"]))
     if args.frame:

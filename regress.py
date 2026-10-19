@@ -706,7 +706,7 @@ def main() -> int:
                         "--game", G], capture_output=True, text=True, cwd=HERE)
     tail = [l.strip() for l in p.stdout.strip().splitlines()[-2:]]
     ok = (p.returncode == 0 and len(tail) == 2
-          and "1779 doors, 3964 switches, 45 lifts" in tail[0]
+          and "1779 doors (1534 sliding, 200 linked), 3964 switches, 45 lifts" in tail[0]
           and "switch ids in the level's entity table: 3281/3964" in tail[1])
     results.append(report("scene / doors, switches, lifts", ok,
                           "; ".join(tail) or "no output"))

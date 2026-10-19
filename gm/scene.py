@@ -211,6 +211,31 @@ class Door:
         p = self.params
         return (p[4] if len(p) > 4 else 0, p[3] if len(p) > 3 else 0)
 
+    #: The nine ``D`` doubles come in three triples: the closed position, the
+    #: open one (equal for swinging doors; a delta for sliding ones, e.g.
+    #: ``+192/+192`` in ``dm1``) and a swing axis (zero for sliding/unlinked).
+    #: ``0x44e368``..``0x44e3f6`` fold them into a bounding box at record
+    #: ``+0x00``..``+0x40`` -- that box is how the engine finds the polygons of
+    #: the door at load, the record itself carries no handles.
+    @property
+    def pos(self) -> tuple:
+        return tuple(self.values[:3])
+
+    @property
+    def open_pos(self) -> tuple:
+        return tuple(self.values[3:6])
+
+    @property
+    def axis(self) -> tuple:
+        return tuple(self.values[6:9])
+
+    @property
+    def moving(self) -> bool:
+        """A sliding door (open position differs from the closed one)."""
+        return (len(self.values) >= 6
+                and any(abs(a - b) > 1e-6
+                        for a, b in zip(self.values[:3], self.values[3:6])))
+
 
 @dataclass
 class Switch:
@@ -306,6 +331,11 @@ class Scene:
         for x in self.switches:
             if x.absolute:
                 out.append((tuple(v * scale for v in x.pos), (255, 90, 220)))
+        for d in self.doors:
+            if len(d.pos) == 3:
+                out.append((tuple(v * scale for v in d.pos), (120, 255, 120)))
+            if d.moving:
+                out.append((tuple(v * scale for v in d.open_pos), (200, 255, 200)))
         return out
 
     def render_lights(self, scale: float = SCALE):

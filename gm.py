@@ -1097,6 +1097,8 @@ def cmd_scene(opts) -> int:
                       f"({','.join('%g' % a for a in t.angles)})")
             for x in sc.doors[:opts.show]:
                 print(f"  door flags={x.flags} ids={x.ids} state={x.state} "
+                      f"pos=({','.join('%g' % v for v in x.pos)}) "
+                      f"{'sliding ' if x.moving else ''}"
                       f"angles=({','.join('%g' % a for a in x.angles)})")
             for x in sc.switches[:opts.show]:
                 print(f"  switch id={x.id} kind={x.kind} pos={x.pos} "
@@ -1124,6 +1126,8 @@ def cmd_scene(opts) -> int:
                        for t in sc.things],
             "doors": [{"flags": d.flags, "ids": list(d.ids),
                        "angles": list(d.angles), "params": list(d.params),
+                       "pos": list(d.pos), "open_pos": list(d.open_pos),
+                       "axis": list(d.axis), "moving": d.moving,
                        "values": list(d.values), "tail": list(d.tail)}
                       for d in sc.doors],
             "switches": [{"kind": s.kind, "id": s.id, "radius": s.radius,
