@@ -740,6 +740,22 @@ def main() -> int:
         "%d objects: world = origin + basis*local, max |origin| %.1f, UV kept: %s"
         % (len(offs), max(offs), uv_ok)))
 
+    # --- savegame layout (tools/re/savegame.py) ---------------------------
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "savegame.py")],
+                       capture_output=True, text=True, cwd=HERE)
+    out = p.stdout
+    results.append(report(
+        "savegame / level pair + state dispatcher",
+        p.returncode == 0
+        and "save is a level pair: savegame\\saved%d.sbt + savegame\\saved%d.sbw" in out
+        and "20 ids, 18 distinct handlers" in out
+        and "id   1  switches       0x44f000" in out
+        and "id   2  doors          0x44e540" in out
+        and "id  18  lifts          0x44ec20" in out,
+        "20 system ids, doors/switches/lifts/sprites mapped, "
+        "save = .sbt + .sbw pair"))
+
     # --- script positions vs the level mesh (gm/scene.py) -----------------
     from gm import scene as scenemod
     sc_dm1 = scenemod.load(os.path.join(G, "dm1.sbt"))
