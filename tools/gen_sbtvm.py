@@ -14,7 +14,7 @@ def soff(va):
     return data[va - 0x401A00:va - 0x401A00 + 120].split(b"\0")[0].decode("latin1")
 
 
-# region A: {name, sig, f2, size=-1, id} ; region B: {sig, 1, -1, id, name}
+# both tables use the same row layout {name_ptr, sig_ptr, 1, -1, id}
 COMMANDS = {}
 a = 0x4B53E8
 while a < 0x4B62E8:
@@ -22,11 +22,13 @@ while a < 0x4B62E8:
     COMMANDS[f[4]] = (soff(f[0]), soff(f[1]))
     a += 20
 
+# the 59 conditions end exactly where the code-base pointer lives (0x4b6784);
+# reading four bytes late (0x4b62ec) pairs every id with the *next* row's name.
 CONDITIONS = {}
-a = 0x4B62EC
-while a < 0x4B6788:
+a = 0x4B62E8
+while a < 0x4B6784:
     f = struct.unpack_from("<5I", data, a - 0x401A00)
-    CONDITIONS[f[3]] = (soff(f[4]), soff(f[0]))
+    CONDITIONS[f[4]] = (soff(f[0]), soff(f[1]))
     a += 20
 
 

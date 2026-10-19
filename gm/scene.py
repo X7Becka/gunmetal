@@ -249,8 +249,11 @@ def entities(script: sbt.Script) -> list[tuple[int, int, int]]:
     e.g. ``0x457c49``/``0x457c80``/``0x457cd5`` setting or clearing bits of the
     flags word), the compiler writes ``0x3ff`` into flags and appends the record
     (``0x460843``..``0x4608a8``, the id coming from the name token the lexer at
-    ``0x45fb90``/``0x460ea0`` interns), and the last column is a byte offset into
-    the variable-length compiled entity buffer.
+    ``0x45fb90``/``0x460ea0`` interns), and the last column is the offset of the
+    entity's **sub-script in the compiled code** -- ``GENERATE`` (cid 2) runs it
+    through ``0x457390`` (``0x45fa00`` -> ``0x45fb01``), and that sub-script is
+    where the entity's thing is built (``ADD_THING*`` -> ``0x46d000``), carrying
+    the ``THING_TYPES`` index that ``+0x1a4`` turns into the model.
     """
     n = script.n
     if n <= 0 or len(script.handles) < 12 * n:

@@ -308,13 +308,14 @@ def scene_checks(G: str, results: list[bool], out: str) -> None:
         % (len(ents), sorted({e[1] for e in ents}), len(switched & ids),
            len(switched))))
 
-    # column 2 is a byte offset into a variable-length compiled record buffer:
-    # the *steps* between consecutive entities repeat level to level
-    # (the levels are built from the same editor templates).
+    # column 2 is the offset of the entity's *sub-script* in the compiled code
+    # (GENERATE runs it through 0x457390); the *steps* between consecutive
+    # entities repeat level to level (the levels share the editor templates) --
+    # they are the block sizes (6, 11, 34, 122, 994, 3 bytes).
     steps_dm1 = [ents[i + 1][2] - ents[i][2] for i in range(1, 7)]
     ents13 = scene.entities(_script(os.path.join(G, "level13.sbt")))
     steps_13 = [ents13[i + 1][2] - ents13[i][2] for i in range(1, 7)]
-    results.append(report("scene / entity record offsets",
+    results.append(report("scene / entity sub-script offsets",
                           steps_dm1 == steps_13 and steps_dm1 == [6, 11, 34, 122, 994, 3],
                           "steps 2..7 %s (identical in level13)" % steps_dm1))
 
@@ -667,6 +668,17 @@ def main() -> int:
     last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
     ok = p.returncode == 0 and "valid SOB index 2896/2896" in last
     results.append(report("things / type -> model (+0x1a4)", ok, last or "no output"))
+
+    # --- entity table -> sub-script -> thing type (tools/re/entities.py) -----
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "entities.py"),
+                        "--game", G], capture_output=True, text=True, cwd=HERE)
+    tail = p.stdout.strip().splitlines()[-2:]
+    ok = (p.returncode == 0 and len(tail) == 2
+          and "blocks ending on the next row 15025/15061" in tail[0]
+          and "ADD_THING types valid 4005/4005" in tail[1])
+    results.append(report("entities / id -> sub-script -> thing type", ok,
+                          " ".join(s.strip() for s in tail) or "no output"))
 
     # --- optional heavy extraction ---------------------------------------
     if opts.full:
