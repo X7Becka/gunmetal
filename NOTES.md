@@ -332,7 +332,15 @@
   записи z; веса — из `+0x2c` (`translucent` — mix 0.5, прочие — add;
   приближение, математика смешения движка не прослежена). Яркость полигона
   `+0x70` (0..127) — аддитивная добавка (тоже приближение). Для интерьера
-  есть ручная камера (`pos`/`look`) и отсечка по дальности (`clip`).
+  есть ручная камера (`pos`/`look`), отсечка по дальности (`clip`) и
+  **отсечка объектов по пирамиде видимости** (`Camera.aabb_visible`,
+  консервативна — картинка бит-в-бит, граней меньше: вид dm1 238→25;
+  движок делает то же по `obj+0x70 & 0x10010` + радиус `obj+0x60`,
+  `0x437d86`), плюс обрезка полигона по ближней плоскости (Сазерленд—Ходжман)
+  вместо отбрасывания. Структура сектора в памяти (0x18 Б, `[0x5670d8]`,
+  загрузчик `0x42ad34`): `+0` объектов, `+4` массив указателей, `+0x14` kind,
+  `+0x16` **байт света сектора** (0 из загрузчика — это то самое третье
+  слагаемое света лайтмапов), `+0x17` sub.
   **Лайтмапы уровня доказаны**: `.sbc` рядом с `.sbw` (загрузчик `0x429a2a`,
   предупреждение `unable to load level lightmaps (SBC file missing)` в
   `0x442482`), полигон ссылается полем `+0x04` (1-based, база `0x428064`),
@@ -403,7 +411,7 @@ look16.tab   look162.tab   neons.pin
 | `sounds <game> <out>` | `sounds/SOU.DAT`: `SOU0` → WAV, `SOU1/2` → сырые дампы |
 | `frontend <game> <out>` | `FRONTEND/BMP.DAT` → BMP |
 | `sob <src> <out>` | `.sob` → OBJ + MTL |
-| `view <paths...> [--out O] [--size N] [--angle A] [--az A] [--el E] [--zoom Z] [--uv fit\|tile] [--no-textures] [--flat] [--wire] [--cull] [--sheet] [--pos X,Y,Z] [--look X,Y,Z] [--clip D] [--no-materials] [--no-brightness] [--no-lightmap] [--ambient N] [--ascii [N]] [--game DIR]` | софт-рендер моделей `.sob` и уровней `.sbw` в PNG (`gm/render.py`); `--sheet` — 4 ракурса в одном PNG, `--pos/--look/--clip` — вид изнутри уровня, лайтмапы из `<уровень>.sbc` |
+| `view <paths...> [--out O] [--size N] [--angle A] [--az A] [--el E] [--zoom Z] [--uv fit\|tile] [--no-textures] [--flat] [--wire] [--cull] [--sheet] [--pos X,Y,Z] [--look X,Y,Z] [--clip D] [--no-materials] [--no-brightness] [--no-lightmap] [--ambient N] [--sector N] [--no-sectors] [--ascii [N]] [--game DIR]` | софт-рендер моделей `.sob` и уровней `.sbw` в PNG (`gm/render.py`); `--sheet` — 4 ракурса в одном PNG, `--pos/--look/--clip` — вид изнутри уровня, лайтмапы из `<уровень>.sbc` |
 | `soa <paths...> [--rebuild DIR]` | список анимаций `.soa`; `--rebuild` — запись обратно |
 | `soe <paths...> [-v] [--rebuild DIR]` | разбор `.soe` (текстовые «thing»-определения); `--rebuild` — запись обратно |
 | `look FILE [--png OUT] [--palette BMP] [--neons PIN] [--scale N]` | анализ кубов `LOOK16.TAB`/`LOOK162.TAB`; `--png` — монтаж 8×8 |

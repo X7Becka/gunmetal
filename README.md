@@ -83,6 +83,8 @@ python3 gm.py view     "…/Gunmetal 3dfx/SOBS" --out out/view --size 256 --game
 python3 gm.py view     "…/Gunmetal 3dfx/dm1.sbw" --out out/view --size 640 \
                        --pos 0,0,20 --look 60,60,20 --clip 200 --cull
 # лайтмапы уровня берутся из <уровень>.sbc автоматически (--no-lightmap, --ambient N)
+# инспекция одной комнаты: --sector N (--no-sectors выключает отсечку по пирамиде)
+python3 gm.py view     "…/Gunmetal 3dfx/dm1.sbw" --out out/view --size 640 --sector 2
 
 # уровни: таблицы handle + сверка с соседним .sbw
 python3 gm.py sbt      "…/Gunmetal 3dfx" --resolve -v

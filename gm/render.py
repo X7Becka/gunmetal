@@ -92,9 +92,13 @@ class Lightmaps:
 class LevelMesh:
     """One `.sbw` object (its local vertex pool + polygons)."""
 
-    def __init__(self, obj, tex_names, lightmaps: Lightmaps | None = None):
+    sector: int | None = None
+
+    def __init__(self, obj, tex_names, lightmaps: Lightmaps | None = None,
+                 sector: int | None = None):
         self.vertices = list(obj.vertices)
         self.lightmaps = lightmaps
+        self.sector = sector
         self.faces = []
         for p in obj.polys:
             if len(p.indices) < 3:
@@ -115,8 +119,12 @@ class LevelMesh:
 def level_meshes(level, lightmaps: Lightmaps | None = None) -> list[LevelMesh]:
     """Wrap every object of a parsed `.sbw` level as a renderable mesh."""
     names = [t.name for t in level.tex]
-    return [LevelMesh(o, names, lightmaps) for s in level.sectors for o in s.objects
-            if o.vertices]
+    out = []
+    for si, s in enumerate(level.sectors):
+        for o in s.objects:
+            if o.vertices:
+                out.append(LevelMesh(o, names, lightmaps, si))
+    return out
 
 
 def import_lightmaps(path: str) -> Lightmaps:
@@ -274,6 +282,7 @@ class Camera:
                  az: float = 35.0, el: float = 22.0, zoom: float = 1.0,
                  fov: float = 45.0, pos: Vec3 | None = None,
                  look: Vec3 | None = None):
+        self.width, self.height = width, height
         if pos is not None:
             self.eye = pos
             target = look if look is not None else center
@@ -296,14 +305,59 @@ class Camera:
         self.cx, self.cy = width / 2.0, height / 2.0
         self.near = max(0.02, min(dist, radius) * 0.05)
 
+    def view(self, p: Vec3) -> Vec3:
+        """World point -> view space (x right, y up, z forward)."""
+        d = _sub(p, self.eye)
+        return (_dot(d, self.right), _dot(d, self.up), _dot(d, self.fwd))
+
+    def project_view(self, v: Vec3):
+        """View point -> ``(sx, sy, inv_z, z)`` or ``None`` at/behind the eye.
+
+        Vertices produced by :func:`_clip_near` sit exactly on the near plane,
+        so only ``z <= 0`` is rejected here.
+        """
+        x, y, z = v
+        if z <= 0.0:
+            return None
+        return (self.cx + x / z * self.scale, self.cy - y / z * self.scale,
+                1.0 / z, z)
+
     def project(self, p: Vec3):
         """World point -> ``(sx, sy, inv_z, z)`` or ``None`` when behind the camera."""
-        d = _sub(p, self.eye)
-        z = _dot(d, self.fwd)
-        if z <= self.near:
-            return None
-        return (self.cx + _dot(d, self.right) / z * self.scale,
-                self.cy - _dot(d, self.up) / z * self.scale, 1.0 / z, z)
+        return self.project_view(self.view(p))
+
+    def plane_limits(self) -> tuple[float, float]:
+        """Half-extent of the view frustum per unit of depth (x, y)."""
+        return (self.width / 2.0) / self.scale, (self.height / 2.0) / self.scale
+
+    def aabb_visible(self, lo: Vec3, hi: Vec3) -> bool:
+        """Conservative test: can a view-space AABB touch the frustum?
+
+        The engine does the same thing per object one level down: it skips
+        objects whose flags (``obj+0x70 & 0x10010``) are set and uses the
+        bounding radius (``obj+0x60``) for the test (0x437d86..0x437db0).
+        """
+        kx, ky = self.plane_limits()
+        if hi[2] < self.near:
+            return False
+        return not (lo[0] - kx * hi[2] > 0 or hi[0] + kx * hi[2] < 0
+                    or lo[1] - ky * hi[2] > 0 or hi[1] + ky * hi[2] < 0)
+
+    def world_aabb_visible(self, lo: Vec3, hi: Vec3) -> bool:
+        """View-space AABB of a world AABB, then :meth:`aabb_visible`."""
+        xs = (lo[0], hi[0])
+        ys = (lo[1], hi[1])
+        zs = (lo[2], hi[2])
+        vlo = [1e30] * 3
+        vhi = [-1e30] * 3
+        for x in xs:
+            for y in ys:
+                for z in zs:
+                    v = self.view((x, y, z))
+                    for k in range(3):
+                        vlo[k] = min(vlo[k], v[k])
+                        vhi[k] = max(vhi[k], v[k])
+        return self.aabb_visible(tuple(vlo), tuple(vhi))
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +408,51 @@ def _face_brightness(face) -> float:
     return (b / 127.0) * BRIGHTNESS_GAIN if b else 0.0
 
 
+def _mesh_aabb(mesh) -> tuple[Vec3, Vec3]:
+    lo = [1e30] * 3
+    hi = [-1e30] * 3
+    for v in mesh.vertices:
+        for k in range(3):
+            lo[k] = min(lo[k], v[k])
+            hi[k] = max(hi[k], v[k])
+    if lo[0] > hi[0]:
+        return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
+    return tuple(lo), tuple(hi)
+
+
+def _clip_near(view: list[Vec3], groups: list[list], near: float):
+    """Sutherland-Hodgman clip of a view-space polygon against ``z >= near``.
+
+    ``groups`` holds one per-vertex attribute tuple per attribute (UV,
+    lightmap texel).  Interpolation is linear in view space, which is exactly
+    what the perspective-correct interpolation below expects.
+    """
+    out_v: list[Vec3] = []
+    out_g: list[list] = [[] for _ in groups]
+    n = len(view)
+    for i in range(n):
+        cur, nxt = view[i], view[(i + 1) % n]
+        cin, nin = cur[2] >= near, nxt[2] >= near
+        if cin:
+            out_v.append(cur)
+            for k, g in enumerate(groups):
+                out_g[k].append(g[i])
+        if cin != nin:
+            t = (near - cur[2]) / (nxt[2] - cur[2])
+            out_v.append(tuple(cur[j] + (nxt[j] - cur[j]) * t for j in range(3)))
+            for k, g in enumerate(groups):
+                a, b = g[i], g[(i + 1) % n]
+                out_g[k].append(tuple(a[j] + (b[j] - a[j]) * t for j in range(len(a))))
+    return out_v, out_g
+
+
+def _uv_fit(uvs) -> tuple[float, float, float, float]:
+    us = [p[0] for p in uvs]
+    vs = [p[1] for p in uvs]
+    u0, v0 = min(us), min(vs)
+    return u0, v0, max(1e-9, max(us) - u0), max(1e-9, max(vs) - v0)
+
+
 def render(meshes, width: int = 480, height: int | None = None, *, az: float = 35.0,
            el: float = 22.0, zoom: float = 1.0, fov: float = 45.0,
            pool: TexturePool | None = None, lit: bool = True, wire: bool = False,
@@ -361,7 +460,8 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
            color=(180, 180, 190), bg: bool = True, pos=None, look=None,
            clip: float | None = None, materials: bool = True,
            brightness: bool = True, lightmap: bool = True,
-           ambient: float = 0.0) -> bytes:
+           ambient: float = 0.0, sectors: bool = True,
+           only_sector: int | None = None) -> bytes:
     """Render one mesh or a list of meshes into an RGB PNG.
 
     ``pos``/``look`` override the auto-fitted camera (for level interiors),
@@ -369,15 +469,28 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
     ``materials`` enables the two-pass material handling (see
     :func:`face_blend`).  ``lightmap`` samples the level's ``.sbc`` lightmaps
     (see :class:`Lightmaps`) and ``ambient`` adds a constant light level.
+    ``sectors`` skips whole meshes whose AABB cannot touch the view frustum
+    (image-identical, faster); ``only_sector`` keeps a single level sector.
     """
     if height is None:
         height = width
     if isinstance(meshes, sobmod.Sob):
         meshes = [meshes]
     meshes = list(meshes)
+    if only_sector is not None:
+        meshes = [m for m in meshes if getattr(m, "sector", None) == only_sector]
     center, radius = _bounds(meshes)
     cam = Camera(center, radius, width, height, az, el, zoom, fov, pos, look)
     eye = cam.eye
+
+    boxes = [_mesh_aabb(m) for m in meshes]
+    if sectors:
+        keep = []
+        for m, (lo, hi) in zip(meshes, boxes):
+            if cam.world_aabb_visible(lo, hi):
+                keep.append(m)
+        meshes = keep
+        boxes = [_mesh_aabb(m) for m in meshes]
 
     buf = bytearray(width * height * 3)
     if bg:
@@ -396,9 +509,7 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
             if len(idx) < 3:
                 continue
             blend = face_blend(face, materials)
-            pts = [cam.project(mesh.vertices[i]) for i in idx]
-            if any(p is None for p in pts):
-                continue
+            view = [cam.view(mesh.vertices[i]) for i in idx]
             if clip is not None:
                 c = _sub(face.origin, eye) if hasattr(face, "origin") else None
                 if c is None:
@@ -407,13 +518,26 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
                 if _dot(c, c) > clip * clip:
                     continue
             uvs = [mesh.uv(face, mesh.vertices[i]) for i in idx]
-            lm = None
+            fit = _uv_fit(uvs) if uv == "fit" and len(uvs) > 2 else None
+            lmuv = None
+            page = None
+            base = 0.0
             if lms is not None and getattr(face, "lightmap", -1) >= 0:
                 page = lms.page(face)
-                luv = [lms.uv(face, mesh.vertices[i]) for i in idx]
-                if page is not None and all(p is not None for p in luv):
+                if page is not None:
+                    lmuv = [lms.uv(face, mesh.vertices[i], mask=False) for i in idx]
                     base = getattr(face, "brightness", 0) + ambient
-                    lm = (page, luv, base)
+            if any(v[2] < cam.near for v in view):
+                groups = [uvs] + ([lmuv] if lmuv is not None else [])
+                view, groups = _clip_near(view, groups, cam.near)
+                if len(view) < 3:
+                    continue
+                uvs = groups[0]
+                lmuv = groups[1] if lmuv is not None else None
+            pts = [cam.project_view(v) for v in view]
+            if any(p is None for p in pts):
+                continue
+            lm = (page, lmuv, base) if lmuv is not None else None
             shade = _shade(face, lit)
             if brightness and lm is None:
                 shade += _face_brightness(face)
@@ -423,11 +547,12 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
                 vs = [mesh.vertices[i] for i in idx]
                 c = tuple(sum(v[k] for v in vs) / len(vs) for k in range(3))
                 d = _sub(c, eye)
-                blended.append((_dot(d, d), face, pts, uvs, (tex, shade, col, blend, uv, cull, lm)))
+                blended.append((_dot(d, d), face, pts, uvs,
+                                (tex, shade, col, blend, uv, cull, lm, fit)))
                 continue
             if solid:
                 _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col,
-                           uv=uv, cull=cull, lm=lm)
+                           uv=uv, cull=cull, lm=lm, fit=fit)
             if wire:
                 for k in range(len(pts)):
                     a, b = pts[k], pts[(k + 1) % len(pts)]
@@ -436,9 +561,9 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
     # second pass: blended materials, back to front, z-tested but not z-written
     if solid and blended:
         blended.sort(key=lambda t: -t[0])
-        for _d, _face, pts, uvs, (tex, sh, col, blend, uv_, cull_, lm_) in blended:
+        for _d, _face, pts, uvs, (tex, sh, col, blend, uv_, cull_, lm_, fit_) in blended:
             _draw_poly(buf, zbuf, width, height, pts, uvs, tex, sh, col,
-                       uv=uv_, cull=cull_, blend=blend, lm=lm_)
+                       uv=uv_, cull=cull_, blend=blend, lm=lm_, fit=fit_)
 
     return png.rgb(width, height, bytes(buf))
 
@@ -466,22 +591,20 @@ def _face_color(face, tex, lit: bool):
 
 
 def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
-               cull=False, blend=None, lm=None):
+               cull=False, blend=None, lm=None, fit=None):
     """Triangulate the (convex) face as a fan and rasterise the triangles."""
     if cull:
         area = ((pts[1][0] - pts[0][0]) * (pts[2][1] - pts[0][1])
                 - (pts[2][0] - pts[0][0]) * (pts[1][1] - pts[0][1]))
         if area >= 0:
             return
-    # per-face UV extent -> [0,1)
+    # per-face UV extent -> [0,1); ``fit`` keeps it stable across near clipping
     u0 = v0 = 0.0
     su = sv = 1.0
-    if uv == "fit" and len(uvs) > 2:
-        us = [p[0] for p in uvs]
-        vs = [p[1] for p in uvs]
-        u0, v0 = min(us), min(vs)
-        su = max(1e-9, max(us) - u0)
-        sv = max(1e-9, max(vs) - v0)
+    if fit is not None:
+        u0, v0, su, sv = fit
+    elif uv == "fit" and len(uvs) > 2:
+        u0, v0, su, sv = _uv_fit(uvs)
     z_write = blend is None
     for k in range(1, len(pts) - 1):
         tri = (pts[0], pts[k], pts[k + 1])

@@ -122,6 +122,39 @@ def render_checks(G: str, results: list[bool], out: str, full: bool = False) -> 
     results.append(report("render / lightmaps change shading", lit != unlit,
                           f"{len(lms.records)} records, {(lit, unlit) and 'ok'}"))
 
+    # sector/object frustum culling must be conservative: same image, less work
+    eye, tgt = (-416.5, -1140.0, -602.0), (-416.5, -1140.0, -342.0)
+    ms2 = render.level_meshes(sbw.parse_file(os.path.join(G, "dm1.sbw")),
+                              render.import_lightmaps(os.path.join(G, "dm1.sbc")))
+    full = render.render(ms2, 200, pool=pool, pos=eye, look=tgt, clip=1200, sectors=False)
+    culled = render.render(ms2, 200, pool=pool, pos=eye, look=tgt, clip=1200, sectors=True)
+    n_all = sum(len(m.faces) for m in ms2)
+    results.append(report("render / sector culling is exact", full == culled,
+                          f"dm1 {n_all} faces, identical image"))
+
+    # near-plane clipping: a quad straddling the eye must still fill the screen
+    class _Face:
+        indices = [0, 1, 2, 3, 4]
+        texture = "none"
+        normal = (0.0, 0.0, -1.0)
+        material = 0
+        brightness = 0
+        material_flags: tuple = ()
+
+    class _Straddle:
+        # one vertex sits behind the near plane: the renderer must clip, not drop
+        vertices = [(0.0, 0.0, -0.02), (-300.0, -300.0, -100.0), (300.0, -300.0, -100.0),
+                    (300.0, 300.0, -100.0), (-300.0, 300.0, -100.0)]
+        faces = [_Face()]
+
+        def uv(self, face, v):
+            return (v[0] / 600.0, v[1] / 600.0)
+
+    quad = render.render([_Straddle()], 96, pool=pool, pos=(0.0, 0.0, 0.0),
+                         look=(0.0, 0.0, -1.0), solid=True)
+    results.append(report("render / near-plane clipping", render.coverage(quad) > 0.9,
+                          "polygon straddling the eye keeps its visible part"))
+
     if full:
         bad = 0
         files = sorted(glob.glob(os.path.join(G, "SOBS", "*.sob")))

@@ -755,7 +755,8 @@ def cmd_view(opts) -> int:
     kind_opts = dict(zoom=opts.zoom, uv=opts.uv, wire=opts.wire, cull=opts.cull,
                      lit=not opts.flat, materials=not opts.no_materials,
                      brightness=not opts.no_brightness, clip=opts.clip,
-                     lightmap=not opts.no_lightmap, ambient=opts.ambient)
+                     lightmap=not opts.no_lightmap, ambient=opts.ambient,
+                     sectors=not opts.no_sectors, only_sector=opts.sector)
     pos = _vec3_opt(opts.pos, "--pos")
     look = _vec3_opt(opts.look, "--look")
     if pos is None and look is not None:
@@ -940,6 +941,10 @@ def main(argv=None) -> int:
                    help="do not load/sample the sibling <level>.sbc lightmaps")
     p.add_argument("--ambient", type=float, default=0.0,
                    help="constant light level added to polygons (0..127)")
+    p.add_argument("--sector", type=int,
+                   help="render only this level sector (geometry group) by index")
+    p.add_argument("--no-sectors", action="store_true",
+                   help="disable per-object frustum (view pyramid) culling")
     p.add_argument("--ascii", type=int, nargs="?", const=78, default=0,
                    help="also print a coarse ASCII preview (optional width)")
     p.add_argument("--palette", help="BMP file to take the palette from")
