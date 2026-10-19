@@ -76,7 +76,7 @@ gunmetal [--game DIR] [--level NAME] [--dump FILE] [--headless]
 
 | тест | что проверяет |
 |---|---|
-| `core` | `resolve_ci`, арена, vec-математика, `rd16/24/32/64`, hex/ascii, разбор CLI, часы, headless-окно, уровни лога, BIGFILE-ридер (синтетический + реальный `sounds/SOU.IDX`: 999 записей), `.sbm`/`.bmp`/PNG (сверка FNV с Python на реальных текстурах), `.sbw` (таблицы+геометрия, 36 уровней, golden-FNV), `.sbt` (36), `.sbc` (51), `.soo` (40), `.soa` (77), `.sob` (672), `.sog` (651), `.sml/.sme`, `.soe`, `.sou`-контейнер, `--level` |
+| `core` | `resolve_ci`, арена, vec-математика, `rd16/24/32/64`, hex/ascii, разбор CLI, часы, headless-окно, уровни лога, BIGFILE-ридер (синтетический + реальный `sounds/SOU.IDX`: 999 записей), `.sbm`/`.bmp`/PNG (сверка FNV с Python на реальных текстурах), `.sbw` (таблицы+геометрия, 36 уровней, golden-FNV), `.sbt` (36), `.sbc` (51), `.soo` (40), `.soa` (77), `.sob` (672), `.sog` (651), `.sml/.sme`, `.soe`, `.sbv`-контейнер, `AssetCache`, `.sou`-контейнер, `--level` |
 | `cli_version` | `gunmetal --version` |
 | `cli_headless` | `--headless --frames 2` доходит до конца |
 | `cli_dump` | дамп существующего файла печатает `size:` |

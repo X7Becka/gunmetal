@@ -17,6 +17,8 @@
 #include "res/sob.h"
 #include "res/text.h"
 #include "res/level.h"
+#include "res/sbv.h"
+#include "res/cache.h"
 #include "res/anim.h"
 #include "core/hash.h"
 
@@ -1098,6 +1100,131 @@ void test_level() {
     CHECK(!gm::load_level(dir, "no_such_level", error).has_value());
 }
 
+void test_sbv() {
+    // Synthetic clip: 2x1, two one-byte frames.
+    std::vector<std::uint8_t> clip = {'S', 'B', 'V', '0', 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0};
+    const std::uint32_t table[4] = {0, 1, 67, 2};
+    for (std::uint32_t v : table) {
+        clip.push_back(static_cast<std::uint8_t>(v & 0xff));
+        clip.push_back(static_cast<std::uint8_t>((v >> 8) & 0xff));
+        clip.push_back(0);
+        clip.push_back(0);
+    }
+    clip.push_back(0xaa);
+    clip.push_back(0xbb);
+
+    std::string error;
+    const auto parsed = gm::parse_sbv(clip, error);
+    CHECK(parsed.has_value());
+    if (parsed) {
+        CHECK_EQ(parsed->width, 2u);
+        CHECK_EQ(parsed->height, 1u);
+        CHECK_EQ(parsed->frame_count, 2u);
+        CHECK_EQ(parsed->data_start, std::size_t{32});
+        CHECK_EQ(parsed->table[1].timestamp_ms, 67u);
+        CHECK_EQ(parsed->table[1].end_offset, 2u);
+        CHECK(gm::sbv_offsets_valid(*parsed));
+    }
+    std::vector<std::uint8_t> bad = {'N', 'O', 'P', 'E'};
+    CHECK(!gm::parse_sbv(bad, error).has_value());
+
+    struct Golden {
+        const char* name;
+        std::uint32_t frames;
+        std::size_t data_start;
+        std::uint32_t duration;
+        std::size_t file_size;
+    };
+    const Golden goldens[] = {
+        {"Intro.sbv", 500, 4016, 33333, 2811092},
+        {"orient.sbv", 4523, 36200, 301533, 35005220},
+        {"winner.sbv", 1820, 14576, 121333, 15343896},
+    };
+    for (const auto& golden : goldens) {
+        const fs::path path = fs::path("/mnt/d/games/Gunmetal 3dfx/Vid") / golden.name;
+        std::error_code ec;
+        if (!fs::is_regular_file(path, ec)) {
+            continue;
+        }
+        std::ifstream in(path, std::ios::binary);
+        std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                      std::istreambuf_iterator<char>());
+        const auto s = gm::parse_sbv(raw, error);
+        CHECK(s.has_value());
+        if (!s) {
+            continue;
+        }
+        CHECK_EQ(s->width, 320u);
+        CHECK_EQ(s->height, 160u);
+        CHECK_EQ(s->frame_count, golden.frames);
+        CHECK_EQ(s->data_start, golden.data_start);
+        CHECK_EQ(s->file_size, golden.file_size);
+        CHECK_EQ(s->table.back().timestamp_ms, golden.duration);
+        CHECK(gm::sbv_offsets_valid(*s));
+    }
+}
+
+void test_cache() {
+    const fs::path idx = "/mnt/d/games/Gunmetal 3dfx/PICS/SBM.IDX";
+    std::error_code ec;
+    if (!fs::is_regular_file(idx, ec)) {
+        return;
+    }
+    std::string error;
+    auto archive = gm::BigFile::open(idx, error);
+    CHECK(archive.has_value());
+    if (!archive || archive->entries().empty()) {
+        return;
+    }
+    const std::string name = archive->entries().front().name;
+    const auto direct = archive->read(archive->entries().front(), error);
+    CHECK(direct.has_value());
+    if (!direct) {
+        return;
+    }
+
+    gm::AssetCache cache(64u * 1024u * 1024u);
+    const auto first = cache.get(idx, name, error);
+    CHECK(first != nullptr);
+    if (!first) {
+        return;
+    }
+    CHECK(*first == *direct);
+    const auto second = cache.get(idx, name, error);
+    CHECK(second.get() == first.get()); // same cached blob
+    auto stats = cache.stats();
+    CHECK_EQ(stats.misses, 1u);
+    CHECK_EQ(stats.hits, 1u);
+    CHECK_EQ(stats.entries, std::size_t{1});
+    CHECK_EQ(stats.bytes, static_cast<std::uint64_t>(direct->size()));
+
+    // Case-insensitive lookup resolves to the same entry.
+    std::string lower = name;
+    for (char& c : lower) {
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+    }
+    CHECK_EQ(cache.get(idx, lower, error).get(), first.get());
+    CHECK_EQ(cache.stats().hits, 2u);
+
+    // A pinned blob is never evicted; once released the LRU evicts it.
+    gm::AssetCache small(0);
+    {
+        const auto pinned = small.get(idx, name, error);
+        CHECK(pinned != nullptr);
+        CHECK_EQ(small.stats().evictions, 0u);
+    }
+    CHECK_EQ(small.stats().evictions, 0u);
+    const auto other = small.get(idx, archive->entries().back().name, error);
+    CHECK(other != nullptr);
+    CHECK(small.stats().evictions >= 1u);
+
+    cache.clear();
+    CHECK_EQ(cache.stats().entries, std::size_t{0});
+    CHECK_EQ(cache.stats().bytes, 0u);
+}
+
 void test_log() {
     gm::set_log_level(gm::LogLevel::Off);
     CHECK(!gm::log_enabled(gm::LogLevel::Error));
@@ -1129,6 +1256,8 @@ int main() {
     test_sob();
     test_text();
     test_level();
+    test_sbv();
+    test_cache();
 
     if (g_failures != 0) {
         std::fprintf(stderr, "gm_tests: %d failure(s)\n", g_failures);

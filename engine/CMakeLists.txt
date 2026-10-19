@@ -7,6 +7,8 @@ add_library(gm_engine STATIC
     src/platform/window.cpp
     src/res/anim.cpp
     src/res/level.cpp
+    src/res/sbv.cpp
+    src/res/cache.cpp
     src/res/bigfile.cpp
     src/res/bmp.cpp
     src/res/png.cpp

@@ -15,6 +15,7 @@
 #include "res/sob.h"
 #include "res/text.h"
 #include "res/level.h"
+#include "res/sbv.h"
 #include "res/anim.h"
 
 #include <cstdio>
@@ -139,6 +140,28 @@ int dump_file(const gm::Options& options) {
             const auto& level = sbm->mips[0];
             const auto rgba = gm::sbm_to_rgba(level, *palette);
             return export_png(options, level.width, level.height, rgba);
+        }
+        return 0;
+    }
+
+    if (gm::iequals_ascii(ext, ".sbv")) {
+        const auto bytes = read_file(path, error);
+        if (!bytes) {
+            gm::logf(gm::LogLevel::Error, "dump", error);
+            return 2;
+        }
+        const auto clip = gm::parse_sbv(*bytes, error);
+        if (!clip) {
+            gm::logf(gm::LogLevel::Error, "sbv", error);
+            return 2;
+        }
+        std::printf("kind: SBV video clip\n");
+        std::printf("size: %ux%u\n", clip->width, clip->height);
+        std::printf("frames: %u\n", clip->frame_count);
+        std::printf("data start: %zu\n", clip->data_start);
+        std::printf("offsets valid: %s\n", gm::sbv_offsets_valid(*clip) ? "yes" : "no");
+        if (!clip->table.empty()) {
+            std::printf("duration: %u ms\n", clip->table.back().timestamp_ms);
         }
         return 0;
     }
