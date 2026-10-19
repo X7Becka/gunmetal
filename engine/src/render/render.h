@@ -71,11 +71,17 @@ struct RenderFace {
     Vec3f v;
     Vec3f normal;
     float uv_scale = 1.0f; // 1/65536 for .sob planes
+    // Resolved texture, keyed by the pool that produced it; avoids a string map
+    // lookup per face per frame in the viewer.
+    mutable const void* tex_pool = nullptr;
+    mutable const Texture* tex_ptr = nullptr;
     std::int32_t uv_u_fp = 0;
     std::int32_t uv_v_fp = 0;
 };
 
 struct RenderMesh {
+    Vec3d aabb_lo{1e30, 1e30, 1e30};
+    Vec3d aabb_hi{-1e30, -1e30, -1e30};
     std::vector<Vec3d> vertices; // world frame
     std::vector<Vec3d> local;    // file frame
     std::vector<RenderFace> faces;

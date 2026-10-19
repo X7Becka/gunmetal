@@ -544,6 +544,12 @@ std::vector<RenderMesh> build_level_meshes(const SbwLevel& level, const Sbc* lig
                 face.uv_v_fp = static_cast<std::int32_t>(poly.uv_v_fp);
                 mesh.faces.push_back(std::move(face));
             }
+            for (const auto& v : mesh.vertices) {
+                mesh.aabb_lo = {std::min(mesh.aabb_lo.x, v.x), std::min(mesh.aabb_lo.y, v.y),
+                                std::min(mesh.aabb_lo.z, v.z)};
+                mesh.aabb_hi = {std::max(mesh.aabb_hi.x, v.x), std::max(mesh.aabb_hi.y, v.y),
+                                std::max(mesh.aabb_hi.z, v.z)};
+            }
             if (!mesh.faces.empty()) {
                 out.push_back(std::move(mesh));
             }
@@ -583,6 +589,12 @@ std::vector<RenderMesh> build_model_meshes(const Sob& model) {
         out.normal = face.normal;
         out.uv_scale = 1.0f / 65536.0f;
         mesh.faces.push_back(std::move(out));
+    }
+    for (const auto& v : mesh.vertices) {
+        mesh.aabb_lo = {std::min(mesh.aabb_lo.x, v.x), std::min(mesh.aabb_lo.y, v.y),
+                        std::min(mesh.aabb_lo.z, v.z)};
+        mesh.aabb_hi = {std::max(mesh.aabb_hi.x, v.x), std::max(mesh.aabb_hi.y, v.y),
+                        std::max(mesh.aabb_hi.z, v.z)};
     }
     return {std::move(mesh)};
 }
@@ -734,27 +746,13 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
     };
     std::vector<Prepared> blended;
 
-    auto mesh_bounds = [](const RenderMesh& mesh, V3& out_lo, V3& out_hi) {
-        out_lo = {1e30, 1e30, 1e30};
-        out_hi = {-1e30, -1e30, -1e30};
-        for (const auto& v : mesh.vertices) {
-            out_lo = {std::min(out_lo.x, static_cast<double>(v.x)),
-                      std::min(out_lo.y, static_cast<double>(v.y)),
-                      std::min(out_lo.z, static_cast<double>(v.z))};
-            out_hi = {std::max(out_hi.x, static_cast<double>(v.x)),
-                      std::max(out_hi.y, static_cast<double>(v.y)),
-                      std::max(out_hi.z, static_cast<double>(v.z))};
-        }
-    };
 
     for (const auto& mesh : meshes) {
         if (mesh.vertices.empty()) {
             continue;
         }
         if (options.sectors) {
-            V3 mlo, mhi;
-            mesh_bounds(mesh, mlo, mhi);
-            if (!cam.world_aabb_visible(mlo, mhi)) {
+            if (!cam.world_aabb_visible(mesh.aabb_lo, mesh.aabb_hi)) {
                 continue;
             }
         }
@@ -868,8 +866,16 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
                 continue;
             }
 
-            const Texture* tex =
-                (options.textures && pool != nullptr) ? pool->get(face.texture) : nullptr;
+            const Texture* tex = nullptr;
+            if (options.textures && pool != nullptr) {
+                if (face.tex_pool == pool) {
+                    tex = face.tex_ptr;
+                } else {
+                    tex = pool->get(face.texture);
+                    face.tex_pool = pool;
+                    face.tex_ptr = tex;
+                }
+            }
             double shade = shade_face(face, options.lit);
             if (options.brightness && page == nullptr) {
                 shade += face_brightness(face);
