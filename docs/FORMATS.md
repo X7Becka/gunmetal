@@ -1423,7 +1423,7 @@ CLI `gm.py sml <SML или файлы> <out>` пишет в `<out>/sml/` рас�
 исправленным (на 1 байт короче).
 
 
-## 15. Секретные уровни, DM5 и таблица имён `LVLNAMES.SLU`
+## 15. Секретные уровни, карта кампании и таблица имён `LVLNAMES.SLU`
 
 Единственный служебный файл вне BIGFILE-архивов — `LVLNAMES.SLU` (ASCII,
 CRLF, 595 байт): строки `СТВОЛ Отображаемое имя`, где ствол = имя файлов уровня.
@@ -1487,6 +1487,84 @@ DM-цепочка задана скриптами: `dm1 TRAILER PARK` → `DM2` 
 
 Реализация: отдельного кодека не нужно — `lvlnames.slu` читается как текст
 (CRLF), а всё остальное уже покрыто `.sbt`/`.sbw`/`.sml`.
+
+**Как выбирается следующий уровень.** Переходы заданы только скриптами — либо
+`NEW_LEVEL "<ствол>"` (почти всегда с условием, обычно
+`DEATHMATCH_CLASSIC_GAME`), либо `NEXT_LEVEL` **без аргументов** (опкоды `0x3e`
+и `0x08`/`NEXT_LEVEL_NUMBER` — «следующая миссия») — и `NEXT_LEVEL` встречается
+ровно там, где ожидается команда хаба. Полная карта снята декодером скриптов
+(инструмент `tools/re/campaign.py`, запускается по каталогу игры):
+
+| Уровень | Имя | Секретов | Лучшее время | Выходы (в скобках — условие) |
+|---|---|---|---|---|
+| `level0` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
+| `level00` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
+| `level000` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
+| `level0a` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
+| `level0b` | COMMAND POST | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
+| `level1` | POWER STATION | 5 | 180 | `level3 [DM]`; `level00` |
+| `level2` | TESTING RANGE | 4 | 48 | `level2 [DM]`; `level00` |
+| `level3` | NATAKA TOWER | 6 | 84 | `level4 [DM]`; `level00` |
+| `level4` | OIL RIG | 5 | 166 | `secrt1`; `level5 [DM]`; `level00` |
+| `level5` | OIL REFINERY | 4 | 91 | `level6 [DM]`; `level00` |
+| `level6` | CADTLELTL | 6 | 181 | `level7 [DM]`; `level00`; `level7 [DM]`; `level0a` |
+| `level7` | GHOST TOWN | 4 | 285 | `level8 [DM]`; `level00` |
+| `level8` | ARGUS BASE | 3 | 824 | `level9 [DM]`; `level00` |
+| `level9` | VIRUS LAB | 4 | 456 | `level10 [DM]`; `level000` |
+| `level10` | SPACEPORT | 3 | 69 | `level11 [DM]`; `level000` |
+| `level11` | ISLAND FORTRESS | 1 | 289 | `level12 [DM]`; `level000` |
+| `level12` | SPACE STATION | 6 | 561 | `level13 [DM]`; `level000` |
+| `level13` | MINING ASTEROID | 3 | 273 | `level14 [DM]`; `level000` |
+| `level14` | DIVINE LOGIC | 3 | 258 | `level15 [DM]`; `level000` |
+| `level15` | SPARTA | 5 | 157 | `level16 [DM]`; `level000` |
+| `level16` | CULT MOON | 5 | 286 | `level17 [DM]`; `level000`; `secrt2` |
+| `level17` | WEAPONS FACILITY | 3 | 609 | `level19 [DM]`; `level0a` |
+| `level18` | NATAKA ARCOLOGY | 6 | 231 | `level19 [DM]`; `level0a` |
+| `level19` | WASTELAND | 2 | 400 | `level20 [DM]`; `NEXT_LEVEL` |
+| `level20` | BASE ATTACK | 3 | 204 | `level21 [DM]`; `level0b` |
+| `level21` | THE RUINS | 6 | 452 | `level22 [DM]`; `level0b` |
+| `level22` | TELEPORT DEPOT | 4 | 412 | `level23 [DM]`; `level0b` |
+| `level23` | TANK FACTORY | 3 | 462 | `level24 [DM]`; `level0b` |
+| `level24` | KELLER CORE | 3 | 260 | `dm1 [DM]` |
+| `dm1` | TRAILER PARK | — | — | `dm2` |
+| `dm2` | FOREST | — | — | `dm3` |
+| `dm3` | NIAC COMBAT ARENA | — | — | `dm4` |
+| `dm4` | DEATHMATCH 'TILL DAWN | — | — | `level1` |
+| `secrt1` | SECRET LEVEL - FOUNDRY | 4 | 147 | `level5 [DM]`; `level00` |
+| `secrt2` | SECRET LEVEL - PROCESSOR | — | 238 | `level19 [DM]`; `level000` |
+| `temple` | DM5 - TEMPLE | — | — | `level5 [DM]`; `level00` |
+
+`[DM]` = `DEATHMATCH_CLASSIC_GAME`. Из таблицы видно устройство:
+
+* **Хаб кампании.** Одиночные концовки миссий ведут не на следующий уровень, а
+  в штаб — и уже штаб переключает миссию через `NEXT_LEVEL` под
+  `IF SOURCEPLAYER_AMMO_FULL` (условие «миссия сдана»). Разделение по актам:
+  акт 1 (уровни 1…8) → `level00`, акт 2 (9…16) → `level000`, акт 3 (17…18) →
+  `level0a`, акт 4 (20…23) → `level0b` (COMMAND POST); `level0` — стартовый штаб
+  (новую игру начинает фронтенд, своих переходов у него нет). Именно поэтому
+  `level00`/`level000`/`level0a` — три сборки одной карты (см. выше), а
+  `level0b` — карта с другим именем и другим содержимым.
+* **DM-классик** — сплошная цепочка по «боевым» картам кампании, замкнутая в
+  цикл: `level1 → level3 → level4 → level5 → level6 → … → level16 →
+  level17/18 → level19 → level20 → … → level24 → dm1 → dm2 → dm3 → dm4 →
+  level1`. `level2` (учебный) в этой цепочке замыкается сам на себя, `level19` —
+  единственный «боевой» уровень без выхода в штаб (у него `NEXT_LEVEL`).
+* **Секретные ветки** (`secrt1` из `level4`, `secrt2` из `level16`) — отдельные
+  под-скрипты **без условий**, рядом с обычной концовкой.
+* Лучшие времена — `SET_LEVEL_BEST_TIME` (секунды): самое быстрое — `level2`
+  (48), самое долгое — `level8` (824).
+
+**Список уровней в меню.** «SELECT LEVEL FOR NEW GAME» (`0x48a3c0`) берёт список
+не из таблицы, а **сканирует каталог**: `0x48b170` вызывает сканер `0x48b1c0`
+с шаблоном `"%s\*.%s"` (строка шаблона `S?W` — `0x4bdca8`, каталог —
+`ds:0x68ddac`), результат складывается в массив `0x68cda8` (+ счётчик
+`ds:0x68ddb0`) и сортируется `0x49ff70` компаратором `0x48b350` (записи,
+начинающиеся с `LEVEL`, идут первыми, внутри — по длине имени). Имя для показа
+ищется в `LVLNAMES.SLU` по стволу (`0x48a4c0`, формат `"%s - "`). Поэтому
+отсутствие строки `DM5`/`TEMPLE` в `LVLNAMES.SLU` ничего не ломает: `temple`
+попадает в список как файл `temple.sbw`, а имя ему даёт свой же скрипт
+(`SET_LEVEL_NAME "DM5 - TEMPLE"`). Побочно: список — это *все* `*.sbw` каталога,
+так что из меню запускаются и `secrt1`/`secrt2`, и `temple`, и любой `level0*`.
 
 
 ## 16. Что ещё не разобрано

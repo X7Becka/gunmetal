@@ -642,6 +642,15 @@ def main() -> int:
                          ["sml", f"{G}/SML", os.path.join(out, "sml")],
                          ["sml: 300 files (151 decoded from .sme, 1 repaired)"]))
 
+    # --- campaign / deathmatch transition map (tools/re/campaign.py) ------
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "campaign.py"),
+                        "--game", G], capture_output=True, text=True, cwd=HERE)
+    rows = [l for l in p.stdout.splitlines()[1:] if l[:1].isalpha()]
+    ok = (p.returncode == 0 and len(rows) == 36
+          and "DM5 - TEMPLE" in p.stdout and "secrt1" in p.stdout)
+    results.append(report("campaign / transition map", ok,
+                          f"{len(rows)} levels, secrt1+temple present"))
+
     # --- optional heavy extraction ---------------------------------------
     if opts.full:
         results.append(check("textures / PICS -> PNG",

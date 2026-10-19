@@ -56,6 +56,7 @@ objdump -D -M intel "/mnt/d/games/Gunmetal 3dfx/gundx.exe" > /tmp/opencode/gundx
 | `table_layout.py` | восстановление раскладки памяти записи таблицы по её store-функции: `table_layout.py 0x47a170 0x7995e0 --end 0x47a730 --stride 0x1cc` |
 | `copy_trace.py` | трассировка блока «копирование записи A в запись B» (напр. шасси → игрок): `copy_trace.py 0x47ac1a 0x47af3e --src 0x7995e0 --stride 0x1cc --dst 0x81bd00 --map "0x47a170 0x7995e0 0x47a730 0x1cc"` |
 | `emu.py` | минимальный интерпретатор x86 (по тексту objdump) — оракул для кодека `.sbv`; требует `objdump` |
+| `campaign.py` | карта переходов кампании/DM из скриптов всех `*.sbt`: `campaign.py [--game DIR] [--json]` (имя, секреты, лучшее время, выходы с условиями) |
 
 Примеры:
 
