@@ -766,11 +766,18 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
             return mul(sub(v3(mesh.vertices[index]), v3(mesh.place_origin)), 1.0 / s);
         };
 
+        std::vector<V3> view;
+        std::vector<V2> uvs;
+        std::vector<V2> lmuv;
+        std::vector<Projected> pts;
         for (const auto& face : mesh.faces) {
             if (face.indices.size() < 3) {
                 continue;
             }
-            std::vector<V3> view;
+            view.clear();
+            uvs.clear();
+            lmuv.clear();
+            pts.clear();
             view.reserve(face.indices.size());
             bool bad = false;
             for (std::uint16_t index : face.indices) {
@@ -783,7 +790,6 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
             if (bad || view.size() < 3) {
                 continue;
             }
-            std::vector<V2> uvs;
             uvs.reserve(view.size());
             const V3 origin = v3(face.origin);
             const V3 uaxis = v3(face.u);
@@ -805,7 +811,6 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
             const Fit fit = uv_fit(uvs);
 
             const SbcRecord* page = nullptr;
-            std::vector<V2> lmuv;
             double lm_base = 0.0;
             if (options.lightmaps && lightmaps != nullptr && face.lightmap >= 0 &&
                 static_cast<std::size_t>(face.lightmap) < lightmaps->records.size()) {
@@ -849,7 +854,6 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
                 }
             }
 
-            std::vector<Projected> pts;
             pts.reserve(view.size());
             bool ok = true;
             for (const auto& v : view) {
@@ -883,8 +887,8 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
                 c = mul(c, 1.0 / static_cast<double>(face.indices.size()));
                 const V3 d = sub(c, cam.eye);
                 item.distance = dot(d, d);
-                item.pts = std::move(pts);
-                item.uvs = std::move(uvs);
+                item.pts = pts;
+                item.uvs = uvs;
                 item.tex = tex;
                 item.shade = shade;
                 item.r = cr;
@@ -893,7 +897,7 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
                 item.blend = blend;
                 item.fit = fit;
                 item.lm_page = page;
-                item.lmuv = std::move(lmuv);
+                item.lmuv = lmuv;
                 item.lm_base = lm_base;
                 blended.push_back(std::move(item));
                 continue;

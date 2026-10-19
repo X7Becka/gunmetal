@@ -19,6 +19,7 @@ add_library(gm_engine STATIC
     src/res/sbc.cpp
     src/res/sob.cpp
     src/res/sbt.cpp
+    src/res/sbtvm.cpp
     src/res/sou.cpp
     src/res/sou2.cpp
     src/res/text.cpp

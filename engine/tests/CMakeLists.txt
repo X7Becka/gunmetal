@@ -22,3 +22,7 @@ add_test(NAME sou2 COMMAND gm_sou2_tests)
 add_executable(gm_sbv_video_tests test_sbv_video.cpp)
 target_link_libraries(gm_sbv_video_tests PRIVATE gm_engine)
 add_test(NAME sbv_video COMMAND gm_sbv_video_tests)
+
+add_executable(gm_sbtvm_tests test_sbtvm.cpp)
+target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
+add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
