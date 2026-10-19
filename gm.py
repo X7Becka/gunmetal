@@ -736,7 +736,7 @@ def _vec3_opt(text, name):
 def cmd_view(opts) -> int:
     import math
 
-    from gm import render, sbw
+    from gm import render, sbw, scene as scenemod
 
     if opts.size < 16:
         print("size must be >= 16", file=sys.stderr)
@@ -783,6 +783,7 @@ def cmd_view(opts) -> int:
     rc = 0
     for p in paths:
         ext = os.path.splitext(p)[1].lower()
+        markers = lights = None
         try:
             if ext == ".sbw":
                 w = sbw.parse_file(p)
@@ -794,6 +795,16 @@ def cmd_view(opts) -> int:
                 kind = f"level {len(w.sectors)}s/{w.n_objects}o"
                 if lms:
                     kind += f" +{len(lms.records)} lightmaps"
+                if opts.scene or opts.scene_lights:
+                    scale = scenemod.SCALE if opts.scene_scale is None else opts.scene_scale
+                    sc = scenemod.load(os.path.splitext(p)[0] + ".sbt")
+                    cnt = sc.counts()
+                    kind += (f" +scene {cnt['lights']}L/{cnt['locations']}T/"
+                             f"{cnt['items']}I/{cnt['sounds']}S")
+                    if opts.scene:
+                        markers = sc.markers(scale)
+                    if opts.scene_lights:
+                        lights = sc.render_lights(scale)
             else:
                 m = sob.parse(p)
                 meshes = render.model_meshes(m)
@@ -808,7 +819,8 @@ def cmd_view(opts) -> int:
             data = render.contact_sheet(meshes, opts.size, pool=pool, **kind_opts)
         else:
             data = render.render(meshes, opts.size, pool=pool, az=az, el=el,
-                                 pos=pos, look=look, **kind_opts)
+                                 pos=pos, look=look, markers=markers, lights=lights,
+                                 marker_depth=opts.scene_markers_depth, **kind_opts)
         dt = time.time() - t0
         name = os.path.splitext(os.path.basename(p))[0]
         out = os.path.join(opts.out, name + ".png") if out_is_dir else opts.out
@@ -820,6 +832,70 @@ def cmd_view(opts) -> int:
               f"coverage {render.coverage(data):.1%}, {dt:.2f}s -> {out}")
         if opts.ascii:
             print(render.ascii_preview(data, opts.ascii))
+    return rc
+
+
+def cmd_scene(opts) -> int:
+    """Dump the scripted scene (lights / locations / items / sounds) of .sbt files."""
+    import json
+
+    from gm import scene as scenemod
+
+    paths: list[str] = []
+    for p in opts.paths:
+        if os.path.isdir(p):
+            paths += [os.path.join(p, f) for f in sorted(os.listdir(p))
+                      if f.lower().endswith(".sbt")]
+        else:
+            paths.append(p)
+    if not paths:
+        print("nothing to read", file=sys.stderr)
+        return 2
+    out = {}
+    rc = 0
+    for p in paths:
+        name = os.path.splitext(os.path.basename(p))[0]
+        try:
+            sc = scenemod.load(p)
+        except Exception as exc:  # noqa: BLE001 - keep going over a batch
+            print(f"  FAIL {p}: {exc}", file=sys.stderr)
+            rc = 1
+            continue
+        cnt = sc.counts()
+        if not opts.json:
+            print(f"{os.path.basename(p)}: {cnt['lights']} lights, "
+                  f"{cnt['locations']} locations/things, {cnt['items']} items, "
+                  f"{cnt['sounds']} sound sources, {cnt['other']} other placement commands")
+            for l in sc.lights[:opts.show]:
+                print(f"  light {l.kind:5s} pos=({l.pos[0]},{l.pos[1]},{l.pos[2]}) "
+                      f"rgb={l.rgb} param={l.param}")
+            for x in sc.locations[:opts.show]:
+                print(f"  location id={x.thing_id} pos={x.pos} yaw={x.yaw:.3f}")
+            for x in sc.items[:opts.show]:
+                print(f"  item id={x.item_id} pos={x.pos} fixed={x.fixed}")
+            for x in sc.sounds[:opts.show]:
+                print(f"  sound pos={x.pos} sample={x.sample} volume={x.volume}")
+            if sc.other:
+                top = sorted(sc.other.items(), key=lambda kv: -kv[1])[:4]
+                print(f"  other: {', '.join(f'{k}x{v}' for k, v in top)}")
+        out[name] = {
+            "lights": [{"kind": l.kind, "pos": list(l.pos), "rgb": list(l.rgb),
+                        "param": l.param, "extra": list(l.extra)} for l in sc.lights],
+            "locations": [{"id": x.thing_id, "pos": list(x.pos),
+                           "orientation": list(x.orientation)} for x in sc.locations],
+            "items": [{"id": x.item_id, "pos": list(x.pos), "fixed": x.fixed,
+                       "extra": list(x.extra)} for x in sc.items],
+            "sounds": [{"pos": list(x.pos), "sample": x.sample, "volume": x.volume,
+                        "pitch": x.pitch} for x in sc.sounds],
+            "other": sc.other,
+        }
+    if opts.json:
+        json.dump(out, sys.stdout, indent=1, sort_keys=True)
+        sys.stdout.write("\n")
+    elif opts.out:
+        with open(opts.out, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=1, sort_keys=True)
+        print(f"scene: {len(out)} levels -> {opts.out}")
     return rc
 
 
@@ -913,6 +989,14 @@ def main(argv=None) -> int:
     p.add_argument("out")
     p.set_defaults(func=cmd_sob)
 
+    p = sub.add_parser("scene", help="dump the scripted scene of .sbt levels")
+    p.add_argument("paths", nargs="+", help=".sbt files or directories")
+    p.add_argument("--json", action="store_true", help="print JSON to stdout")
+    p.add_argument("--out", help="write JSON to this file")
+    p.add_argument("--show", type=int, default=3,
+                   help="how many entries of each kind to print (default 3)")
+    p.set_defaults(func=cmd_scene)
+
     p = sub.add_parser("view", help="render .sob models / .sbw levels to PNG")
     p.add_argument("paths", nargs="+", help=".sob/.sbw files or directories")
     p.add_argument("--out", help="output PNG file or directory (default: current dir)")
@@ -945,6 +1029,17 @@ def main(argv=None) -> int:
                    help="render only this level sector (geometry group) by index")
     p.add_argument("--no-sectors", action="store_true",
                    help="disable per-object frustum (view pyramid) culling")
+    p.add_argument("--scene", action="store_true",
+                   help="overlay the scripted scene entities of <level>.sbt "
+                        "(lights / locations / items / sounds) as markers")
+    p.add_argument("--scene-lights", action="store_true",
+                   help="shade the polygons that have no lightmap from the "
+                        "scripted light sources (approximation)")
+    p.add_argument("--scene-scale", type=float,
+                   help="scale scripted scene coordinates into the mesh frame "
+                        "(default 1/1.875, the .sbw object basis)")
+    p.add_argument("--scene-markers-depth", action="store_true",
+                   help="depth-test the scene markers (hide them behind geometry)")
     p.add_argument("--ascii", type=int, nargs="?", const=78, default=0,
                    help="also print a coarse ASCII preview (optional width)")
     p.add_argument("--palette", help="BMP file to take the palette from")

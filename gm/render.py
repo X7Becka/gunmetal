@@ -461,7 +461,8 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
            clip: float | None = None, materials: bool = True,
            brightness: bool = True, lightmap: bool = True,
            ambient: float = 0.0, sectors: bool = True,
-           only_sector: int | None = None) -> bytes:
+           only_sector: int | None = None, markers=None, lights=None,
+           marker_depth: bool = False) -> bytes:
     """Render one mesh or a list of meshes into an RGB PNG.
 
     ``pos``/``look`` override the auto-fitted camera (for level interiors),
@@ -471,6 +472,13 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
     (see :class:`Lightmaps`) and ``ambient`` adds a constant light level.
     ``sectors`` skips whole meshes whose AABB cannot touch the view frustum
     (image-identical, faster); ``only_sector`` keeps a single level sector.
+
+    ``markers`` is a list of ``(pos, rgb)`` scripted scene entities (lights,
+    locations, items, sound sources -- see :mod:`gm.scene`) drawn on top of the
+    geometry with the drop-line style of an editor overlay; ``lights`` is a list
+    of ``(pos, rgb, power)`` sources used to shade the polygons that have *no*
+    lightmap (see :func:`_scene_shade`).  Both take coordinates in the frame the
+    meshes are in (``gm.scene.Scene.scaled``/``markers`` do the conversion).
     """
     if height is None:
         height = width
@@ -541,6 +549,10 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
             shade = _shade(face, lit)
             if brightness and lm is None:
                 shade += _face_brightness(face)
+            if lights and lm is None:
+                vs = [mesh.vertices[i] for i in idx]
+                centre = tuple(sum(v[k] for v in vs) / len(vs) for k in range(3))
+                shade = 0.25 + _scene_shade(centre, _face_normal(face), lights)
             col = _face_color(face, tex := (pool.get(face.texture) if pool is not None
                                             else None), lit)
             if blend is not None:
@@ -565,7 +577,24 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
             _draw_poly(buf, zbuf, width, height, pts, uvs, tex, sh, col,
                        uv=uv_, cull=cull_, blend=blend, lm=lm_, fit=fit_)
 
+    # scene overlay: scripted lights/locations/items/sounds (gm.scene)
+    if markers:
+        for pos, rgb in markers:
+            p = cam.project(pos)
+            if p is None:
+                continue
+            _draw_marker(buf, zbuf, width, height, int(p[0]), int(p[1]), p[2], rgb,
+                         test=marker_depth)
+
     return png.rgb(width, height, bytes(buf))
+
+
+def _face_normal(face) -> Vec3:
+    """The face's polygon normal (derived from its UV axes when it is zero)."""
+    n = face.normal
+    if abs(n[0]) + abs(n[1]) + abs(n[2]) < 1e-9:
+        n = _cross(face.u, face.v)
+    return _norm(n)
 
 
 def _shade(face, lit: bool) -> float:
@@ -693,6 +722,63 @@ def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, s
 
 def _clamp(v: float) -> int:
     return 0 if v < 0 else (255 if v > 255 else int(v))
+
+
+def _scene_shade(centre, normal, lights, base: float = 0.0) -> float:
+    """Additive Lambert light from the scripted light sources.
+
+    This is the viewer's approximation of what the engine bakes into the
+    lightmaps (``0x43e69d``, fed from the sky/local light arrays at ``0x638130``
+    / ``0x638330``): a cosine term times a soft inverse-square falloff with a
+    300-unit reference distance.  Polygons that *have* a lightmap keep using it.
+    """
+    if not lights:
+        return base
+    n = normal
+    if abs(n[0]) + abs(n[1]) + abs(n[2]) < 1e-9:
+        n = (0.0, 0.0, 1.0)
+    else:
+        n = _norm(n)
+    out = base
+    for p, _rgb, power in lights:
+        d = (p[0] - centre[0], p[1] - centre[1], p[2] - centre[2])
+        dist = math.sqrt(_dot(d, d))
+        if dist < 1e-6:
+            continue
+        lam = _dot(n, (d[0] / dist, d[1] / dist, d[2] / dist))
+        if lam <= 0.0:
+            continue
+        out += power * lam / (1.0 + (dist / 300.0) ** 2)
+    return out
+
+
+def _draw_marker(buf, zbuf, width, height, sx, sy, depth, rgb, size: int = 3,
+                 tick: int = 14, test: bool = False) -> None:
+    """Draw a small square with a vertical drop line.
+
+    ``test`` also depth-tests every pixel against ``zbuf`` (so a marker hidden
+    behind geometry disappears); the default draws the overlay on top, the way
+    an editor's scene view does.
+    """
+    def hidden(idx):
+        return test and zbuf[idx] > depth
+
+    x0, x1 = max(0, sx - size), min(width - 1, sx + size)
+    y0, y1 = max(0, sy - size), min(height - 1, sy + size)
+    for y in range(y0, y1 + 1):
+        row = y * width
+        for x in range(x0, x1 + 1):
+            if hidden(row + x):
+                continue
+            p = (row + x) * 3
+            buf[p : p + 3] = bytes(rgb)
+    col = bytes(int(c * 0.55) for c in rgb)
+    for y in range(y1 + 1, min(height, y1 + 1 + tick)):
+        row = y * width
+        if hidden(row + sx):
+            break
+        p = (row + sx) * 3
+        buf[p : p + 3] = col
 
 
 def _line(buf, width, height, a, b, rgb):

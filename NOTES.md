@@ -357,6 +357,31 @@
   интерьер (`pos/look/clip`), влияние материалов, проекция лайтмапов
   (99.4% вершин внутри страниц), пакетный рендер всех 672 моделей (`--full`).
 
+* **Сцена из кода `SCRIPT`** (`gm/scene.py`, CLI `gm.py scene`, у просмотрщика
+  `--scene` / `--scene-lights` / `--scene-scale`). Статической расстановки в
+  `.sbt` **нет** — массив `things` пуст во всех 36 уровнях, команд `ADD_THING*`
+  в байткоде нет. Сцена строится кодом, и её можно собрать обратно: диспетчер
+  команд `0x45c500` индексируется по **`op - 1`** (`0x4574d4`), вызов cdecl
+  (`[esp+4]` — первый операнд). Доказано кодом: `ADD_SKY_LIGHT_SOURCE` (88,
+  обработчик `0x47e130`, массив `0x638130`, шаг `0x20`, ≤16) — `(x,y,z,a3,
+  R,G,B)`; `ADD_LIGHT_SOURCE` (87, `0x47e1b0`, массив `0x638330`, шаг `0x50`,
+  ≤1000) — те же `fild a0,a1,a2` и цвет из байтов `a4/a5/a6`;
+  `ADD_LOCATION` (196, `0x45bea6` — это и есть `ADD_THING_AT_SOURCE`) кладёт
+  `(id,x,y,z,d,d,d)` в массив things `0x80d8e0` (шаг `0x28`, ≤200), потребитель
+  `0x476008` читает x,y,z из `+0x04/+0x08/+0x0c`; `ADD_ITEM`/`ADD_ITEM_FIXED`
+  (53/55 → `0x4686a0`, массив `0x806398`, шаг `0x60`, 300 слотов) — позиция в
+  операндах 5,6,7; `ADD_SOUND_SOURCE` (187 → `0x46b210`, параллельные массивы
+  `0x800140`/`0x800340`/`0x800540` + double'ы `0x800760`) — позиция принята по
+  «значениям». По поставке: 4470 источников света, 461 «место», 101 предмет,
+  1173 звука, 14019 прочих команд расстановки (`ADD_SWITCH`, `ADD_DOOR`,
+  `ADD_NAMED_ITEM_EX`, `ADD_SPRITE_*` — раскладка ещё не разобрана).
+  **Кадр координат сцены не установлен**: масштаб `1.875` (базис объекта) не
+  подтвердился ни «попаданием в AABB» (критерий смещён), ни корреляцией с
+  запечёнными лайтмапами (`|r| < 0.18` при любом масштабе), ни связью
+  «масштаб+сдвиг» (медиана `|pos|` в 6.5…250 раз больше медианы `|v|`).
+  Поэтому `gm.scene.SCALE = 1/1.875` — рабочее предположение, а наложение
+  маркеров на уровень приблизительно.
+
 ### Известные имена ресурсов (из строк `gun.exe`)
 
 ```
@@ -411,7 +436,8 @@ look16.tab   look162.tab   neons.pin
 | `sounds <game> <out>` | `sounds/SOU.DAT`: `SOU0` → WAV, `SOU1/2` → сырые дампы |
 | `frontend <game> <out>` | `FRONTEND/BMP.DAT` → BMP |
 | `sob <src> <out>` | `.sob` → OBJ + MTL |
-| `view <paths...> [--out O] [--size N] [--angle A] [--az A] [--el E] [--zoom Z] [--uv fit\|tile] [--no-textures] [--flat] [--wire] [--cull] [--sheet] [--pos X,Y,Z] [--look X,Y,Z] [--clip D] [--no-materials] [--no-brightness] [--no-lightmap] [--ambient N] [--sector N] [--no-sectors] [--ascii [N]] [--game DIR]` | софт-рендер моделей `.sob` и уровней `.sbw` в PNG (`gm/render.py`); `--sheet` — 4 ракурса в одном PNG, `--pos/--look/--clip` — вид изнутри уровня, лайтмапы из `<уровень>.sbc` |
+| `view <paths...> [--out O] [--size N] [--angle A] [--az A] [--el E] [--zoom Z] [--uv fit\|tile] [--no-textures] [--flat] [--wire] [--cull] [--sheet] [--pos X,Y,Z] [--look X,Y,Z] [--clip D] [--no-materials] [--no-brightness] [--no-lightmap] [--ambient N] [--sector N] [--no-sectors] [--scene] [--scene-lights] [--scene-scale S] [--scene-markers-depth] [--ascii [N]] [--game DIR]` | софт-рендер моделей `.sob` и уровней `.sbw` в PNG (`gm/render.py`); `--sheet` — 4 ракурса в одном PNG, `--pos/--look/--clip` — вид изнутри уровня, лайтмапы из `<уровень>.sbc`; `--scene` накладывает маркеры сцены из `<уровень>.sbt`, `--scene-lights` освещает полигоны без лайтмапа скриптовыми источниками |
+| `scene <paths...> [--json] [--out F] [--show N]` | сцена уровня из кода `SCRIPT` (свет, «места», предметы, звуки) — без статической расстановки в данных (§12.4 в `docs/FORMATS.md`) |
 | `soa <paths...> [--rebuild DIR]` | список анимаций `.soa`; `--rebuild` — запись обратно |
 | `soe <paths...> [-v] [--rebuild DIR]` | разбор `.soe` (текстовые «thing»-определения); `--rebuild` — запись обратно |
 | `look FILE [--png OUT] [--palette BMP] [--neons PIN] [--scale N]` | анализ кубов `LOOK16.TAB`/`LOOK162.TAB`; `--png` — монтаж 8×8 |

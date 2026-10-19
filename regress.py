@@ -170,6 +170,64 @@ def render_checks(G: str, results: list[bool], out: str, full: bool = False) -> 
                               f"{len(files)} models rendered"))
 
 
+def scene_checks(G: str, results: list[bool], out: str) -> None:
+    """Scripted scene extraction (gm.scene) and its viewer overlay.
+
+    The shipped levels carry no placed-object list at all, so the scene is
+    decoded out of the compiled ``SCRIPT`` code; these checks pin the operand
+    layouts down to the engine handlers (see the gm/scene.py docstring) and make
+    sure the viewer overlay stays wired to them.
+    """
+    sys.path.insert(0, HERE)
+    from gm import render, sbw, scene
+
+    sc = scene.load(os.path.join(G, "dm1.sbt"))
+    cnt = sc.counts()
+    got = (cnt["lights"], cnt["locations"], cnt["items"], cnt["sounds"])
+    results.append(report("scene / dm1 extraction", got == (60, 8, 1, 21),
+                          "dm1: %d lights, %d locations, %d items, %d sounds" % got))
+
+    # ADD_SKY_LIGHT_SOURCE is stored as (x, y, z, param, r, g, b) by 0x47e130
+    sky = [l for l in sc.lights if l.kind == "sky"]
+    results.append(report(
+        "scene / proven sky-light operands",
+        len(sky) == 2 and sky[0].pos == (-1040, -2568, 3526)
+        and sky[0].rgb == (255, 255, 255) and sky[0].param == 112,
+        "sky lights: " + ", ".join(f"{l.pos} rgb={l.rgb}" for l in sky)))
+
+    tot = {"lights": 0, "locations": 0, "items": 0, "sounds": 0}
+    files = sorted(glob.glob(os.path.join(G, "*.sbt")))
+    bad = 0
+    for f in files:
+        try:
+            c = scene.load(f).counts()
+        except Exception:  # noqa: BLE001 - count and continue
+            bad += 1
+            continue
+        for k in tot:
+            tot[k] += c[k]
+    results.append(report(
+        "scene / all levels decode",
+        bad == 0 and tot["lights"] == 4470 and tot["locations"] == 461
+        and tot["sounds"] == 1173,
+        "%d levels: %d lights, %d locations, %d items, %d sounds, %d failed"
+        % (len(files), tot["lights"], tot["locations"], tot["items"],
+           tot["sounds"], bad)))
+
+    # the overlay and the light shading must reach the renderer
+    pool = render.TexturePool(G)
+    w = sbw.parse_file(os.path.join(G, "dm1.sbw"))
+    lms = render.import_lightmaps(os.path.join(G, "dm1.sbc"))
+    ms = render.level_meshes(w, lms)
+    base = render.render(ms, 96, pool=pool, el=35)
+    over = render.render(ms, 96, pool=pool, el=35, markers=sc.markers())
+    lit = render.render(ms, 96, pool=pool, el=35, lights=sc.render_lights())
+    results.append(report("scene / markers reach the image", base != over,
+                          "%d scene markers drawn" % len(sc.markers())))
+    results.append(report("scene / scene lights shade the level", base != lit,
+                          "%d light sources feed _scene_shade" % len(sc.render_lights())))
+
+
 def write_path_checks(G: str, results: list[bool], out: str) -> None:
     """In-process round-trip checks for the writers (sbm blobs, png->sbm)."""
     sys.path.insert(0, HERE)
@@ -340,6 +398,7 @@ def main() -> int:
     # --- models / animations / audio -------------------------------------
     results.append(check("sob / models", ["sob", f"{G}/SOBS", out], ["sob: 672 converted, 0 failed"]))
     render_checks(G, results, out, opts.full)
+    scene_checks(G, results, out)
     results.append(check("soa / animations", ["soa", G], ["soa: 104 parsed, 0 failed"]))
     results.append(check("soe / thing types", ["soe", G], ["soe: 1 parsed, 0 failed"]))
     results.append(check("sog / songs", ["sog", f"{G}/MUSIC", "--music", f"{G}/MUSIC/SOU.IDX"],

@@ -36,6 +36,8 @@ gm/                   модули по форматам:
   sbt.py              мир/уровень .sbt (скомпилированная «World Things file»)
   sbtvm.py            скриптовая ВМ SCRIPT (опкоды с именами, таблицы команд,
                       IF/ELSE/END, DEFINE_*-таблицы, декомпилятор)
+  scene.py            сцена уровня из кода SCRIPT: свет, «места», предметы,
+                      звуки (статической расстановки в .sbt нет)
   soe.py              сущности .soe (текстовая схема «thing»)
   look.py             таблицы поиска LOOK16.TAB / LOOK162.TAB
   render.py           софт-рендер моделей/уровней в PNG (камера, z-буфер,
@@ -85,6 +87,10 @@ python3 gm.py view     "…/Gunmetal 3dfx/dm1.sbw" --out out/view --size 640 \
 # лайтмапы уровня берутся из <уровень>.sbc автоматически (--no-lightmap, --ambient N)
 # инспекция одной комнаты: --sector N (--no-sectors выключает отсечку по пирамиде)
 python3 gm.py view     "…/Gunmetal 3dfx/dm1.sbw" --out out/view --size 640 --sector 2
+# сцена уровня из кода SCRIPT: маркеры света/мест/предметов/звуков + их освещение
+python3 gm.py scene    "…/Gunmetal 3dfx/dm1.sbt"
+python3 gm.py view     "…/Gunmetal 3dfx/dm1.sbw" --out out/view --size 640 \
+                       --scene --scene-lights
 
 # уровни: таблицы handle + сверка с соседним .sbw
 python3 gm.py sbt      "…/Gunmetal 3dfx" --resolve -v
