@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <string>
 #include <vector>
 
@@ -81,5 +82,10 @@ std::optional<SbtProgram> decode_sbt_script(std::span<const std::uint8_t> code,
 /// Canonical text form (one instruction per line, nested bodies indented).
 /// Used for golden comparison with gm/sbtvm.py's ``render()``.
 std::string render_sbt_script(const SbtProgram& script);
+
+/// Operand signature of a condition command (``""``/nullptr -> no operands,
+/// empty string -> unknown name).  Used by the scene layer to classify the
+/// ``ADD_THING*`` operands the same way the engine does.
+std::string sbt_condition_signature(std::string_view name);
 
 } // namespace gm

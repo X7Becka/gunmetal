@@ -83,6 +83,20 @@ struct SceneSwitch {
     bool absolute() const { return true; }
 };
 
+/// A thing built by an ``ADD_THING*`` condition inside an entity sub-script
+/// (gm/scene.py's ``Thing``; names/models need THING_TYPES/SOB_TABLE).
+struct SceneThing {
+    int entity = 0;
+    std::string kind;
+    int type_index = -1;
+    bool absolute = false;
+    int x = 0;
+    int y = 0;
+    int z = 0;
+    std::vector<double> angles;
+    int owner = 0;
+};
+
 /// One row of the SCRIPT entity table: ``(id, flags, sub-script offset)``.
 struct SceneEntity {
     int id = 0;
@@ -100,6 +114,7 @@ struct Scene {
     std::vector<SceneDoor> doors;
     std::vector<SceneSwitch> switches;
     std::vector<SceneEntity> entities;
+    std::vector<SceneThing> things;
     std::map<std::string, int> other; // placement commands not decoded yet
 };
 

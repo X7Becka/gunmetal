@@ -1467,6 +1467,53 @@ void test_scene() {
     CHECK(levels == 0 || levels == 36);
     CHECK_EQ(hash, 0x9bcf08aeb6ef0ba0ull);
 
+    // Things built by the entity sub-scripts (ADD_THING* conditions): the same
+    // canonical stream as gm/scene.py (positions/angles/owners).
+    std::uint64_t thing_hash = 0xcbf29ce484222325ull;
+    std::size_t thing_count = 0;
+    for (const auto& path : paths) {
+        std::ifstream in(path, std::ios::binary);
+        std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                        std::istreambuf_iterator<char>());
+        const auto level = gm::parse_sbt(bytes, error);
+        if (!level) {
+            continue;
+        }
+        const auto scene = gm::extract_scene(*level, error);
+        if (!scene) {
+            continue;
+        }
+        auto mix_into = [&](std::uint64_t& target, const void* data, std::size_t size) {
+            const auto* bytes_ptr = static_cast<const std::uint8_t*>(data);
+            for (std::size_t i = 0; i < size; ++i) {
+                target ^= bytes_ptr[i];
+                target *= 0x100000001b3ull;
+            }
+        };
+        const std::string stem = path.stem().string();
+        mix_into(thing_hash, stem.data(), stem.size());
+        const std::uint32_t count = static_cast<std::uint32_t>(scene->things.size());
+        mix_into(thing_hash, &count, sizeof(count));
+        for (const auto& thing : scene->things) {
+            mix_into(thing_hash, &thing.entity, sizeof(thing.entity));
+            mix_into(thing_hash, thing.kind.data(), thing.kind.size());
+            mix_into(thing_hash, &thing.type_index, sizeof(thing.type_index));
+            const std::uint8_t absolute = thing.absolute ? 1 : 0;
+            mix_into(thing_hash, &absolute, sizeof(absolute));
+            const std::int32_t pos[3] = {thing.x, thing.y, thing.z};
+            mix_into(thing_hash, pos, sizeof(pos));
+            mix_into(thing_hash, &thing.owner, sizeof(thing.owner));
+            const std::uint32_t angle_count = static_cast<std::uint32_t>(thing.angles.size());
+            mix_into(thing_hash, &angle_count, sizeof(angle_count));
+            for (double angle : thing.angles) {
+                mix_into(thing_hash, &angle, sizeof(angle));
+            }
+            ++thing_count;
+        }
+    }
+    CHECK_EQ(thing_hash, 0x3ad266f0afe04d03ull);
+    CHECK(thing_count == 0 || thing_count == 4008);
+
     // level0, the reference level from the docs.
     const fs::path level0 = game / "level0.sbt";
     if (fs::is_regular_file(level0, ec)) {

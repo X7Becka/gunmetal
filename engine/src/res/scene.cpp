@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <span>
 
 namespace gm {
 namespace {
@@ -166,6 +167,73 @@ void walk(const std::vector<SbtInsn>& insns, Scene& scene) {
     }
 }
 
+void extract_things(const SbtLevel& level, Scene& scene) {
+    const auto& code = level.script_code;
+    for (const auto& entity : scene.entities) {
+        if (entity.offset >= code.size()) {
+            continue;
+        }
+        std::string error;
+        const std::span<const std::uint8_t> sub(code.data() + entity.offset,
+                                                code.size() - entity.offset);
+        const auto program = decode_sbt_script(sub, error);
+        if (!program) {
+            continue;
+        }
+        for (const auto& insn : program->insns) {
+            if (insn.name == "END") {
+                break;
+            }
+            if (insn.opcode != 0xC9 || insn.condition.empty()) {
+                continue;
+            }
+            if (insn.condition.rfind("ADD_THING", 0) != 0) {
+                continue;
+            }
+            const std::string signature = sbt_condition_signature(insn.condition);
+            int type_index = -1;
+            bool has_type = false;
+            int owner = 0;
+            std::vector<int> ints;
+            std::vector<double> doubles;
+            for (std::size_t k = 0; k < signature.size() && k < insn.args.size(); ++k) {
+                const char kind = signature[k];
+                const SbtValue& value = insn.args[k];
+                if (kind == 'G') {
+                    type_index = as_i32(value);
+                    has_type = true;
+                } else if (kind == 'A' || kind == 'B' || kind == 'D') {
+                    doubles.push_back(as_f64(value));
+                } else if (value.kind != SbtValue::Kind::String) {
+                    if (!has_type && ints.empty()) {
+                        owner = as_i32(value);
+                    } else {
+                        ints.push_back(as_i32(value));
+                    }
+                }
+            }
+            if (!has_type) {
+                continue;
+            }
+            SceneThing thing;
+            thing.entity = entity.id;
+            thing.kind = insn.condition;
+            thing.type_index = type_index;
+            thing.absolute = (insn.condition == "ADD_THING" ||
+                              insn.condition == "ADD_THING_EX") &&
+                             ints.size() >= 3;
+            if (thing.absolute) {
+                thing.x = ints[0];
+                thing.y = ints[1];
+                thing.z = ints[2];
+            }
+            thing.angles = std::move(doubles);
+            thing.owner = owner;
+            scene.things.push_back(std::move(thing));
+        }
+    }
+}
+
 } // namespace
 
 bool SceneDoor::moving() const {
@@ -210,6 +278,7 @@ std::optional<Scene> extract_scene(const SbtLevel& level, std::string& error) {
         }
     }
     walk(program->insns, scene);
+    extract_things(level, scene);
     return scene;
 }
 

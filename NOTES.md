@@ -181,7 +181,8 @@
 * **Сцены** — `engine/src/res/scene.*`: `--scene NAME` извлекает из SCRIPT свет,
   локации, предметы, звуки, спрайты, двери, переключатели, сущности;
   36/36 уровней совпадают с `gm/scene.py` по всем счётчикам (aggregate FNV
-  `9bcf08aeb6ef0ba0`). `ADD_THING*`/лифты — ещё нет.
+  `9bcf08aeb6ef0ba0`), things из подсценариев — 4008 шт. (FNV `3ad266f0afe04d03`).
+  Имена/модели things (THING_TYPES/SOB_TABLE) и лифты — ещё нет.
 * **SBT-VM** — `engine/src/res/sbtvm.*`: порт `gm/sbtvm.py` (192 команды,
   59 условий, structural opcodes), канонический текст совпадает с Python;
   36/36 `.sbt`, 100 487 инструкций, FNV `e0d46e033fa0b415` (CTest `sbtvm`).

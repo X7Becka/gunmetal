@@ -900,4 +900,13 @@ std::string render_sbt_script(const SbtProgram& script) {
     return out;
 }
 
+std::string sbt_condition_signature(std::string_view name) {
+    for (const auto& def : kConditions) {
+        if (name == def.name) {
+            return def.sig != nullptr ? std::string(def.sig) : std::string();
+        }
+    }
+    return {};
+}
+
 } // namespace gm
