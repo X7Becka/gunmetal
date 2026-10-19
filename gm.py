@@ -770,6 +770,65 @@ def _sbt_resolve(s, sbw_path):
     return summary, problems
 
 
+
+def cmd_save(opts) -> int:
+    """Inspect a save (doors, switches, player, ammo) or diff two saves."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    re_dir = os.path.join(here, "tools", "re")
+    if re_dir not in sys.path:
+        sys.path.insert(0, re_dir)
+    import savefile
+    import savediff
+
+    if opts.diff:
+        return savediff.diff(opts.path, opts.diff, opts.game, phases=opts.phases)
+    try:
+        info = savefile.inspect(opts.path, opts.game)
+    except ValueError as exc:
+        print("save: %s" % exc, file=sys.stderr)
+        return 1
+    if opts.json:
+        print(json.dumps(info, indent=2))
+        return 0
+    print("%s: %d bytes, level %s, save name %r"
+          % (info["file"], info["bytes"], info["level_name"], info["title"]))
+    if "source_level" not in info:
+        print("  source level not matched (try --game)", file=sys.stderr)
+        return 1
+    print("  source level: %s, state tail 0x%x (%d bytes)"
+          % (info["source_level"], info["state_tail"][0], info["state_tail"][1]))
+    d = info.get("doors")
+    if d:
+        states = {}
+        for r in d["records"]:
+            states[r["state"]] = states.get(r["state"], 0) + 1
+        print("  doors: %d (states %s)" % (len(d["records"]), states))
+        for r in d["records"]:
+            if r["state"]:
+                print("    door %2d ids=%s state=%+d"
+                      % (r["index"], r["ids"], r["state"]))
+    s = info.get("switches")
+    if s:
+        print("  switches: %d records" % len(s["records"]))
+    p = info.get("player")
+    if p:
+        print("  player: armor %.2f/%.2f, shields %s"
+              % (p["armor"], p["armor_max"],
+                 " ".join("%s=%.2f" % (n, p["shields"][n])
+                          for n in savefile.SHIELD_NAMES)))
+        names = p.get("names") or []
+        sel = p["weapon_slot"]
+        print("    weapons: mask 0x%x, selected %s"
+              % (p["weapon_mask"],
+                 "%d (%s)" % (sel, names[sel]) if 0 <= sel < len(names) else sel))
+        for i in sorted(p["ammo"]):
+            if p["ammo"][i]:
+                print("      ammo %-16s %d"
+                      % (names[i] if i < len(names) else "slot %d" % i,
+                         p["ammo"][i]))
+    return 0
+
+
 def cmd_sbt(opts) -> int:
     ok = bad = 0
     for p in _sbt_iter(opts.paths):
@@ -1337,6 +1396,17 @@ def main(argv=None) -> int:
     p.add_argument("--neons", help="NEONS.PIN to cross-check against the value set")
     p.add_argument("--scale", type=int, default=1, help="integer upscale for --png")
     p.set_defaults(func=cmd_look)
+
+    p = sub.add_parser("save", help="inspect a SAVEGAME/*.sbt save (doors, "
+                                    "switches, player, ammo) or diff two saves")
+    p.add_argument("path", help="a SAVEGAME/saved<N>.sbt file")
+    p.add_argument("--diff", metavar="OTHER",
+                   help="compare with another save of the same level")
+    p.add_argument("--game", default="/mnt/d/games/Gunmetal 3dfx")
+    p.add_argument("--json", action="store_true", help="dump the decoded state as JSON")
+    p.add_argument("--phases", action="store_true",
+                   help="with --diff: also list phase-only door changes")
+    p.set_defaults(func=cmd_save)
 
     p = sub.add_parser("sog", help="parse .sog songs (text playlists)")
     p.add_argument("path", help="a .sog file or the MUSIC directory")

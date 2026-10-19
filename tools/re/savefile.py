@@ -216,14 +216,9 @@ def blocks(tail: bytes, game: str, level: str) -> dict:
     return out
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("save")
-    ap.add_argument("--game", default="/mnt/d/games/Gunmetal 3dfx")
-    ap.add_argument("--json", action="store_true")
-    args = ap.parse_args()
-
-    data = open(args.save, "rb").read()
+def inspect(path: str, game: str) -> dict:
+    """Parse a save: header, embedded level and decoded state blocks."""
+    data = open(path, "rb").read()
     # the first 12 bytes hold the save's display name: "A SAVED GAME" for a
     # manually named save, otherwise whatever the slot name is (e.g. "2").
     title = data[:12].split(b"\0")[0].decode("latin1")
@@ -233,32 +228,45 @@ def main() -> int:
         version = struct.unpack("<I", data[:4])[0]
     name = data[NAME_AT:NAME_AT + NAME_LEN].split(b"\0")[0].decode("latin1")
     if not name.startswith("LEVEL") and not name[:1].isalpha():
-        print("not a save: %r" % data[:16], file=sys.stderr)
-        return 1
-
-    src = match_level(data, args.game)
-    info = {"file": os.path.basename(args.save), "bytes": len(data),
+        raise ValueError("not a save: %r" % data[:16])
+    src = match_level(data, game)
+    info = {"file": os.path.basename(path), "bytes": len(data),
             "title": title, "version": version, "level_name": name}
-    if src:
-        level, hits = src
-        info["source_level"] = level
-        info["script_hits"] = len(hits)
-        # the first match gives the shift of the embedded script; the last
-        # shipped anchor plus its length bounds the tail
-        src_data = open(os.path.join(args.game, level), "rb").read()
-        last_anchor = 0
-        for off in range(0, max(1, len(src_data) - 256), 2048):
-            chunk = src_data[off:off + 256]
-            if chunk.count(0) < 200:
-                i = data.find(chunk)
-                if i >= 0:
-                    last_anchor = max(last_anchor, i + 256)
-        info["script_span"] = [hits[0], last_anchor]
-        info["state_tail"] = [last_anchor, len(data) - last_anchor]
+    if not src:
+        return info
+    level, hits = src
+    info["source_level"] = level
+    info["script_hits"] = len(hits)
+    # the first match gives the shift of the embedded script; the last shipped
+    # anchor plus its length bounds the tail
+    src_data = open(os.path.join(game, level), "rb").read()
+    last_anchor = 0
+    for off in range(0, max(1, len(src_data) - 256), 2048):
+        chunk = src_data[off:off + 256]
+        if chunk.count(0) < 200:
+            i = data.find(chunk)
+            if i >= 0:
+                last_anchor = max(last_anchor, i + 256)
+    info["script_span"] = [hits[0], last_anchor]
+    info["state_tail"] = [last_anchor, len(data) - last_anchor]
+    info.update(blocks(data[last_anchor:], game, level))
+    return info
 
-    if src:
-        info.update(blocks(data[info["state_tail"][0]:], args.game,
-                           info["source_level"]))
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("save")
+    ap.add_argument("--game", default="/mnt/d/games/Gunmetal 3dfx")
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args()
+
+    try:
+        info = inspect(args.save, args.game)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    title, version, name = info["title"], info["version"], info["level_name"]
+    src = info.get("source_level")
 
     if args.json:
         print(json.dumps(info, indent=2))

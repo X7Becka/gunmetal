@@ -595,6 +595,12 @@ def save_checks(G: str, results: list[bool]) -> None:
                           ", ".join(seen) if seen else "none"))
     if bad:
         print("        " + "; ".join(bad))
+    if saves and not bad:
+        p = subprocess.run([sys.executable, GM, "save", saves[0], "--game", G],
+                           capture_output=True, text=True, cwd=HERE)
+        results.append(report("save / gm.py save", p.returncode == 0
+                              and "player:" in p.stdout,
+                              os.path.basename(saves[0])))
 
 
 def main() -> int:

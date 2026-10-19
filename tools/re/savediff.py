@@ -72,18 +72,10 @@ def describe(data: bytes, start: int, end: int) -> str:
     return " ".join(ints)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("first")
-    ap.add_argument("second")
-    ap.add_argument("--game", default="/mnt/d/games/Gunmetal 3dfx")
-    ap.add_argument("--limit", type=int, default=40)
-    ap.add_argument("--phases", action="store_true",
-                    help="also list doors whose animation phase changed")
-    args = ap.parse_args()
-
-    a = load(args.first, args.game)
-    b = load(args.second, args.game)
+def diff(first: str, second: str, game: str, limit: int = 40,
+         phases: bool = False) -> int:
+    a = load(first, game)
+    b = load(second, game)
     print("%s: %s (%s, state tail at 0x%x, %d bytes)"
           % (os.path.basename(a["path"]), a["name"], a["level"],
              a["tail"], len(a["data"]) - a["tail"]))
@@ -100,8 +92,8 @@ def main() -> int:
         whole = False
 
     # decoded state: door records are raw runtime records (see savefile.py)
-    da = savefile.blocks(a["data"][a["tail"]:], args.game, a["level"])
-    db = savefile.blocks(b["data"][b["tail"]:], args.game, b["level"])
+    da = savefile.blocks(a["data"][a["tail"]:], game, a["level"])
+    db = savefile.blocks(b["data"][b["tail"]:], game, b["level"])
     if "doors" in da and "doors" in db:
         ra = {r["index"]: r for r in da["doors"]["records"]}
         rb = {r["index"]: r for r in db["doors"]["records"]}
@@ -111,7 +103,7 @@ def main() -> int:
         for i in flipped:
             print("  door %2d ids=%s  state %+d -> %+d"
                   % (i, ra[i]["ids"], ra[i]["state"], rb[i]["state"]))
-        if args.phases:
+        if phases:
             moved = [i for i in sorted(ra) if i in rb and i not in flipped
                      and ra[i]["phase"] != rb[i]["phase"]]
             print("phase-only changes: %d" % len(moved))
@@ -146,13 +138,25 @@ def main() -> int:
     for tag, start in (("header", 0), ("state", a["tail"])):
         stop = 0x8e8 if tag == "header" else min(len(a["data"]), len(b["data"]))
         aa, bb = a["data"][start:stop], b["data"][start:stop]
-        runs, truncated = ranges(aa, bb, args.limit)
+        runs, truncated = ranges(aa, bb, limit)
         print("\n%s 0x%x..0x%x: %d differing run(s)%s"
               % (tag, start, stop, len(runs), " (truncated)" if truncated else ""))
         for lo, hi in runs[:12]:
             print("  %+8d..%-8d (%3d B)  A=%-28s B=%s"
                   % (lo, hi, hi - lo, describe(aa, lo, hi), describe(bb, lo, hi)))
     return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("first")
+    ap.add_argument("second")
+    ap.add_argument("--game", default="/mnt/d/games/Gunmetal 3dfx")
+    ap.add_argument("--limit", type=int, default=40)
+    ap.add_argument("--phases", action="store_true",
+                    help="also list doors whose animation phase changed")
+    args = ap.parse_args()
+    return diff(args.first, args.second, args.game, args.limit, args.phases)
 
 
 if __name__ == "__main__":
