@@ -115,6 +115,12 @@ struct RenderOptions {
     bool sectors = true;
     bool background = true;
     float ambient = 0.0f;
+    // Explicit camera (gm/render.py's pos/look): eye and target in world space.
+    bool camera_override = false;
+    Vec3d eye;
+    Vec3d target;
+    // Drop faces farther than this from the eye (0 = disabled), as in the viewer.
+    float clip = 0.0f;
 };
 
 struct RenderResult {

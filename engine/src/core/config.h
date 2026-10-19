@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -22,6 +23,11 @@ struct Options {
     float el = 22.0f;
     float zoom = 1.0f;
     float fov = 45.0f;
+    std::array<double, 3> pos{};
+    std::array<double, 3> look{};
+    bool has_pos = false;
+    bool has_look = false;
+    float clip = 0.0f;
     bool no_textures = false;
     bool no_lightmaps = false;
     bool lightmap_world = false;

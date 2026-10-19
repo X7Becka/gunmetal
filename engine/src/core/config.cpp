@@ -32,6 +32,30 @@ std::filesystem::path default_game_dir() {
     return std::filesystem::current_path();
 }
 
+namespace {
+
+bool parse_vec3(std::string_view text, std::array<double, 3>& out) {
+    std::size_t start = 0;
+    for (int i = 0; i < 3; ++i) {
+        const std::size_t comma = text.find(',', start);
+        const std::size_t end = comma == std::string_view::npos ? text.size() : comma;
+        try {
+            std::size_t used = 0;
+            const std::string part(text.substr(start, end - start));
+            out[static_cast<std::size_t>(i)] = std::stod(part, &used);
+            if (used != part.size()) {
+                return false;
+            }
+        } catch (const std::exception&) {
+            return false;
+        }
+        start = end + 1;
+    }
+    return true;
+}
+
+} // namespace
+
 std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
     Options options;
     options.game = default_game_dir();
@@ -135,6 +159,34 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             options.wire = true;
         } else if (arg == "--info") {
             options.info = true;
+        } else if (arg == "--pos" || arg == "--look") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            std::array<double, 3> vec{};
+            if (!parse_vec3(*v, vec)) {
+                error = std::string(arg) + " expects X,Y,Z";
+                return std::nullopt;
+            }
+            if (arg == "--pos") {
+                options.pos = vec;
+                options.has_pos = true;
+            } else {
+                options.look = vec;
+                options.has_look = true;
+            }
+        } else if (arg == "--clip") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.clip = std::stof(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--clip expects a number";
+                return std::nullopt;
+            }
         } else if (arg == "--frames" || arg == "-n") {
             const auto v = value(arg);
             if (!v) {
@@ -183,6 +235,9 @@ std::string usage() {
        << "      --no-lightmaps ignore .sbc lightmaps\n"
        << "      --wire        draw polygon edges\n"
        << "      --info        print the level summary instead of opening the viewer\n"
+       << "      --pos X,Y,Z   camera eye in world space (with --look)\n"
+       << "      --look X,Y,Z  camera target in world space\n"
+       << "      --clip N      drop faces farther than N from the eye\n"
        << "      --headless    do not create a window\n"
        << "  -n, --frames N    stop after N frames (default: until closed)\n"
        << "  -v, --verbose     debug logging\n"

@@ -1308,6 +1308,20 @@ void test_render() {
             CHECK(local.rgb != image.rgb);
             CHECK_EQ(local.rgb.size(), image.rgb.size());
 
+            // Explicit camera (pos/look) and face clipping, both identical to
+            // gm/render.py's output for the same parameters.
+            options.camera_override = true;
+            options.eye = {0.0, 0.0, 600.0};
+            options.target = {0.0, 0.0, 0.0};
+            const auto view = gm::render_scene(meshes, options, &pool, lightmaps);
+            CHECK_EQ(fnv_rgb(view.rgb), 0x9e54d79f29ac47c6ull);
+
+            options.clip = 300.0f;
+            const auto clipped = gm::render_scene(meshes, options, &pool, lightmaps);
+            CHECK_EQ(fnv_rgb(clipped.rgb), 0xa4ccdd84a43ca565ull);
+            options.camera_override = false;
+            options.clip = 0.0f;
+
             // A fourth of the frame must be covered (a blank render is a bug).
             std::size_t covered = 0;
             for (std::size_t i = 0; i < image.rgb.size(); i += 3) {

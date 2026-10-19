@@ -83,6 +83,26 @@ struct Camera {
         near = std::max(0.02, std::min(dist, radius) * 0.05);
     }
 
+    /// Explicit eye/target camera (gm/render.py ``pos``/``look``).  *radius* is
+    /// the scene bounding radius, only used for the near plane.
+    Camera(V3 eye_, V3 target, int w, int h, double fov, double radius)
+        : width(w), height(h) {
+        eye = eye_;
+        const V3 to_target = sub(target, eye);
+        fwd = norm(to_target);
+        const double dist = std::sqrt(dot(to_target, to_target));
+        V3 world_up{0.0, 0.0, 1.0};
+        if (std::fabs(dot(fwd, world_up)) > 0.99) {
+            world_up = {0.0, 1.0, 0.0};
+        }
+        right = norm(cross(fwd, world_up));
+        up = cross(right, fwd);
+        scale = (static_cast<double>(height) / 2.0) / std::tan(fov * kDegToRad / 2.0);
+        cx = static_cast<double>(width) / 2.0;
+        cy = static_cast<double>(height) / 2.0;
+        near = std::max(0.02, std::min(dist, radius) * 0.05);
+    }
+
     V3 view(V3 p) const {
         const V3 d = sub(p, eye);
         return {dot(d, right), dot(d, up), dot(d, fwd)};
@@ -690,8 +710,12 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
         center = {(lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0, (lo.z + hi.z) / 2.0};
         radius = std::max(1e-6, 0.5 * std::sqrt(dot(sub(hi, lo), sub(hi, lo))));
     }
-    const Camera cam(center, radius, options.width, options.height, options.az, options.el,
-                     options.zoom, options.fov);
+    const Camera cam = options.camera_override
+                           ? Camera(V3{options.eye.x, options.eye.y, options.eye.z},
+                                    V3{options.target.x, options.target.y, options.target.z},
+                                    options.width, options.height, options.fov, radius)
+                           : Camera(center, radius, options.width, options.height, options.az,
+                                    options.el, options.zoom, options.fov);
 
     std::vector<double> zbuf(static_cast<std::size_t>(options.width) * options.height, -1.0);
 
@@ -765,6 +789,15 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
             const V3 uaxis = v3(face.u);
             const V3 vaxis = v3(face.v);
             const double uv_scale = face.uv_scale;
+            if (options.clip > 0.0f) {
+                // gm/render.py measures the distance from the face plane origin,
+                // not from the polygon's world centre (its LevelFace keeps the
+                // local .sbw centre); mirrored here for frame parity.
+                const V3 d = sub(origin, cam.eye);
+                if (dot(d, d) > static_cast<double>(options.clip) * options.clip) {
+                    continue;
+                }
+            }
             for (std::uint16_t index : face.indices) {
                 const V3 d = sub(base_vertex(index), origin);
                 uvs.push_back({dot(d, uaxis) * uv_scale, dot(d, vaxis) * uv_scale});

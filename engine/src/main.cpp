@@ -509,6 +509,16 @@ int render_image(const gm::Options& options) {
     render.lightmaps = !options.no_lightmaps;
     render.lightmap_world = options.lightmap_world;
     render.wire = options.wire;
+    if (options.has_pos != options.has_look) {
+        gm::logf(gm::LogLevel::Error, "render", "--pos and --look must be given together");
+        return 2;
+    }
+    if (options.has_pos) {
+        render.camera_override = true;
+        render.eye = {options.pos[0], options.pos[1], options.pos[2]};
+        render.target = {options.look[0], options.look[1], options.look[2]};
+    }
+    render.clip = options.clip;
 
     std::size_t faces = 0;
     for (const auto& mesh : meshes) {
