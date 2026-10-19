@@ -651,6 +651,15 @@ def main() -> int:
     results.append(report("campaign / transition map", ok,
                           f"{len(rows)} levels, secrt1+temple present"))
 
+    # --- chassis -> craft model (tools/re/chassis_models.py) --------------
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "chassis_models.py"),
+                        "--game", G], capture_output=True, text=True, cwd=HERE)
+    last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
+    ok = p.returncode == 0 and "8 names in SOB_TABLE: 36/36" in last \
+        and "CHEVY: 0/36" in last
+    results.append(report("chassis / craft model resolution", ok, last or "no output"))
+
     # --- optional heavy extraction ---------------------------------------
     if opts.full:
         results.append(check("textures / PICS -> PNG",
