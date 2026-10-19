@@ -391,8 +391,10 @@
     `spartan`/`spartanx`, `stealth`/`stealthx`, `devsttr`/`devsttrx`); прежняя
     догадка «две формы R.P.V.» **опровергнута** — `…x` это **обломки**
     (`deadtick`/`dedtick*` → `TICKX`, `deadmed`/`dedmed*` → `SPARTANX`,
-    `deadslth`/`dedslth*` → `STEALTHX` в `THING_TYPES`), живые корпуса несут
-    типы `H-Dev`/`H-Spart`/`H-Steal`. Плюс перекраски (`tickDS`/`DevDS` — розовые «dev»,
+    `deadslth`/`dedslth*` → `STEALTHX`, `deadhvy`/`dedhvy*` → `DEVSTTRX`),
+    живые корпуса несут типы `H-Tick`/`H-Spart`/`H-Steal`/`H-Dev`
+    (`TICK`/`SPARTAN`/`STEALTH`/`DEVSTTR`); все 16 таких типов есть в каждом
+    из 36 уровней (`tools/re/thing_models.py`). Плюс перекраски (`tickDS`/`DevDS` — розовые «dev»,
     `Tickk`, `tick1`, `H-Tick`, `H-Dev`, `Keldev`, `chrdev`, `Devold`, `Devstty`)
     и шуточные пропы `tardis` (синяя полицейская будка), `smtable` (стол),
     `toolkit` (красный ящик), `sundial` (солнечные часы).

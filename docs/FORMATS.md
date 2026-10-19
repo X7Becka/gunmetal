@@ -148,7 +148,8 @@ PNG, `render.contact_sheet`). Тот же рендерер рисует и ур�
 R.P.V.» — **опровергнуто**: `…x`-модели это **обломки** (wreck), их выбирают
 «мёртвые» типы `THING_TYPES` (`deadtick` → `TICKX`, `deadmed`/`dedmed1` →
 `SPARTANX`, `deadslth` → `STEALTHX`, §12.2), тогда как живые корпуса называют
-типы `H-Dev`/`H-Spart`/`H-Steal` (`DEVSTTR`/`SPARTAN`/`STEALTH`). Есть и варианты-перекраски:
+типы `H-Tick`/`H-Spart`/`H-Steal`/`H-Dev` (`TICK`/`SPARTAN`/`STEALTH`/`DEVSTTR`),
+а обломки — типы `deadtick`/`deadmed`/`deadslth`/`deadhvy` и `ded*`. Есть и варианты-перекраски:
 `Tickk`/`Tickx`/`tick1`/`tickDS`, `stealthk`, `DevDS`, `Devstty`, `Devsttrk`,
 `H-Dev`/`H-Tick`, `Keldev`, `chrdev`, `Devold` — `…DS` выделяются
 **розово-лососевой** «dev»-текстурой (безошибочный маркер заготовки), остальные
@@ -824,9 +825,12 @@ CLI `gm.py sbv <файл> [out] [--png DIR] [--frames SPEC] [--scale N] [--no-ra
   значение — валидный индекс (2896/2896), 1036 указывают на модель, названную
   так же, как тип; остальные — общие модели (`bgchunk1` → `BIGCHUNK`,
   `deadtick`/`dedtick1` → `TICKX`, `GrenT1`/`Grenade` → `GRENADE`, `DRONEB` →
-  `ANDRONEB`). У «мёртвых» типов (`deadtick`, `deadmed`, `deadslth` и `ded*`)
-  стоят именно модели-обломки `…X` (`TICKX`/`SPARTANX`/`STEALTHX`),
-  а `H-Dev`/`H-Spart`/`H-Steal` — живые корпуса (`DEVSTTR`/`SPARTAN`/`STEALTH`).
+  `ANDRONEB`). В **каждом** из 36 уровней есть по 16 «корпусных» типов: живые
+  `H-Tick`/`H-Spart`/`H-Steal`/`H-Dev` → `TICK`/`SPARTAN`/`STEALTH`/`DEVSTTR`
+  и обломки `deadtick`/`dedtick1..3` → `TICKX`, `deadmed`/`dedmed1..3` →
+  `SPARTANX`, `deadslth`/`dedslth1..3` → `STEALTHX`, `deadhvy`/`dedhvy1..3` →
+  `DEVSTTRX` (каждый тип ×36) — то есть все восемь моделей шасси (живые и
+  обломки) лежат в `THING_TYPES` каждого уровня.
   Потребитель поля — `0x46d0a0` (`mov eax,[936·i + 0x776f04]`), он отдаёт
   индекс в `0x46d8b0`, а тот вызывает `0x47c990` (индекс → указатель модели)
   и `0x4277cd` (сборка объекта); сам индекс сохраняется в рантайм-массиве

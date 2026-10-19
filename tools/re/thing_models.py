@@ -96,6 +96,15 @@ def main(argv=None):
         print("примеры (тип -> модель):")
         for (name, model), n in alias.most_common(8):
             print("   %-14s -> %-12s x%d" % (name, model, n))
+        print("\nкорпуса (тип -> модель, в скольких уровнях):")
+        hulls = collections.Counter()
+        for types in data.values():
+            for name, (_, model) in types.items():
+                if model and (name.upper().startswith("H-")
+                              or name.upper().startswith(("DEAD", "DED"))):
+                    hulls[(name, model)] += 1
+        for (name, model), n in hulls.most_common():
+            print("   %-14s -> %-12s x%d" % (name, model, n))
     print("\nthing models: %d types in %d levels; valid SOB index %d/%d;"
           " name == type %d" % (total, len(data), valid, total, named))
     return 0 if valid == total else 1
