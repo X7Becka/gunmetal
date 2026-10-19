@@ -116,15 +116,60 @@ class LevelMesh:
         return self.lightmaps.uv(face, vertex) if self.lightmaps is not None else None
 
 
-def level_meshes(level, lightmaps: Lightmaps | None = None) -> list[LevelMesh]:
-    """Wrap every object of a parsed `.sbw` level as a renderable mesh."""
+def level_meshes(level, lightmaps: Lightmaps | None = None,
+                 transform: bool = False) -> list[LevelMesh]:
+    """Wrap every object of a parsed `.sbw` level as a renderable mesh.
+
+    With *transform* the objects are placed in the engine world frame
+    (``origin + basis * local``, see :meth:`gm.sbw.Object.world_vertices`)
+    instead of the raw file (local) frame.
+    """
     names = [t.name for t in level.tex]
     out = []
     for si, s in enumerate(level.sectors):
         for o in s.objects:
-            if o.vertices:
+            if not o.vertices:
+                continue
+            if transform:
+                out.append(PlacedMesh(o, names, lightmaps, si))
+            else:
                 out.append(LevelMesh(o, names, lightmaps, si))
     return out
+
+
+class PlacedMesh(LevelMesh):
+    """A level object placed in the engine world frame.
+
+    ``world = origin + basis * local`` (header ``points``); the polygons (and
+    their ``u``/``v`` axes) stay in the local frame, so ``uv`` first maps the
+    world vertex back.  A uniform basis scale ``s`` cancels out exactly, which
+    keeps the texture mapping identical to the file-frame render.
+    """
+
+    def __init__(self, obj, tex_names, lightmaps: Lightmaps | None,
+                 sector: int | None):
+        super().__init__(obj, tex_names, lightmaps, sector)
+        self.vertices = list(obj.world_vertices())
+        if len(obj.points) >= 4:
+            self._origin = obj.points[0]
+            b = obj.points[1]
+            self._s = math.sqrt(b[0] * b[0] + b[1] * b[1] + b[2] * b[2]) or 1.0
+        else:
+            self._origin = (0.0, 0.0, 0.0)
+            self._s = 1.0
+        self._inv = 1.0 / self._s
+
+    def _local(self, vertex):
+        return tuple((vertex[i] - self._origin[i]) * self._inv for i in range(3))
+
+    def uv(self, face, vertex):
+        d = _sub(self._local(vertex), face.origin)
+        return _dot(d, face.u), _dot(d, face.v)
+
+    def lightmap_uv(self, face, vertex):
+        if self.lightmaps is None:
+            return None
+        return self.lightmaps.uv(face, self._local(vertex))
 
 
 def import_lightmaps(path: str) -> Lightmaps:

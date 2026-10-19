@@ -700,6 +700,45 @@ def main() -> int:
                           "%d things (%d placed, %d models, %d with a model)"
                           % (n_things, n_abs, len(models), n_models)))
 
+    # --- .sbw object header transform (gm/sbw.py, gm/render.py) -----------
+    from gm import render as rendermod
+    from gm import sbw as sbwmod
+    lvl = sbwmod.parse_file(os.path.join(G, "dm1.sbw"))
+    ok_tf = 0
+    offs = []
+    for sec in lvl.sectors:
+        for o in sec.objects:
+            if not o.vertices:
+                continue
+            wv = o.world_vertices()
+            B = o.points
+            ok_tf += 1 if all(
+                abs(wv[i][k] - (B[0][k] + B[1][k] * o.vertices[i][0] +
+                                B[2][k] * o.vertices[i][1] +
+                                B[3][k] * o.vertices[i][2])) < 1e-3
+                for i in range(min(len(wv), 20)) for k in range(3)) else 0
+            offs.append(max(abs(c) for c in o.points[0]))
+            if len(offs) >= 50:
+                break
+        if len(offs) >= 50:
+            break
+    # the transform must not change the texture mapping
+    obj = lvl.sectors[0].objects[0]
+    lm = rendermod.LevelMesh(obj, [t.name for t in lvl.tex], None, 0)
+    pm = rendermod.PlacedMesh(obj, [t.name for t in lvl.tex], None, 0)
+    uv_ok = True
+    if lm.faces and pm.faces:
+        f = lm.faces[0]
+        v = f.indices[0]
+        uv_a = lm.uv(f, lm.vertices[v])
+        uv_b = pm.uv(pm.faces[0], pm.vertices[v])
+        uv_ok = (abs(uv_a[0] - uv_b[0]) < 0.5 and abs(uv_a[1] - uv_b[1]) < 0.5)
+    results.append(report(
+        "sbw / object header transform",
+        ok_tf == len(offs) and uv_ok and max(offs) < 16,
+        "%d objects: world = origin + basis*local, max |origin| %.1f, UV kept: %s"
+        % (len(offs), max(offs), uv_ok)))
+
     # --- doors / switches / lifts (tools/re/doors.py) ---------------------
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
                                                      "doors.py"),

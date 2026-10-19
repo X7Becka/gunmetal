@@ -931,7 +931,7 @@ def cmd_view(opts) -> int:
                 sbc_path = os.path.splitext(p)[0] + ".sbc"
                 if not opts.no_lightmap and os.path.isfile(sbc_path):
                     lms = render.import_lightmaps(sbc_path)
-                meshes = render.level_meshes(w, lms)
+                meshes = render.level_meshes(w, lms, transform=opts.transform)
                 kind = f"level {len(w.sectors)}s/{w.n_objects}o"
                 if lms:
                     kind += f" +{len(lms.records)} lightmaps"
@@ -1290,6 +1290,10 @@ def main(argv=None) -> int:
                         "(default 1/1.875, the .sbw object basis)")
     p.add_argument("--scene-markers-depth", action="store_true",
                    help="depth-test the scene markers (hide them behind geometry)")
+    p.add_argument("--transform", action="store_true",
+                   help="place the .sbw objects in the engine world frame "
+                        "(origin + basis*local from the 96-byte object header; "
+                        "the default keeps the raw file frame)")
     p.add_argument("--things", action="store_true",
                    help="place the models of the level's things (ADD_THING* in "
                         "the entity sub-scripts) alongside the geometry")

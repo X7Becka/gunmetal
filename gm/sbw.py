@@ -215,6 +215,26 @@ class Object:
     raw_tail: bytes = b""           # the 50 bytes 0x60..0x91 (verbatim)
     polys: tuple[Poly, ...] = ()
 
+    def world_vertices(self) -> tuple[Vec3, ...]:
+        """Vertices in the engine world frame: ``origin + basis * local``.
+
+        The loader (``0x42ad65`` stage 1) keeps the 96-byte header as the
+        object's transform: ``points[0]`` is the origin and ``points[1:4]`` the
+        basis.  In every shipped object the basis is ``diag(1.875)`` and the
+        origin is within +-8, so the world frame is almost ``1.875 * local`` --
+        but the small origin shift is real and this is the exact placement.
+        """
+        if len(self.points) < 4:
+            return tuple(self.vertices)
+        ox, oy, oz = self.points[0]
+        bx, by, bz = self.points[1], self.points[2], self.points[3]
+        out = []
+        for x, y, z in self.vertices:
+            out.append((ox + bx[0] * x + by[0] * y + bz[0] * z,
+                        oy + bx[1] * x + by[1] * y + bz[1] * z,
+                        oz + bx[2] * x + by[2] * y + bz[2] * z))
+        return tuple(out)
+
 
 @dataclass
 class Sector:
