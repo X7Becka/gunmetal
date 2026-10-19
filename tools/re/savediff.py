@@ -78,6 +78,8 @@ def main() -> int:
     ap.add_argument("second")
     ap.add_argument("--game", default="/mnt/d/games/Gunmetal 3dfx")
     ap.add_argument("--limit", type=int, default=40)
+    ap.add_argument("--phases", action="store_true",
+                    help="also list doors whose animation phase changed")
     args = ap.parse_args()
 
     a = load(args.first, args.game)
@@ -96,6 +98,32 @@ def main() -> int:
         whole = True
     else:
         whole = False
+
+    # decoded state: door records are raw runtime records (see savefile.py)
+    da = savefile.blocks(a["data"][a["tail"]:], args.game, a["level"])
+    db = savefile.blocks(b["data"][b["tail"]:], args.game, b["level"])
+    if "doors" in da and "doors" in db:
+        ra = {r["index"]: r for r in da["doors"]["records"]}
+        rb = {r["index"]: r for r in db["doors"]["records"]}
+        flipped = [i for i in sorted(ra) if i in rb
+                   and ra[i]["state"] != rb[i]["state"]]
+        print("\nchanged doors (state): %d of %d" % (len(flipped), len(ra)))
+        for i in flipped:
+            print("  door %2d ids=%s  state %+d -> %+d"
+                  % (i, ra[i]["ids"], ra[i]["state"], rb[i]["state"]))
+        if args.phases:
+            moved = [i for i in sorted(ra) if i in rb and i not in flipped
+                     and ra[i]["phase"] != rb[i]["phase"]]
+            print("phase-only changes: %d" % len(moved))
+            for i in moved:
+                print("  door %2d ids=%s  phase %d -> %d"
+                      % (i, ra[i]["ids"], ra[i]["phase"], rb[i]["phase"]))
+    if "switches" in da and "switches" in db:
+        sa = {r["index"]: r for r in da["switches"]["records"]}
+        sb = {r["index"]: r for r in db["switches"]["records"]}
+        same = all(sa[i]["id"] == sb[i]["id"] and sa[i]["pos"] == sb[i]["pos"]
+                   for i in sa if i in sb)
+        print("switches: %d records, unchanged: %s" % (len(sa), same))
 
     for tag, start in (("header", 0), ("state", a["tail"])):
         stop = 0x8e8 if tag == "header" else min(len(a["data"]), len(b["data"]))

@@ -30,6 +30,11 @@ import os
 import struct
 import sys
 
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, ROOT)
+
+from gm import scene as scenemod  # noqa: E402
+
 MAGIC = b"A SAVED GAME"
 VERSION_AT = 12
 NAME_AT = 0x54
@@ -58,6 +63,62 @@ def match_level(save: bytes, game: str) -> tuple[str, list[int]] | None:
         if len(hits) >= 3 and (best is None or len(hits) > len(best[1])):
             best = (os.path.basename(path), hits)
     return best
+
+
+def find_block(tail: bytes, count: int, stride: int, key_off: int,
+               keys: list) -> int:
+    """Locate ``u32 count`` + *count* records of *stride* whose key matches."""
+    if not count or count * stride + 4 > len(tail):
+        return -1
+    want = struct.pack("<I", count)
+    start = 0
+    while True:
+        i = tail.find(want, start)
+        if i < 0:
+            return -1
+        start = i + 1
+        ok = True
+        for k in range(count):
+            off = i + 4 + k * stride + key_off
+            if struct.unpack("<i", tail[off:off + 4])[0] != keys[k]:
+                ok = False
+                break
+        if ok:
+            return i
+
+
+def blocks(tail: bytes, game: str, level: str) -> dict:
+    """Door and switch arrays are stored as their raw runtime records."""
+    sc = scenemod.load(os.path.join(game, level))
+    doors, switches = list(sc.doors), list(sc.switches)
+    out = {"level_doors": len(doors), "level_switches": len(switches)}
+    # doors: flags +0x68, ids +0x6c..+0x7c, state +0x80, phase +0x8c
+    off = find_block(tail, len(doors), 0xB8, 0x6c,
+                     [tuple(d.ids)[0] for d in doors]) if doors else -1
+    if off >= 0:
+        recs = []
+        for k, d in enumerate(doors):
+            r = tail[off + 4 + k * 0xB8: off + 4 + (k + 1) * 0xB8]
+            ids = struct.unpack("<5i", r[0x6c:0x80])
+            if ids != tuple(d.ids):
+                continue
+            recs.append({"index": k, "flags": struct.unpack("<i", r[0x68:0x6c])[0],
+                         "ids": list(ids),
+                         "state": struct.unpack("<i", r[0x80:0x84])[0],
+                         "phase": struct.unpack("<H", r[0x8c:0x8e])[0]})
+        out["doors"] = {"offset": off, "records": recs}
+    # switches: kind, id, radius, x, y, z, brake, unk (verbatim operands)
+    off = find_block(tail, len(switches), 0x20, 4,
+                     [s.id for s in switches]) if switches else -1
+    if off >= 0:
+        recs = []
+        for k, s in enumerate(switches):
+            r = tail[off + 4 + k * 0x20: off + 4 + (k + 1) * 0x20]
+            vals = struct.unpack("<8i", r)
+            recs.append({"index": k, "kind": vals[0], "id": vals[1],
+                         "radius": vals[2], "pos": list(vals[3:6])})
+        out["switches"] = {"offset": off, "records": recs}
+    return out
 
 
 def main() -> int:
@@ -100,6 +161,10 @@ def main() -> int:
         info["script_span"] = [hits[0], last_anchor]
         info["state_tail"] = [last_anchor, len(data) - last_anchor]
 
+    if src:
+        info.update(blocks(data[info["state_tail"][0]:], args.game,
+                           info["source_level"]))
+
     if args.json:
         print(json.dumps(info, indent=2))
         return 0
@@ -115,6 +180,23 @@ def main() -> int:
               % (info["state_tail"][0], info["state_tail"][1]))
     else:
         print("  source level: not matched against the installed .sbt files")
+        return 0
+
+    d = info.get("doors")
+    if d:
+        states = {}
+        for r in d["records"]:
+            states[r["state"]] = states.get(r["state"], 0) + 1
+        print("  doors block at +0x%x: %d records, states %s"
+              % (d["offset"], len(d["records"]), states))
+        for r in d["records"]:
+            if r["state"]:
+                print("    door %2d ids=%s state=%+d phase=%d"
+                      % (r["index"], r["ids"], r["state"], r["phase"]))
+    s = info.get("switches")
+    if s:
+        print("  switches block at +0x%x: %d records"
+              % (s["offset"], len(s["records"])))
     return 0
 
 
