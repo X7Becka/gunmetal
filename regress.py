@@ -660,6 +660,14 @@ def main() -> int:
         and "CHEVY: 0/36" in last
     results.append(report("chassis / craft model resolution", ok, last or "no output"))
 
+    # --- thing type -> model (tools/re/thing_models.py) -------------------
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "thing_models.py"),
+                        "--game", G], capture_output=True, text=True, cwd=HERE)
+    last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
+    ok = p.returncode == 0 and "valid SOB index 2896/2896" in last
+    results.append(report("things / type -> model (+0x1a4)", ok, last or "no output"))
+
     # --- optional heavy extraction ---------------------------------------
     if opts.full:
         results.append(check("textures / PICS -> PNG",
