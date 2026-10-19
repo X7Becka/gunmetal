@@ -132,7 +132,7 @@ def _is_float(tok: str) -> bool:
 #: faces; the parser recurses once per face, so hostile counts must be rejected
 #: before they can exhaust the C stack or drive a huge vertex loop.
 MAX_VERTS = 200_000
-MAX_FACES = 20_000
+MAX_FACES = 5_000
 
 
 def parse_tokens(tokens: list[str], name: str = "") -> Sob:

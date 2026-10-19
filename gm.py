@@ -30,6 +30,7 @@ import json
 import os
 import struct
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -56,15 +57,46 @@ from gm import (  # noqa: E402
 )
 
 
+class _AtomicWriter:
+    """Write next to *path* and rename on success, so a failed command never
+    leaves a truncated half-file behind (and never touches the old one)."""
+
+    def __init__(self, path: str):
+        self.path = path
+        directory = os.path.dirname(path) or "."
+        fd, self.tmp = tempfile.mkstemp(dir=directory, prefix=".gm-tmp-")
+        self.file = os.fdopen(fd, "wb")
+
+    def __enter__(self):
+        return self.file
+
+    def __exit__(self, exc_type, _exc, _tb):
+        self.file.close()
+        if exc_type is None:
+            try:
+                os.chmod(self.tmp, 0o644)
+            except OSError:
+                pass
+            os.replace(self.tmp, self.path)
+        else:
+            try:
+                os.unlink(self.tmp)
+            except OSError:
+                pass
+        return False
+
+
 def _wopen(path: str, opts):
     """Open an output file, refusing to clobber it unless ``--force``.
 
     Trust boundary: every command that writes derived data goes through this
-    helper, so a stray re-run cannot silently overwrite user files.
+    helper, so a stray re-run cannot silently overwrite user files.  Writes are
+    atomic: the data goes to a sibling temp file and is renamed into place only
+    when the ``with`` block finishes without an exception.
     """
     if os.path.exists(path) and not getattr(opts, "force", False):
         raise FileExistsError(f"refusing to overwrite {path} (use --force)")
-    return open(path, "wb")
+    return _AtomicWriter(path)
 
 
 def _pal(opts) -> bytes:
@@ -91,7 +123,7 @@ def cmd_extract(opts) -> int:
             if os.path.exists(path):
                 raise FileExistsError(f"refusing to overwrite {path} (use --force)")
     for path, e in planned:
-        with open(path, "wb") as f:
+        with _AtomicWriter(path) as f:
             f.write(bf.read(e))
     print(f"wrote {len(planned)} blobs to {opts.out}")
     return 0
