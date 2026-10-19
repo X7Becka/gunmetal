@@ -65,6 +65,11 @@ std::optional<BigFile> BigFile::open(const std::filesystem::path& idx_path, std:
         return std::nullopt;
     }
 
+    if (file.dat_size_ > 0xFFFFFFFFull) {
+        error = "DAT exceeds the 32-bit BIGFILE offset space";
+        return std::nullopt;
+    }
+
     file.entries_.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
         const std::uint8_t* p = idx.data() + 12 + static_cast<std::size_t>(i) * 12;

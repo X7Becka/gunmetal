@@ -6,6 +6,8 @@ namespace gm {
 namespace {
 
 constexpr std::uint32_t kMaxWidth = 320;
+constexpr std::uint32_t kMaxHeight = 1024;
+constexpr std::uint32_t kMaxFrames = 200'000;
 constexpr char kMagic[4] = {'S', 'B', 'V', '0'};
 
 std::uint32_t read_u32(const std::uint8_t* p) {
@@ -24,8 +26,16 @@ std::optional<Sbv> parse_sbv(std::span<const std::uint8_t> data, std::string& er
     clip.width = read_u32(data.data() + 4);
     clip.height = read_u32(data.data() + 8);
     clip.frame_count = read_u32(data.data() + 12);
-    if (clip.width > kMaxWidth) {
+    if (clip.width == 0 || clip.width > kMaxWidth) {
         error = "implausible width " + std::to_string(clip.width);
+        return std::nullopt;
+    }
+    if (clip.height == 0 || clip.height > kMaxHeight) {
+        error = "implausible height " + std::to_string(clip.height);
+        return std::nullopt;
+    }
+    if (clip.frame_count > kMaxFrames) {
+        error = "implausible frame count " + std::to_string(clip.frame_count);
         return std::nullopt;
     }
     const std::size_t need = 16 + 8 * static_cast<std::size_t>(clip.frame_count);
@@ -36,10 +46,17 @@ std::optional<Sbv> parse_sbv(std::span<const std::uint8_t> data, std::string& er
     }
     clip.data_start = need;
     clip.table.resize(clip.frame_count);
+    std::uint32_t previous = 0;
     for (std::uint32_t i = 0; i < clip.frame_count; ++i) {
         const std::uint8_t* entry = data.data() + 16 + 8 * static_cast<std::size_t>(i);
         clip.table[i].timestamp_ms = read_u32(entry);
         clip.table[i].end_offset = read_u32(entry + 4);
+        if (clip.table[i].end_offset < previous ||
+            clip.data_start + clip.table[i].end_offset > data.size()) {
+            error = "frame " + std::to_string(i) + " has a bad end offset";
+            return std::nullopt;
+        }
+        previous = clip.table[i].end_offset;
     }
     clip.file_size = data.size();
     return clip;

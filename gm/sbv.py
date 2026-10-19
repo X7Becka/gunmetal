@@ -156,12 +156,12 @@ def parse(blob: bytes, path: str = "<mem>") -> Sbv:
     if len(blob) < 16 or blob[:4] != MAGIC:
         raise ValueError(f"not an SBV0 file (magic {blob[:4]!r})")
     width, height, count = struct.unpack_from("<III", blob, 4)
-    # The pixel codec halves chroma and builds an 8-pixel pyramid: odd or zero
-    # dimensions would make the loops divide by zero / walk out of the planes.
-    if not 2 <= width <= MAX_WIDTH or width % 2:
-        raise ValueError(f"implausible width {width} (2..{MAX_WIDTH}, even)")
-    if not 16 <= height <= MAX_HEIGHT or height % 16:
-        raise ValueError(f"implausible height {height} (16..{MAX_HEIGHT}, /16)")
+    # Container-level sanity only; the pixel codec additionally requires
+    # width >= 8/even and height % 16 (checked in decode_frame_planes).
+    if not 1 <= width <= MAX_WIDTH:
+        raise ValueError(f"implausible width {width} (1..{MAX_WIDTH})")
+    if not 1 <= height <= MAX_HEIGHT:
+        raise ValueError(f"implausible height {height} (1..{MAX_HEIGHT})")
     if count > MAX_FRAMES:
         raise ValueError(f"implausible frame count {count} (> {MAX_FRAMES})")
     need = 16 + 8 * count
@@ -594,6 +594,9 @@ def _decode_planes(frame: bytes, width: int, height: int) -> _Mem:
 
 def decode_frame_planes(frame: bytes, width: int, height: int) -> bytes:
     """Decode one frame block into raw signed-16 plane samples."""
+    if (width < 8 or width > MAX_WIDTH or width % 2 or
+            height < 16 or height > MAX_HEIGHT or height % 16):
+        raise ValueError(f"unsupported frame geometry {width}x{height}")
     return bytes(_decode_planes(frame, width, height).m)
 
 

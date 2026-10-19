@@ -15,6 +15,7 @@ constexpr int kPlaneGap = 0x20;      // padding between the three planes
 constexpr int kScratchWords = 256;   // 0xa1c000..0xa1c400 entropy scratch
 constexpr int kMaxScratchSamples = 64; // factor 8 block = 48 dwords
 constexpr std::uint32_t kMaxWidth = 0x140;
+constexpr std::uint32_t kMaxHeight = 1024;
 
 /// Signed 16-bit value stored in a plane.
 std::int16_t as_s16(std::uint16_t value) {
@@ -504,7 +505,8 @@ std::optional<VideoFrame> decode_sbv_frame(std::span<const std::uint8_t> block, 
         error = "empty SBV frame block";
         return std::nullopt;
     }
-    if (width <= 0 || height <= 0 || static_cast<std::uint32_t>(width) > kMaxWidth) {
+    if (width <= 0 || height <= 0 || static_cast<std::uint32_t>(width) > kMaxWidth ||
+        static_cast<std::uint32_t>(height) > kMaxHeight) {
         error = "implausible SBV frame geometry " + std::to_string(width) + "x" +
                 std::to_string(height);
         return std::nullopt;
