@@ -42,6 +42,30 @@
                 "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
                 "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
             }
+        },
+        {
+            "name": "dev",
+            "displayName": "Day-to-day Debug build (build/dev)",
+            "description": "Debug build for editing/stepping. Same flags as 'debug', only a stable build directory so tools/dev.sh can reuse it.",
+            "inherits": "base",
+            "binaryDir": "${sourceDir}/build/dev",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_PREFIX_PATH": "$env{HOME}/tools/sdl3",
+                "GM_USE_PCH": "ON"
+            }
+        },
+        {
+            "name": "test",
+            "displayName": "Optimised test build (build/test)",
+            "description": "RelWithDebInfo twin of 'dev'. Same tests, no NDEBUG-dependent checks in the engine (there are no assert()s), ~4x faster test run. Use it for the inner loop; use 'dev' when a debugger is needed.",
+            "inherits": "base",
+            "binaryDir": "${sourceDir}/build/test",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_PREFIX_PATH": "$env{HOME}/tools/sdl3",
+                "GM_USE_PCH": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -56,6 +80,14 @@
         {
             "name": "asan",
             "configurePreset": "asan"
+        },
+        {
+            "name": "dev",
+            "configurePreset": "dev"
+        },
+        {
+            "name": "test",
+            "configurePreset": "test"
         }
     ],
     "testPresets": [
@@ -71,6 +103,50 @@
             "configurePreset": "release",
             "output": {
                 "outputOnFailure": true
+            }
+        },
+        {
+            "name": "dev",
+            "displayName": "All CTest tests on build/dev (Debug)",
+            "configurePreset": "dev",
+            "execution": {
+                "jobs": 8
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "test",
+            "displayName": "All CTest tests on build/test (fast)",
+            "configurePreset": "test",
+            "execution": {
+                "jobs": 8
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "quick",
+            "displayName": "Fast CTest subset (label: quick)",
+            "description": "Everything except the SBV frame-hash sweep and the Python parity sweep. Meant for the inner loop; it is a subset, never a replacement for a full run.",
+            "inherits": "dev",
+            "filter": {
+                "include": {
+                    "label": "quick"
+                }
+            }
+        },
+        {
+            "name": "full",
+            "displayName": "Heavy CTest tests (label: full)",
+            "description": "The SBV frame-hash sweep and the Python parity sweep only.",
+            "inherits": "dev",
+            "filter": {
+                "include": {
+                    "label": "full"
+                }
             }
         }
     ]
