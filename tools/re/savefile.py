@@ -27,6 +27,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import struct
 import sys
 
@@ -55,6 +56,14 @@ SHIELDS_AT = 0x3250
 RESOURCE_AT = 0x32c4
 SHIELD_NAMES = ("front", "back", "left", "right")
 GAUGE = 100.0
+
+# weapons: the selected slot (+0x3294), the level's weapon bitmask (+0x3298)
+# and one u32 ammo counter per slot (+0x329c), indexed the same way as the
+# runtime weapon table (``[slot*4 + 0x81c2dc]`` at ``0x4455ad``).
+WEAPON_SLOT_AT = 0x3294
+WEAPON_MASK_AT = 0x3298
+AMMO_AT = 0x329c
+AMMO_SLOTS = 12
 
 
 def anchors(path: str) -> list[bytes]:
@@ -126,18 +135,47 @@ def find_player(tail: bytes) -> int:
 
 
 def player(tail: bytes) -> dict:
-    """Player gauges: armor (with max) and the four directional shields."""
+    """Player gauges, selected weapon and the per-slot ammo counters."""
     off = find_player(tail)
     if off < 0:
         return {}
     st = tail[off + 2:off + 2 + PLAYER_STRUCT]
     amax, acur, smax = struct.unpack("<3i", st[ARMOR_MAX_AT:SHIELDS_AT])
     shields = struct.unpack("<4i", st[SHIELDS_AT:SHIELDS_AT + 16])
+    slot = struct.unpack("<i", st[WEAPON_SLOT_AT:WEAPON_SLOT_AT + 4])[0]
+    mask = struct.unpack("<I", st[WEAPON_MASK_AT:WEAPON_MASK_AT + 4])[0]
+    ammo = struct.unpack("<%dI" % AMMO_SLOTS, st[AMMO_AT:AMMO_AT + 4 * AMMO_SLOTS])
     return {"offset": off,
             "armor": acur / GAUGE, "armor_max": amax / GAUGE,
             "shield_max": smax / GAUGE,
             "shields": {n: v / GAUGE for n, v in zip(SHIELD_NAMES, shields)},
-            "resource": struct.unpack("<i", st[RESOURCE_AT:RESOURCE_AT + 4])[0] / GAUGE}
+            "weapon_slot": slot, "weapon_mask": mask,
+            "ammo": {i: v for i, v in enumerate(ammo)}}
+
+
+def weapons(level_path: str) -> list[str]:
+    """Weapon names in table order (the ``WICON`` entries of the level's .sbt).
+
+    The runtime weapon table (``0x80fa3c``, stride ``0x2a8``) is filled from the
+    level's ``DEFINE_WEAPONS`` block, which stores the name right before the
+    icon tag (``clickblt``/``WICON<n>``).  Ammo slots follow the same order,
+    which is what makes slot 0 the machine gun and slot 1 the cannon.
+    """
+    try:
+        data = open(level_path, "rb").read()
+    except OSError:
+        return []
+    names: list[str] = []
+    for m in re.finditer(rb"WICON\d+\x00", data):
+        pre = data[max(0, m.start() - 96):m.start()]
+        parts = [p for p in pre.split(b"\x00")
+                 if p and all(32 <= c < 127 for c in p)]
+        if len(parts) < 2:
+            continue
+        name = parts[-2].decode("latin1").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def blocks(tail: bytes, game: str, level: str) -> dict:
@@ -147,6 +185,7 @@ def blocks(tail: bytes, game: str, level: str) -> dict:
     out = {"level_doors": len(doors), "level_switches": len(switches)}
     p = player(tail)
     if p:
+        p["names"] = weapons(os.path.join(game, level))
         out["player"] = p
     # doors: flags +0x68, ids +0x6c..+0x7c, state +0x80, phase +0x8c
     off = find_block(tail, len(doors), 0xB8, 0x6c,
@@ -255,11 +294,21 @@ def main() -> int:
               % (s["offset"], len(s["records"])))
     p = info.get("player")
     if p:
-        print("  player block at +0x%x: armor %.2f/%.2f, resource %.2f"
-              % (p["offset"], p["armor"], p["armor_max"], p["resource"]))
+        print("  player block at +0x%x: armor %.2f/%.2f"
+              % (p["offset"], p["armor"], p["armor_max"]))
         print("    shields (max %.2f): %s"
               % (p["shield_max"],
                  " ".join("%s=%.2f" % (n, p["shields"][n]) for n in SHIELD_NAMES)))
+        names = p.get("names") or []
+        sel = p["weapon_slot"]
+        print("    weapons: mask 0x%x, selected %s"
+              % (p["weapon_mask"],
+                 "%d (%s)" % (sel, names[sel]) if 0 <= sel < len(names) else sel))
+        for i in sorted(p["ammo"]):
+            if not p["ammo"][i]:
+                continue
+            print("      ammo %-16s %d"
+                  % (names[i] if i < len(names) else "slot %d" % i, p["ammo"][i]))
     return 0
 
 

@@ -129,7 +129,15 @@ def main() -> int:
         print("player (block at +0x%x -> +0x%x): armor %.2f -> %.2f (max %.2f)"
               % (pa["offset"], pb["offset"], pa["armor"], pb["armor"],
                  pb["armor_max"]))
-        print("  resource %.2f -> %.2f" % (pa["resource"], pb["resource"]))
+        names = pa.get("names") or []
+        for i in sorted(pa["ammo"]):
+            va, vb = pa["ammo"][i], pb["ammo"].get(i, 0)
+            if va != vb:
+                print("  ammo %-16s %6d -> %6d  (%+d)"
+                      % (names[i] if i < len(names) else "slot %d" % i,
+                         va, vb, vb - va))
+        if pa["weapon_slot"] != pb["weapon_slot"]:
+            print("  selected weapon %d -> %d" % (pa["weapon_slot"], pb["weapon_slot"]))
         for n in savefile.SHIELD_NAMES:
             va, vb = pa["shields"][n], pb["shields"][n]
             print("  shield %-5s %6.2f -> %6.2f%s"

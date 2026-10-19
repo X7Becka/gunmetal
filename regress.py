@@ -583,11 +583,15 @@ def save_checks(G: str, results: list[bool]) -> None:
             bad.append(os.path.basename(path) + ": armor out of range")
         elif not all(0 <= v <= pl["shield_max"] for v in pl["shields"].values()):
             bad.append(os.path.basename(path) + ": shield out of range")
+        elif any(v > 1000000 for v in pl["ammo"].values()):
+            bad.append(os.path.basename(path) + ": ammo out of range")
         elif info.get("doors") and len(info["doors"]["records"]) != info["level_doors"]:
             bad.append(os.path.basename(path) + ": door records")
         else:
-            seen.append("%s=%.2f" % (os.path.basename(path)[:-4], pl["armor"]))
-    results.append(report("save / player gauges", not bad,
+            used = sum(1 for v in pl["ammo"].values() if v)
+            seen.append("%s=%.2f/%d wpn" % (os.path.basename(path)[:-4],
+                                           pl["armor"], used))
+    results.append(report("save / player gauges + ammo", not bad,
                           ", ".join(seen) if seen else "none"))
     if bad:
         print("        " + "; ".join(bad))
