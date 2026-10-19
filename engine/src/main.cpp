@@ -601,6 +601,59 @@ int show_level(const gm::Options& options) {
     return 0;
 }
 
+int show_song(const gm::Options& options) {
+    std::string error;
+    auto path = gm::resolve_ci(options.game / "MUSIC", options.song + ".sog");
+    if (!path) {
+        gm::logf(gm::LogLevel::Error, "song", "playlist not found: " + options.song);
+        return 2;
+    }
+    const auto bytes = read_file(*path, error);
+    if (!bytes) {
+        gm::logf(gm::LogLevel::Error, "song", error);
+        return 2;
+    }
+    const auto sog = gm::parse_sog(*bytes, error);
+    if (!sog) {
+        gm::logf(gm::LogLevel::Error, "song", error);
+        return 2;
+    }
+    auto idx = gm::resolve_ci(options.game / "MUSIC", "SOU.IDX");
+    if (!idx) {
+        gm::logf(gm::LogLevel::Error, "song", "MUSIC/SOU.IDX not found");
+        return 2;
+    }
+    const auto archive = gm::BigFile::open(*idx, error);
+    if (!archive) {
+        gm::logf(gm::LogLevel::Error, "song", error);
+        return 2;
+    }
+
+    std::printf("song: %s\n", path->filename().string().c_str());
+    std::printf("tracks: %zu\n", sog->names.size());
+    std::uint64_t total = 0;
+    std::size_t missing = 0;
+    for (const auto& name : sog->names) {
+        const gm::BigEntry* found = nullptr;
+        for (const auto& entry : archive->entries()) {
+            if (gm::iequals_ascii(entry.name, name)) {
+                found = &entry;
+                break;
+            }
+        }
+        if (found == nullptr) {
+            std::printf("  %s missing\n", name.c_str());
+            ++missing;
+            continue;
+        }
+        total += found->size;
+        std::printf("  %s %u bytes\n", name.c_str(), found->size);
+    }
+    std::printf("total: %llu bytes, %zu missing\n",
+                static_cast<unsigned long long>(total), missing);
+    return missing == 0 ? 0 : 1;
+}
+
 int play_video(const gm::Options& options) {
     std::string error;
     std::string name = options.play;
@@ -859,6 +912,9 @@ int main(int argc, char** argv) {
     }
     if (options->verbose) {
         gm::set_log_level(gm::LogLevel::Debug);
+    }
+    if (!options->song.empty()) {
+        return show_song(*options);
     }
     if (!options->play.empty()) {
         return play_video(*options);

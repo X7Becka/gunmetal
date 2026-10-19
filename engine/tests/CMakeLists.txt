@@ -9,6 +9,11 @@ set_tests_properties(cli_version PROPERTIES PASS_REGULAR_EXPRESSION "gunmetal 0.
 add_test(NAME cli_headless COMMAND gunmetal --headless --frames 2)
 set_tests_properties(cli_headless PROPERTIES PASS_REGULAR_EXPRESSION "frames=2")
 
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/MUSIC/Dm1A.sog")
+    add_test(NAME cli_song COMMAND gunmetal --song Dm1A)
+    set_tests_properties(cli_song PROPERTIES PASS_REGULAR_EXPRESSION "tracks: 8")
+endif()
+
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/Vid/Intro.sbv")
     add_test(NAME cli_play COMMAND gunmetal --headless --play Intro --frames 3)
     set_tests_properties(cli_play PROPERTIES PASS_REGULAR_EXPRESSION "frames=3")

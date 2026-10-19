@@ -187,6 +187,7 @@
 * **Видео** — `engine/src/res/sbv.*` (контейнер `SBV0`) + `res/sbv_video.*`
   (пиксельный кодек, порт `gm/sbv.py`: 500/500 кадров Intro = Python).
   Проигрывание: `gunmetal --play Intro` (`--frames N` — ограничение).
+  Плейлисты: `gunmetal --song Dm1A` (треки `.sog` → записи MUSIC/SOU.DAT).
 * **Модели/тексты в движке** — `engine/src/res/sob.*` (672/672, golden-FNV),
   `text.*` (`.sog` 651/651, `.soe`, шифр `.sme` + теги `.sml`; пара
   `LEVEL1.SME` = `level1.sml`), `level.*`: `gunmetal --level level0` открывает вьювер (стрелки — поворот, WASD — движение,

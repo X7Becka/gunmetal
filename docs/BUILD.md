@@ -83,6 +83,7 @@ gunmetal [--game DIR] [--level NAME] [--dump FILE] [--headless]
 | `cli_dump` (вручную) | `--dump tex.sbm --png out.png` — валидный RGBA-PNG |
 | `cli_dump_missing` | отсутствующий файл — код возврата ≠ 0 (не падение) |
 | `cli_level` (вручную) | `--level level0 --info` печатает world/entities/lightmaps |
+| `cli_song` | `--song Dm1A`: плейлист `.sog` резолвится в MUSIC/SOU.DAT |
 | `cli_play` | `--headless --play Intro --frames 3` декодирует SBV и проходит путь видео |
 | `cli_level_frames` | `--headless --level level0 --frames 2` проходит путь вьювера |
 | `sbtvm` | 36/36 `.sbt`: декодер SCRIPT = Python (100 487 инструкций, FNV) |
