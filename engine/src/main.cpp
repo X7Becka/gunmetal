@@ -10,6 +10,7 @@
 #include "res/sbm.h"
 #include "res/sbw.h"
 #include "res/sou.h"
+#include "res/sou2.h"
 #include "res/sbt.h"
 #include "res/sbc.h"
 #include "res/sob.h"
@@ -601,6 +602,101 @@ int show_level(const gm::Options& options) {
     return 0;
 }
 
+std::vector<std::uint8_t> make_wav(const gm::PcmClip& clip) {
+    const std::uint32_t data_bytes = static_cast<std::uint32_t>(clip.samples.size() * 2);
+    const std::uint16_t channels = static_cast<std::uint16_t>(std::max(1, clip.channels));
+    const std::uint32_t rate = static_cast<std::uint32_t>(std::max(1, clip.sample_rate));
+    const std::uint16_t block = static_cast<std::uint16_t>(channels * 2);
+    std::vector<std::uint8_t> out;
+    out.reserve(44 + data_bytes);
+    auto put32 = [&](std::uint32_t v) {
+        out.push_back(static_cast<std::uint8_t>(v));
+        out.push_back(static_cast<std::uint8_t>(v >> 8));
+        out.push_back(static_cast<std::uint8_t>(v >> 16));
+        out.push_back(static_cast<std::uint8_t>(v >> 24));
+    };
+    auto put16 = [&](std::uint16_t v) {
+        out.push_back(static_cast<std::uint8_t>(v));
+        out.push_back(static_cast<std::uint8_t>(v >> 8));
+    };
+    auto tag = [&](const char* s) { out.insert(out.end(), s, s + 4); };
+    tag("RIFF");
+    put32(36 + data_bytes);
+    tag("WAVE");
+    tag("fmt ");
+    put32(16);
+    put16(1); // PCM
+    put16(channels);
+    put32(rate);
+    put32(rate * block);
+    put16(block);
+    put16(16);
+    tag("data");
+    put32(data_bytes);
+    for (std::int16_t sample : clip.samples) {
+        put16(static_cast<std::uint16_t>(sample));
+    }
+    return out;
+}
+
+int export_sou2(const gm::Options& options) {
+    std::string error;
+    if (options.wav.empty()) {
+        gm::logf(gm::LogLevel::Error, "sou2", "--sou2 needs --wav OUT");
+        return 2;
+    }
+    const gm::BigEntry* found = nullptr;
+    std::optional<gm::BigFile> archive;
+    for (const char* sub : {"MUSIC", "sounds"}) {
+        const auto idx = gm::resolve_ci(options.game / sub, "SOU.IDX");
+        if (!idx) {
+            continue;
+        }
+        auto file = gm::BigFile::open(*idx, error);
+        if (!file) {
+            continue;
+        }
+        for (const auto& entry : file->entries()) {
+            if (gm::iequals_ascii(entry.name, options.sou2)) {
+                found = &entry;
+                archive = std::move(*file);
+                break;
+            }
+        }
+        if (found != nullptr) {
+            break;
+        }
+    }
+    if (found == nullptr || !archive) {
+        gm::logf(gm::LogLevel::Error, "sou2", "entry not found: " + options.sou2);
+        return 2;
+    }
+    const auto blob = archive->read(*found, error);
+    if (!blob) {
+        gm::logf(gm::LogLevel::Error, "sou2", error);
+        return 2;
+    }
+    const auto clip = gm::decode_sou2(*blob, error);
+    if (!clip) {
+        gm::logf(gm::LogLevel::Error, "sou2", error);
+        return 2;
+    }
+    const auto wav = make_wav(*clip);
+    if (!write_file(options.wav, wav)) {
+        gm::logf(gm::LogLevel::Error, "sou2", "cannot write " + options.wav.string());
+        return 2;
+    }
+    const double seconds =
+        clip->sample_rate > 0 && clip->channels > 0
+            ? static_cast<double>(clip->samples.size()) / clip->channels / clip->sample_rate
+            : 0.0;
+    std::printf("sou2: %s\n", found->name.c_str());
+    std::printf("format: %d Hz, %d ch, %zu samples (%.3f s)\n", clip->sample_rate,
+                clip->channels, clip->samples.size(), seconds);
+    std::printf("wav: %s (%zu bytes)\n", options.wav.string().c_str(), wav.size());
+    return 0;
+}
+
 int show_song(const gm::Options& options) {
     std::string error;
     auto path = gm::resolve_ci(options.game / "MUSIC", options.song + ".sog");
@@ -912,6 +1008,9 @@ int main(int argc, char** argv) {
     }
     if (options->verbose) {
         gm::set_log_level(gm::LogLevel::Debug);
+    }
+    if (!options->sou2.empty()) {
+        return export_sou2(*options);
     }
     if (!options->song.empty()) {
         return show_song(*options);

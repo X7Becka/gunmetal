@@ -15,6 +15,8 @@ struct Options {
     std::string level;
     std::string play;
     std::string song;
+    std::string sou2;
+    std::filesystem::path wav;
     std::filesystem::path dump;
     std::filesystem::path png;
     std::filesystem::path render; // output PNG for --render

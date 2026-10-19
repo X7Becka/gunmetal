@@ -82,6 +82,18 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.level = std::string(*v);
+        } else if (arg == "--sou2") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.sou2 = std::string(*v);
+        } else if (arg == "--wav") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.wav = std::filesystem::path(std::string(*v));
         } else if (arg == "--song") {
             const auto v = value(arg);
             if (!v) {
@@ -249,6 +261,8 @@ std::string usage() {
        << "      --info        print the level summary instead of opening the viewer\n"
        << "      --play NAME   play Vid/NAME.sbv (--frames limits the frame count)\n"
        << "      --song NAME   list the MUSIC/NAME.sog playlist and its SOU.DAT entries\n"
+       << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
+       << "      --wav OUT     output file for --sou2\n"
        << "      --pos X,Y,Z   camera eye in world space (with --look)\n"
        << "      --look X,Y,Z  camera target in world space\n"
        << "      --clip N      drop faces farther than N from the eye\n"
