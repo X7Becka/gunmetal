@@ -17,8 +17,9 @@ struct VideoFrame {
 
 /// Decode one intra-coded frame block of an ``SBV0`` clip.  The container is
 /// parsed by ``res/sbv.h``; *block* is one entry of the frame table
-/// (``data_start + previous_end .. data_start + end``).  The pixel codec is
-/// implemented in ``gm/sbv.py``; see docs/FORMATS.md §11.
+/// (``data_start + previous_end .. data_start + end``).  This is a 1:1 port of
+/// the pyramid codec in ``gm/sbv.py``; see docs/FORMATS.md §11.  Frames are
+/// purely intra-coded, so the result never depends on other frames.
 std::optional<VideoFrame> decode_sbv_frame(std::span<const std::uint8_t> block, int width,
                                            int height, std::string& error);
 
