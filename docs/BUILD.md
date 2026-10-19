@@ -82,7 +82,7 @@ gunmetal [--game DIR] [--level NAME] [--dump FILE] [--headless]
 | `cli_dump` | дамп существующего файла печатает `size:` |
 | `cli_dump` (вручную) | `--dump tex.sbm --png out.png` — валидный RGBA-PNG |
 | `cli_dump_missing` | отсутствующий файл — код возврата ≠ 0 (не падение) |
-| `cli_level` (вручную) | `--level level0` печатает world/entities/lightmaps |
+| `cli_level` (вручную) | `--level level0 --info` печатает world/entities/lightmaps |
 | `cli_render` (вручную) | `--render out.png --level level0` пишет PNG |
 
 Регрессия ассетов (`regress.py`) не зависит от C++-сборки и остаётся отдельной.

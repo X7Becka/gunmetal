@@ -16,8 +16,8 @@ struct Options {
     std::filesystem::path png;
     std::filesystem::path render; // output PNG for --render
     std::filesystem::path model;  // .sob to render instead of a level
-    int width = 480;
-    int height = 480;
+    int width = 640;
+    int height = 400;
     float az = 35.0f;
     float el = 22.0f;
     float zoom = 1.0f;
@@ -26,6 +26,7 @@ struct Options {
     bool no_lightmaps = false;
     bool lightmap_world = false;
     bool wire = false;
+    bool info = false;
     bool headless = false;
     int frames = -1; // < 0: run until the window is closed
     bool verbose = false;

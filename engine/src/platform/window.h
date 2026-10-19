@@ -7,6 +7,21 @@
 
 namespace gm {
 
+enum class Key {
+    Left,
+    Right,
+    Up,
+    Down,
+    W,
+    A,
+    S,
+    D,
+    Shift,
+    Plus,
+    Minus,
+    Escape,
+};
+
 /// Small platform window with a software framebuffer (XRGB8888).
 ///
 /// Headless mode never touches SDL: it keeps a CPU buffer, which is what the
@@ -24,6 +39,12 @@ public:
 
     /// Process events; returns false when the user closed the window (or Esc).
     bool pump();
+
+    /// Keyboard state (always false in headless mode).
+    bool key_down(Key key) const;
+
+    /// Copy an RGB frame (nearest-neighbour scaled, letterboxed) into the window.
+    void blit_rgb(const std::uint8_t* rgb, int width, int height);
 
     void fill(std::uint8_t r, std::uint8_t g, std::uint8_t b);
 

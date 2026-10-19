@@ -583,20 +583,76 @@ int show_level(const gm::Options& options) {
 
 int run(const gm::Options& options) {
     std::string error;
-    auto window = gm::Window::open("Gunmetal", 320, 200, options.headless, error);
+
+    std::optional<gm::LevelBundle> level;
+    std::vector<gm::RenderMesh> meshes;
+    const gm::Sbc* lightmaps = nullptr;
+    if (!options.level.empty()) {
+        level = gm::load_level(options.game, options.level, error);
+        if (!level || !level->world) {
+            gm::logf(gm::LogLevel::Error, "run", error);
+            return 2;
+        }
+        lightmaps = level->lightmaps ? &*level->lightmaps : nullptr;
+        meshes = gm::build_level_meshes(*level->world, lightmaps);
+    }
+
+    auto window = gm::Window::open("Gunmetal", options.width, options.height, options.headless,
+                                   error);
     if (!window) {
         gm::logf(gm::LogLevel::Error, "video", error);
         return 1;
     }
     gm::logf(gm::LogLevel::Info, "run", "game=", options.game.string(),
-             options.headless ? " headless" : "");
+             options.headless ? " headless" : "", level ? " level=" + level->name : "");
+
+    gm::TexturePool pool(options.game);
+    double az = options.az;
+    double el = options.el;
+    double zoom = options.zoom;
 
     gm::FrameClock clock;
     int frame = 0;
     while (window->pump()) {
-        window->fill_gradient(frame);
+        const double dt = clock.tick();
+        const double turn = 70.0 * dt;
+        if (window->key_down(gm::Key::Left)) {
+            az -= turn;
+        }
+        if (window->key_down(gm::Key::Right)) {
+            az += turn;
+        }
+        if (window->key_down(gm::Key::Up)) {
+            el = std::min(89.0, el + turn);
+        }
+        if (window->key_down(gm::Key::Down)) {
+            el = std::max(-89.0, el - turn);
+        }
+        if (window->key_down(gm::Key::Plus)) {
+            zoom *= 1.0 + 1.5 * dt;
+        }
+        if (window->key_down(gm::Key::Minus)) {
+            zoom = std::max(0.1, zoom / (1.0 + 1.5 * dt));
+        }
+
+        if (!meshes.empty()) {
+            gm::RenderOptions render;
+            render.width = window->width();
+            render.height = window->height();
+            render.az = static_cast<float>(az);
+            render.el = static_cast<float>(el);
+            render.zoom = static_cast<float>(zoom);
+            render.fov = options.fov;
+            render.textures = !options.no_textures;
+            render.lightmaps = !options.no_lightmaps;
+            render.lightmap_world = options.lightmap_world;
+            render.wire = options.wire;
+            const auto image = gm::render_scene(meshes, render, &pool, lightmaps);
+            window->blit_rgb(image.rgb.data(), image.width, image.height);
+        } else {
+            window->fill_gradient(frame);
+        }
         window->present();
-        (void)clock.tick();
         ++frame;
         if (options.frames >= 0 && frame >= options.frames) {
             break;
@@ -636,7 +692,7 @@ int main(int argc, char** argv) {
     if (!options->render.empty()) {
         return render_image(*options);
     }
-    if (!options->level.empty()) {
+    if (!options->level.empty() && options->info) {
         return show_level(*options);
     }
     if (!options->png.empty()) {

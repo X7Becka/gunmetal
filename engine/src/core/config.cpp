@@ -133,6 +133,8 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             options.lightmap_world = true;
         } else if (arg == "--wire") {
             options.wire = true;
+        } else if (arg == "--info") {
+            options.info = true;
         } else if (arg == "--frames" || arg == "-n") {
             const auto v = value(arg);
             if (!v) {
@@ -166,13 +168,13 @@ std::string usage() {
        << "usage: gunmetal [options]\n\n"
        << "  -g, --game DIR    installation root (default: $GUNMETAL_DIR or\n"
        << "                    /mnt/d/games/Gunmetal 3dfx)\n"
-       << "  -l, --level NAME  level to load (world + entities + lightmaps)\n"
+       << "  -l, --level NAME  level to load (opens the viewer; with --info prints a summary)\n"
        << "  -d, --dump FILE   print size and the first bytes of FILE, then exit\n"
        << "      --png OUT     with --dump of a .sbm/.bmp: write OUT as PNG\n"
        << "      --render OUT  render --level or --model into OUT (PNG)\n"
        << "      --model FILE  render a .sob model instead of a level\n"
-       << "      --width N     render width (default 480)\n"
-       << "      --height N    render height (default 480)\n"
+       << "      --width N     render/window width (default 640)\n"
+       << "      --height N    render/window height (default 400)\n"
        << "      --az DEG      camera azimuth (default 35)\n"
        << "      --el DEG      camera elevation (default 22)\n"
        << "      --zoom X      camera zoom (default 1)\n"
@@ -180,6 +182,7 @@ std::string usage() {
        << "      --no-textures flat colours instead of archive textures\n"
        << "      --no-lightmaps ignore .sbc lightmaps\n"
        << "      --wire        draw polygon edges\n"
+       << "      --info        print the level summary instead of opening the viewer\n"
        << "      --headless    do not create a window\n"
        << "  -n, --frames N    stop after N frames (default: until closed)\n"
        << "  -v, --verbose     debug logging\n"

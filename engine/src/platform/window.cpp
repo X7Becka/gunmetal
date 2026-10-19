@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <utility>
@@ -116,6 +117,85 @@ Window& Window::operator=(Window&& other) noexcept {
         std::swap(impl_, other.impl_);
     }
     return *this;
+}
+
+bool Window::key_down(Key key) const {
+    if (impl_ == nullptr || impl_->headless) {
+        return false;
+    }
+#if GM_HAVE_SDL3
+    const bool* state = SDL_GetKeyboardState(nullptr);
+    if (state == nullptr) {
+        return false;
+    }
+    SDL_Scancode code = SDL_SCANCODE_UNKNOWN;
+    switch (key) {
+        case Key::Left: code = SDL_SCANCODE_LEFT; break;
+        case Key::Right: code = SDL_SCANCODE_RIGHT; break;
+        case Key::Up: code = SDL_SCANCODE_UP; break;
+        case Key::Down: code = SDL_SCANCODE_DOWN; break;
+        case Key::W: code = SDL_SCANCODE_W; break;
+        case Key::A: code = SDL_SCANCODE_A; break;
+        case Key::S: code = SDL_SCANCODE_S; break;
+        case Key::D: code = SDL_SCANCODE_D; break;
+        case Key::Shift: code = SDL_SCANCODE_LSHIFT; break;
+        case Key::Plus: code = SDL_SCANCODE_EQUALS; break;
+        case Key::Minus: code = SDL_SCANCODE_MINUS; break;
+        case Key::Escape: code = SDL_SCANCODE_ESCAPE; break;
+    }
+    return state[code];
+#else
+    (void)key;
+    return false;
+#endif
+}
+
+void Window::blit_rgb(const std::uint8_t* rgb, int width, int height) {
+    if (impl_ == nullptr || rgb == nullptr || width <= 0 || height <= 0) {
+        return;
+    }
+    const int dst_w = impl_->width;
+    const int dst_h = impl_->height;
+    auto sample = [&](int x, int y) -> std::uint32_t {
+        const int sx = std::min(width - 1, x * width / dst_w);
+        const int sy = std::min(height - 1, y * height / dst_h);
+        const std::uint8_t* p = rgb + (static_cast<std::size_t>(sy) * width + sx) * 3;
+        return 0xff000000u | (static_cast<std::uint32_t>(p[0]) << 16) |
+               (static_cast<std::uint32_t>(p[1]) << 8) | p[2];
+    };
+    if (impl_->headless) {
+        for (int y = 0; y < dst_h; ++y) {
+            for (int x = 0; x < dst_w; ++x) {
+                impl_->buffer[static_cast<std::size_t>(y) * dst_w + x] = sample(x, y);
+            }
+        }
+        return;
+    }
+#if GM_HAVE_SDL3
+    SDL_Surface* surface = impl_->surface;
+    if (surface == nullptr) {
+        return;
+    }
+    if (SDL_MUSTLOCK(surface)) {
+        SDL_LockSurface(surface);
+    }
+    for (int y = 0; y < dst_h; ++y) {
+        auto* row = reinterpret_cast<std::uint32_t*>(static_cast<std::uint8_t*>(surface->pixels) +
+                                                     static_cast<std::ptrdiff_t>(y) *
+                                                         surface->pitch);
+        for (int x = 0; x < dst_w; ++x) {
+            const std::uint32_t c = sample(x, y);
+            row[x] = SDL_MapSurfaceRGB(surface, static_cast<std::uint8_t>(c >> 16),
+                                       static_cast<std::uint8_t>(c >> 8),
+                                       static_cast<std::uint8_t>(c));
+        }
+    }
+    if (SDL_MUSTLOCK(surface)) {
+        SDL_UnlockSurface(surface);
+    }
+#else
+    (void)sample;
+#endif
 }
 
 bool Window::pump() {
