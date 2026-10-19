@@ -14,3 +14,11 @@ set_tests_properties(cli_dump PROPERTIES PASS_REGULAR_EXPRESSION "size: [0-9]+ b
 
 add_test(NAME cli_dump_missing COMMAND gunmetal --dump ${CMAKE_CURRENT_SOURCE_DIR}/missing.bin)
 set_tests_properties(cli_dump_missing PROPERTIES WILL_FAIL TRUE)
+
+add_executable(gm_sou2_tests test_sou2.cpp)
+target_link_libraries(gm_sou2_tests PRIVATE gm_engine)
+add_test(NAME sou2 COMMAND gm_sou2_tests)
+
+add_executable(gm_sbv_video_tests test_sbv_video.cpp)
+target_link_libraries(gm_sbv_video_tests PRIVATE gm_engine)
+add_test(NAME sbv_video COMMAND gm_sbv_video_tests)

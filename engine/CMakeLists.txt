@@ -8,6 +8,7 @@ add_library(gm_engine STATIC
     src/res/anim.cpp
     src/res/level.cpp
     src/res/sbv.cpp
+    src/res/sbv_video.cpp
     src/res/cache.cpp
     src/render/render.cpp
     src/res/bigfile.cpp
@@ -19,6 +20,7 @@ add_library(gm_engine STATIC
     src/res/sob.cpp
     src/res/sbt.cpp
     src/res/sou.cpp
+    src/res/sou2.cpp
     src/res/text.cpp
 )
 
