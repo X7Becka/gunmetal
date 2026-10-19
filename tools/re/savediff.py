@@ -124,6 +124,16 @@ def main() -> int:
         same = all(sa[i]["id"] == sb[i]["id"] and sa[i]["pos"] == sb[i]["pos"]
                    for i in sa if i in sb)
         print("switches: %d records, unchanged: %s" % (len(sa), same))
+    pa, pb = da.get("player"), db.get("player")
+    if pa and pb:
+        print("player (block at +0x%x -> +0x%x): armor %.2f -> %.2f (max %.2f)"
+              % (pa["offset"], pb["offset"], pa["armor"], pb["armor"],
+                 pb["armor_max"]))
+        print("  resource %.2f -> %.2f" % (pa["resource"], pb["resource"]))
+        for n in savefile.SHIELD_NAMES:
+            va, vb = pa["shields"][n], pb["shields"][n]
+            print("  shield %-5s %6.2f -> %6.2f%s"
+                  % (n, va, vb, "" if va == vb else "  (%+.2f)" % (vb - va)))
 
     for tag, start in (("header", 0), ("state", a["tail"])):
         stop = 0x8e8 if tag == "header" else min(len(a["data"]), len(b["data"]))

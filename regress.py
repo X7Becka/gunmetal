@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import math
 import os
 import subprocess
@@ -558,6 +559,40 @@ def _s32(v: int) -> int:
     return v - 0x100000000 if v >= 0x80000000 else v
 
 
+def save_checks(G: str, results: list[bool]) -> None:
+    """Every installed save must yield its player gauges and its record counts."""
+    tool = os.path.join(HERE, "tools", "re", "savefile.py")
+    saves = sorted(glob.glob(os.path.join(G, "SAVEGAME", "*.sbt")))
+    if not saves:
+        results.append(report("save / player gauges", True, "no saves installed"))
+        return
+    bad, seen = [], []
+    for path in saves:
+        p = subprocess.run([sys.executable, tool, path, "--game", G, "--json"],
+                           capture_output=True, text=True, cwd=HERE)
+        try:
+            info = json.loads(p.stdout)
+        except Exception:
+            bad.append(os.path.basename(path) + ": unparsable")
+            continue
+        pl = info.get("player")
+        if not pl:
+            bad.append(os.path.basename(path) + ": no player block")
+            continue
+        if not 0 < pl["armor"] <= pl["armor_max"]:
+            bad.append(os.path.basename(path) + ": armor out of range")
+        elif not all(0 <= v <= pl["shield_max"] for v in pl["shields"].values()):
+            bad.append(os.path.basename(path) + ": shield out of range")
+        elif info.get("doors") and len(info["doors"]["records"]) != info["level_doors"]:
+            bad.append(os.path.basename(path) + ": door records")
+        else:
+            seen.append("%s=%.2f" % (os.path.basename(path)[:-4], pl["armor"]))
+    results.append(report("save / player gauges", not bad,
+                          ", ".join(seen) if seen else "none"))
+    if bad:
+        print("        " + "; ".join(bad))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -637,6 +672,7 @@ def main() -> int:
 
     # --- residual .sbw fields (fast: parses all 36 levels in ~2 s) --------
     sbw_field_checks(G, results)
+    save_checks(G, results)
 
     # --- .sml/.sme markup -------------------------------------------------
     sml_checks(G, results)

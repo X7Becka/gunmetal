@@ -40,6 +40,22 @@ VERSION_AT = 12
 NAME_AT = 0x54
 NAME_LEN = 16
 
+# --- player block -----------------------------------------------------------
+# The tail is a stream of ``[u8 id][payload]`` blocks; the player status block
+# (id 9, see ``0x452020``) is ``u8 9``, ``u8 present``, then the raw 0x3510
+# runtime struct, then 16 bytes per attached object.  Gauges are stored in
+# hundredths of a point (10000 == 100.00), proven against ``0x44408a`` (armor
+# max/current ratio) and the damage loop at ``0x443c7d`` (4 shields).
+PLAYER_ID = 9
+PLAYER_STRUCT = 0x3510
+ARMOR_MAX_AT = 0x3244
+ARMOR_AT = 0x3248
+SHIELD_MAX_AT = 0x324c
+SHIELDS_AT = 0x3250
+RESOURCE_AT = 0x32c4
+SHIELD_NAMES = ("front", "back", "left", "right")
+GAUGE = 100.0
+
 
 def anchors(path: str) -> list[bytes]:
     data = open(path, "rb").read()
@@ -87,11 +103,51 @@ def find_block(tail: bytes, count: int, stride: int, key_off: int,
             return i
 
 
+def find_player(tail: bytes) -> int:
+    """Locate the player status block (marker 9 + present + 0x3510 struct)."""
+    hits = []
+    start = 0
+    while True:
+        i = tail.find(bytes((PLAYER_ID, 1)), start)
+        if i < 0 or i + 2 + 0x3260 > len(tail):
+            break
+        start = i + 1
+        st = tail[i + 2:i + 2 + PLAYER_STRUCT]
+        amax, acur, smax = struct.unpack("<3i", st[ARMOR_MAX_AT:SHIELDS_AT])
+        shields = struct.unpack("<4i", st[SHIELDS_AT:SHIELDS_AT + 16])
+        if not 0 < amax <= 1000000 or not 0 <= acur <= amax:
+            continue
+        if not 0 < smax <= 1000000:
+            continue
+        if not all(0 <= v <= smax for v in shields):
+            continue
+        hits.append(i)
+    return hits[-1] if hits else -1
+
+
+def player(tail: bytes) -> dict:
+    """Player gauges: armor (with max) and the four directional shields."""
+    off = find_player(tail)
+    if off < 0:
+        return {}
+    st = tail[off + 2:off + 2 + PLAYER_STRUCT]
+    amax, acur, smax = struct.unpack("<3i", st[ARMOR_MAX_AT:SHIELDS_AT])
+    shields = struct.unpack("<4i", st[SHIELDS_AT:SHIELDS_AT + 16])
+    return {"offset": off,
+            "armor": acur / GAUGE, "armor_max": amax / GAUGE,
+            "shield_max": smax / GAUGE,
+            "shields": {n: v / GAUGE for n, v in zip(SHIELD_NAMES, shields)},
+            "resource": struct.unpack("<i", st[RESOURCE_AT:RESOURCE_AT + 4])[0] / GAUGE}
+
+
 def blocks(tail: bytes, game: str, level: str) -> dict:
     """Door and switch arrays are stored as their raw runtime records."""
     sc = scenemod.load(os.path.join(game, level))
     doors, switches = list(sc.doors), list(sc.switches)
     out = {"level_doors": len(doors), "level_switches": len(switches)}
+    p = player(tail)
+    if p:
+        out["player"] = p
     # doors: flags +0x68, ids +0x6c..+0x7c, state +0x80, phase +0x8c
     off = find_block(tail, len(doors), 0xB8, 0x6c,
                      [tuple(d.ids)[0] for d in doors]) if doors else -1
@@ -197,6 +253,13 @@ def main() -> int:
     if s:
         print("  switches block at +0x%x: %d records"
               % (s["offset"], len(s["records"])))
+    p = info.get("player")
+    if p:
+        print("  player block at +0x%x: armor %.2f/%.2f, resource %.2f"
+              % (p["offset"], p["armor"], p["armor_max"], p["resource"]))
+        print("    shields (max %.2f): %s"
+              % (p["shield_max"],
+                 " ".join("%s=%.2f" % (n, p["shields"][n]) for n in SHIELD_NAMES)))
     return 0
 
 
