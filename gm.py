@@ -821,11 +821,13 @@ def cmd_save(opts) -> int:
         print("    weapons: mask 0x%x, selected %s"
               % (p["weapon_mask"],
                  "%d (%s)" % (sel, names[sel]) if 0 <= sel < len(names) else sel))
+        cap = p.get("ammo_max") or []
         for i in sorted(p["ammo"]):
             if p["ammo"][i]:
-                print("      ammo %-16s %d"
+                top = cap[i] if i < len(cap) else None
+                print("      ammo %-16s %d%s"
                       % (names[i] if i < len(names) else "slot %d" % i,
-                         p["ammo"][i]))
+                         p["ammo"][i], " / %d" % top if top else ""))
     return 0
 
 

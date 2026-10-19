@@ -178,6 +178,46 @@ def weapons(level_path: str) -> list[str]:
     return names
 
 
+
+def weapon_table(level_path: str) -> list[dict]:
+    """Per-slot weapon name, ammo type and stock limit from the level script.
+
+    ``DEFINE_WEAPONS`` field ``L3`` is the ammo type index and ``DEFINE_AMMO``
+    field ``L0`` is the stock limit (the shop clamps to it, ``0x47b642``), so
+    the pair gives the per-slot maximum that the HUD shows next to the count.
+    """
+    try:
+        from gm import sbt as sbtmod, sbtvm
+        s = sbtmod.parse_file(level_path)
+    except Exception:
+        return []
+    code = next((r.payload.code for r in s.records if r.name == "SCRIPT"), None)
+    if not code:
+        return []
+    try:
+        insns, _end = sbtvm.decode(code)
+    except Exception:
+        return []
+    ammo: list = []
+    weapons: list = []
+    for ins in insns:                    # top-level: the DEATHMATCH copy is nested
+        if ins.name == "DEFINE_AMMO" and ins.data:
+            ammo = ins.data
+        elif ins.name == "DEFINE_WEAPONS" and ins.data:
+            weapons = ins.data
+    out = []
+    for strs, vals in weapons:
+        idx = vals[2] if len(vals) > 2 else -1
+        cap = None
+        kind = ""
+        if 0 <= idx < len(ammo):
+            kind = ammo[idx][0][0] if ammo[idx][0] else ""
+            cap = ammo[idx][1][0] if ammo[idx][1] else None
+        out.append({"name": strs[0] if strs else "", "ammo_type": kind,
+                    "max": cap})
+    return out
+
+
 def blocks(tail: bytes, game: str, level: str) -> dict:
     """Door and switch arrays are stored as their raw runtime records."""
     sc = scenemod.load(os.path.join(game, level))
@@ -185,7 +225,14 @@ def blocks(tail: bytes, game: str, level: str) -> dict:
     out = {"level_doors": len(doors), "level_switches": len(switches)}
     p = player(tail)
     if p:
-        p["names"] = weapons(os.path.join(game, level))
+        level_path = os.path.join(game, level)
+        table = weapon_table(level_path)
+        if table:
+            p["names"] = [w["name"] for w in table]
+            p["ammo_max"] = [w["max"] for w in table]
+            p["ammo_type"] = [w["ammo_type"] for w in table]
+        else:
+            p["names"] = weapons(level_path)
         out["player"] = p
     # doors: flags +0x68, ids +0x6c..+0x7c, state +0x80, phase +0x8c
     off = find_block(tail, len(doors), 0xB8, 0x6c,
@@ -315,8 +362,11 @@ def main() -> int:
         for i in sorted(p["ammo"]):
             if not p["ammo"][i]:
                 continue
-            print("      ammo %-16s %d"
-                  % (names[i] if i < len(names) else "slot %d" % i, p["ammo"][i]))
+            cap = (p.get("ammo_max") or [None] * 99)
+            cap = cap[i] if i < len(cap) else None
+            print("      ammo %-16s %d%s"
+                  % (names[i] if i < len(names) else "slot %d" % i,
+                     p["ammo"][i], " / %d" % cap if cap else ""))
     return 0
 
 

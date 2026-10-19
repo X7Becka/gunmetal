@@ -585,6 +585,9 @@ def save_checks(G: str, results: list[bool]) -> None:
             bad.append(os.path.basename(path) + ": shield out of range")
         elif any(v > 1000000 for v in pl["ammo"].values()):
             bad.append(os.path.basename(path) + ": ammo out of range")
+        elif any(pl["ammo"][i] > cap for i, cap in enumerate(pl.get("ammo_max") or [])
+                 if cap and pl["weapon_mask"] >> i & 1):
+            bad.append(os.path.basename(path) + ": ammo above its limit")
         elif info.get("doors") and len(info["doors"]["records"]) != info["level_doors"]:
             bad.append(os.path.basename(path) + ": door records")
         else:

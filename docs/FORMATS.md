@@ -1952,6 +1952,12 @@ if present:
 `MACHINE GUN`, `CANNON`, `AUTOCANNON`, `RAILGUN`, `GRENADE`, `FLAMETHROWER`,
 `TAC NUKE`, … — `tools/re/savefile.py` извлекает их и подписывает патроны.
 
+Максимум патронов — из самого уровня: `DEFINE_WEAPONS.L3` (`+0x3c`) задаёт
+тип боеприпаса, `DEFINE_AMMO.L0` (`+0x04`) — предельный запас (покупка клампится
+по нему, `0x47b642`), см. §12.3. `savefile.weapon_table()` декодирует оба блока
+через `gm.sbtvm` и подписывает слоты: `MACHINE GUN 1975 / 5000`,
+`CANNON 87 / 180`.
+
 Проверено на управляемой паре (база, `LEVEL0`, стрельба без перемещения):
 
 ```
