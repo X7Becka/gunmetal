@@ -246,7 +246,8 @@ bool SceneDoor::moving() const {
     return false;
 }
 
-std::optional<Scene> extract_scene(const SbtLevel& level, std::string& error) {
+std::optional<Scene> extract_scene(const SbtLevel& level, std::string& error,
+                                  bool with_things) {
     const std::vector<std::uint8_t>* code = nullptr;
     for (const auto& record : level.records) {
         if (record.type == 11) {
@@ -278,7 +279,9 @@ std::optional<Scene> extract_scene(const SbtLevel& level, std::string& error) {
         }
     }
     walk(program->insns, scene);
-    extract_things(level, scene);
+    if (with_things) {
+        extract_things(level, scene);
+    }
     return scene;
 }
 

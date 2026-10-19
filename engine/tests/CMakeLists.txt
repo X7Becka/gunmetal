@@ -28,6 +28,9 @@ endfunction()
 add_test(NAME core COMMAND gm_tests)
 gm_label(core quick)
 
+add_test(NAME core_full COMMAND gm_tests --full)
+gm_label(core_full full)
+
 add_test(NAME cli_version COMMAND gunmetal --version)
 set_tests_properties(cli_version PROPERTIES PASS_REGULAR_EXPRESSION "gunmetal 0.1.0")
 gm_label(cli_version quick)
@@ -39,11 +42,13 @@ gm_label(cli_headless quick)
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt")
     add_test(NAME cli_scene COMMAND gunmetal --scene level0)
     set_tests_properties(cli_scene PROPERTIES PASS_REGULAR_EXPRESSION "lights: 29")
+    gm_label(cli_scene quick)
 endif()
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/MUSIC/Dm1A.sog")
     add_test(NAME cli_song COMMAND gunmetal --song Dm1A)
     set_tests_properties(cli_song PROPERTIES PASS_REGULAR_EXPRESSION "tracks: 8")
+    gm_label(cli_song quick)
 endif()
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/Vid/Intro.sbv")

@@ -1402,6 +1402,8 @@ void test_render() {
     }
 }
 
+bool g_full = false;
+
 void test_scene() {
     const fs::path game = "/mnt/d/games/Gunmetal 3dfx";
     std::error_code ec;
@@ -1443,7 +1445,7 @@ void test_scene() {
         if (!level) {
             continue;
         }
-        const auto scene = gm::extract_scene(*level, error);
+        const auto scene = gm::extract_scene(*level, error, false);
         CHECK(scene.has_value());
         if (!scene) {
             continue;
@@ -1467,52 +1469,72 @@ void test_scene() {
     CHECK(levels == 0 || levels == 36);
     CHECK_EQ(hash, 0x9bcf08aeb6ef0ba0ull);
 
-    // Things built by the entity sub-scripts (ADD_THING* conditions): the same
-    // canonical stream as gm/scene.py (positions/angles/owners).
-    std::uint64_t thing_hash = 0xcbf29ce484222325ull;
-    std::size_t thing_count = 0;
-    for (const auto& path : paths) {
+    // Things built by the entity sub-scripts (ADD_THING* conditions).  The full
+    // 36-level sweep lives behind --full (CTest test `core_full`): it decodes
+    // ~350 entity sub-scripts per level.  The quick run checks the two tricky
+    // levels: level0 and dm1 (dm1 has things with type index -1).
+    auto things_of = [&](const fs::path& path, std::string& error_out) {
         std::ifstream in(path, std::ios::binary);
         std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
                                         std::istreambuf_iterator<char>());
-        const auto level = gm::parse_sbt(bytes, error);
+        const auto level = gm::parse_sbt(bytes, error_out);
         if (!level) {
-            continue;
+            return std::optional<gm::Scene>{};
         }
-        const auto scene = gm::extract_scene(*level, error);
-        if (!scene) {
-            continue;
-        }
-        auto mix_into = [&](std::uint64_t& target, const void* data, std::size_t size) {
+        return gm::extract_scene(*level, error_out, true);
+    };
+
+    if (g_full) {
+        std::uint64_t thing_hash = 0xcbf29ce484222325ull;
+        std::size_t thing_count = 0;
+        auto mix_into = [](std::uint64_t& target, const void* data, std::size_t size) {
             const auto* bytes_ptr = static_cast<const std::uint8_t*>(data);
             for (std::size_t i = 0; i < size; ++i) {
                 target ^= bytes_ptr[i];
                 target *= 0x100000001b3ull;
             }
         };
-        const std::string stem = path.stem().string();
-        mix_into(thing_hash, stem.data(), stem.size());
-        const std::uint32_t count = static_cast<std::uint32_t>(scene->things.size());
-        mix_into(thing_hash, &count, sizeof(count));
-        for (const auto& thing : scene->things) {
-            mix_into(thing_hash, &thing.entity, sizeof(thing.entity));
-            mix_into(thing_hash, thing.kind.data(), thing.kind.size());
-            mix_into(thing_hash, &thing.type_index, sizeof(thing.type_index));
-            const std::uint8_t absolute = thing.absolute ? 1 : 0;
-            mix_into(thing_hash, &absolute, sizeof(absolute));
-            const std::int32_t pos[3] = {thing.x, thing.y, thing.z};
-            mix_into(thing_hash, pos, sizeof(pos));
-            mix_into(thing_hash, &thing.owner, sizeof(thing.owner));
-            const std::uint32_t angle_count = static_cast<std::uint32_t>(thing.angles.size());
-            mix_into(thing_hash, &angle_count, sizeof(angle_count));
-            for (double angle : thing.angles) {
-                mix_into(thing_hash, &angle, sizeof(angle));
+        for (const auto& path : paths) {
+            const auto scene = things_of(path, error);
+            if (!scene) {
+                continue;
             }
-            ++thing_count;
+            const std::string stem = path.stem().string();
+            mix_into(thing_hash, stem.data(), stem.size());
+            const std::uint32_t count = static_cast<std::uint32_t>(scene->things.size());
+            mix_into(thing_hash, &count, sizeof(count));
+            for (const auto& thing : scene->things) {
+                mix_into(thing_hash, &thing.entity, sizeof(thing.entity));
+                mix_into(thing_hash, thing.kind.data(), thing.kind.size());
+                mix_into(thing_hash, &thing.type_index, sizeof(thing.type_index));
+                const std::uint8_t absolute = thing.absolute ? 1 : 0;
+                mix_into(thing_hash, &absolute, sizeof(absolute));
+                const std::int32_t pos[3] = {thing.x, thing.y, thing.z};
+                mix_into(thing_hash, pos, sizeof(pos));
+                mix_into(thing_hash, &thing.owner, sizeof(thing.owner));
+                const std::uint32_t angle_count =
+                    static_cast<std::uint32_t>(thing.angles.size());
+                mix_into(thing_hash, &angle_count, sizeof(angle_count));
+                for (double angle : thing.angles) {
+                    mix_into(thing_hash, &angle, sizeof(angle));
+                }
+                ++thing_count;
+            }
+        }
+        CHECK_EQ(thing_hash, 0x3ad266f0afe04d03ull);
+        CHECK(thing_count == 0 || thing_count == 4008);
+    } else {
+        const auto level0_scene = things_of(game / "level0.sbt", error);
+        CHECK(level0_scene.has_value());
+        if (level0_scene) {
+            CHECK_EQ(level0_scene->things.size(), std::size_t{29});
+        }
+        const auto dm1_scene = things_of(game / "dm1.sbt", error);
+        CHECK(dm1_scene.has_value());
+        if (dm1_scene) {
+            CHECK_EQ(dm1_scene->things.size(), std::size_t{38});
         }
     }
-    CHECK_EQ(thing_hash, 0x3ad266f0afe04d03ull);
-    CHECK(thing_count == 0 || thing_count == 4008);
 
     // level0, the reference level from the docs.
     const fs::path level0 = game / "level0.sbt";
@@ -1552,7 +1574,12 @@ void test_log() {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--full") {
+            g_full = true;
+        }
+    }
     test_path();
     test_arena();
     test_math();

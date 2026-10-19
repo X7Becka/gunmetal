@@ -120,6 +120,7 @@ struct Scene {
 
 /// Decode the SCRIPT record of *level* into a :class:`Scene`.  Returns nullopt
 /// when the record is missing or the bytecode does not decode.
-std::optional<Scene> extract_scene(const SbtLevel& level, std::string& error);
+std::optional<Scene> extract_scene(const SbtLevel& level, std::string& error,
+                                  bool with_things = true);
 
 } // namespace gm
