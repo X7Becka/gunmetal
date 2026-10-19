@@ -706,7 +706,9 @@ def cmd_sbw(opts) -> int:
 def _sbt_iter(paths):
     for p in paths:
         if os.path.isdir(p):
-            for root, _d, files in os.walk(p):
+            for root, dirs, files in os.walk(p):
+                # SAVEGAME holds save containers (.sbt in name only), not levels
+                dirs[:] = [d for d in dirs if d.lower() != "savegame"]
                 for f in sorted(files):
                     if f.lower().endswith(".sbt"):
                         yield os.path.join(root, f)
