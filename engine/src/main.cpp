@@ -8,6 +8,8 @@
 #include "res/bmp.h"
 #include "res/png.h"
 #include "res/sbm.h"
+#include "res/sbw.h"
+#include "res/sou.h"
 
 #include <cstdio>
 #include <cstring>
@@ -135,6 +137,30 @@ int dump_file(const gm::Options& options) {
         return 0;
     }
 
+    if (gm::iequals_ascii(ext, ".sou")) {
+        const auto bytes = read_file(path, error);
+        if (!bytes) {
+            gm::logf(gm::LogLevel::Error, "dump", error);
+            return 2;
+        }
+        const auto sou = gm::parse_sou(*bytes, error);
+        if (!sou) {
+            gm::logf(gm::LogLevel::Error, "sou", error);
+            return 2;
+        }
+        std::printf("kind: SOU sample\n");
+        std::printf("magic: %s\n", sou->magic.c_str());
+        std::printf("rate: %u\n", sou->rate);
+        if (sou->magic == "SOU2") {
+            std::printf("units: %u\n", sou->units);
+        } else {
+            std::printf("channels: %u\n", sou->flags ? 2u : 1u);
+            std::printf("length: %u\n", sou->length);
+        }
+        std::printf("payload: %zu bytes\n", sou->payload.size());
+        return 0;
+    }
+
     if (head.size() >= 2 && head[0] == 'B' && head[1] == 'M') {
         const auto bytes = read_file(path, error);
         if (!bytes) {
@@ -152,6 +178,29 @@ int dump_file(const gm::Options& options) {
         std::printf("palette entries: %zu\n", bmp->palette.size() / 4);
         if (!options.png.empty()) {
             return export_png(options, bmp->width, bmp->height, bmp_to_rgba(*bmp));
+        }
+        return 0;
+    }
+
+    if (gm::iequals_ascii(ext, ".sbw")) {
+        const auto bytes = read_file(path, error);
+        if (!bytes) {
+            gm::logf(gm::LogLevel::Error, "dump", error);
+            return 2;
+        }
+        const auto header = gm::parse_sbw_header(*bytes, error);
+        if (!header) {
+            gm::logf(gm::LogLevel::Error, "sbw", error);
+            return 2;
+        }
+        std::printf("kind: SBW level\n");
+        std::printf("textures: %zu\n", header->textures.size());
+        std::printf("effects: %zu\n", header->effects.size());
+        std::printf("sectors: %zu\n", header->sectors.size());
+        std::printf("objects: %zu\n", header->object_count);
+        std::printf("header: %zu bytes\n", header->header_end);
+        if (!header->textures.empty()) {
+            std::printf("first texture: %s\n", header->textures.front().name.c_str());
         }
         return 0;
     }

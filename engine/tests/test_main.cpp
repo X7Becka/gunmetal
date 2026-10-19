@@ -10,6 +10,8 @@
 #include "res/bmp.h"
 #include "res/png.h"
 #include "res/sbm.h"
+#include "res/sbw.h"
+#include "res/sou.h"
 #include "core/hash.h"
 
 #include <cmath>
@@ -348,6 +350,164 @@ void test_sbm_png() {
     }
 }
 
+void test_sbw() {
+    std::vector<std::uint8_t> blob;
+    auto u32 = [&](std::uint32_t v) {
+        blob.push_back(v & 0xFF);
+        blob.push_back((v >> 8) & 0xFF);
+        blob.push_back((v >> 16) & 0xFF);
+        blob.push_back((v >> 24) & 0xFF);
+    };
+    u32(1);
+    blob.insert(blob.end(), {'T', 'E', 'X', 0});
+    blob.push_back(1);
+    blob.push_back(0);
+    u32(7);
+    u32(1);
+    blob.insert(blob.end(), {'F', 'X', 0});
+    u32(2);
+    u32(3);
+    u32(2);
+    blob.push_back(10);
+    blob.push_back(0);
+    blob.push_back(11);
+    blob.push_back(0);
+    u32(1);
+    u32(1);
+    blob.push_back(6);
+    blob.push_back(0);
+    blob.push_back(0);
+    u32(42);
+    blob.insert(blob.end(), 96, 0xAA);
+
+    std::string error;
+    const auto header = gm::parse_sbw_header(blob, error);
+    CHECK(header.has_value());
+    if (header) {
+        CHECK_EQ(header->textures.size(), std::size_t{1});
+        CHECK_EQ(header->textures[0].name, std::string("TEX"));
+        CHECK_EQ(header->textures[0].value, 7u);
+        CHECK_EQ(header->effects.size(), std::size_t{1});
+        CHECK_EQ(header->effects[0].ids.size(), std::size_t{2});
+        CHECK_EQ(header->effects[0].ids[1], std::uint16_t{11});
+        CHECK_EQ(header->sectors.size(), std::size_t{1});
+        CHECK_EQ(header->sectors[0].kind, std::uint16_t{6});
+        CHECK_EQ(header->object_count, std::size_t{1});
+        CHECK_EQ(header->sectors[0].objects[0].id, 42u);
+        CHECK_EQ(header->header_end, blob.size());
+    }
+    std::vector<std::uint8_t> cut(blob.begin(), blob.begin() + blob.size() - 50);
+    CHECK(!gm::parse_sbw_header(cut, error).has_value());
+
+    // Real levels: Python-computed golden values.
+    const fs::path dir = "/mnt/d/games/Gunmetal 3dfx";
+    std::error_code ec;
+    struct Golden { const char* name; std::size_t tex, eff, sec, obj, end; std::uint64_t fnv; };
+    const Golden golden[] = {
+        {"level0.sbw", 381, 37, 58, 192, 26195, 0x5cd9bb6033c473c1ull},
+        {"level7.sbw", 512, 40, 122, 835, 92847, 0x92338789ca88bb60ull},
+        {"secrt1.sbw", 444, 36, 116, 432, 51496, 0x821ee6466cb5cbc6ull},
+    };
+    for (const auto& g : golden) {
+        const fs::path path = dir / g.name;
+        if (!fs::is_regular_file(path, ec)) {
+            continue;
+        }
+        std::ifstream in(path, std::ios::binary);
+        std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                        std::istreambuf_iterator<char>());
+        const auto h = gm::parse_sbw_header(bytes, error);
+        CHECK(h.has_value());
+        if (!h) {
+            continue;
+        }
+        CHECK_EQ(h->textures.size(), g.tex);
+        CHECK_EQ(h->effects.size(), g.eff);
+        CHECK_EQ(h->sectors.size(), g.sec);
+        CHECK_EQ(h->object_count, g.obj);
+        CHECK_EQ(h->header_end, g.end);
+        CHECK_EQ(gm::fnv1a64(std::span<const std::uint8_t>(bytes.data(), g.end)), g.fnv);
+    }
+
+    // Every shipped level must parse.
+    std::size_t levels = 0;
+    if (fs::is_directory(dir, ec)) {
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file() || !gm::iequals_ascii(entry.path().extension().string(), ".sbw")) {
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                            std::istreambuf_iterator<char>());
+            const auto h = gm::parse_sbw_header(bytes, error);
+            CHECK(h.has_value() && h->header_end < bytes.size());
+            ++levels;
+        }
+    }
+    CHECK(levels == 0 || levels == 36);
+}
+
+void test_sou() {
+    std::vector<std::uint8_t> blob = {'S', 'O', 'U', '1'};
+    auto u32 = [&](std::uint32_t v) {
+        blob.push_back(v & 0xFF);
+        blob.push_back((v >> 8) & 0xFF);
+        blob.push_back((v >> 16) & 0xFF);
+        blob.push_back((v >> 24) & 0xFF);
+    };
+    u32(8000);
+    u32(0);
+    u32(6);
+    for (int i = 0; i < 6; ++i) {
+        blob.push_back(static_cast<std::uint8_t>(i));
+    }
+    std::string error;
+    const auto sou = gm::parse_sou(blob, error);
+    CHECK(sou.has_value());
+    if (sou) {
+        CHECK_EQ(sou->magic, std::string("SOU1"));
+        CHECK_EQ(sou->rate, 8000u);
+        CHECK_EQ(sou->flags, 0u);
+        CHECK_EQ(sou->payload.size(), std::size_t{6});
+    }
+    blob.resize(18);
+    CHECK(!gm::parse_sou(blob, error).has_value());
+
+    // Real archive: SILENCE is a 400-byte SOU1 at 8 kHz.
+    const fs::path idx = "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX";
+    std::error_code ec;
+    if (fs::is_regular_file(idx, ec)) {
+        const auto big = gm::BigFile::open(idx, error);
+        CHECK(big.has_value());
+        if (big) {
+            const gm::BigEntry* silence = nullptr;
+            for (const auto& e : big->entries()) {
+                if (e.name == "SILENCE") {
+                    silence = &e;
+                    break;
+                }
+            }
+            CHECK(silence != nullptr);
+            if (silence) {
+                const auto bytes = big->read(*silence, error);
+                CHECK(bytes.has_value());
+                if (bytes) {
+                    const auto real = gm::parse_sou(*bytes, error);
+                    CHECK(real.has_value());
+                    if (real) {
+                        CHECK_EQ(real->magic, std::string("SOU1"));
+                        CHECK_EQ(real->rate, 8000u);
+                        CHECK_EQ(real->payload.size(), std::size_t{400});
+                        CHECK_EQ(real->payload[0], std::uint8_t{0x4b});
+                        CHECK_EQ(real->payload[1], std::uint8_t{0x0c});
+                        CHECK_EQ(real->payload[2], std::uint8_t{0x20});
+                    }
+                }
+            }
+        }
+    }
+}
+
 void test_log() {
     gm::set_log_level(gm::LogLevel::Off);
     CHECK(!gm::log_enabled(gm::LogLevel::Error));
@@ -371,6 +531,8 @@ int main() {
     test_bigfile();
     test_log();
     test_sbm_png();
+    test_sbw();
+    test_sou();
 
     if (g_failures != 0) {
         std::fprintf(stderr, "gm_tests: %d failure(s)\n", g_failures);

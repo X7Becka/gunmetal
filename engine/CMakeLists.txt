@@ -9,6 +9,8 @@ add_library(gm_engine STATIC
     src/res/bmp.cpp
     src/res/png.cpp
     src/res/sbm.cpp
+    src/res/sbw.cpp
+    src/res/sou.cpp
 )
 
 target_include_directories(gm_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
