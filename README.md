@@ -1,5 +1,9 @@
 # Gunmetal asset toolkit
 
+<p align="center">
+  <img src="docs/avatar.png" alt="Аватар проекта: шасси H-Tick (модель из SOBS)" width="240">
+</p>
+
 Инструментарий для разбора и конвертации ресурсов игры **Gunmetal** (1998,
 Mad Genius Software) — DirectX-сборка `gundx.exe` (v1.36). Это не декомпиляция
 движка: форматы восстановлены по дизассемблеру `gundx.exe` и проверены на
@@ -49,6 +53,8 @@ gm/                   модули по форматам:
                       планарные UV, текстуры из PICS/sprites)
   palette.py, bmp.py, png.py   палитра и вывод изображений
 tools/gen_sbtvm.py    генератор gm/sbtvm.py из exe (правь его, не вывод)
+tools/avatar.py       аватар из модели .sob: суперсэмплинг, билинейные текстуры,
+                      свет, круглая подложка + PNG с прозрачностью
 tools/re/             инструментарий реверса exe (PE-карта, дизасм, xref,
                       таблицы команд, эмулятор x86) — см. tools/re/README.md
 docs/FORMATS.md       спецификации форматов (главный документ)
