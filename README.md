@@ -40,6 +40,8 @@ gm/                   модули по форматам:
                       спрайты, звуки + таблица сущностей (статической
                       расстановки в .sbt нет; id дверей/переключателей на
                       геометрию в поставке не отображаются)
+  sml.py              разметка интерфейса .sml и шифр брифингов .sme
+                      (декодер/энкодер + извлечение текста)
   soe.py              сущности .soe (текстовая схема «thing»)
   look.py             таблицы поиска LOOK16.TAB / LOOK162.TAB
   render.py           софт-рендер моделей/уровней в PNG (камера, z-буфер,
@@ -101,6 +103,7 @@ python3 gm.py sbt      "…/Gunmetal 3dfx/dm1.sbt" --script                # д�
 python3 gm.py sbt      "…/Gunmetal 3dfx" --script --script-out out/scripts
 
 # прочее
+python3 gm.py sml      "…/Gunmetal 3dfx/SML" out/sml # брифинги и UI: sml/ + txt/
 python3 gm.py soa      "…/Gunmetal 3dfx"            # анимации
 python3 gm.py soe      "…/Gunmetal 3dfx"            # «thing»-определения
 python3 gm.py look     "…/Gunmetal 3dfx/LOOK16.TAB" --png look16.png --palette "…/FLAG/naUSA.BMP"
@@ -110,7 +113,7 @@ python3 gm.py sbv      "…/Gunmetal 3dfx/Vid/Intro.sbv" --png out/intro --frame
 
 Запись обратно (repack) поддерживают команды `pack`/`set` (архивы), `sbm`
 (PNG/BMP → текстура) и флаг `--rebuild DIR` у `sbw`, `sbt`, `sbc`, `soa`, `soe`,
-`sog` — файлы собираются побайтово точно (проверяется в `regress.py`).
+`sog`, `sml` — файлы собираются побайтово точно (проверяется в `regress.py`).
 
 Список всех команд: `python3 gm.py --help`, справка по команде —
 `python3 gm.py <команда> --help`.

@@ -412,6 +412,38 @@ def write_path_checks(G: str, results: list[bool], out: str) -> None:
                               f"{n} files byte-identical"))
 
 
+def sml_checks(G: str, results: list[bool]) -> None:
+    """The ``.sme`` cipher: decode matches the ``.sml`` twins and round-trips."""
+    sys.path.insert(0, HERE)
+    from gm import sml
+
+    root = os.path.join(G, "SML")
+    pairs = same = diff = enc_ok = enc_tot = 0
+    for base, _dirs, files in os.walk(root):
+        for f in sorted(files):
+            if os.path.splitext(f)[1].lower() != ".sme":
+                continue
+            p = os.path.join(base, f)
+            blob = open(p, "rb").read()
+            enc_tot += 1
+            if sml.encode(sml.decode(blob)) == blob:
+                enc_ok += 1
+            twin = os.path.join(base, os.path.splitext(f)[0] + ".sml")
+            if os.path.exists(twin):
+                pairs += 1
+                if sml.decode(blob) == open(twin, "rb").read():
+                    same += 1
+                else:
+                    diff += 1
+    results.append(report("sml / .sme cipher round-trip",
+                          enc_tot >= 150 and enc_ok == enc_tot,
+                          "%d/%d .sme re-encode byte-identically" % (enc_ok, enc_tot)))
+    results.append(report("sml / decode matches the .sml twins",
+                          same == 131 and diff == 16,
+                          "%d pairs: %d decode byte-identically, %d are revisions"
+                          % (pairs, same, diff)))
+
+
 def sbw_field_checks(G: str, results: list[bool]) -> None:
     """Scan all levels for the invariants behind the residual ``.sbw`` fields."""
     sys.path.insert(0, HERE)
@@ -539,6 +571,12 @@ def main() -> int:
 
     # --- residual .sbw fields (fast: parses all 36 levels in ~2 s) --------
     sbw_field_checks(G, results)
+
+    # --- .sml/.sme markup -------------------------------------------------
+    sml_checks(G, results)
+    results.append(check("sml / extract markup + text",
+                         ["sml", f"{G}/SML", os.path.join(out, "sml")],
+                         ["sml: 300 files (151 decoded from .sme)"]))
 
     # --- optional heavy extraction ---------------------------------------
     if opts.full:

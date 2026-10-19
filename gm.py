@@ -46,6 +46,7 @@ from gm import (  # noqa: E402
     sbtvm,
     sbv,
     sbw,
+    sml,
     sob,
     soa,
     soe,
@@ -338,6 +339,59 @@ def _iter_with_rel(paths, ext):
             for root, _dirs, files in os.walk(p):
                 for f in sorted(files):
                     if f.lower().endswith(ext):
+                        fp = os.path.join(root, f)
+                        yield fp, os.path.relpath(fp, p)
+        else:
+            yield p, os.path.basename(p)
+
+
+def cmd_sml(opts) -> int:
+    """Decode/encode the ``.sml`` UI markup and ``.sme`` briefings."""
+    paths = list(_iter_markup(opts.paths))
+    if not paths:
+        print("no .sml/.sme files found", file=sys.stderr)
+        return 1
+    os.makedirs(opts.out, exist_ok=True)
+    decoded = 0
+    tags_seen: set = set()
+    for p, rel in paths:
+        with open(p, "rb") as f:
+            blob = f.read()
+        encoded = os.path.splitext(p)[1].lower() == ".sme"
+        if encoded:
+            decoded += 1
+        text = sml.decode_text(blob) if encoded else blob.decode("latin1")
+        plain = sml.plain(text)
+        if opts.verbose:
+            print(f"  {rel}: {len(blob)} B, "
+                  f"{'decoded from .sme' if encoded else 'plain .sml'}, "
+                  f"{len(plain.splitlines())} lines")
+        for sub, ext, body in (("sml", ".sml", text), ("txt", ".txt", plain)):
+            dst = os.path.join(opts.out, sub, rel + ext)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(dst, "w", encoding="latin1", newline="\n") as f:
+                f.write(body)
+        if opts.rebuild:
+            # the .sme form of the (decoded) markup; for a shipped .sme this is
+            # the exact original file (encode/decode are inverse)
+            dst = os.path.join(opts.rebuild, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(dst, "wb") as f:
+                f.write(sml.encode(text.encode("latin1")))
+        tags_seen |= {t.name for t in sml.tags(text)}
+    print(f"sml: {len(paths)} files ({decoded} decoded from .sme), "
+          f"{len(tags_seen)} distinct tags -> {opts.out}")
+    return 0
+
+
+def _iter_markup(paths):
+    """Yield ``(path, relpath)`` for every ``.sml``/``.sme`` (either case)."""
+    exts = (".sml", ".sme")
+    for p in paths:
+        if os.path.isdir(p):
+            for root, _dirs, files in os.walk(p):
+                for f in sorted(files):
+                    if f.lower().endswith(exts):
                         fp = os.path.join(root, f)
                         yield fp, os.path.relpath(fp, p)
         else:
@@ -1054,6 +1108,13 @@ def main(argv=None) -> int:
     p.add_argument("--palette", help="BMP file to take the palette from")
     p.add_argument("--game", help="installation dir (for textures and the palette)")
     p.set_defaults(func=cmd_view)
+
+    p = sub.add_parser("sml", help="decode .sme briefings / dump .sml markup + plain text")
+    p.add_argument("paths", nargs="+", help="the SML/ directory or .sml/.sme files")
+    p.add_argument("out", help="output directory (sml/ markup and txt/ plain text)")
+    p.add_argument("--rebuild", help="write the re-encoded .sme form into this directory")
+    p.add_argument("-v", "--verbose", action="store_true", help="per-file summary")
+    p.set_defaults(func=cmd_sml)
 
     p = sub.add_parser("soa", help="list .soa animation descriptors")
     p.add_argument("paths", nargs="+", help="one or more .soa files or directories")
