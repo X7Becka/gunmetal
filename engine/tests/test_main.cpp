@@ -1130,6 +1130,25 @@ void test_sbv() {
     std::vector<std::uint8_t> bad = {'N', 'O', 'P', 'E'};
     CHECK(!gm::parse_sbv(bad, error).has_value());
 
+    // Trust boundary: header fields and frame offsets are validated before
+    // any block spans are computed.
+    auto header = clip;
+    header[8] = header[9] = header[10] = header[11] = 0; // height = 0
+    CHECK(!gm::parse_sbv(header, error).has_value());
+    header = clip;
+    header[4] = 0x41; // width = 321
+    header[5] = 0x01;
+    CHECK(!gm::parse_sbv(header, error).has_value());
+    header = clip;
+    header[12] = 0xFF;
+    header[13] = 0xFF;
+    header[14] = 0xFF;
+    header[15] = 0xFF; // frame_count = 2^32-1
+    CHECK(!gm::parse_sbv(header, error).has_value());
+    auto backwards = clip;
+    backwards[28] = backwards[29] = 0; // frame 1 ends before frame 0
+    CHECK(!gm::parse_sbv(backwards, error).has_value());
+
     struct Golden {
         const char* name;
         std::uint32_t frames;

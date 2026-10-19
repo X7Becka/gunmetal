@@ -116,8 +116,14 @@ def cmd_list(opts) -> int:
 def cmd_extract(opts) -> int:
     bf = bigfile.BigFile(opts.idx)
     os.makedirs(opts.out, exist_ok=True)
-    planned = [(os.path.join(opts.out, bigfile.safe_name(
-        e.name, f"unnamed_{e.offset:08x}") + ".bin"), e) for e in bf.entries]
+    planned = []
+    used: set[str] = set()
+    for e in bf.entries:
+        stem = bigfile.safe_name(e.name, f"unnamed_{e.offset:08x}")
+        if stem.lower() in used:
+            stem = f"{stem}_{e.offset:08x}"
+        used.add(stem.lower())
+        planned.append((os.path.join(opts.out, stem + ".bin"), e))
     if not opts.force:
         for path, _e in planned:
             if os.path.exists(path):
