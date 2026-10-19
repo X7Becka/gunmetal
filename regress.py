@@ -870,15 +870,15 @@ def main() -> int:
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
                                                      "savegame.py")],
                        capture_output=True, text=True, cwd=HERE)
-    out = p.stdout
+    sg_out = p.stdout          # NB: not ``out`` — that is the output directory
     results.append(report(
         "savegame / level pair + state dispatcher",
         p.returncode == 0
-        and "save is a level pair: savegame\\saved%d.sbt + savegame\\saved%d.sbw" in out
-        and "20 ids, 18 distinct handlers" in out
-        and "id   1  switches       0x44f000" in out
-        and "id   2  doors          0x44e540" in out
-        and "id  18  lifts          0x44ec20" in out,
+        and "save is a level pair: savegame\\saved%d.sbt + savegame\\saved%d.sbw" in sg_out
+        and "20 ids, 18 distinct handlers" in sg_out
+        and "id   1  switches       0x44f000" in sg_out
+        and "id   2  doors          0x44e540" in sg_out
+        and "id  18  lifts          0x44ec20" in sg_out,
         "20 system ids, doors/switches/lifts/sprites mapped, "
         "save = .sbt + .sbw pair"))
 
