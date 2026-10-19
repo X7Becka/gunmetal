@@ -884,6 +884,14 @@ def main() -> int:
           and "GENERATE ids in the entity table: 7923/8957" in tail[2])
     results.append(report("entities / id -> sub-script -> thing type", ok,
                           "; ".join(tail) or "no output"))
+    # --- engine address map (tools/re/names.csv) ---------------------------
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "names.py")],
+                       capture_output=True, text=True, cwd=HERE)
+    ok = (p.returncode == 0 and "entries in" in p.stdout
+          and "FAIL" not in p.stderr)
+    results.append(report("names / engine address map validated", ok,
+                          p.stdout.strip().splitlines()[0] if p.stdout else "no output"))
 
     # --- things built by the entity sub-scripts (gm/scene.py) --------------
     from gm import scene as scenemod

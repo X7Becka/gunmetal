@@ -1,0 +1,71 @@
+va,name,kind,subsystem,status,evidence
+0x457204,signature_table,table,sbt-vm,код,FORMATS 12.3 — сигнатуры операндов
+0x457170,signature_walker,code,sbt-vm,код,FORMATS 12.3 — обход сигнатуры
+0x457390,vm_dispatcher,code,sbt-vm,код,NOTES — диспетчер VM
+0x45c500,vm_jump_table,table,sbt-vm,код,NOTES — jump-таблица
+0x4b53e8,commands_table,data,sbt-vm,код,192 команды
+0x4b62e8,conditions_table,data,sbt-vm,код,59 условий
+0x4b6784,vm_code_cursor,data,sbt-vm,код,NOTES — курсор кода
+0x460eca,sbt_text_loader,code,sbt,код,FORMATS 12 — текстовый загрузчик
+0x46082f,sbt_compiler,code,sbt,код,FORMATS 12 — компилятор
+0x454d20,sbt_binary_writer,code,sbt,код,FORMATS 12 — писатель
+0x461bc0,operand_walker,code,sbt,код,FORMATS 12.3
+0x45cac0,define_weapons_caller,code,sbt,код,FORMATS 12.3 — DEFINE_WEAPONS
+0x450be0,define_weapons_consumer,code,sbt,код,FORMATS 12.3
+0x450b10,define_ammo_consumer,code,sbt,код,FORMATS 12.3 — DEFINE_AMMO
+0x450e60,define_equipment_consumer,code,sbt,код,FORMATS 12.3 — DEFINE_EQUIPMENT
+0x4524d0,stat_apply,code,sbt,код,FORMATS 12.3 — общая функция характеристик
+0x47a170,chassis_table_layout,code,chassis,код,FORMATS 12.3 — DEFINE_PLAYER_TYPES
+0x455150,save_dispatcher,code,save,код,NOTES — 20 id
+0x455a80,game_save_driver,code,save,код,NOTES + FORMATS 16.x
+0x452020,player_block_save,code,save,код,FORMATS 16.x
+0x451c20,player_status_save8,code,save,код,FORMATS 16.x — 8-слотовая ветка
+0x44e540,doors_save_load,code,save,код,NOTES — id 2
+0x44f000,switches_save,code,save,код,NOTES — id 1
+0x44ec20,lifts_save,code,save,код,NOTES — id 18
+0x456410,sprites_save,code,save,код,FORMATS 16.x — id 6
+0x468ea0,block19_save,code,save,код,размер 0x7080
+0x46b7f0,block8_save,code,save,код,размер 0x5800
+0x46b3d0,block7_save,code,save,код,u32 n + n*28
+0x46fb50,block3_things_save,code,save,код,260 слотов x 0x528
+0x47c8a0,block20_save,code,save,код,u32 n + n*20
+0x47e0b0,block4_objects_save,code,save,код,u32 n + n*936
+0x4634b0,block15_save,code,save,код,u32 n + n*16
+0x463760,block16_save,code,save,код,u32 n + n*12
+0x4639c0,block17_save,code,save,код,u32 n + n*8
+0x468f90,block5_save,code,save,код,u32 n + n*52
+0x4971c0,block10_13_stub,code,save,код,xor eax;eax — ids 10/13 пишут только маркер
+0x40b670,block12_sound_table,code,save,код,NOTES — id 12
+0x481020,save_stream_byte,code,save,код,маркер блока (push id)
+0x40dc70,dual_read_write,code,io,код,режим из [file+0xc]&0x10c
+0x40ddf0,dual_read_write2,code,io,код,второй вариант того же
+0x40dae0,fopen_wrapper,code,io,код,используется как fopen
+0x40d8e0,sprintf_wrapper,code,io,код,форматирование имён
+0x40e110,fseek_wrapper,code,io,код,seek к кадру .sof
+0x40dbc0,fscanf_wrapper,code,io,код,".fdx ""%ld %ld"""
+0x40c530,log_printf,code,io,код,строки LOG/ошибок
+0x403190,bounded_copy,code,io,код,strncpy с 3 аргументами
+0x402770,malloc_wrapper,code,io,код,выделение буфера
+0x434463,resolve_poly,code,world,код,NOTES — sector/object/poly
+0x46d000,thing_builder,code,world,код,FORMATS 12.4 — ADD_THING -> модель
+0x4795b0,projectile_spawner,code,combat,код,FORMATS 12.3 — E1/E2
+0x47b642,shop_ammo_clamp,code,combat,код,покупка клампится по DEFINE_AMMO.L0
+0x47c990,model_index_to_pointer,code,models,код,SOBS/<имя>.sob или Sobanim/<имя>.soo
+0x44f690,door_toggle_by_id,code,world,код,FORMATS 12.4 — GENERATE
+0x45d240,add_thing_handler,code,world,код,FORMATS 12.4
+0x45d881,add_thing_relative_handler,code,world,код,FORMATS 12.4
+0x45fa00,generate_runner,code,sbt-vm,код,entities.py — GENERATE -> sub-script
+0x46b8d0,door_sound,code,world,код,FORMATS 12.4 — звук 0x2b11
+0x49fbc0,sof_loader_hud,code,film,код,FORMATS 11.1
+0x44da80,sof_loader_slot2,code,film,код,FORMATS 11.1
+0x49fd40,sof_frame_reader,code,film,код,seek frame*0x2000 + fread
+0x498e20,fdx_parser,code,film,код,"FORMATS 11.1 — ""%ld %ld"""
+0x493630,highscores_name,code,ui,код,"возвращает ""GUNMETAL.HI"""
+0x45c880,highscores_insert,code,ui,код,FORMATS 8.2 — .hi 9x64
+0x4852e0,keyconfig_loader,code,ui,код,0x178 байт; 31 запись в рантайм
+0x43ca5a,lightmap_loader,code,render,код,NOTES — свет/лайтмапы
+0x42aa63,sbw_loader,code,world,код,NOTES — .sbw
+0x42ad65,sbw_stage1,code,world,код,NOTES — .sbw
+0x425f4c,sbw_object_loader,code,world,код,NOTES — .sbw объект
+0x49e1e8,sbv_decoder,code,video,код,NOTES — видеокодек
+0x49ee8c,sbv_frame_block,code,video,код,NOTES — видеокодек
