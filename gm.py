@@ -851,6 +851,140 @@ def cmd_save(opts) -> int:
     return 0
 
 
+
+INVENTORY = {
+    ".sbw": ("gm/sbw.py", "чтение + запись + рендер"),
+    ".sbt": ("gm/sbt.py", "чтение + запись, VM, сцена"),
+    ".sbc": ("gm/sbc.py", "чтение + запись"),
+    ".sob": ("gm/sob.py", "чтение + OBJ + рендер"),
+    ".soo": ("—", "не разобран"),
+    ".sof": ("—", "не разобран"),
+    ".fdx": ("—", "не разобран"),
+    ".sbm": ("gm/sbm.py", "чтение + запись + PNG/BMP"),
+    ".sou": ("gm/sou.py", "контейнер; SOU1/2 не разобраны"),
+    ".sog": ("gm/sog.py", "чтение + запись"),
+    ".soa": ("gm/soa.py", "чтение + запись"),
+    ".soe": ("gm/soe.py", "чтение + запись"),
+    ".sml": ("gm/sml.py", "чтение + запись"),
+    ".sme": ("gm/sml.py", "чтение + запись"),
+    ".sbv": ("gm/sbv.py", "декодер + контейнер"),
+    ".bmp": ("gm/bmp.py", "чтение"),
+    ".tab": ("gm/look.py", "разобрано"),
+    ".slu": ("gm/scene.py", "разобрано"),
+    ".dat": ("gm/bigfile.py", "контейнер BIGFILE (см. ниже)"),
+    ".idx": ("gm/bigfile.py", "индекс BIGFILE"),
+    ".dxw": ("—", "не игровой (DXWnd)"),
+    ".png": ("—", "не игровой"),
+    ".jpg": ("—", "не игровой"),
+    ".html": ("—", "не игровой"),
+    ".css": ("—", "не игровой"),
+    ".txt": ("—", "не игровой"),
+    ".docx": ("—", "не игровой"),
+    ".rar": ("—", "не игровой"),
+    ".bat": ("—", "не игровой"),
+    ".ico": ("—", "не игровой"),
+    ".isu": ("—", "не игровой"),
+    ".pin": ("gm/look.py", "NEONS.PIN — разобран"),
+    ".skk": ("—", "не разобран"),
+    ".skb": ("—", "не разобран"),
+    ".sdb": ("—", "не разобран"),
+    ".hi": ("—", "не разобран"),
+    ".sni": ("—", "не разобран"),
+    ".key": ("—", "не разобран"),
+    ".sub": ("—", "не разобран"),
+    ".cfg": ("—", "не разобран"),
+    ".exe": ("tools/re", "PE-карта, дизасм, xref"),
+    ".dll": ("—", "бинарь/система"),
+    ".pif": ("—", "не игровой"),
+    ".ini": ("—", "не игровой"),
+    ".log": ("—", "не игровой"),
+    ".tmp": ("—", "не игровой"),
+    ".bak": ("—", "не игровой"),
+    ".conf": ("—", "не игровой"),
+    ".js": ("—", "не игровой"),
+    ".wav": ("—", "не игровой"),
+}
+
+
+def cmd_inventory(opts) -> int:
+    """Map every file in the installation: extension, count, bytes, module."""
+    root = opts.path or opts.game
+    if not os.path.isdir(root):
+        print("inventory: %s is not a directory" % root, file=sys.stderr)
+        return 1
+    stats: dict[str, list] = {}
+    total_files = total_bytes = 0
+    for base, dirs, files in os.walk(root):
+        dirs.sort()
+        for name in sorted(files):
+            path = os.path.join(base, name)
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+            ext = os.path.splitext(name)[1].lower()
+            rec = stats.setdefault(ext, [0, 0])
+            rec[0] += 1
+            rec[1] += size
+            total_files += 1
+            total_bytes += size
+    rows = []
+    for ext, (count, size) in stats.items():
+        module, status = INVENTORY.get(ext, ("—", "не разобран"))
+        rows.append({"ext": ext or "(без расширения)", "files": count,
+                     "bytes": size, "module": module, "status": status})
+    rows.sort(key=lambda r: -r["files"])
+    if opts.json:
+        pairs = []
+        from gm import bigfile
+        for base, _dirs, files in os.walk(root):
+            for name in sorted(files):
+                if not name.lower().endswith(".idx"):
+                    continue
+                path = os.path.join(base, name)
+                try:
+                    bf = bigfile.BigFile(path)
+                except Exception:
+                    continue
+                pairs.append({"idx": os.path.relpath(path, root),
+                              "entries": len(bf.entries),
+                              "bytes": bf.dat_size})
+        print(json.dumps({"root": root, "files": total_files,
+                          "bytes": total_bytes, "rows": rows,
+                          "containers": pairs}, indent=2, ensure_ascii=False))
+        return 0
+    print("%s: %d files, %.1f MiB" % (root, total_files, total_bytes / 1048576))
+    print("  %-14s %7s %12s  %-14s %s"
+          % ("ext", "files", "MiB", "module", "status"))
+    for r in rows:
+        print("  %-14s %7d %12.1f  %-14s %s"
+              % (r["ext"], r["files"], r["bytes"] / 1048576,
+                 r["module"], r["status"]))
+    unknown = [r for r in rows if r["status"] == "не разобран"]
+    print("  unknown extensions: %d (%d files)"
+          % (len(unknown), sum(r["files"] for r in unknown)))
+    # BIGFILE pairs: the payloads live in .DAT, so they are not in the walk
+    from gm import bigfile
+    pairs = []
+    for base, _dirs, files in os.walk(root):
+        for name in sorted(files):
+            if not name.lower().endswith(".idx"):
+                continue
+            path = os.path.join(base, name)
+            try:
+                bf = bigfile.BigFile(path)
+            except Exception:
+                continue
+            pairs.append((os.path.relpath(path, root), len(bf.entries),
+                          bf.dat_size))
+    if pairs:
+        print("  BIGFILE containers (payloads counted separately):")
+        for rel, count, size in pairs:
+            print("    %-24s %6d entries %10.1f MiB"
+                  % (rel, count, size / 1048576))
+    return 0
+
+
 def cmd_sbt(opts) -> int:
     ok = bad = 0
     for p in _sbt_iter(opts.paths):
@@ -1436,6 +1570,13 @@ def main(argv=None) -> int:
     p.add_argument("--inplace", action="store_true",
                    help="with --set: overwrite the save (explicit!)")
     p.set_defaults(func=cmd_save)
+
+    p = sub.add_parser("inventory", help="map the installation: extension, "
+                                         "count, size, module, status")
+    p.add_argument("path", nargs="?", help="directory (default: --game)")
+    p.add_argument("--game", default="/mnt/d/games/Gunmetal 3dfx")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_inventory)
 
     p = sub.add_parser("sog", help="parse .sog songs (text playlists)")
     p.add_argument("path", help="a .sog file or the MUSIC directory")

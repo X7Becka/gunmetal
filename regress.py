@@ -632,6 +632,19 @@ def save_checks(G: str, results: list[bool]) -> None:
                            capture_output=True, text=True, cwd=HERE)
         results.append(report("save / --set rejects ammo above the limit",
                               p.returncode != 0 and not os.path.exists(out + ".bad")))
+    inv = subprocess.run([sys.executable, GM, "inventory", "--game", G, "--json"],
+                         capture_output=True, text=True, cwd=HERE)
+    try:
+        data = json.loads(inv.stdout)
+    except Exception:
+        data = {}
+    exts = {r["ext"] for r in data.get("rows", [])}
+    cont = {c["idx"].split("/")[0]: c["entries"] for c in data.get("containers", [])}
+    ok = (inv.returncode == 0 and {".sbw", ".sbt", ".sbm", ".sou", ".sob"} <= exts
+          and cont.get("sounds") == 999 and cont.get("MUSIC") == 3092)
+    results.append(report("inventory covers the installation and its BIGFILEs",
+                          ok, "%d files, %d containers"
+                          % (data.get("files", 0), len(data.get("containers", [])))))
 
 
 def main() -> int:
