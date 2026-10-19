@@ -318,6 +318,24 @@ def walk(tail: bytes, switches_off: int, switches_n: int) -> list[dict]:
     return out
 
 
+
+def state_start(data: bytes, game: str) -> tuple[str, int] | None:
+    """Return ``(level file, absolute offset of the appended state)``."""
+    src = match_level(data, game)
+    if not src:
+        return None
+    level, _hits = src
+    src_data = open(os.path.join(game, level), "rb").read()
+    last = 0
+    for off in range(0, max(1, len(src_data) - 256), 2048):
+        chunk = src_data[off:off + 256]
+        if chunk.count(0) < 200:
+            i = data.find(chunk)
+            if i >= 0:
+                last = max(last, i + 256)
+    return level, last
+
+
 def inspect(path: str, game: str) -> dict:
     """Parse a save: header, embedded level and decoded state blocks."""
     data = open(path, "rb").read()
@@ -334,25 +352,127 @@ def inspect(path: str, game: str) -> dict:
     src = match_level(data, game)
     info = {"file": os.path.basename(path), "bytes": len(data),
             "title": title, "version": version, "level_name": name}
-    if not src:
+    started = state_start(data, game)
+    if not src or not started:
         return info
     level, hits = src
+    last_anchor = started[1]
     info["source_level"] = level
     info["script_hits"] = len(hits)
-    # the first match gives the shift of the embedded script; the last shipped
-    # anchor plus its length bounds the tail
-    src_data = open(os.path.join(game, level), "rb").read()
-    last_anchor = 0
-    for off in range(0, max(1, len(src_data) - 256), 2048):
-        chunk = src_data[off:off + 256]
-        if chunk.count(0) < 200:
-            i = data.find(chunk)
-            if i >= 0:
-                last_anchor = max(last_anchor, i + 256)
     info["script_span"] = [hits[0], last_anchor]
     info["state_tail"] = [last_anchor, len(data) - last_anchor]
     info.update(blocks(data[last_anchor:], game, level))
     return info
+
+
+
+def patch(path: str, game: str, edits: list[str]) -> tuple[bytes, list[str]]:
+    """Apply byte-level edits to a save; return the new bytes and a report.
+
+    Edits are ``key=value`` strings, written into the already located blocks:
+    ``armor``/``armor_max``/``shield_max`` (points), ``shield=front,back,left,
+    right``, ``selected``, ``mask`` (0x..), ``ammo=slot:value`` and
+    ``door=index:state`` (state -1 = opening, 0 = closed, +1 = open).
+    """
+    data = bytearray(open(path, "rb").read())
+    started = state_start(bytes(data), game)
+    if not started:
+        raise ValueError("source level not matched against the installed .sbt")
+    level, base = started
+    tail = bytes(data[base:])
+    pl = player(tail)
+    if not pl:
+        raise ValueError("player block not found")
+    pbase = base + pl["offset"] + 2
+    table = weapon_table(os.path.join(game, level))
+    caps = [w["max"] for w in table] if table else []
+    sc = scenemod.load(os.path.join(game, level))
+    doors = -1
+    if sc.doors:
+        off = find_block(tail, len(sc.doors), 0xB8, 0x6c,
+                         [tuple(d.ids)[0] for d in sc.doors])
+        if off >= 0:
+            doors = base + off + 4
+    armor_max = struct.unpack_from("<i", data, pbase + ARMOR_MAX_AT)[0]
+    shield_max = struct.unpack_from("<i", data, pbase + SHIELD_MAX_AT)[0]
+    report: list[str] = []
+
+    def gauge(off: int, value: float, label: str, upper: int) -> int:
+        v = int(round(value * GAUGE))
+        if not 0 <= v <= upper:
+            raise ValueError("%s=%s: out of range 0..%.2f"
+                             % (label, value, upper / GAUGE))
+        old = struct.unpack_from("<i", data, off)[0]
+        struct.pack_into("<i", data, off, v)
+        report.append("%s %.2f -> %.2f" % (label, old / GAUGE, value))
+        return v
+
+    for edit in edits:
+        if "=" not in edit:
+            raise ValueError("edit %r is not key=value" % edit)
+        key, value = edit.split("=", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key == "armor":
+            gauge(pbase + ARMOR_AT, float(value), "armor", armor_max)
+        elif key == "armor_max":
+            armor_max = gauge(pbase + ARMOR_MAX_AT, float(value), "armor_max",
+                              1000000)
+        elif key == "shield_max":
+            shield_max = gauge(pbase + SHIELD_MAX_AT, float(value), "shield_max",
+                               1000000)
+        elif key == "shield":
+            parts = [float(x) for x in value.split(",")]
+            if len(parts) != 4:
+                raise ValueError("shield needs front,back,left,right")
+            for k, v in enumerate(parts):
+                gauge(pbase + SHIELDS_AT + 4 * k, v, "shield " + SHIELD_NAMES[k],
+                      shield_max)
+        elif key == "selected":
+            slot = int(value)
+            if not 0 <= slot < AMMO_SLOTS:
+                raise ValueError("selected=%s: slot out of range" % value)
+            old = struct.unpack_from("<i", data, pbase + WEAPON_SLOT_AT)[0]
+            struct.pack_into("<i", data, pbase + WEAPON_SLOT_AT, slot)
+            report.append("selected %d -> %d" % (old, slot))
+        elif key == "mask":
+            mask = int(value, 0)
+            if not 0 <= mask < (1 << AMMO_SLOTS):
+                raise ValueError("mask=%s: out of range" % value)
+            old = struct.unpack_from("<I", data, pbase + WEAPON_MASK_AT)[0]
+            struct.pack_into("<I", data, pbase + WEAPON_MASK_AT, mask)
+            report.append("mask 0x%x -> 0x%x" % (old, mask))
+        elif key == "ammo":
+            slot_s, val_s = value.split(":", 1)
+            slot, val = int(slot_s), int(val_s)
+            if not 0 <= slot < AMMO_SLOTS:
+                raise ValueError("ammo=%s: slot out of range" % value)
+            cap = caps[slot] if slot < len(caps) else None
+            if cap is not None and not 0 <= val <= cap:
+                raise ValueError("ammo=%s: limit is %d" % (value, cap))
+            off = pbase + AMMO_AT + 4 * slot
+            old = struct.unpack_from("<I", data, off)[0]
+            struct.pack_into("<I", data, off, val)
+            name = (table[slot]["name"] if slot < len(table) else "slot %d" % slot)
+            report.append("ammo %s %d -> %d" % (name, old, val))
+        elif key == "door":
+            idx_s, state_s = value.split(":", 1)
+            idx, state = int(idx_s), int(state_s)
+            if doors < 0:
+                raise ValueError("no door block in this save")
+            if not 0 <= idx < len(sc.doors):
+                raise ValueError("door=%s: index out of range" % value)
+            if state not in (-1, 0, 1):
+                raise ValueError("door=%s: state must be -1, 0 or 1" % value)
+            off = doors + idx * 0xB8 + 0x80
+            old = struct.unpack_from("<i", data, off)[0]
+            struct.pack_into("<i", data, off, state)
+            if state == 0:                      # closed: restart the animation
+                struct.pack_into("<H", data, doors + idx * 0xB8 + 0x8c, 0)
+            report.append("door %d state %+d -> %+d" % (idx, old, state))
+        else:
+            raise ValueError("unknown edit %r" % key)
+    return bytes(data), report
 
 
 def main() -> int:

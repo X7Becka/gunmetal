@@ -782,6 +782,26 @@ def cmd_save(opts) -> int:
 
     if opts.diff:
         return savediff.diff(opts.path, opts.diff, opts.game, phases=opts.phases)
+    if opts.set:
+        try:
+            data, report = savefile.patch(opts.path, opts.game, opts.set)
+        except ValueError as exc:
+            print("save: %s" % exc, file=sys.stderr)
+            return 1
+        for line in report:
+            print("  " + line)
+        if opts.out:
+            with open(opts.out, "wb") as fh:
+                fh.write(data)
+            print("written: %s" % opts.out)
+            return 0
+        if opts.inplace:
+            with open(opts.path, "wb") as fh:
+                fh.write(data)
+            print("written in place: %s" % opts.path)
+            return 0
+        print("dry run: pass --out FILE (or --inplace) to write", file=sys.stderr)
+        return 1
     try:
         info = savefile.inspect(opts.path, opts.game)
     except ValueError as exc:
@@ -1408,6 +1428,13 @@ def main(argv=None) -> int:
     p.add_argument("--json", action="store_true", help="dump the decoded state as JSON")
     p.add_argument("--phases", action="store_true",
                    help="with --diff: also list phase-only door changes")
+    p.add_argument("--set", action="append", metavar="KEY=VALUE",
+                   help="edit the state (armor, armor_max, shield_max, "
+                        "shield=f,b,l,r, selected, mask, ammo=SLOT:VALUE, "
+                        "door=INDEX:STATE); repeatable")
+    p.add_argument("--out", metavar="FILE", help="with --set: write a patched copy")
+    p.add_argument("--inplace", action="store_true",
+                   help="with --set: overwrite the save (explicit!)")
     p.set_defaults(func=cmd_save)
 
     p = sub.add_parser("sog", help="parse .sog songs (text playlists)")

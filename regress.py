@@ -614,6 +614,24 @@ def save_checks(G: str, results: list[bool]) -> None:
         ok = bool(chain) and chain[-1]["id"] == 9 and chain[-1]["offset"] == pl.get("offset")
         results.append(report("save / block chain ends on the player", ok,
                               " -> ".join(str(b["id"]) for b in chain)))
+        out = os.path.join("/tmp/opencode", "regress_patched.sbt")
+        p = subprocess.run([sys.executable, GM, "save", saves[0], "--game", G,
+                            "--set", "armor=50", "--set", "ammo=0:1234",
+                            "--set", "door=0:1", "--out", out],
+                           capture_output=True, text=True, cwd=HERE)
+        back = _json.loads(subprocess.run(
+            [sys.executable, tool, out, "--game", G, "--json"],
+            capture_output=True, text=True, cwd=HERE).stdout)
+        bp = back.get("player") or {}
+        ok = (p.returncode == 0 and abs(bp.get("armor", 0) - 50.0) < 1e-9
+              and str(bp.get("ammo", {}).get(0, bp.get("ammo", {}).get("0"))) == "1234"
+              and (back.get("doors") or {}).get("records", [{}])[0].get("state") == 1)
+        results.append(report("save / --set writes a patched copy", ok, out))
+        p = subprocess.run([sys.executable, GM, "save", saves[0], "--game", G,
+                            "--set", "ammo=0:999999", "--out", out + ".bad"],
+                           capture_output=True, text=True, cwd=HERE)
+        results.append(report("save / --set rejects ammo above the limit",
+                              p.returncode != 0 and not os.path.exists(out + ".bad")))
 
 
 def main() -> int:
