@@ -30,6 +30,37 @@ add_library(gm_engine STATIC
 target_include_directories(gm_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(gm_engine PUBLIC cxx_std_20)
 
+# Optional build accelerators (GM_USE_PCH/GM_UNITY_BUILD, both off by default).
+# A clean build already finishes in ~3 s here, so these exist for slower hosts;
+# see CMakeLists.txt for the measurements.  PCH is a measured win per TU (-35%)
+# and is enabled by the dev/test presets.  Unity builds are EXPERIMENTAL and do
+# not compile as-is: several .cpp files define identically named file-local
+# helpers (two `Reader`s in the sbtvm batch), which would need renames in
+# engine/src.  The option is kept so that work can be measured later.
+if(GM_UNITY_BUILD)
+    set_target_properties(gm_engine PROPERTIES
+        UNITY_BUILD ON
+        UNITY_BUILD_MODE BATCH
+        UNITY_BUILD_BATCH_SIZE 8)
+endif()
+
+if(GM_USE_PCH)
+    target_precompile_headers(gm_engine PRIVATE
+        <algorithm>
+        <cstddef>
+        <cstdint>
+        <cstdio>
+        <cstring>
+        <optional>
+        <span>
+        <string>
+        <string_view>
+        <vector>
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core/bytes.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core/log.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core/path.h)
+endif()
+
 if(GM_WARNINGS_AS_ERRORS)
     set(GM_WARN_FLAGS -Werror)
 endif()

@@ -44,61 +44,61 @@ def run(args: list[str]) -> tuple[int, str]:
     return p.returncode, (p.stdout + p.stderr)
 
 
-# --- process-pool workers for the 36-level scene scans ----------------------
-# scene.load() is CPU-bound (parse + VM decode), so threads do not help; with
-# 32 cores a process pool turns a 45 s sweep into a few seconds.
-def _scan_counts(path: str) -> tuple:
-    from gm import scene
-    try:
-        return path, scene.load(path).counts()
-    except Exception:  # noqa: BLE001 - counted as a failure
-        return path, None
-
-
-def _scan_ratio(path: str):
+# --- process-pool worker for the 36-level sweeps ---------------------------
+# scene.load() is CPU-bound (parse + VM decode), so threads do not help.  All
+# three sweeps (counts, sprite/geometry ratio, ADD_THING things) need the same
+# scene.load(), so one worker returns all of them: the levels are parsed once
+# instead of three times.
+def _scan_level(path: str) -> tuple:
+    """counts, sprite/geometry spread ratio and things for one level."""
     import statistics
 
     from gm import sbw, scene
     try:
-        wb = sbw.parse_file(os.path.splitext(path)[0] + ".sbw")
-        spr = scene.load(path).sprites
-    except Exception:  # noqa: BLE001 - levels without a sibling .sbw
-        return path, None
-    if len(spr) < 4:
-        return path, None
-    lo, hi = [1e30] * 3, [-1e30] * 3
-    for s in wb.sectors:
-        for o in s.objects:
-            vs = o.vertices
-            if not vs:
-                continue
-            ext = max(max(v[k] for v in vs) - min(v[k] for v in vs)
-                      for k in range(3))
-            if ext > 4000:  # sky box
-                continue
-            for v in vs:
-                for k in range(3):
-                    lo[k] = min(lo[k], v[k])
-                    hi[k] = max(hi[k], v[k])
-    gspan = [hi[k] - lo[k] for k in range(3)]
-    pspan = [max(q.pos[k] for q in spr) - min(q.pos[k] for q in spr)
-             for k in range(3)]
-    r = [pspan[k] / gspan[k] for k in range(3) if gspan[k] > 1]
-    return path, (statistics.median(r) if r else None)
-
-
-def _scan_things(path: str) -> tuple:
-    from gm import scene
-    try:
         sc = scene.load(path)
-    except Exception:  # noqa: BLE001 - keep the sweep going
-        return path, 0, 0, []
-    return (path, len(sc.things), sum(1 for t in sc.things if t.absolute),
-            [t.model for t in sc.things if t.model])
+    except Exception:  # noqa: BLE001 - the caller counts this as a failure
+        return path, None, None, (0, 0, [])
+    try:
+        counts = sc.counts()
+    except Exception:  # noqa: BLE001
+        counts = None
+    things = (len(sc.things), sum(1 for t in sc.things if t.absolute),
+              [t.model for t in sc.things if t.model])
+
+    ratio = None
+    try:
+        spr = sc.sprites
+        if len(spr) >= 4:
+            wb = sbw.parse_file(os.path.splitext(path)[0] + ".sbw")
+            lo, hi = [1e30] * 3, [-1e30] * 3
+            for s in wb.sectors:
+                for o in s.objects:
+                    vs = o.vertices
+                    if not vs:
+                        continue
+                    ext = max(max(v[k] for v in vs) - min(v[k] for v in vs)
+                              for k in range(3))
+                    if ext > 4000:  # sky box
+                        continue
+                    for v in vs:
+                        for k in range(3):
+                            lo[k] = min(lo[k], v[k])
+                            hi[k] = max(hi[k], v[k])
+            gspan = [hi[k] - lo[k] for k in range(3)]
+            pspan = [max(q.pos[k] for q in spr) - min(q.pos[k] for q in spr)
+                     for k in range(3)]
+            r = [pspan[k] / gspan[k] for k in range(3) if gspan[k] > 1]
+            ratio = statistics.median(r) if r else None
+    except Exception:  # noqa: BLE001 - levels without a usable sibling .sbw
+        ratio = None
+    return path, counts, ratio, things
 
 
-def _pool_map(fn, files: list[str], workers: int = 8) -> list:
+def _pool_map(fn, files: list[str], workers: int = 0) -> list:
     from concurrent.futures import ProcessPoolExecutor
+    # 16 is the sweet spot on the 32-core dev box: 8 leaves half the machine
+    # idle, 32 buys <15% more and multiplies the workers' RSS.
+    workers = workers or min(os.cpu_count() or 8, 16)
     workers = max(1, min(workers, len(files), os.cpu_count() or 1))
     with ProcessPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(fn, files))
@@ -296,16 +296,24 @@ def sbv_checks(G: str, results: list[bool], out: str) -> None:
 
 
 def scene_checks(G: str, results: list[bool], out: str,
-                 cache: dict | None = None) -> None:
+                 scans: list | None = None) -> None:
     """Scripted scene extraction (gm.scene) and its viewer overlay.
 
     The shipped levels carry no placed-object list at all, so the scene is
     decoded out of the compiled ``SCRIPT`` code; these checks pin the operand
     layouts down to the engine handlers (see the gm/scene.py docstring) and make
     sure the viewer overlay stays wired to them.
+
+    ``scans`` is the shared ``_scan_level`` sweep (counts, ratio, things) that
+    ``main`` already needed for the ADD_THING check; it is computed here when
+    the caller has none.
     """
     sys.path.insert(0, HERE)
     from gm import render, sbt, sbtvm, sbw, scene
+
+    files = sorted(glob.glob(os.path.join(G, "*.sbt")))
+    if scans is None:
+        scans = _pool_map(_scan_level, files)
 
     def _script(path):
         return [r.payload for r in sbt.parse_file(path).records if r.type == 11][0]
@@ -330,9 +338,8 @@ def scene_checks(G: str, results: list[bool], out: str,
         "sky lights: " + ", ".join(f"{l.pos} rgb={l.rgb}" for l in sky)))
 
     tot = {"lights": 0, "locations": 0, "items": 0, "sounds": 0, "sprites": 0}
-    files = sorted(glob.glob(os.path.join(G, "*.sbt")))
     bad = 0
-    for f, c in _pool_map(_scan_counts, files):
+    for _f, c, _r, _t in scans:
         if c is None:
             bad += 1
             continue
@@ -343,7 +350,7 @@ def scene_checks(G: str, results: list[bool], out: str,
         bad == 0 and tot["lights"] == 4470 and tot["locations"] == 461
         and tot["sounds"] == 1173 and tot["sprites"] == 555,
         "%d levels: %d lights, %d locations, %d items, %d sounds, %d sprites, "
-        "%d failed" % (len(files), tot["lights"], tot["locations"], tot["items"],
+        "%d failed" % (len(scans), tot["lights"], tot["locations"], tot["items"],
                        tot["sounds"], tot["sprites"], bad)))
 
     # Coordinate frame: scripted coordinates are engine world, i.e. 1.875x the
@@ -353,7 +360,7 @@ def scene_checks(G: str, results: list[bool], out: str,
     # the basis itself.
     import statistics
 
-    ratios = [r for _f, r in _pool_map(_scan_ratio, files) if r is not None]
+    ratios = [r for _f, _c, r, _t in scans if r is not None]
     med = statistics.median(ratios) if ratios else 0.0
     results.append(report("scene / world frame is the 1.875 basis",
                           1.2 <= med <= 2.4 and len(ratios) >= 15,
@@ -785,7 +792,10 @@ def main() -> int:
                          + ([] if opts.full else ["--check"]),
                          ["sob: 672 converted, 0 failed"]))
     render_checks(G, results, out, opts.full)
-    scene_checks(G, results, out)
+    # One shared sweep feeds "all levels decode", the 1.875 world-frame ratio
+    # and the ADD_THING check below.
+    level_scans = _pool_map(_scan_level, sorted(glob.glob(os.path.join(G, "*.sbt"))))
+    scene_checks(G, results, out, level_scans)
     results.append(check("soa / animations", ["soa", G], ["soa: 104 parsed, 0 failed"]))
     results.append(check("soo / animations", ["soo", f"{G}/Sobanim"],
                          ["soo: 40 parsed, 0 failed, 8 frame names without a .sob"]))
@@ -897,8 +907,7 @@ def main() -> int:
     from gm import scene as scenemod
     n_things = n_abs = n_models = 0
     models: set = set()
-    for _p, n, n_a, names in _pool_map(_scan_things,
-                                       sorted(glob.glob(os.path.join(G, "*.sbt")))):
+    for _p, _c, _r, (n, n_a, names) in level_scans:
         n_things += n
         n_abs += n_a
         models.update(names)

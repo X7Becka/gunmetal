@@ -67,7 +67,37 @@ std::span<const std::uint8_t> frame_block(const gm::Sbv& clip,
 
 const fs::path kVideoDir = "/mnt/d/games/Gunmetal 3dfx/Vid";
 
-void check_clip(const char* name, const GoldenFrame* goldens, std::size_t count) {
+// Checks one golden frame: block size, decode, dimensions and the FNV hash.
+void check_golden_frame(const gm::Sbv& clip, const std::vector<std::uint8_t>& raw,
+                        const GoldenFrame& golden, const char* name) {
+    std::string error;
+    const auto block = frame_block(clip, raw, golden.index);
+    CHECK(block.size() == golden.block_size);
+    const auto frame = gm::decode_sbv_frame(block, static_cast<int>(clip.width),
+                                            static_cast<int>(clip.height), error);
+    CHECK(frame.has_value());
+    if (!frame) {
+        std::fprintf(stderr, "sbv_video: %s frame %d: %s\n", name, golden.index,
+                     error.c_str());
+        return;
+    }
+    CHECK(frame->width == 320);
+    CHECK(frame->height == 160);
+    CHECK(frame->rgb.size() == 320u * 160u * 3u);
+    const std::uint64_t hash = fnv1a64(frame->rgb);
+    if (hash != golden.rgb_hash) {
+        std::fprintf(stderr, "sbv_video: %s frame %d: hash %016llx != %016llx\n", name,
+                     golden.index, static_cast<unsigned long long>(hash),
+                     static_cast<unsigned long long>(golden.rgb_hash));
+        ++g_failures;
+    }
+}
+
+// `stride` == 1 checks every golden (the default, and what CTest runs).
+// `--quick` uses a stride so the inner loop can pin the codec in ~1 s; the
+// hashes themselves are untouched.
+void check_clip(const char* name, const GoldenFrame* goldens, std::size_t count,
+                std::size_t stride = 1) {
     const fs::path path = kVideoDir / name;
     std::error_code ec;
     if (!fs::is_regular_file(path, ec)) {
@@ -85,28 +115,19 @@ void check_clip(const char* name, const GoldenFrame* goldens, std::size_t count)
     CHECK(clip->width == 320u);
     CHECK(clip->height == 160u);
 
-    for (std::size_t i = 0; i < count; ++i) {
-        const GoldenFrame& golden = goldens[i];
-        const auto block = frame_block(*clip, raw, golden.index);
-        CHECK(block.size() == golden.block_size);
-        const auto frame = gm::decode_sbv_frame(block, static_cast<int>(clip->width),
-                                                static_cast<int>(clip->height), error);
-        CHECK(frame.has_value());
-        if (!frame) {
-            std::fprintf(stderr, "sbv_video: %s frame %d: %s\n", name, golden.index,
-                         error.c_str());
-            continue;
-        }
-        CHECK(frame->width == 320);
-        CHECK(frame->height == 160);
-        CHECK(frame->rgb.size() == 320u * 160u * 3u);
-        const std::uint64_t hash = fnv1a64(frame->rgb);
-        if (hash != golden.rgb_hash) {
-            std::fprintf(stderr, "sbv_video: %s frame %d: hash %016llx != %016llx\n", name,
-                         golden.index, static_cast<unsigned long long>(hash),
-                         static_cast<unsigned long long>(golden.rgb_hash));
-            ++g_failures;
-        }
+    std::size_t checked = 0;
+    for (std::size_t i = 0; i < count; i += stride) {
+        check_golden_frame(*clip, raw, goldens[i], name);
+        ++checked;
+    }
+    // Always pin the last frame: the tail is where the block table ends.
+    if (stride > 1 && count > 0 && (count - 1) % stride != 0) {
+        check_golden_frame(*clip, raw, goldens[count - 1], name);
+        ++checked;
+    }
+    if (stride > 1) {
+        std::printf("sbv_video: %s: %zu/%zu golden frames checked (--quick)\n", name,
+                    checked, count);
     }
 }
 
@@ -699,10 +720,22 @@ constexpr GoldenFrame kWinnerFrames[] = {
 
 } // namespace
 
-int main() {
-    check_clip("Intro.sbv", kIntroFrames, std::size(kIntroFrames));
-    check_clip("orient.sbv", kOrientFrames, std::size(kOrientFrames));
-    check_clip("winner.sbv", kWinnerFrames, std::size(kWinnerFrames));
+int main(int argc, char** argv) {
+    bool quick = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--quick") {
+            quick = true;
+        } else {
+            std::fprintf(stderr, "usage: %s [--quick]\n", argv[0]);
+            return 2;
+        }
+    }
+    // --quick samples every 25th golden frame; the default is all of them.
+    const std::size_t stride = quick ? 25 : 1;
+    check_clip("Intro.sbv", kIntroFrames, std::size(kIntroFrames), stride);
+    check_clip("orient.sbv", kOrientFrames, std::size(kOrientFrames), stride);
+    check_clip("winner.sbv", kWinnerFrames, std::size(kWinnerFrames), stride);
 
     test_intra_independence("Intro.sbv", kIntroFrames[250]);
     test_intra_independence("orient.sbv", kOrientFrames[10]);
@@ -713,6 +746,7 @@ int main() {
         std::fprintf(stderr, "sbv_video: %d checks failed\n", g_failures);
         return 1;
     }
-    std::printf("sbv_video: all frame hashes match the Python reference\n");
+    std::printf("sbv_video: all frame hashes match the Python reference%s\n",
+                quick ? " (quick sample)" : "");
     return 0;
 }
