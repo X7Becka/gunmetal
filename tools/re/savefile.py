@@ -260,6 +260,61 @@ def blocks(tail: bytes, game: str, level: str) -> dict:
             recs.append({"index": k, "kind": vals[0], "id": vals[1],
                          "radius": vals[2], "pos": list(vals[3:6])})
         out["switches"] = {"offset": off, "records": recs}
+        out["chain"] = walk(tail, off, len(recs))
+    return out
+
+
+
+THING_SLOTS = 260          # 0x7ac3e0..0x800080, stride 0x528 (see 0x46fb50)
+THING_RECORD = 0x528
+CHAIN_STOP = 9             # the player block closes the stream
+
+
+def walk(tail: bytes, switches_off: int, switches_n: int) -> list[dict]:
+    """Walk the ``[u8 id][payload]`` blocks that follow the switch array.
+
+    Sizes come from the saver code; the chain is self-checking because every
+    block must start with the id the loader expects next (``0x455a80``):
+    ``6, 19, 8, 7, 3, [10], 9``.  It ends exactly on the player marker.
+    """
+    p = switches_off + 4 + switches_n * 0x20
+    out: list[dict] = []
+    while 0 <= p < len(tail):
+        bid = tail[p]
+        if bid == CHAIN_STOP:
+            out.append({"id": bid, "offset": p, "size": 2 + PLAYER_STRUCT})
+            return out
+        if p + 5 > len(tail):
+            break
+        if bid == 6:                        # sprites: u32 n + n*44
+            n = struct.unpack_from("<I", tail, p + 1)[0]
+            size = 5 + 44 * n
+            meta = {"count": n}
+        elif bid == 19:                     # fixed 0x7080 table
+            size, meta = 1 + 0x7080, {}
+        elif bid == 8:                      # fixed 0x5800 table
+            size, meta = 1 + 0x5800, {}
+        elif bid == 7:                      # u32 n + n*28 (6 arrays)
+            n = struct.unpack_from("<I", tail, p + 1)[0]
+            size = 5 + 28 * n
+            meta = {"count": n}
+        elif bid == 3:                      # 260 x { u8 present; [0x528] }
+            q, present = p + 1, 0
+            for _ in range(THING_SLOTS):
+                if q >= len(tail):
+                    return out
+                if tail[q]:
+                    present += 1
+                    q += 1 + THING_RECORD
+                else:
+                    q += 1
+            size = q - p
+            meta = {"slots": THING_SLOTS, "present": present}
+        else:                               # unknown block: stop here
+            out.append({"id": bid, "offset": p, "size": None})
+            return out
+        out.append({"id": bid, "offset": p, "size": size, **meta})
+        p += size
     return out
 
 
@@ -347,6 +402,12 @@ def main() -> int:
     if s:
         print("  switches block at +0x%x: %d records"
               % (s["offset"], len(s["records"])))
+    ch = info.get("chain")
+    if ch:
+        print("  block chain after the switches: %s"
+              % ", ".join("%d%s" % (b["id"],
+                                    "" if b["size"] is None else
+                                    "[%d]" % b["size"]) for b in ch))
     p = info.get("player")
     if p:
         print("  player block at +0x%x: armor %.2f/%.2f"

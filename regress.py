@@ -585,7 +585,8 @@ def save_checks(G: str, results: list[bool]) -> None:
             bad.append(os.path.basename(path) + ": shield out of range")
         elif any(v > 1000000 for v in pl["ammo"].values()):
             bad.append(os.path.basename(path) + ": ammo out of range")
-        elif any(pl["ammo"][i] > cap for i, cap in enumerate(pl.get("ammo_max") or [])
+        elif any({int(k): v for k, v in pl["ammo"].items()}.get(i, 0) > cap
+                 for i, cap in enumerate(pl.get("ammo_max") or [])
                  if cap and pl["weapon_mask"] >> i & 1):
             bad.append(os.path.basename(path) + ": ammo above its limit")
         elif info.get("doors") and len(info["doors"]["records"]) != info["level_doors"]:
@@ -604,6 +605,15 @@ def save_checks(G: str, results: list[bool]) -> None:
         results.append(report("save / gm.py save", p.returncode == 0
                               and "player:" in p.stdout,
                               os.path.basename(saves[0])))
+        import json as _json
+        info = _json.loads(subprocess.run(
+            [sys.executable, tool, saves[0], "--game", G, "--json"],
+            capture_output=True, text=True, cwd=HERE).stdout)
+        chain = info.get("chain") or []
+        pl = info.get("player") or {}
+        ok = bool(chain) and chain[-1]["id"] == 9 and chain[-1]["offset"] == pl.get("offset")
+        results.append(report("save / block chain ends on the player", ok,
+                              " -> ".join(str(b["id"]) for b in chain)))
 
 
 def main() -> int:
