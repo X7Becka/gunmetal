@@ -528,7 +528,75 @@ def _parse_frame_spec(spec: str, count: int) -> list[int]:
     return frames
 
 
+def _sbv_load_raw(directory: str):
+    """Read a raw-frame directory written by ``gm.py sbv FILE OUT``.
+
+    Returns ``(width, height, [(timestamp_ms, block), ...])``.  The manifest was
+    extended for this: ``frames.txt`` starts with a
+    ``# sbv width=W height=H frames=N`` line, then ``index timestamp_ms offset
+    size`` rows, next to the ``<index>.sbvf`` blocks.
+    """
+    txt_path = os.path.join(directory, "frames.txt")
+    with open(txt_path, "r") as f:
+        lines = f.read().splitlines()
+    width = height = count = None
+    stamps: dict[int, int] = {}
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            if "sbv width=" in line:
+                for part in line.lstrip("# ").split():
+                    if "=" in part:
+                        k, v = part.split("=", 1)
+                        if k == "width":
+                            width = int(v)
+                        elif k == "height":
+                            height = int(v)
+                        elif k == "frames":
+                            count = int(v)
+            continue
+        parts = line.split()
+        stamps[int(parts[0])] = int(parts[1])
+    if width is None or height is None or count is None:
+        raise ValueError(f"{txt_path}: no '# sbv width=.. height=.. frames=..' manifest line")
+    frames = []
+    for i in range(count):
+        if i not in stamps:
+            raise ValueError(f"{txt_path}: no timestamp row for frame {i}")
+        with open(os.path.join(directory, f"{i:05d}.sbvf"), "rb") as f:
+            frames.append((stamps[i], f.read()))
+    return width, height, frames
+
+
+def _cmd_sbv_build(opts) -> int:
+    """Encode a clip out of a raw-frame directory (the OUT of a parse run)."""
+    if not opts.out:
+        print("sbv: building from a raw directory needs the target as OUT "
+              "(FILE=directory, OUT=<clip>.sbv)", file=sys.stderr)
+        return 1
+    try:
+        width, height, frames = _sbv_load_raw(opts.file)
+    except (OSError, ValueError) as exc:
+        print(f"sbv: {exc}", file=sys.stderr)
+        return 1
+    blob = sbv.build(width, height, frames)
+    dst = opts.out
+    if os.path.isdir(dst) or dst.endswith(("/", os.sep)):
+        os.makedirs(dst, exist_ok=True)
+        dst = os.path.join(dst, os.path.basename(os.path.normpath(opts.file)) + ".sbv")
+    elif os.path.dirname(dst):
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "wb") as f:
+        f.write(blob)
+    print(f"sbv: {width}x{height}, {len(frames)} frames, {len(blob)} bytes -> {dst}")
+    return 0
+
+
 def cmd_sbv(opts) -> int:
+    if os.path.isdir(opts.file):
+        return _cmd_sbv_build(opts)
     clip, blob = sbv.parse_file(opts.file)
     if not sbv.validate(clip):
         print("warning: frame offsets do not tile the file", file=sys.stderr)
@@ -559,6 +627,8 @@ def cmd_sbv(opts) -> int:
     if opts.out and not opts.no_raw:
         os.makedirs(opts.out, exist_ok=True)
         with open(os.path.join(opts.out, "frames.txt"), "w") as f:
+            f.write(f"# sbv width={clip.width} height={clip.height} "
+                    f"frames={clip.frame_count}\n")
             f.write("# index timestamp_ms offset size\n")
             prev = 0
             for i, (ts, end) in enumerate(clip.table):
@@ -568,6 +638,15 @@ def cmd_sbv(opts) -> int:
             with open(os.path.join(opts.out, f"{fr.index:05d}.sbvf"), "wb") as f:
                 f.write(fr.data)
         print(f"sbv: {clip.frame_count} frames -> {opts.out} (raw blocks + frames.txt)")
+
+    if opts.rebuild:
+        os.makedirs(opts.rebuild, exist_ok=True)
+        dst = os.path.join(opts.rebuild, os.path.basename(opts.file))
+        out = clip.to_bytes(blob)
+        with open(dst, "wb") as f:
+            f.write(out)
+        print(f"sbv: re-serialised -> {dst}"
+              + ("" if out == blob else "  (differs from the source)"))
     return 0
 
 
@@ -1151,14 +1230,16 @@ def main(argv=None) -> int:
     p.set_defaults(func=cmd_sog)
 
     p = sub.add_parser("sbv", help="parse .sbv video (header + frame blocks)")
-    p.add_argument("file")
-    p.add_argument("out", nargs="?", help="output dir for raw frame blocks")
+    p.add_argument("file", help="a .sbv clip, or a raw-frame directory written by OUT")
+    p.add_argument("out", nargs="?", help="output dir for raw frame blocks "
+                   "(or, with a directory as FILE, the target .sbv to encode)")
     p.add_argument("--list-only", action="store_true")
     p.add_argument("--png", help="decode frames and write PNGs into this directory")
     p.add_argument("--frames", default="0", help="frames to decode for --png: "
                    "'0', '1,5,9-12' or 'all' (default: 0)")
     p.add_argument("--scale", type=int, default=1, help="integer upscale for --png (default: 1)")
     p.add_argument("--no-raw", action="store_true", help="do not write raw frame blocks to OUT")
+    p.add_argument("--rebuild", help="write the clip back (re-serialised) into this directory")
     p.set_defaults(func=cmd_sbv)
 
     p = sub.add_parser("sbw", help="parse .sbw world tables + geometry")

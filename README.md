@@ -31,7 +31,7 @@ gm/                   модули по форматам:
   soa.py              анимации .soa
   sog.py              песни .sog (текстовые плейлисты)
   sou.py              звук .sou (контейнер архива SOU.DAT)
-  sbv.py              видео .sbv (контейнер + собственный кодек)
+  sbv.py              видео .sbv (контейнер + собственный кодек, чтение и запись)
   sbw.py              мир/геометрия .sbw
   sbt.py              мир/уровень .sbt (скомпилированная «World Things file»)
   sbtvm.py            скриптовая ВМ SCRIPT (опкоды с именами, таблицы команд,
@@ -110,13 +110,16 @@ python3 gm.py soe      "…/Gunmetal 3dfx"            # «thing»-определ
 python3 gm.py look     "…/Gunmetal 3dfx/LOOK16.TAB" --png look16.png --palette "…/FLAG/naUSA.BMP"
 python3 gm.py sog      "…/Gunmetal 3dfx/MUSIC" --music "…/Gunmetal 3dfx/MUSIC/SOU.IDX"
 python3 gm.py sbv      "…/Gunmetal 3dfx/Vid/Intro.sbv" --png out/intro --frames all
+python3 gm.py sbv      "…/Gunmetal 3dfx/Vid/Intro.sbv" out/intro_raw   # сырые блоки + frames.txt
+python3 gm.py sbv      out/intro_raw out/intro.sbv                     # собрать клип обратно
 ```
 
 Запись обратно (repack) поддерживают команды `pack`/`set` (архивы), `sbm`
 (PNG/BMP → текстура) и флаг `--rebuild DIR` у `sbw`, `sbt`, `sbc`, `soa`, `soe`,
-`sog`, `sml` — файлы собираются побайтово точно (у `sml` — 150 из 151 `.sme`;
-`brief/level17.sme` в поставке повреждён и собирается исправленным, см. §14
-FORMATS); всё это проверяется в `regress.py`.
+`sog`, `sml`, `sbv` — файлы собираются побайтово точно (у `sml` — 150 из 151
+`.sme`; `brief/level17.sme` в поставке повреждён и собирается исправленным,
+см. §14 FORMATS; у `sbv` — контейнер: блоки кадров переносятся как есть); всё это
+проверяется в `regress.py`.
 
 Список всех команд: `python3 gm.py --help`, справка по команде —
 `python3 gm.py <команда> --help`.
@@ -134,7 +137,7 @@ FORMATS); всё это проверяется в `regress.py`.
 | `.soe` | «thing»-определения (текст) | разобран; **писатель** |
 | `.sog` | песни (651) | разобран; **писатель** |
 | `.sou` | контейнер звука (999 + 3092 записи) | контейнер разобран; кодеки SOU1/2 — Miles, не воспроизведены |
-| `.sbv` | видео (Intro/orient/winner) | разобран полностью, включая кодек (сверка с эмулятором) |
+| `.sbv` | видео (Intro/orient/winner) | разобран полностью, включая кодек (сверка с эмулятором); **писатель контейнера** (rebuild побайтово, 3/3) |
 | `.sbw` | мир: геометрия + поля полигонов/объектов | разобран (36/36 до EOF); **писатель** (rebuild побайтово); **рендер в PNG** (`gm.py view`) |
 | `.sbt` | мир/уровень (World Things file) | разобран (36/36; handle сверены с `.sbw`); **писатель** (rebuild побайтово, структурные записи 205/205); **скриптовая ВМ SCRIPT** разобрана — имена опкодов (в т.ч. `DEFINE_WEAPONS`/`DEFINE_AMMO`/`DEFINE_EQUIPMENT`/`DEFINE_PLAYER_TYPES`/`DEFINE_LEVEL_OBJECTIVES`/`ADD_LIFT`/`SOURCEPLAYER_PATH`, `IF`/`ELSE`/`END`), декомпилятор, 36/36 в байтовый конец |
 | `LOOK16.TAB`/`LOOK162.TAB` | кубы 64³ «6-6-6 RGB → индекс палитры» | разобран |

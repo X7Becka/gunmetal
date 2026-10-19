@@ -18,6 +18,12 @@ if it exceeds 0x140 = 320)::
 ``[data_start + prev, data_start + end[i])`` with ``prev = end[i-1]`` (0 for
 i = 0); the last ``end`` lands exactly on EOF for all three shipped files.
 
+The container is writable, too: :func:`build` regenerates the header/table from
+the frame blocks and reproduces every shipped clip byte for byte (no cross-frame
+state, so the blocks are carried verbatim).  A *pixel* compressor is out of
+scope: ``gundx.exe`` only contains the decoder, and the bit stream's per-block
+class/exponent decisions are not recoverable from the decoded planes.
+
 Payload codec
 -------------
 A custom, purely intra-coded **pyramidal** scheme (no Bink/Smacker/Indeo).
@@ -79,6 +85,7 @@ import struct
 from dataclasses import dataclass, field
 
 MAGIC = b"SBV0"
+MAX_WIDTH = 0x140               # the loader rejects anything wider (320 px)
 
 # --- diagnostics ----------------------------------------------------------
 # Number of blocks decoded through a "family" handler (class 2 or 4..16).  Zero
@@ -123,6 +130,19 @@ class Sbv:
         start = self.data_start + prev
         return Frame(index, ts, start, blob[start:self.data_start + end])
 
+    def to_bytes(self, blob: bytes) -> bytes:
+        """Re-serialise the clip; byte-exact for the shipped files.
+
+        The frame table is regenerated from the block sizes, so any bytes past
+        the last frame (no shipped file has any) are copied over verbatim.
+        """
+        out = build(self.width, self.height,
+                    [(fr.timestamp_ms, fr.data) for fr in self.frames(blob)])
+        tail = self.file_size - self.data_start - (self.table[-1][1] if self.table else 0)
+        if tail > 0:
+            out += blob[self.file_size - tail:]
+        return out
+
 
 def parse_file(path: str) -> tuple[Sbv, bytes]:
     with open(path, "rb") as f:
@@ -134,8 +154,8 @@ def parse(blob: bytes, path: str = "<mem>") -> Sbv:
     if len(blob) < 16 or blob[:4] != MAGIC:
         raise ValueError(f"not an SBV0 file (magic {blob[:4]!r})")
     width, height, count = struct.unpack_from("<III", blob, 4)
-    if width > 0x140:
-        raise ValueError(f"implausible width {width} (> 320)")
+    if width > MAX_WIDTH:
+        raise ValueError(f"implausible width {width} (> {MAX_WIDTH})")
     need = 16 + 8 * count
     if len(blob) < need:
         raise ValueError(f"table truncated: want {need}, have {len(blob)}")
@@ -148,6 +168,33 @@ def validate(sbv: Sbv) -> bool:
     if not sbv.table:
         return sbv.data_start == sbv.file_size
     return sbv.data_start + sbv.table[-1][1] == sbv.file_size
+
+
+def build(width: int, height: int, frames) -> bytes:
+    """Encode a clip: header + frame table + the frame blocks verbatim.
+
+    ``frames`` is an iterable of ``(timestamp_ms, block)`` pairs -- the inverse
+    of :func:`parse`.  The payload is purely intra-coded, so a block carries its
+    own context and writing the blocks back rebuilds a shipped clip byte for
+    byte.  This is a *container* writer: it re-times/re-orders existing blocks,
+    it does not compress pixels (no reference encoder exists in ``gundx.exe``,
+    and the bit stream's per-block class/exponent choices are not recoverable
+    from the decoded planes).
+    """
+    items = [(int(ts), bytes(data)) for ts, data in frames]
+    if not 0 < width <= MAX_WIDTH:
+        raise ValueError(f"implausible width {width} (1..{MAX_WIDTH})")
+    if height <= 0:
+        raise ValueError(f"implausible height {height}")
+    out = bytearray(MAGIC)
+    out += struct.pack("<III", width, height, len(items))
+    end = 0
+    for ts, data in items:
+        end += len(data)
+        out += struct.pack("<II", ts, end)
+    for _ts, data in items:
+        out += data
+    return bytes(out)
 
 
 # =========================================================================

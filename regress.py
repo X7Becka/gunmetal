@@ -170,6 +170,35 @@ def render_checks(G: str, results: list[bool], out: str, full: bool = False) -> 
                               f"{len(files)} models rendered"))
 
 
+def sbv_checks(G: str, results: list[bool], out: str) -> None:
+    """Video container writer: rebuild each clip from its own frame blocks.
+
+    The payload codec is intra-coded, so a block needs no context: the frame
+    table can be regenerated from the block sizes and the file comes back byte
+    for byte.  Both the in-process writer and the CLI raw-block path are pinned.
+    """
+    sys.path.insert(0, HERE)
+    from gm import sbv
+
+    clips = sorted(glob.glob(os.path.join(G, "Vid", "*.sbv")))
+    bad = []
+    for p in clips:
+        clip, blob = sbv.parse_file(p)
+        if clip.to_bytes(blob) != blob:
+            bad.append(os.path.basename(p))
+    results.append(report("sbv / rebuild round-trip", not bad,
+                          f"{len(clips)} clips byte-identical"))
+
+    raw = os.path.join(out, "sbv_raw")
+    built = os.path.join(out, "sbv_built.sbv")
+    src = os.path.join(G, "Vid", "Intro.sbv")
+    run(["sbv", src, raw])
+    run(["sbv", raw, built])
+    ok = os.path.exists(built) and open(built, "rb").read() == open(src, "rb").read()
+    results.append(report("sbv / raw blocks -> clip", ok,
+                          "Intro.sbv encoded back through frames.txt"))
+
+
 def scene_checks(G: str, results: list[bool], out: str) -> None:
     """Scripted scene extraction (gm.scene) and its viewer overlay.
 
@@ -598,6 +627,7 @@ def main() -> int:
     results.append(check("sbv / Intro header", ["sbv", f"{G}/Vid/Intro.sbv", "--list-only"]))
     results.append(check("sbv / orient header", ["sbv", f"{G}/Vid/orient.sbv", "--list-only"]))
     results.append(check("sbv / winner header", ["sbv", f"{G}/Vid/winner.sbv", "--list-only"]))
+    sbv_checks(G, results, out)
     results.append(check("look / LOOK16", ["look", f"{G}/LOOK16.TAB"], ["234 distinct"]))
     results.append(check("look / LOOK162 vs NEONS.PIN",
                          ["look", f"{G}/LOOK162.TAB", "--neons", f"{G}/NEONS.PIN"],
