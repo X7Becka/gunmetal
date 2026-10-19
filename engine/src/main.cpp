@@ -579,6 +579,15 @@ int show_level(const gm::Options& options) {
                     level->entities->object_handles.size(),
                     level->entities->sector_handles.size(), level->entities->sobs.size(),
                     level->entities->script.handles, level->entities->script.code_size);
+        std::map<int, int> histogram;
+        for (const auto& record : level->entities->records) {
+            ++histogram[record.type];
+        }
+        std::printf("record types:");
+        for (const auto& [type, count] : histogram) {
+            std::printf(" %d:%d", type, count);
+        }
+        std::printf("\n");
     }
     if (level->lightmaps) {
         std::size_t texels = 0;

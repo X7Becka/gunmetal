@@ -26,3 +26,10 @@ add_test(NAME sbv_video COMMAND gm_sbv_video_tests)
 add_executable(gm_sbtvm_tests test_sbtvm.cpp)
 target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
+
+find_program(GM_PYTHON3 python3)
+if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
+    add_test(NAME parity_levels
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/parity_levels.py
+                     --gunmetal $<TARGET_FILE:gunmetal>)
+endif()
