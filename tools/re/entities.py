@@ -192,9 +192,10 @@ def main(argv=None):
         for k, (fl, eid, off) in enumerate(rows_):
             seg = block_for(segs, starts, off) if off < len(script.code) else None
             end = seg[1] if seg else None
+            tail = [i for i in seg[2] if i.off >= off] if seg else []
             nxt = rows_[k + 1][2] if k + 1 < len(rows_) else None
-            tt = thing_types_of(seg[2]) if seg else []
-            tg = generate_targets(seg[2]) if seg else []
+            tt = thing_types_of(tail)
+            tg = generate_targets(tail)
             first = seg[2][0].name if seg else "?"
             n_rows += 1
             if end is not None:

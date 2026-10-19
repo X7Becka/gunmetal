@@ -1557,6 +1557,9 @@ def cmd_scene(opts) -> int:
 
 
 def cmd_sob(opts) -> int:
+    if not opts.check and not opts.out:
+        print("sob: OUT is required unless --check", file=sys.stderr)
+        return 2
     files = sorted(
         os.path.join(opts.src, f) for f in os.listdir(opts.src) if f.lower().endswith(".sob")
     )
@@ -1636,7 +1639,7 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("sbc", help=".sbc lightmap blobs -> per-record grayscale PNG + contact sheet")
     p.add_argument("paths", nargs="+", help="one or more .sbc files, or directories to scan")
-    p.add_argument("out", nargs="?")
+    p.add_argument("out")
     p.add_argument("--rebuild", help="write each .sbc back (re-serialised) into this directory")
     p.add_argument("--check", action="store_true", help="parse only, write nothing")
     p.set_defaults(func=cmd_sbc)
