@@ -1,7 +1,7 @@
 # Gunmetal asset toolkit
 
 <p align="center">
-  <img src="docs/avatar.png" alt="Аватар проекта: шасси H-Tick (модель из SOBS)" width="240">
+  <img src="docs/avatar.png" alt="Аватар проекта: модель Tick из SOBS, рендер стиля ingame" width="240">
 </p>
 
 Инструментарий для разбора и конвертации ресурсов игры **Gunmetal** (1998,
