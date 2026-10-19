@@ -5,6 +5,7 @@ add_library(gm_engine STATIC
     src/core/config.cpp
     src/core/time.cpp
     src/platform/window.cpp
+    src/res/bigfile.cpp
 )
 
 target_include_directories(gm_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)

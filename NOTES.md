@@ -169,6 +169,9 @@
   clamp 0..255; движок дополнительно прогоняет байты через три таблицы
   фиксированной точки (`0x4a6a40`/`0x4a6e40`/`0x4a7240`), вероятно гамма-рампу
   режима вывода.
+* **BIGFILE в движке** — `engine/src/res/bigfile.*`: чтение `.idx/.dat`,
+  `gunmetal --dump <idx>` печатает `entries/data/first/last`; совпадает с
+  Python-тулкитом (999 записей, 26 738 998 байт).
 * **Оракул** — `docs/ORACLE.md`: в установке есть dgVoodoo 2.7.3 и DXWnd,
   `tools/win/capture.ps1` снимает кадр окна `gundx.exe` (запускается на
   стороне Windows, не из WSL).

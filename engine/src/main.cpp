@@ -4,8 +4,10 @@
 #include "core/path.h"
 #include "core/time.h"
 #include "platform/window.h"
+#include "res/bigfile.h"
 
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -47,6 +49,26 @@ int dump_file(const gm::Options& options) {
     std::printf("size: %s bytes\n", ec ? "?" : std::to_string(size).c_str());
     std::printf("head: %s\n", gm::format_hex(head).c_str());
     std::printf("ascii: %s\n", gm::format_ascii(head).c_str());
+
+    const bool is_bigfile = head.size() >= 7 && std::memcmp(head.data(), "BIGFILE", 7) == 0;
+    if (is_bigfile) {
+        std::string error;
+        auto big = gm::BigFile::open(path, error);
+        if (!big) {
+            gm::logf(gm::LogLevel::Error, "dump", error);
+            return 2;
+        }
+        std::printf("kind: BIGFILE index\n");
+        std::printf("entries: %zu\n", big->entries().size());
+        std::printf("data: %llu bytes\n",
+                    static_cast<unsigned long long>(big->dat_size()));
+        if (!big->entries().empty()) {
+            const auto& first = big->entries().front();
+            const auto& last = big->entries().back();
+            std::printf("first: %s (%u bytes)\n", first.name.c_str(), first.size);
+            std::printf("last: %s (%u bytes)\n", last.name.c_str(), last.size);
+        }
+    }
     return 0;
 }
 

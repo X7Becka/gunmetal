@@ -6,6 +6,7 @@
 #include "core/path.h"
 #include "core/time.h"
 #include "platform/window.h"
+#include "res/bigfile.h"
 
 #include <cmath>
 #include <cstdio>
@@ -166,6 +167,80 @@ void test_time_and_window() {
     }
 }
 
+void test_bigfile() {
+    std::random_device rd;
+    const fs::path root = fs::temp_directory_path() / ("gm_big_" + std::to_string(rd()));
+    fs::create_directories(root);
+
+    auto put_name = [](std::vector<std::uint8_t>& out, const char* name) {
+        for (int i = 0; i < 8; ++i) {
+            out.push_back(static_cast<std::uint8_t>(name[i] ? name[i] : '\0'));
+            if (name[i] == 0) {
+                while (++i < 8) {
+                    out.push_back(0);
+                }
+            }
+        }
+    };
+    auto put_u32 = [](std::vector<std::uint8_t>& out, std::uint32_t v) {
+        out.push_back(v & 0xFF);
+        out.push_back((v >> 8) & 0xFF);
+        out.push_back((v >> 16) & 0xFF);
+        out.push_back((v >> 24) & 0xFF);
+    };
+
+    std::vector<std::uint8_t> idx = {'B', 'I', 'G', 'F', 'I', 'L', 'E', 0x1A};
+    put_u32(idx, 2);
+    put_name(idx, "ALPHA");
+    put_u32(idx, 0);
+    put_name(idx, "BETA");
+    put_u32(idx, 4);
+    {
+        std::ofstream out(root / "TEST.IDX", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(idx.data()),
+                  static_cast<std::streamsize>(idx.size()));
+    }
+    {
+        std::ofstream out(root / "TEST.DAT", std::ios::binary);
+        out << "AAAA" << "BBBBBB";
+    }
+
+    std::string error;
+    const auto big = gm::BigFile::open(root / "TEST.IDX", error);
+    CHECK(big.has_value());
+    if (big) {
+        CHECK_EQ(big->entries().size(), std::size_t{2});
+        CHECK_EQ(big->entries()[0].name, std::string("ALPHA"));
+        CHECK_EQ(big->entries()[0].offset, 0u);
+        CHECK_EQ(big->entries()[0].size, 4u);
+        CHECK_EQ(big->entries()[1].size, 6u);
+        const auto alpha = big->read(big->entries()[0], error);
+        CHECK(alpha.has_value());
+        if (alpha) {
+            CHECK_EQ(std::string(alpha->begin(), alpha->end()), std::string("AAAA"));
+        }
+        const auto beta = big->read(big->entries()[1], error);
+        CHECK(beta.has_value());
+        if (beta) {
+            CHECK_EQ(std::string(beta->begin(), beta->end()), std::string("BBBBBB"));
+        }
+    }
+    CHECK(!gm::BigFile::open(root / "NOPE.IDX", error).has_value());
+
+    // The real archive, when this machine has the installation.
+    const fs::path sounds = "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX";
+    std::error_code ec;
+    if (fs::is_regular_file(sounds, ec)) {
+        const auto real = gm::BigFile::open(sounds, error);
+        CHECK(real.has_value());
+        if (real) {
+            CHECK_EQ(real->entries().size(), std::size_t{999});
+        }
+    }
+
+    fs::remove_all(root, ec);
+}
+
 void test_log() {
     gm::set_log_level(gm::LogLevel::Off);
     CHECK(!gm::log_enabled(gm::LogLevel::Error));
@@ -186,6 +261,7 @@ int main() {
     test_bytes();
     test_config();
     test_time_and_window();
+    test_bigfile();
     test_log();
 
     if (g_failures != 0) {

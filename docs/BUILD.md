@@ -76,7 +76,7 @@ gunmetal [--game DIR] [--level NAME] [--dump FILE] [--headless]
 
 | тест | что проверяет |
 |---|---|
-| `core` | `resolve_ci`, арена, vec-математика, `rd16/24/32/64`, hex/ascii, разбор CLI, часы, headless-окно, уровни лога |
+| `core` | `resolve_ci`, арена, vec-математика, `rd16/24/32/64`, hex/ascii, разбор CLI, часы, headless-окно, уровни лога, BIGFILE-ридер (синтетический + реальный `sounds/SOU.IDX`: 999 записей) |
 | `cli_version` | `gunmetal --version` |
 | `cli_headless` | `--headless --frames 2` доходит до конца |
 | `cli_dump` | дамп существующего файла печатает `size:` |
