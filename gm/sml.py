@@ -36,10 +36,16 @@ The markup is a flat stream of tags, e.g.
     <d><r><f s="2">dmills=niacdispatch</f><s><p>Morning, <k>. Lieutenant ...
 
 Tags are *not* always closed (``<p>`` runs until the next block tag), so this
-module exposes the tag stream and a tag-stripped text rather than a tree; the
-engine's UI loader (the meaning of ``<d>``/``<r>``/``<c>``/``<I x= y= f= a=>``
-…, the ``<k>`` player-name placeholder and the ``name=value`` payloads) is not
-reversed yet.
+module exposes the tag stream, the UI elements and a tag-stripped text rather
+than a tree.  The engine's loader (``0x497310``) accepts a ``.sml`` path,
+appends ``E`` and prefers the encoded ``.sme`` sibling; if that file is absent
+it falls back to the plain ``.sml``.  The document must start with ``<d>`` and
+end with ``</d>`` (``0x497650``), and the loader records at most 511 tags.
+
+The flat stream is still a UI description.  :func:`elements` exposes the
+ordered elements (images, fonts, music, rows, paragraphs, columns,
+placeholders and text runs) and :func:`describe` summarises a document;
+neither performs font layout, which needs the engine's glyph metrics.
 
 Implementation: ``gm/sml.py`` (``decode``/``encode``/``tags``/``plain``);
 CLI ``gm.py sml <paths> <out> [--rebuild DIR]``.
@@ -48,6 +54,7 @@ CLI ``gm.py sml <paths> <out> [--rebuild DIR]``.
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from dataclasses import dataclass, field
 
 #: shift cycle: byte ``i`` of a letter is moved by ``i % SHIFT_MOD`` letters
@@ -215,3 +222,271 @@ def plain(text: str, breaks: tuple = BREAK_TAGS,
     lines = [ln.strip() for ln in "".join(out).split("\n")]
     return "\n".join(ln for ln in lines if ln)
 
+#: the engine's loader refuses a document with this many tags (``0x49779c``:
+#: ``count >= 0x200`` is an error; the two offset arrays hold 512 entries)
+MAX_TAGS = 512
+
+
+def _valid_document(text: str) -> bool:
+    """True when *text* looks like a shipped ``<d>...</d>`` document."""
+    ts = tags(text)
+    if not ts:
+        return False
+    if ts[0].close or ts[0].name.lower() != "d":
+        return False
+    if not ts[-1].close or ts[-1].name.lower() != "d":
+        return False
+    return not (tag_letters(text) - SHIPPED_TAGS)
+
+
+def decode_candidates(data: bytes) -> list:
+    """Every plausible decode of an ``.sme`` blob, best-effort order.
+
+    The shipped corpus contains two transport anomalies that a plain
+    positional decode cannot see:
+
+    * ``brief/level17.sme`` has one *extra* CR/LF inserted after encoding;
+      collapsing it to the one space it replaced restores the document
+      (:func:`repair_newlines`);
+    * ``prelevel/LEVEL20.sme`` and ``prelevel/LEVEL4.sme`` were encoded from
+      LF-only text and then shipped with CRLF line endings.  Every CR shifts
+      the positional key by one, so the second and later lines decode as
+      gibberish.  Removing the CR bytes restores the original byte stream.
+
+    The list is ``[(note, text), ...]`` with notes ``"as-is"``,
+    ``"newline-repair"`` and ``"crlf-strip"``.  Only valid ``<d>...</d>``
+    decodes are included.
+    """
+    out = []
+    raw = decode_text(data)
+    if _valid_document(raw):
+        out.append(("as-is", raw))
+    repaired = decode_text(data, repair=True)
+    if _valid_document(repaired) and all(repaired != t for _n, t in out):
+        out.append(("newline-repair", repaired))
+    stripped = decode_text(data.replace(b"\r", b""))
+    if _valid_document(stripped) and all(stripped != t for _n, t in out):
+        out.append(("crlf-strip", stripped))
+    return out
+
+
+def decode_best(data: bytes) -> tuple:
+    """Decode an ``.sme`` blob and return ``(text, note)``.
+
+    ``note`` says which repair was needed: ``"as-is"`` for a normally encoded
+    file, ``"newline-repair"`` for the level17 anomaly, ``"crlf-strip"`` for
+    the LF-encoded/CRLF-transported files, or ``"unrepaired"`` when no variant
+    produced a ``<d>...</d>`` document.  Unlike :func:`decode_auto` this looks
+    at the document wrapper as well as the tag letters, so it also catches the
+    two CRLF-desynchronised files.
+    """
+    choices = decode_candidates(data)
+    if not choices:
+        return decode_text(data), "unrepaired"
+    if choices[0][0] == "as-is":
+        return choices[0][1], "as-is"
+    # A single stray CR/LF is the level17 shape; several CRLF runs mean the
+    # whole file was transported with the wrong line endings.
+    prefer = ("crlf-strip", "newline-repair") if data.count(b"\r\n") > 1 \
+        else ("newline-repair", "crlf-strip")
+    for note in prefer:
+        for cand_note, text in choices:
+            if cand_note == note:
+                return text, note
+    return choices[0][1], choices[0][0]
+
+
+@dataclass
+class Element:
+    """One UI element of an ``.sml``/``.sme`` document.
+
+    ``kind`` is ``"doc"``, ``"row"``, ``"paragraph"``, ``"column"``,
+    ``"image"``, ``"font"``, ``"music"``, ``"placeholder"``, ``"text"``,
+    ``"close"`` or ``"unknown"``.  ``pos`` is the byte offset in the decoded
+    text, ``line`` its 1-based source line.  ``value`` is the image name, font
+    number, placeholder substitution or tag name; ``attrs`` keeps the raw
+    attribute spelling (case included).
+    """
+
+    kind: str
+    tag: str | None
+    pos: int
+    attrs: dict = field(default_factory=dict)
+    value: object = None
+    x: int | None = None
+    y: int | None = None
+    align: str | None = None
+    track: int | None = None
+    offset: int | None = None
+    line: int = 0
+    text: str = ""
+
+    def as_dict(self) -> dict:
+        return {
+            "kind": self.kind,
+            "tag": self.tag,
+            "pos": self.pos,
+            "line": self.line,
+            "value": self.value,
+            "x": self.x,
+            "y": self.y,
+            "align": self.align,
+            "track": self.track,
+            "offset": self.offset,
+            "attrs": self.attrs,
+            "text": self.text,
+        }
+
+
+def _attr(attrs: dict, *names) -> object:
+    """Case-insensitive attribute lookup (``F``/``f``, ``B``/``b``, ...)."""
+    for key, value in attrs.items():
+        if key.lower() in names:
+            return value
+    return None
+
+
+def _int_attr(attrs: dict, *names) -> int | None:
+    value = _attr(attrs, *names)
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except ValueError:
+        return None
+
+
+def _line_starts(text: str) -> list:
+    return [0] + [m.end() for m in re.finditer(r"\n", text)]
+
+
+def _line_of(starts: list, pos: int) -> int:
+    return bisect_right(starts, pos)
+
+
+def elements(text: str) -> list:
+    """Ordered UI elements of a decoded document.
+
+    Unlike :func:`plain` this keeps the images, fonts and music and pairs each
+    text run with its source line.  Blocks are *stream* markers, not a tree:
+    ``<p>`` stays in force until the next block tag, exactly as in the engine.
+    """
+    out: list[Element] = []
+    starts = _line_starts(text)
+    last = 0
+
+    def add_text(pos: int, body: str) -> None:
+        body = re.sub(r"\s+", " ", body).strip()
+        if body:
+            out.append(Element("text", None, pos, value=body, text=body,
+                               line=_line_of(starts, pos)))
+
+    for m in _TAG.finditer(text):
+        add_text(last, text[last:m.start()])
+        last = m.end()
+        close, name, raw, self_close = (m.group(1), m.group(2), m.group(3),
+                                        m.group(4))
+        attrs = {k: v for k, v in _ATTR.findall(raw)}
+        low = name.lower()
+        pos = m.start()
+        line = _line_of(starts, pos)
+        if close:
+            out.append(Element("close", name, pos, attrs, value=name,
+                               line=line))
+        elif low == "d":
+            out.append(Element("doc", name, pos, attrs, value=name, line=line))
+        elif low == "i":
+            out.append(Element("image", name, pos, attrs,
+                               value=_attr(attrs, "f"),
+                               x=_int_attr(attrs, "x"),
+                               y=_int_attr(attrs, "y"),
+                               align=(str(_attr(attrs, "a")).lower()
+                                      if _attr(attrs, "a") is not None else None),
+                               line=line))
+        elif low == "f":
+            out.append(Element("font", name, pos, attrs,
+                               value=_int_attr(attrs, "s"), line=line))
+        elif low == "m":
+            out.append(Element("music", name, pos, attrs,
+                               value=_int_attr(attrs, "b"),
+                               track=_int_attr(attrs, "b"),
+                               offset=_int_attr(attrs, "s"), line=line))
+        elif low == "r":
+            out.append(Element("row", name, pos, attrs, value=name, line=line))
+        elif low == "p":
+            out.append(Element("paragraph", name, pos, attrs, value=name,
+                               line=line))
+        elif low == "c":
+            out.append(Element("column", name, pos, attrs, value=name,
+                               line=line))
+        elif low in ("k", "s"):
+            out.append(Element("placeholder", name, pos, attrs,
+                               value=PLACEHOLDERS.get(name, ""), line=line))
+        else:
+            out.append(Element("unknown", name, pos, attrs, value=name,
+                               line=line))
+    add_text(last, text[last:])
+    return out
+
+
+def describe(text: str) -> dict:
+    """Summary of a decoded document, suitable for JSON / UI inspection.
+
+    The result is intentionally layout-free: it reports the tag/element
+    inventory and the declared UI data (images, fonts, music), not the pixel
+    positions that require the engine's font metrics.
+    """
+    ts = tags(text)
+    els = elements(text)
+    tag_counts: dict = {}
+    attrs: dict = {}
+    for t in ts:
+        tag_counts[t.name] = tag_counts.get(t.name, 0) + 1
+        for key in t.attrs:
+            k = f"{t.name.lower()}.{key.lower()}"
+            attrs[k] = attrs.get(k, 0) + 1
+    known = {t.name for t in ts if not t.close}
+    unknown = sorted(known - SHIPPED_TAGS)
+    doc_open = bool(ts) and not ts[0].close and ts[0].name.lower() == "d"
+    doc_close = bool(ts) and ts[-1].close and ts[-1].name.lower() == "d"
+    images = [e.as_dict() for e in els if e.kind == "image"]
+    fonts = [e.as_dict() for e in els if e.kind == "font"]
+    music = [e.as_dict() for e in els if e.kind == "music"]
+    body = plain(text)
+    # readable text: ``plain`` resolves placeholders/breaks but keeps tags that
+    # carry attributes; strip those for a preview that is pure text
+    text_only = re.sub(r"\s+", " ", _TAG.sub("", body)).strip()
+    return {
+        "chars": len(text),
+        "lines": text.count("\n") + 1,
+        "tags": len(ts),
+        "tag_limit": MAX_TAGS,
+        "too_many_tags": len(ts) >= MAX_TAGS,
+        "tag_counts": dict(sorted(tag_counts.items())),
+        "tag_letters": sorted(known),
+        "unknown_tags": unknown,
+        "attributes": dict(sorted(attrs.items())),
+        "doc": {
+            "open": doc_open,
+            "close": doc_close,
+            "ok": doc_open and doc_close,
+        },
+        "brackets": {
+            "open": text.count("<"),
+            "close": text.count(">"),
+            "balanced": text.count("<") == text.count(">"),
+        },
+        "images": images,
+        "fonts": fonts,
+        "music": music,
+        "placeholders": {
+            "k": sum(1 for e in els if e.kind == "placeholder"
+                     and e.tag.lower() == "k"),
+            "s": sum(1 for e in els if e.kind == "placeholder"
+                     and e.tag.lower() == "s"),
+        },
+        "text_runs": sum(1 for e in els if e.kind == "text"),
+        "plain": body,
+        "body": text_only,
+        "text_preview": text_only[:400],
+    }
