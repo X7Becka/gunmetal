@@ -148,6 +148,15 @@ target_link_libraries(gm_save_tests PRIVATE gm_engine)
 add_test(NAME save COMMAND gm_save_tests)
 gm_label(save quick)
 
+# Save writer (docs/SAVE_WRITER.md): byte-exact saved0/saved1 round-trip and
+# typed player edits.  save.cpp is compiled into the test executable, exactly
+# like gm_save_tests above, so engine/CMakeLists.txt stays untouched.
+add_executable(gm_save_writer_tests test_save_writer.cpp
+    ${CMAKE_SOURCE_DIR}/engine/src/res/save.cpp)
+target_link_libraries(gm_save_writer_tests PRIVATE gm_engine)
+add_test(NAME save_writer COMMAND gm_save_writer_tests)
+gm_label(save_writer quick)
+
 find_program(GM_PYTHON3 python3)
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
     add_test(NAME parity_levels
