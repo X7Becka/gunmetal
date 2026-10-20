@@ -123,6 +123,8 @@ struct Weapon {
     int reload_ticks = 0;       ///< 0 = instant (original has no reload)
     bool hitscan = false;       ///< resolved: first BULLET/LASER true, THING false
     double projectile_speed = 0.0; ///< units/s when !hitscan; 0 = invalid
+    int thing_type = -1;        ///< FIRE_SOURCEPLAYER_THING operand 2
+    double projectile_charge = 0.0; ///< operand 9, air branch
 };
 
 /// One `DEFINE_AMMO` record (`0x450b10`, record 0x38).

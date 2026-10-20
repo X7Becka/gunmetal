@@ -186,6 +186,8 @@ struct FireScriptInfo {
     bool found = false;
     bool hitscan = false;
     int damage_gauge = 0;
+    int thing_type = -1;
+    double projectile_charge = 0.0;
     bool underwater = false;
 };
 
@@ -212,6 +214,10 @@ bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
                             info.damage_gauge =
                                 static_cast<int>(as_uint(insn.args[arg]));
                         }
+                    } else if (insn.args.size() > 9) {
+                        info.thing_type =
+                            static_cast<int>(as_uint(insn.args[2]));
+                        info.projectile_charge = as_real(insn.args[9]);
                     }
                     info.underwater = underwater;
                     info.found = true;
@@ -408,6 +414,8 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
             if (fire.hitscan && fire.damage_gauge > 0) {
                 weapon.damage = static_cast<double>(fire.damage_gauge) / kGaugeScale;
             }
+            weapon.thing_type = fire.thing_type;
+            weapon.projectile_charge = fire.projectile_charge;
         }
 
         slots.push_back(std::move(weapon));
