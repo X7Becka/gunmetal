@@ -37,7 +37,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from gm import bigfile, sbc, sbm, sbt, sbv, sbw  # noqa: E402
+from gm import bigfile, sbc, sbm, sbt, sbv, sbw, sof, soo, sou1  # noqa: E402
 
 DEFAULT_GAME = os.environ.get("GUNMETAL_DIR", "/mnt/d/games/Gunmetal 3dfx")
 
@@ -245,6 +245,60 @@ def fuzz_sbc(fz: Fuzzer, game: str, limit: int) -> None:
     _fuzz_bytes(fz, "sbc", open(matches[0], "rb").read(), sbc.parse, limit)
 
 
+def fuzz_sof(fz: Fuzzer, game: str, limit: int) -> None:
+    path = os.path.join(game, "Film", "AMMO4.SOF")
+    if not os.path.exists(path):
+        return
+    blob = open(path, "rb").read()
+
+    def parse(b):
+        film = sof.parse(b)
+        if len(film):
+            film.frame(0)
+
+    _fuzz_bytes(fz, "sof", blob, parse, limit)
+
+
+def fuzz_fdx(fz: Fuzzer, game: str, limit: int) -> None:
+    path = os.path.join(game, "Film", "ammo.fdx")
+    if not os.path.exists(path):
+        return
+    _fuzz_bytes(fz, "fdx", open(path, "rb").read(),
+                lambda b: sof.parse_fdx_bytes(b), limit)
+
+
+def fuzz_soo(fz: Fuzzer, game: str, limit: int) -> None:
+    path = os.path.join(game, "Sobanim", "Cultist.soo")
+    if not os.path.exists(path):
+        return
+
+    def parse(b):
+        anim = soo.parse(b)
+        if anim.frames:
+            anim.frame_at(0)
+
+    _fuzz_bytes(fz, "soo", open(path, "rb").read(), parse, limit)
+
+
+def fuzz_sou1(fz: Fuzzer, game: str, limit: int) -> None:
+    idx = os.path.join(game, "sounds", "SOU.IDX")
+    if not os.path.exists(idx):
+        return
+    bf = bigfile.BigFile(idx)
+    entry = next((e for e in bf.entries if e.name.upper() == "SILENCE"), None)
+    if entry is None:
+        return
+    blob = bf.read(entry)
+
+    def decode(b):
+        try:
+            sou1.decode_entry(b)
+        except ValueError:
+            raise
+
+    _fuzz_bytes(fz, "sou1", blob, decode, limit)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -266,6 +320,10 @@ def main(argv=None) -> int:
     fuzz_sbt(fz, opts.game, limit)
     fuzz_sbm(fz, opts.game, limit)
     fuzz_sbc(fz, opts.game, limit)
+    fuzz_sof(fz, opts.game, limit)
+    fuzz_fdx(fz, opts.game, limit)
+    fuzz_soo(fz, opts.game, limit)
+    fuzz_sou1(fz, opts.game, limit)
     bad = fz.failures
     print(f"fuzz: {fz.cases} cases, {len(bad)} failure(s)")
     for line in bad[:40]:
