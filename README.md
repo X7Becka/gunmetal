@@ -77,6 +77,7 @@ docs/FILM.md          .sof/.fdx: тайлы, тайминг, привязка к
 docs/PLAYER.md        спавн игрока, DM-респавн, высота глаза, камера
 docs/CAMERA.md        базис первого лица, проекция, xref 0x41e025
 docs/SAVE.md          сейвы: контейнер, блоки, byte-exact rebuild
+docs/SOU_CONTAINER.md .sou: статистика, 4091/4091 rebuild, аномалии
 docs/RECORDS.md       SECTOR_STUFF/ITEM/LIFT: поля, xref, writer
 docs/SOE.md           .soe/THING_TYPES: 77 полей, 36 proven, xref
 docs/SOO.md           .soo: mode/loop, ms timeline, морфинг поз
