@@ -394,10 +394,12 @@ up      = ( sin(yaw)·sin(pitch),  cos(yaw)·sin(pitch),  cos(pitch)  )
 
 ---
 
-## 10. Предлагаемая интеграция (не применена)
+## 10. Интеграция
 
-Ниже — готовые строки для будущего PR. `gm.py`, `regress.py`, `engine/**` и
-`gm/render.py` в этой задаче **не менялись**.
+Реализовано: `gm.scene.Spawn`/`Scene.spawns`/`first_person`, `gm.py spawn`,
+`gm.py view --spawn`, C++ `SceneSpawn` + `--spawn-camera` (`gm_tests` pins the
+200x200 level0 frame).  Ниже — исходное предложение, оставленное для истории;
+имена в коде немного другие.
 
 ### 10.1 Python: `gm/scene.py`
 
