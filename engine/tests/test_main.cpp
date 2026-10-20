@@ -1425,6 +1425,56 @@ void test_render() {
             options.camera_override = false;
             options.clip = 0.0f;
 
+            // --things: the six absolute things (four models) placed with
+            // gm/scene.py's 1/1.875 scene scale; the frame matches the Python
+            // viewer bit for bit.
+            if (level->entities) {
+                std::string scene_error;
+                const auto scene = gm::extract_scene(*level->entities, scene_error);
+                CHECK(scene.has_value());
+                if (scene) {
+                    auto with_things = meshes;
+                    std::map<std::string, std::optional<gm::Sob>> cache;
+                    constexpr double kSceneToWorld = 1.0 / 1.875;
+                    for (const auto& thing : scene->things) {
+                        if (!thing.absolute || thing.model.empty()) {
+                            continue;
+                        }
+                        auto it = cache.find(thing.model);
+                        if (it == cache.end()) {
+                            std::optional<gm::Sob> model;
+                            if (const auto path =
+                                    gm::resolve_ci(game / "SOBS", thing.model + ".sob")) {
+                                const auto bytes = read(*path);
+                                model = gm::parse_sob(bytes, error);
+                            }
+                            it = cache.emplace(thing.model, std::move(model)).first;
+                        }
+                        if (!it->second) {
+                            continue;
+                        }
+                        auto placed = gm::place_model_meshes(
+                            *it->second,
+                            {thing.x * kSceneToWorld, thing.y * kSceneToWorld,
+                             thing.z * kSceneToWorld},
+                            1.0);
+                        with_things.insert(with_things.end(),
+                                           std::make_move_iterator(placed.begin()),
+                                           std::make_move_iterator(placed.end()));
+                    }
+                    gm::RenderOptions thing_options;
+                    thing_options.width = 400;
+                    thing_options.height = 400;
+                    thing_options.lightmap_world = true;
+                    thing_options.camera_override = true;
+                    thing_options.eye = {0.0, 0.0, 600.0};
+                    thing_options.target = {0.0, 0.0, 0.0};
+                    const auto things_image =
+                        gm::render_scene(with_things, thing_options, &pool, lightmaps);
+                    CHECK_EQ(fnv_rgb(things_image.rgb), 0xee632c08abaee0eeull);
+                }
+            }
+
             // A fourth of the frame must be covered (a blank render is a bug).
             std::size_t covered = 0;
             for (std::size_t i = 0; i < image.rgb.size(); i += 3) {
