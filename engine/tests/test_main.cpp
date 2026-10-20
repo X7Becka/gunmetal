@@ -1547,11 +1547,23 @@ void test_scene() {
         CHECK(level0_scene.has_value());
         if (level0_scene) {
             CHECK_EQ(level0_scene->things.size(), std::size_t{29});
+            std::size_t modelled = 0;
+            for (const auto& thing : level0_scene->things) {
+                modelled += thing.model.empty() ? 0 : 1;
+            }
+            CHECK_EQ(modelled, std::size_t{29});
+            CHECK(level0_scene->things[0].type_name == "bgchunk1");
+            CHECK(level0_scene->things[0].model == "BIGCHUNK");
         }
         const auto dm1_scene = things_of(game / "dm1.sbt", error);
         CHECK(dm1_scene.has_value());
         if (dm1_scene) {
             CHECK_EQ(dm1_scene->things.size(), std::size_t{38});
+            std::size_t modelled = 0;
+            for (const auto& thing : dm1_scene->things) {
+                modelled += thing.model.empty() ? 0 : 1;
+            }
+            CHECK_EQ(modelled, std::size_t{35});
         }
     }
 

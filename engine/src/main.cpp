@@ -638,6 +638,14 @@ int show_scene(const gm::Options& options) {
                 scene->sprites.size());
     std::printf("doors: %zu switches: %zu entities: %zu\n", scene->doors.size(),
                 scene->switches.size(), scene->entities.size());
+    std::size_t placed = 0;
+    std::size_t modelled = 0;
+    for (const auto& thing : scene->things) {
+        placed += thing.absolute ? 1 : 0;
+        modelled += thing.model.empty() ? 0 : 1;
+    }
+    std::printf("things: %zu (absolute %zu, models %zu)\n", scene->things.size(),
+                placed, modelled);
     for (const auto& [name, count] : scene->other) {
         std::printf("other: %s %d\n", name.c_str(), count);
     }

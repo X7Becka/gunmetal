@@ -167,8 +167,45 @@ void walk(const std::vector<SbtInsn>& insns, Scene& scene) {
     }
 }
 
+std::string fixed_name(const std::uint8_t* p, std::size_t size) {
+    std::size_t n = 0;
+    while (n < size && p[n] != 0) {
+        ++n;
+    }
+    return std::string(reinterpret_cast<const char*>(p), n);
+}
+
+/// THING_TYPES (type 4, 936-byte entries) and SOB_TABLE (type 20) names.
+void resolve_thing_tables(const SbtLevel& level, std::vector<std::string>& type_names,
+                          std::vector<std::string>& models) {
+    models.reserve(level.sobs.size());
+    for (const auto& sob : level.sobs) {
+        models.push_back(sob.name);
+    }
+    for (const auto& record : level.records) {
+        if (record.type != 4 || record.payload.size() < 4) {
+            continue;
+        }
+        const std::uint32_t count = rd32(record.payload.data());
+        constexpr std::size_t kThingTypeSize = 936;
+        if (count > 0x80 || 4 + static_cast<std::size_t>(count) * kThingTypeSize >
+                                record.payload.size()) {
+            return;
+        }
+        for (std::uint32_t i = 0; i < count; ++i) {
+            const std::uint8_t* entry =
+                record.payload.data() + 4 + static_cast<std::size_t>(i) * kThingTypeSize;
+            type_names.push_back(fixed_name(entry, 16));
+        }
+        return;
+    }
+}
+
 void extract_things(const SbtLevel& level, Scene& scene) {
     const auto& code = level.script_code;
+    std::vector<std::string> type_names;
+    std::vector<std::string> models;
+    resolve_thing_tables(level, type_names, models);
     for (const auto& entity : scene.entities) {
         if (entity.offset >= code.size()) {
             continue;
@@ -219,6 +256,24 @@ void extract_things(const SbtLevel& level, Scene& scene) {
             thing.entity = entity.id;
             thing.kind = insn.condition;
             thing.type_index = type_index;
+            if (type_index >= 0 && static_cast<std::size_t>(type_index) < type_names.size()) {
+                thing.type_name = type_names[static_cast<std::size_t>(type_index)];
+                const std::uint8_t* type_entry =
+                    nullptr;
+                for (const auto& record : level.records) {
+                    if (record.type == 4 && record.payload.size() >= 4) {
+                        type_entry = record.payload.data() + 4 +
+                                     static_cast<std::size_t>(type_index) * 936;
+                        break;
+                    }
+                }
+                if (type_entry != nullptr) {
+                    const std::uint32_t model_index = rd32(type_entry + 0x1A4);
+                    if (model_index < models.size()) {
+                        thing.model = models[model_index];
+                    }
+                }
+            }
             thing.absolute = (insn.condition == "ADD_THING" ||
                               insn.condition == "ADD_THING_EX") &&
                              ints.size() >= 3;

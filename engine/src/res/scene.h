@@ -89,6 +89,8 @@ struct SceneThing {
     int entity = 0;
     std::string kind;
     int type_index = -1;
+    std::string type_name;   // THING_TYPES[type_index].name (e.g. "bgchunk1")
+    std::string model;       // SOB_TABLE[+0x1a4] (e.g. "BIGCHUNK"), may be empty
     bool absolute = false;
     int x = 0;
     int y = 0;
