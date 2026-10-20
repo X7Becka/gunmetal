@@ -99,6 +99,12 @@ std::vector<RenderMesh> build_level_meshes(const SbwLevel& level, const Sbc* lig
 /// ``.sob`` model -> one mesh in its own frame.
 std::vector<RenderMesh> build_model_meshes(const Sob& model);
 
+/// Translated/rescaled model, mirroring ``gm.render.place_model``: vertices and
+/// face origins become ``v * scale + pos`` while the UV axes are divided by
+/// *scale*, so texture coordinates stay unchanged.
+std::vector<RenderMesh> place_model_meshes(const Sob& model, const Vec3d& pos,
+                                           double scale = 1.0);
+
 struct RenderOptions {
     int width = 480;
     int height = 480;

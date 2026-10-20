@@ -499,6 +499,60 @@ int render_image(const gm::Options& options) {
         }
         lightmaps = level->lightmaps ? &*level->lightmaps : nullptr;
         meshes = gm::build_level_meshes(*level->world, lightmaps);
+
+        if (options.things && level->entities) {
+            std::string scene_error;
+            const auto scene = gm::extract_scene(*level->entities, scene_error);
+            if (!scene) {
+                gm::logf(gm::LogLevel::Error, "things", scene_error);
+            } else {
+                std::map<std::string, std::optional<gm::Sob>> cache;
+                std::size_t placed = 0;
+                for (const auto& thing : scene->things) {
+                    if (!thing.absolute || thing.model.empty()) {
+                        continue;
+                    }
+                    auto it = cache.find(thing.model);
+                    if (it == cache.end()) {
+                        std::optional<gm::Sob> model;
+                        const auto path = gm::resolve_ci(options.game / "SOBS",
+                                                         thing.model + ".sob");
+                        if (path) {
+                            std::string read_error;
+                            if (const auto bytes = read_file(*path, read_error)) {
+                                std::string parse_error;
+                                model = gm::parse_sob(*bytes, parse_error);
+                                if (!model) {
+                                    gm::logf(gm::LogLevel::Error, "things", thing.model,
+                                             ": ", parse_error);
+                                }
+                            } else {
+                                gm::logf(gm::LogLevel::Error, "things", read_error);
+                            }
+                        }
+                        it = cache.emplace(thing.model, std::move(model)).first;
+                    }
+                    if (!it->second) {
+                        continue;
+                    }
+                    // gm/scene.py stores these in the 1.875x "world" frame;
+                    // divide to reach the renderer's .sbw world frame.
+                    constexpr double kSceneToWorld = 1.0 / 1.875;
+                    auto placed_meshes = gm::place_model_meshes(
+                        *it->second,
+                        {static_cast<double>(thing.x) * kSceneToWorld,
+                         static_cast<double>(thing.y) * kSceneToWorld,
+                         static_cast<double>(thing.z) * kSceneToWorld},
+                        options.thing_scale);
+                    meshes.insert(meshes.end(),
+                                  std::make_move_iterator(placed_meshes.begin()),
+                                  std::make_move_iterator(placed_meshes.end()));
+                    ++placed;
+                }
+                gm::logf(gm::LogLevel::Info, "things", "placed=", placed,
+                         " models=", cache.size());
+            }
+        }
     }
 
     gm::TexturePool pool(options.game);
@@ -994,6 +1048,60 @@ int run(const gm::Options& options) {
         }
         lightmaps = level->lightmaps ? &*level->lightmaps : nullptr;
         meshes = gm::build_level_meshes(*level->world, lightmaps);
+
+        if (options.things && level->entities) {
+            std::string scene_error;
+            const auto scene = gm::extract_scene(*level->entities, scene_error);
+            if (!scene) {
+                gm::logf(gm::LogLevel::Error, "things", scene_error);
+            } else {
+                std::map<std::string, std::optional<gm::Sob>> cache;
+                std::size_t placed = 0;
+                for (const auto& thing : scene->things) {
+                    if (!thing.absolute || thing.model.empty()) {
+                        continue;
+                    }
+                    auto it = cache.find(thing.model);
+                    if (it == cache.end()) {
+                        std::optional<gm::Sob> model;
+                        const auto path = gm::resolve_ci(options.game / "SOBS",
+                                                         thing.model + ".sob");
+                        if (path) {
+                            std::string read_error;
+                            if (const auto bytes = read_file(*path, read_error)) {
+                                std::string parse_error;
+                                model = gm::parse_sob(*bytes, parse_error);
+                                if (!model) {
+                                    gm::logf(gm::LogLevel::Error, "things", thing.model,
+                                             ": ", parse_error);
+                                }
+                            } else {
+                                gm::logf(gm::LogLevel::Error, "things", read_error);
+                            }
+                        }
+                        it = cache.emplace(thing.model, std::move(model)).first;
+                    }
+                    if (!it->second) {
+                        continue;
+                    }
+                    // gm/scene.py stores these in the 1.875x "world" frame;
+                    // divide to reach the renderer's .sbw world frame.
+                    constexpr double kSceneToWorld = 1.0 / 1.875;
+                    auto placed_meshes = gm::place_model_meshes(
+                        *it->second,
+                        {static_cast<double>(thing.x) * kSceneToWorld,
+                         static_cast<double>(thing.y) * kSceneToWorld,
+                         static_cast<double>(thing.z) * kSceneToWorld},
+                        options.thing_scale);
+                    meshes.insert(meshes.end(),
+                                  std::make_move_iterator(placed_meshes.begin()),
+                                  std::make_move_iterator(placed_meshes.end()));
+                    ++placed;
+                }
+                gm::logf(gm::LogLevel::Info, "things", "placed=", placed,
+                         " models=", cache.size());
+            }
+        }
     }
 
     auto window = gm::Window::open("Gunmetal", options.width, options.height, options.headless,

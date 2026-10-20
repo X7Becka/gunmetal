@@ -38,6 +38,8 @@ struct Options {
     bool no_lightmaps = false;
     bool lightmap_world = false;
     bool wire = false;
+    bool things = false;       // place the scene's ADD_THING models
+    float thing_scale = 1.0f;  // extra scale for those models
     bool info = false;
     bool headless = false;
     int frames = -1; // < 0: run until the window is closed

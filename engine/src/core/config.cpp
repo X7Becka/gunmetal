@@ -193,6 +193,23 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             options.lightmap_world = true;
         } else if (arg == "--wire") {
             options.wire = true;
+        } else if (arg == "--things") {
+            options.things = true;
+        } else if (arg == "--thing-scale") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                std::size_t used = 0;
+                options.thing_scale = std::stof(std::string(*v), &used);
+                if (used != v->size()) {
+                    throw std::invalid_argument("trailing");
+                }
+            } catch (const std::exception&) {
+                error = "--thing-scale expects a number";
+                return std::nullopt;
+            }
         } else if (arg == "--info") {
             options.info = true;
         } else if (arg == "--pos" || arg == "--look") {
@@ -270,6 +287,8 @@ std::string usage() {
        << "      --no-textures flat colours instead of archive textures\n"
        << "      --no-lightmaps ignore .sbc lightmaps\n"
        << "      --wire        draw polygon edges\n"
+       << "      --things      place the scene's ADD_THING models\n"
+       << "      --thing-scale X  extra scale for those models (default 1)\n"
        << "      --info        print the level summary instead of opening the viewer\n"
        << "      --play NAME   play Vid/NAME.sbv (--frames limits the frame count)\n"
        << "      --song NAME   list the MUSIC/NAME.sog playlist and its SOU.DAT entries\n"

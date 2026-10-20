@@ -1423,6 +1423,38 @@ void test_render() {
 
 bool g_full = false;
 
+void test_place_model() {
+    const fs::path path = "/mnt/d/games/Gunmetal 3dfx/SOBS/MOCLASS.SOB";
+    std::error_code ec;
+    if (!fs::is_regular_file(path, ec)) {
+        return;
+    }
+    std::ifstream in(path, std::ios::binary);
+    std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                    std::istreambuf_iterator<char>());
+    std::string error;
+    const auto model = gm::parse_sob(bytes, error);
+    CHECK(model.has_value());
+    if (!model || model->vertices.empty() || model->faces.empty()) {
+        return;
+    }
+    const gm::Vec3d pos{10.0, -20.0, 30.0};
+    const auto placed = gm::place_model_meshes(*model, pos, 2.0);
+    CHECK_EQ(placed.size(), std::size_t{1});
+    if (placed.empty() || placed[0].vertices.empty()) {
+        return;
+    }
+    const auto& src = model->vertices[0];
+    const auto& dst = placed[0].vertices[0];
+    CHECK(std::abs(dst.x - (src.x * 2.0 + pos.x)) < 1e-9);
+    CHECK(std::abs(dst.y - (src.y * 2.0 + pos.y)) < 1e-9);
+    CHECK(std::abs(dst.z - (src.z * 2.0 + pos.z)) < 1e-9);
+    const auto& face = model->faces[0];
+    const auto& out = placed[0].faces[0];
+    CHECK(std::abs(out.origin.x - (face.origin.x * 2.0f + 10.0f)) < 1e-4f);
+    CHECK(std::abs(out.u.x - face.u.x * 0.5f) < 1e-6f);
+}
+
 void test_scene() {
     const fs::path game = "/mnt/d/games/Gunmetal 3dfx";
     std::error_code ec;
@@ -1631,6 +1663,7 @@ int main(int argc, char** argv) {
     test_sbv();
     test_cache();
     test_render();
+    test_place_model();
     test_scene();
 
     if (g_failures != 0) {

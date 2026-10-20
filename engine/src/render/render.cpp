@@ -599,6 +599,35 @@ std::vector<RenderMesh> build_model_meshes(const Sob& model) {
     return {std::move(mesh)};
 }
 
+std::vector<RenderMesh> place_model_meshes(const Sob& model, const Vec3d& pos,
+                                           double scale) {
+    auto meshes = build_model_meshes(model);
+    const double inv = scale != 0.0 ? 1.0 / scale : 1.0;
+    for (auto& mesh : meshes) {
+        mesh.aabb_lo = {1e30, 1e30, 1e30};
+        mesh.aabb_hi = {-1e30, -1e30, -1e30};
+        for (auto& v : mesh.vertices) {
+            v = {v.x * scale + pos.x, v.y * scale + pos.y, v.z * scale + pos.z};
+            mesh.aabb_lo = {std::min(mesh.aabb_lo.x, v.x), std::min(mesh.aabb_lo.y, v.y),
+                            std::min(mesh.aabb_lo.z, v.z)};
+            mesh.aabb_hi = {std::max(mesh.aabb_hi.x, v.x), std::max(mesh.aabb_hi.y, v.y),
+                            std::max(mesh.aabb_hi.z, v.z)};
+        }
+        for (auto& face : mesh.faces) {
+            face.origin = {static_cast<float>(face.origin.x * scale + pos.x),
+                           static_cast<float>(face.origin.y * scale + pos.y),
+                           static_cast<float>(face.origin.z * scale + pos.z)};
+            face.u = {static_cast<float>(face.u.x * inv),
+                      static_cast<float>(face.u.y * inv),
+                      static_cast<float>(face.u.z * inv)};
+            face.v = {static_cast<float>(face.v.x * inv),
+                      static_cast<float>(face.v.y * inv),
+                      static_cast<float>(face.v.z * inv)};
+        }
+    }
+    return meshes;
+}
+
 // ---------------------------------------------------------------------------
 // textures
 // ---------------------------------------------------------------------------
