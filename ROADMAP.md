@@ -714,7 +714,10 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
 - 🟡 `M4.2.7` HUD: оружие, прицел, броня/щиты, патроны, сообщения, films.
       > `engine/src/render/hud.*`: блит кадра `.sof` (128×64 индексов) в RGB
       > с палитрой, прозрачностью, клиппингом, scale/opacity; golden AMMO4
-      > `e86048ae84209fca`; CTest `hud`. Осталась привязка к `.sml`/семействам.
+      > `e86048ae84209fca`; CTest `hud`.
+      > `hud_player.*`: тайминг `.fdx` на 91 Гц (`frame=tick*fps/91+1`,
+      > loop/hold), `WEAPON8`→line 8, golden AMMO4 tick 0/91/182; CTest
+      > `hud_player`. Осталась привязка к `.sml`/семействам и fade.
 - ⬜ `M4.2.8` Эффекты экрана: fade, damage flash, invulnerability, палитра.
 
 ### M4.3. Камера и презентация

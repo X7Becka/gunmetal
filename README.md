@@ -85,6 +85,7 @@ docs/UI.md           SML/SME: 300 файлов, теги, экраны, HUD-ас
 docs/SML_CPP.md      C++ SML/SME: structured reader, 299/300 golden
 docs/SOE_CPP.md      C++ .soe/THING_TYPES: 77 полей, railrock 67/67
 docs/HUD_CPP.md      C++ HUD: .sof блит, палитра, прозрачность, golden
+docs/HUD_PLAYER.md   HUD-фильмы: .fdx/91 Гц, loop/hold, golden
 docs/SHAKE.md        тряска камеры, view-pitch, отдача
 docs/SAVE_FIELDS.md  сейвы: карта 128 полей (83 proven), xref
 docs/SAVE_CPP.md     C++-читатель сейвов: контейнер, блоки, player 9
