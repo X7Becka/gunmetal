@@ -1,6 +1,7 @@
 """Minimal PNG writer (no third-party deps).
 
-Only what the toolkit needs: 8-bit RGB, optional 8-bit indexed with PLTE.
+Only what the toolkit needs: 8-bit RGB, optional 8-bit indexed with PLTE,
+and an indexed APNG writer for HUD films.
 """
 
 from __future__ import annotations

@@ -475,6 +475,18 @@ gunmetal --film AMMO4 --frame 0
 gunmetal --film AMMO4 --frame 0 --png out.png   # 128x64 RGBA
 ```
 
+Animated preview (colour type 3, shared palette, `loops=0`):
+
+```sh
+python3 gm.py film Film/AMMO4.SOF --apng ammo4.apng
+python3 gm.py film Film/AMMO4.SOF --apng ammo4.apng --limit-frames 4  # test
+```
+
+`gm/png.apng_indexed` writes `acTL`/`fcTL`/`IDAT`/`fdAT`; `fps` comes from the
+sibling `.fdx` line (24) and the frame count is the binding `count` (131 for
+AMMO4, one trailing tile is never read).  The rebuilt `.sof`/`.fdx` remain
+byte-exact (`--rebuild`).
+
 `gm_sof_tests` (CTest `film_sof`) checks all 48 films / 11 637 frames against
 the Python aggregate FNV `8e1f0f6d9e5c88bd`, the encode/decode round-trip of
 every stored tile, and the six indexes (entry counts, positive count/fps,
