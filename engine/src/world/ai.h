@@ -5,9 +5,10 @@
 // This is a scaffold, not a port of the original engine AI: it has no
 // navigation, no animation, no audio and no renderer/SDL dependency.  It only
 // advances one agent per 91 Hz tick from the *already known* home position of a
-// thing (`Things` runtime instance), measures the distance to one player eye,
-// checks line of sight through `render/collide.h`, and switches between the
-// states idle / patrol / alert / attack / dead.
+// thing (`Things` runtime instance), measures the distance to up to eight player
+// eyes (falling back to visible things), checks line of sight through
+// `render/collide.h`, and switches between the states idle / patrol / alert /
+// attack / dead.
 //
 // Determinism: agents are stored in `Things::things()` order and ticked in that
 // order; there is no random source, no clock read, and no map iteration.  The
@@ -118,10 +119,11 @@ struct AiAgent {
     int expire_ticks = 0;        ///< THING_TYPES +0x1e8, data only
     std::uint32_t collide_event = 0; ///< +0x1c4
     std::uint32_t expire_event = 0;  ///< +0x1ec
-    double distance = 0.0;      ///< last eye-to-eye distance (0 without a player)
-    /// Aim point from `target_history_offset` (lag 0 = live eye).  The state
-    /// machine keeps using the live distance for range/LOS; this is the point
-    /// an actual weapon layer should fire at.
+    double distance = 0.0;      ///< last eye-to-target distance (0 without a target)
+    /// Aim point from `target_history_offset` (lag 0 = live eye) or the
+    /// current position of a thing target.  The state machine keeps using the
+    /// live distance for range/LOS; this is the point an actual weapon layer
+    /// should fire at.
     Vec3d aim_point{};
     double aim_distance = 0.0;
     bool has_aim = false;
