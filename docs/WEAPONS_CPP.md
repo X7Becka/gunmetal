@@ -475,9 +475,11 @@ fallback’ом для типа без скорости. `charge*operand[9]` е�
    через `0x477f90`.
 3. **Урон и броня.** `0x453b50` (`apply_damage_gauge`), `0x470500`
    (`apply_thing_damage`) и `0x477280` (`apply_blast`) реализованы с
-   целочисленным falloff. Загрузчик уже собирает collide/expire-бласты для
-   GRENADE/ROCKET; осталось применить их в runtime и разобрать
-   PLASMA/NUKE/EMP/`level10.sbt`; точные числа — в отчёте Ghidra §7.
+   целочисленным falloff. `apply_weapon_blast` применяет collide/expire
+   ветки к игрокам/THING; загрузчик разобрал GRENADE/ROCKET/RGM/MRL/
+   NUKE/PLASMA 36/37/38/EMP/DISINT и hitscan impact-события. Осталось
+   подключить игровой слой (позиция, цели, `event_post`) и проверить
+   level10/20/24 golden’ы на реальных данных.
 4. **Магазин/перезарядка.** Механики в оригинале нет; слой оставлен
    выключенным (`magazine=0`, `reload_ticks=0`). Включать только если
    появится доказательство из другой версии/режима.
