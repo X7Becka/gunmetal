@@ -16,6 +16,7 @@ add_library(gm_engine STATIC
     src/render/collide.cpp
     src/render/text_layout.cpp
     src/render/hud.cpp
+    src/render/sprite.cpp
     src/render/hud_player.cpp
     src/render/hud_bind.cpp
     src/render/hud_compose.cpp
