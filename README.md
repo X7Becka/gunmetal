@@ -83,7 +83,8 @@ python3 gm.py list "…/PICS/SBM.IDX"
 python3 gm.py textures "…/Gunmetal 3dfx" out/textures
 python3 gm.py sprites  "…/Gunmetal 3dfx" out/sprites --transparent 0
 
-# звуки: WAV для SOU0 и SOU2, «сырьё» только для недоказанного SOU1
+# звуки: WAV для SOU0 и SOU2; SOU1 — пока raw (декодер-модель в tools/re)
+
 python3 gm.py sounds   "…/Gunmetal 3dfx" out/sounds
 
 # музыка: 3092 записи MUSIC/SOU.IDX -> WAV (формат 4, Python-декодер)
@@ -158,7 +159,7 @@ python3 gm.py sbv      out/intro_raw out/intro.sbv                     # соб�
 | `.soa` | анимации (104 файла) | разобран; **писатель** |
 | `.soe` | «thing»-определения (текст) | разобран; **писатель** |
 | `.sog` | песни (651) | разобран; **писатель** |
-| `.sou` | контейнер звука (999 + 3092 записи) | контейнер разобран; кодеки SOU1/2 — Miles, не воспроизведены |
+| `.sou` | контейнер звука (999 + 3092 записи) | контейнер разобран; SOU2 — C++; SOU1 — `tools/re/sou1_model.py` (983/983 bit-exact) |
 | `.sbv` | видео (Intro/orient/winner) | разобран полностью, включая кодек (сверка с эмулятором); **писатель контейнера** (rebuild побайтово, 3/3) |
 | `.sbw` | мир: геометрия + поля полигонов/объектов | разобран (36/36 до EOF); **писатель** (rebuild побайтово); **рендер в PNG** (`gm.py view`) |
 | `.sbt` | мир/уровень (World Things file) | разобран (36/36; handle сверены с `.sbw`); **писатель** (rebuild побайтово, структурные записи 205/205); **скриптовая ВМ SCRIPT** разобрана — имена опкодов (в т.ч. `DEFINE_WEAPONS`/`DEFINE_AMMO`/`DEFINE_EQUIPMENT`/`DEFINE_PLAYER_TYPES`/`DEFINE_LEVEL_OBJECTIVES`/`ADD_LIFT`/`SOURCEPLAYER_PATH`, `IF`/`ELSE`/`END`), декомпилятор, 36/36 в байтовый конец |
