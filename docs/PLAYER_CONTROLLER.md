@@ -75,11 +75,18 @@ gm::Vec3d eye = gm::eye_position(s);         // pos + (0,0,eye_height)
 |---|---|
 | `PlayerState` | `pos`, `vel`, `yaw`, `height`, `eye_height`, `on_ground`, `crouching` |
 | `Input` | `forward`, `strafe`, `jump`, `crouch` |
-| `ControllerConfig` | `radius`, `height`, `eye_height`, `gravity`, `accel`, `friction`, `max_speed`, `step_height`, `dt`, `jump_speed`, `air_control`, `crouch_scale`, `max_dt`, `contact_skin`, `max_slides`, `max_substeps` |
+| `ControllerConfig` | `radius`, `height`, `eye_height`, `gravity`, `accel`, `friction`, `max_speed`, `retention`, `step_height`, `dt`, `jump_speed`, `air_control`, `crouch_scale`, `max_dt`, `contact_skin`, `max_slides`, `max_substeps` |
 | `StepResult` | `ok`, `error`, `state`, `hit_wall`, `hit_floor`, `hit_ceiling`, `stepped_up`, `stepped_down`, `jumped`, `substeps`, `slides` |
+| `TickVelocity` | `vx`, `vy` — горизонтальная скорость оригинала, **ед/тик** |
+| `ChassisMotion` | `max_speed` (op4, ед/тик), `weight_penalty`, `weight`, `weight_limit`, `health_factor`, `retention` (k) |
+| `IntegrationResult` | `velocity`, `displacement_x`, `displacement_y` |
 
 `step()` не бросает исключений, не читает время/SDL и не меняет мир. Ошибки
 ввода возвращают `StepResult{ok=false, error=...}` с **исходным** состоянием.
+
+Отдельно от `step()` доступен **доказанный интегратор оригинала** (§3.11):
+`weight_limited_speed`, `nominal_speed`, `chassis_from_config`,
+`integrate_velocity`, `integrate_batch`, `input_delta`, `integrate_vertical`.
 
 ---
 
@@ -222,6 +229,38 @@ floor_z = floor_at(pos.xy, pos.z + skin, step_height + 2·skin)
 интегрирования `pos/vel/height` перестали быть конечными (переполнение от
 абсурдной входной скорости), возвращается `ok=false` с исходным состоянием.
 
+### 3.11. Доказанный интегратор оригинала (`0x443690`)
+
+`step()` выше — **синтетическая** модель (трение/ускорение/зажим). Отдельно в
+модуле есть точный порт интегратора оригинала; его цикл
+`0x444476..0x4444d5` исполняется байт-в-байт в эмуляторе
+(`tools/re/player_integrator.py`, `docs/PLAYER_GHIDRA.md` §4.8):
+
+```
+v' = v·k + Δv            k = player[0x81bfb8] (0.9 для LIGHT), Δv = local_48/param_2
+displacement_x += v'_x   displacement_y += v'_y     (сумма скоростей ПОСЛЕ обновления)
+vz' = 0.85·vz + 0.15·pitch                          (0x4a2368 / 0x4a2360)
+```
+
+| функция | смысл |
+|---|---|
+| `weight_limited_speed(chassis)` | `0x4524d0`: `op4 − (вес − предел)·штраф`, зажим 0.05 |
+| `nominal_speed(chassis)` | `0x443690`: `weight_limited_speed · health_factor` (ед/тик) |
+| `chassis_from_config(config)` | числа конфига в единицах оригинала (`op4 = max_speed/91`) |
+| `integrate_velocity(v, k, step)` | один тик: `v ← v·k + step` |
+| `integrate_batch(v, k, step, ticks)` | батч тиков + накопленное смещение |
+| `input_delta(heading, nominal, forward_ticks, strafe_ticks, ticks)` | `Δv = v·n/ticks` в локальной системе оригинала, две оси (`docs/PLAYER_GHIDRA.md` §4.9) |
+| `integrate_vertical(vz, pitch)` | `vz ← 0.85·vz + 0.15·pitch` |
+
+Скорости здесь — **мировые единицы за тик** (91 тик = 1 с, `0x44db80`).
+Голдены `test_original_integrator` — это вывод эмулятора оригинальных байтов
+для диадических векторов, поэтому совпадение побитовое.
+
+Чего в этом API **нет** (и почему он не подключён к `step()`): в оригинале
+`Δv` собирается из счётчиков ввода (`0x81c3ac/0x81c3b0`, `0x81c388/0x81c38c`)
+и подвески/коллизии, а мир-координаты скорости выходят через `0x450f50`;
+эти части ещё не разобраны, поэтому подменять ими синтетику `step()` рано.
+
 ---
 
 ## 4. Константы: доказано и гипотеза
@@ -235,6 +274,8 @@ floor_z = floor_at(pos.xy, pos.z + skin, step_height + 2·skin)
 | высота глаз по шасси | 10 / 11 / 12 / 14 / 16 | docs/PLAYER.md §5 |
 | порог пол/стена/потолок | `0.8` | docs/COLLIDE.md §4.5 |
 | `max_speed` LIGHT, база | `1.70 · 91 = 154.7` | `DEFINE_PLAYER_TYPES` op4 = 1.70 ед/тик (LIGHT), 1.00/1.00/0.60 (MEDIUM/STEALTH/HEAVY), 1.70 (CHEVY); приёмник `player+0x81bd70`; `0x443690` + `0x44db80` (91 тик = 1 с). **Номинал, а не измеренный предел**: интегратор `v ← v·k + Δv` даёт `op4/(1−k)` = 17 ед/тик, сейвы показывают 0.76…5.6 ед/тик (см. `docs/PLAYER_GHIDRA.md` §4.2–§4.5) |
+| `retention` (k) LIGHT | `0.9` | `player+0x81bfb8`; код даёт fallback 0.92, сейв — 0.9, трасса — `0.9^22` (§4.4 `docs/PLAYER_GHIDRA.md`) |
+| формула интегратора | `v ← v·k + Δv` | **доказано исполнением байтов** оригинала (`tools/re/player_integrator.py`, §4.8 `docs/PLAYER_GHIDRA.md`) |
 | `SET_LEVEL_GRAVITY` | op 96, `D` | docs/VM_EXEC.md; в 13 уровнях значения 0.1…4.5 |
 
 Ghidra (`docs/PLAYER_GHIDRA.md` §4) уточняет: `0x443690` берёт
@@ -304,6 +345,10 @@ Ghidra (`docs/PLAYER_GHIDRA.md` §4) уточняет: `0x443690` берёт
 | `|v| = 10000`, стена `x=0`, 1 тик | `x = −3.000001`, `hit_wall`, субшагов > 1 |
 | два прогона по 120 тиков (jump/crouch/strafe) | побитово одинаковые состояния |
 | NaN/inf/`dt=0`/`dt=1`/`dt=10`/`radius=0`/`height<2r` | `ok=false`, текст ошибки, состояние не изменено |
+| интегратор оригинала (4 диадических вектора) | значения эмуляции оригинальных байтов, побитово (§3.11) |
+| штраф за вес / health-фактор / зажим 0.05 | `1.355`, `0.6775`, `0.05` (`0x4524d0`, `0x443690`) |
+| `k = 0.9` за 22 тика | `0.09847709021836176` (`0.9^22`, трасса сейва) |
+| вертикальный канал `vz ← 0.85·vz + 0.15·pitch` | `0.03` за тик при `pitch = 0.2` |
 
 ### 5.2. `level0.sbw` (реальный файл)
 
@@ -343,10 +388,11 @@ Ghidra (`docs/PLAYER_GHIDRA.md` §4) уточняет: `0x443690` берёт
 Не доказано:
 
 * **все константы §4.2** — инженерные гипотезы, не числа движка;
-* оригинальный алгоритм движения разобран только частично: `0x443690`
-  (скорость/health/интегратор `v←v·k+Δv`, `docs/PLAYER_GHIDRA.md` §4)
-  и `0x4524d0` (штраф за вес); `0x4344df`, `0x434887`, `0x4795b0`
-  (`event_post`) не разбирались; совпадение поведения с игрой не проверено,
+* оригинальный алгоритм движения разобран частично: интегратор
+  `0x443690` (`v←v·k+Δv`) **перенесён и проверен исполнением его байтов**
+  (§3.11), а `0x4524d0` (штраф за вес) — тоже; `0x4344df`, `0x434887`,
+  `0x4795b0` (`event_post`), счётчики ввода (`0x81c3ac/0x81c3b0`) и
+  подвеска не разбирались; совпадение поведения с игрой не проверено,
   а фактический предел скорости оригинала не измерен (сейвы дают
   0.76…5.6 ед/тик — см. §4.1 и `PLAYER_GHIDRA.md` §4.4);
 * капсула — **объединение трёх сфер**, а не точный цилиндр: на кромках
@@ -399,8 +445,10 @@ CTest `player_controller`: 1 тест, метка `quick`, ~0.26 с. Без ус
    `DEFINE_PLAYER_TYPES` (LIGHT/MEDIUM/STEALTH/HEAVY/CHEVY) может заполнять
    конфиг по уровню. Единица `op4` закрыта: ед/тик, `×91` — проверенная
    конверсия; тест `test_speed_unit_is_per_tick` фиксирует `max_speed*dt == 1.70`
-   и прохождение 154.7 ед за 91 тик. Но сам предел скорости в оригинале
-   задаёт не `op4`, а интегратор `v ← v·k + Δv` (`k` = 0.9…0.96,
-   `docs/PLAYER_GHIDRA.md` §4): чтобы перенести его, нужны `k(шасси)` и
-   `Δv` (тики ввода), а не один clamp.
+   и прохождение 154.7 ед за 91 тик. Сам интегратор оригинала уже перенесён
+   и **проверен исполнением его байтов** (§3.11, `docs/PLAYER_GHIDRA.md`
+   §4.8): `v ← v·k + Δv`, `k` = `retention`, смещение — сумма обновлённых
+   скоростей. Не хватает двух вещей: значений `Δv` (тики ввода из
+   счётчиков `0x81c3ac/0x81c3b0`) и подвески/коллизии оригинала — до
+   этого `step()` остаётся синтетикой.
 9. **Множители гравитации уровня** (op 96) не применяются.

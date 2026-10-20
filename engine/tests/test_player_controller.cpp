@@ -499,6 +499,160 @@ void test_speed_unit_is_per_tick() {
     CHECK_NEAR(state.pos.y - y0, 154.7, 1.8);
 }
 
+void test_original_integrator() {
+    // --- chassis speed model (0x4524d0, 0x443690) ---------------------------
+    gm::ChassisMotion light;
+    light.max_speed = 1.70;
+    light.weight_penalty = 0.003;
+    light.weight = 615.0;
+    light.weight_limit = 500.0;
+    light.health_factor = 0.5;
+    light.retention = 0.9;
+    // 1.7 - 0.003 * (615 - 500) = 1.355, then * 0.5 = 0.6775 (save data).
+    CHECK_NEAR(gm::weight_limited_speed(light), 1.355, 1e-12);
+    CHECK_NEAR(gm::nominal_speed(light), 0.6775, 1e-12);
+
+    gm::ChassisMotion light_no_penalty = light;
+    light_no_penalty.weight = 400.0;
+    CHECK_NEAR(gm::weight_limited_speed(light_no_penalty), 1.70, 1e-12);
+
+    // 0x4524d0 clamps the weight limited speed to 0.05.
+    gm::ChassisMotion clamped = light;
+    clamped.max_speed = 0.0;
+    CHECK_NEAR(gm::weight_limited_speed(clamped), 0.05, 0.0);
+
+    // The config carries the same numbers in its own units.
+    gm::ControllerConfig config;
+    const gm::ChassisMotion from_config = gm::chassis_from_config(config);
+    CHECK_NEAR(from_config.max_speed, 1.70, 1e-12);
+    CHECK_NEAR(from_config.retention, 0.9, 1e-12);
+
+    // --- the integrator loop (0x444476..0x4444d5) ---------------------------
+    // The goldens are the output of tools/re/player_integrator.py, which runs
+    // the original bytes of gundx.exe; the vectors are dyadic, so the emulated
+    // (80-bit extended) and the C++ (binary64) results agree bit for bit.
+    {
+        const gm::IntegrationResult result =
+            gm::integrate_batch({1.0, -0.5}, 0.5, {0.0, 0.0}, 8);
+        CHECK(result.velocity.vx == 0.00390625);
+        CHECK(result.velocity.vy == -0.001953125);
+        CHECK(result.displacement_x == 0.99609375);
+        CHECK(result.displacement_y == -0.498046875);
+    }
+    {
+        const gm::IntegrationResult result =
+            gm::integrate_batch({0.0, 0.0}, 0.5, {0.25, -0.125}, 10);
+        CHECK(result.velocity.vx == 0.49951171875);
+        CHECK(result.velocity.vy == -0.249755859375);
+        CHECK(result.displacement_x == 4.50048828125);
+        CHECK(result.displacement_y == -2.250244140625);
+    }
+    {
+        const gm::IntegrationResult result =
+            gm::integrate_batch({2.0, 1.0}, 0.25, {-0.5, 0.75}, 6);
+        CHECK(result.velocity.vx == -0.666015625);
+        CHECK(result.velocity.vy == 1.0);
+        CHECK(result.displacement_x == -3.111328125);
+        CHECK(result.displacement_y == 6.0);
+    }
+    {
+        const gm::IntegrationResult result =
+            gm::integrate_batch({0.125, 0.375}, 0.75, {1.5, -0.25}, 5);
+        CHECK(result.velocity.vx == 4.6058349609375);
+        CHECK(result.velocity.vy == -0.6737060546875);
+        CHECK(result.displacement_x == 16.5574951171875);
+        CHECK(result.displacement_y == -1.8538818359375);
+    }
+
+    // One tick of the loop is `v <- v*k + step`, the batch is its repetition.
+    {
+        const gm::TickVelocity velocity{0.25, -0.5};
+        const gm::TickVelocity step{0.125, 0.25};
+        const gm::TickVelocity one = gm::integrate_velocity(velocity, 0.75, step);
+        CHECK(one.vx == velocity.vx * 0.75 + step.vx);
+        CHECK(one.vy == velocity.vy * 0.75 + step.vy);
+        const gm::IntegrationResult single =
+            gm::integrate_batch(velocity, 0.75, step, 1);
+        CHECK(single.velocity.vx == one.vx);
+        CHECK(single.velocity.vy == one.vy);
+        CHECK(single.displacement_x == one.vx);
+        CHECK(single.displacement_y == one.vy);
+        // The displacement is the sum of the velocities after every update.
+        gm::TickVelocity current = velocity;
+        double dx = 0.0;
+        double dy = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            current = gm::integrate_velocity(current, 0.75, step);
+            dx += current.vx;
+            dy += current.vy;
+        }
+        const gm::IntegrationResult batch = gm::integrate_batch(velocity, 0.75, step, 4);
+        CHECK(batch.velocity.vx == current.vx);
+        CHECK(batch.velocity.vy == current.vy);
+        CHECK(batch.displacement_x == dx);
+        CHECK(batch.displacement_y == dy);
+    }
+
+    // An empty batch changes nothing.
+    {
+        const gm::IntegrationResult result =
+            gm::integrate_batch({1.0, 2.0}, 0.9, {0.5, 0.5}, 0);
+        CHECK(result.velocity.vx == 1.0);
+        CHECK(result.velocity.vy == 2.0);
+        CHECK(result.displacement_x == 0.0);
+        CHECK(result.displacement_y == 0.0);
+    }
+
+    // The retention of the shipped LIGHT chassis, measured on the save data:
+    // after the 22 ticks of a history window the velocity keeps 0.9^22 = 9.85 %.
+    {
+        const gm::IntegrationResult result = gm::integrate_batch({1.0, 0.0}, 0.9, {0.0, 0.0}, 22);
+        CHECK_NEAR(result.velocity.vx, 0.09847709021836176, 1e-15);
+    }
+
+    // The vertical channel of the same loop: vz <- 0.85*vz + 0.15*pitch.
+    CHECK(gm::integrate_vertical(0.0, 0.2) == 0.03);
+    CHECK_NEAR(gm::integrate_vertical(0.0, 0.2) * 0.0, 0.0, 0.0);
+    {
+        double vz = 0.0;
+        for (int i = 0; i < 5; ++i) {
+            vz = gm::integrate_vertical(vz, 0.2);
+        }
+        CHECK_NEAR(vz, 0.1112589375, 1e-12);
+    }
+    // The look angle of the original is clamped to +-pi/12 (0x444422).
+    CHECK_NEAR(gm::integrate_vertical(0.0, -0.26179938779914941), -0.03926990816987241, 1e-15);
+
+    // The input delta of 0x443690: the nominal speed projected on the heading.
+    {
+        const gm::TickVelocity forward = gm::input_delta(0.0, 1.0, 1, 0, 1);
+        CHECK_NEAR(forward.vx, -1.0, 1e-12);
+        CHECK_NEAR(forward.vy, 0.0, 1e-12);
+        const gm::TickVelocity right = gm::input_delta(1.5707963267948966, 1.0, 1, 0, 1);
+        CHECK_NEAR(right.vx, 0.0, 1e-12);
+        CHECK_NEAR(right.vy, 1.0, 1e-12);
+        // n input ticks inside a batch of `ticks` ticks: dv = v * n / ticks.
+        const gm::TickVelocity half = gm::input_delta(0.0, 1.0, 1, 0, 2);
+        CHECK_NEAR(half.vx, -0.5, 1e-12);
+        CHECK_NEAR(half.vy, 0.0, 1e-12);
+        const gm::TickVelocity none = gm::input_delta(0.0, 1.0, 0, 0, 1);
+        CHECK(none.vx == 0.0);
+        CHECK(none.vy == 0.0);
+        // The second axis: the counters are added with the cross terms
+        // (dx = sin*v*strafe - cos*v*forward, dy = cos*v*strafe + sin*v*forward).
+        const gm::TickVelocity strafe = gm::input_delta(0.0, 1.0, 0, 1, 1);
+        CHECK_NEAR(strafe.vx, 0.0, 1e-12);
+        CHECK_NEAR(strafe.vy, 1.0, 1e-12);
+        const gm::TickVelocity both = gm::input_delta(0.0, 1.0, 1, 1, 1);
+        CHECK_NEAR(both.vx, -1.0, 1e-12);
+        CHECK_NEAR(both.vy, 1.0, 1e-12);
+        // An empty batch has no delta.
+        const gm::TickVelocity empty = gm::input_delta(0.0, 1.0, 5, 5, 0);
+        CHECK(empty.vx == 0.0);
+        CHECK(empty.vy == 0.0);
+    }
+}
+
 void test_no_tunnelling() {
     std::vector<TriSpec> specs = floor_quad(0.0);
     const std::vector<TriSpec> wall = wall_x(0.0, -10.0, 10.0);
@@ -733,6 +887,7 @@ int main() {
     test_ceiling();
     test_speed_limit();
     test_speed_unit_is_per_tick();
+    test_original_integrator();
     test_no_tunnelling();
     test_determinism();
     test_negatives();
