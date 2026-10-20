@@ -186,36 +186,41 @@ struct FireScriptInfo {
     bool found = false;
     bool hitscan = false;
     int damage_gauge = 0;
+    bool underwater = false;
 };
 
-bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info) {
+bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
+                      bool underwater = false) {
     for (const SbtInsn& insn : insns) {
         if (!insn.condition.empty()) {
-            if (insn.condition == "FIRE_SOURCEPLAYER_BULLET") {
-                if (!info.found) {
-                    info.hitscan = true;
-                    if (insn.args.size() > 2) {
-                        info.damage_gauge = static_cast<int>(as_uint(insn.args[2]));
+            const bool is_fire =
+                insn.condition == "FIRE_SOURCEPLAYER_BULLET" ||
+                insn.condition == "FIRE_SOURCEPLAYER_LASER" ||
+                insn.condition == "FIRE_SOURCEPLAYER_THING";
+            if (is_fire) {
+                // Prefer the air branch over SOURCE_UNDERWATER; this fixes the
+                // old first-leaf DFS (LASER 1.00 instead of 3.00, etc.).
+                const bool prefer = !info.found ||
+                                    (info.underwater && !underwater);
+                if (prefer) {
+                    info.hitscan = insn.condition != "FIRE_SOURCEPLAYER_THING";
+                    info.damage_gauge = 0;
+                    if (info.hitscan) {
+                        const std::size_t arg =
+                            insn.condition == "FIRE_SOURCEPLAYER_LASER" ? 4 : 2;
+                        if (insn.args.size() > arg) {
+                            info.damage_gauge =
+                                static_cast<int>(as_uint(insn.args[arg]));
+                        }
                     }
+                    info.underwater = underwater;
+                    info.found = true;
                 }
-                info.found = true;
-            } else if (insn.condition == "FIRE_SOURCEPLAYER_LASER") {
-                if (!info.found) {
-                    info.hitscan = true;
-                    if (insn.args.size() > 4) {
-                        info.damage_gauge = static_cast<int>(as_uint(insn.args[4]));
-                    }
-                }
-                info.found = true;
-            } else if (insn.condition == "FIRE_SOURCEPLAYER_THING") {
-                if (!info.found) {
-                    info.hitscan = false;
-                }
-                info.found = true;
             }
         }
         if (!insn.body.empty()) {
-            scan_fire_script(insn.body, info);
+            scan_fire_script(insn.body, info,
+                             underwater || insn.condition == "SOURCE_UNDERWATER");
         }
     }
     return info.found;

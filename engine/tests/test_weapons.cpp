@@ -908,6 +908,13 @@ void test_real_tables(const gm::Weapons& table) {
         CHECK_EQ(cannon->muzzle, 1);
     }
 
+    const gm::Weapon* laser = table.at(11);
+    CHECK(laser != nullptr);
+    if (laser != nullptr) {
+        CHECK(laser->hitscan);
+        CHECK_NEAR(laser->damage, 3.0, 0.0); // air branch, not underwater 1.00
+    }
+
     CHECK_EQ(table.ammo_types()[0].name, std::string("BULLETS"));
     CHECK_EQ(table.ammo_types()[0].max, std::uint32_t(5000));
     CHECK_EQ(table.ammo_types()[1].name, std::string("CANNON SHELLS"));
