@@ -115,3 +115,6 @@ va,name,kind,subsystem,status,evidence
 0x44a460,game_init,code,main,код,вызывается из 0x404320 после создания окна
 0x477f90,weapon_target_scan,code,combat,гипотеза,Ghidra 12.1.4 decompile: обход things по range/spread, выбор ближайшей цели
 0x473a00,thing_target_scan,code,ai,гипотеза,Ghidra 12.1.4 decompile: обход 0x7ac3e0/0x81c244, ближайшая цель в radius
+0x466ae0,net_client_decode,code,player,код,Ghidra: клиентский разбор пакета; пишет player+0x58 (view-roll) из packet+0x0e
+0x81be28,player_view_roll_network,data,player,код,Ghidra: player+0x58, float из сети; добавка к крену player+0x20
+0x5a4a74,tick_counter,data,main,код,Ghidra: INC в 0x44bdda, поток 0x4074e0 Sleep(11) -> ~91 тик/с

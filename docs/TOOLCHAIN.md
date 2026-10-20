@@ -26,7 +26,7 @@
 |---|---|
 | дизассемблер | `objdump -D -b pei-i386 -M intel gundx.exe` → `/tmp/opencode/gundx.asm` |
 | обёртки | `tools/re/disrange.py`, `tools/re/xref.py`, `tools/re/exelib.py` |
-| карта адресов | `tools/re/names.csv` (116 записей) + `tools/re/names.py` |
+| карта адресов | `tools/re/names.csv` (119 записей) + `tools/re/names.py` |
 | декомпилятор | **Ghidra 12.1.4 PUBLIC** + **pyghidra-mcp 0.2.7**, headless |
 | Java | Temurin **21.0.12.1+1** (портативный, `~/tools`) |
 | MCP | HTTP `http://127.0.0.1:8765/mcp`, конфиг — `opencode.json` |
