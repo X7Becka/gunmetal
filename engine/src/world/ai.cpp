@@ -369,7 +369,7 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         if (chosen < 0 && things_ != nullptr) {
             for (const Thing& thing : things_->things()) {
                 if (thing.id == agent.thing_id || !thing.alive ||
-                    !thing.absolute()) {
+                    thing.expired || !thing.absolute()) {
                     continue;
                 }
                 const auto& p = *thing.position;
