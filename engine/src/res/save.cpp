@@ -20,12 +20,12 @@ namespace {
 // the parser read (or reserve) an unbounded amount of data.
 constexpr std::size_t kMaxSaveBytes = 64u * 1024u * 1024u;
 constexpr std::size_t kMaxBlocks = 32;
-constexpr std::uint32_t kMaxSwitches = 0x200;
-constexpr std::uint32_t kMaxDoors = 100;
+constexpr std::uint32_t kMaxSwitches = kSaveMaxSwitches;
+constexpr std::uint32_t kMaxDoors = kSaveMaxDoors;
 constexpr std::uint32_t kMaxThingTypes = 0x80;
 constexpr std::uint32_t kMaxNamedItems = 0x31;
-constexpr std::uint32_t kMaxSprites = 0x1f3;
-constexpr std::uint32_t kMaxSounds = 0x7f;
+constexpr std::uint32_t kMaxSprites = kSaveMaxSprites;
+constexpr std::uint32_t kMaxSounds = kSaveMaxSounds;
 constexpr std::uint32_t kMaxPolyHandles = 0x1f3;
 constexpr std::uint32_t kMaxObjectHandles = 0x12b;
 constexpr std::uint32_t kMaxSectorHandles = 0xff;
@@ -36,10 +36,10 @@ constexpr std::uint32_t kMaxScriptThings = 0xc8;
 constexpr std::uint32_t kMaxScriptNamed = 0x400;
 constexpr std::uint32_t kMaxScriptCode = 0x30000;
 
-constexpr std::size_t kBlockStrideSwitch = 0x20;
-constexpr std::size_t kBlockStrideDoor = 0xb8;
-constexpr std::size_t kBlockStrideSprite = 0x2c;
-constexpr std::size_t kBlockStrideSound = 28;
+constexpr std::size_t kBlockStrideSwitch = kSaveSwitchRecordSize;
+constexpr std::size_t kBlockStrideDoor = kSaveDoorRecordSize;
+constexpr std::size_t kBlockStrideSprite = kSaveSpriteRecordSize;
+constexpr std::size_t kBlockStrideSound = kSaveSoundRecordSize;
 constexpr std::size_t kBlockStrideThingType = 936;
 constexpr std::size_t kBlockStrideNamedItem = 52;
 constexpr std::size_t kBlockStrideLift = 168;
@@ -47,8 +47,8 @@ constexpr std::size_t kBlockStrideLiftStop = 12;
 constexpr std::size_t kBlockStrideSob = 20;
 constexpr std::size_t kBlockStrideScriptThing = 40;
 constexpr std::size_t kBlockStrideScriptHandle = 12;
-constexpr std::size_t kThingSlots = 260;
-constexpr std::size_t kThingRecord = 0x528;
+constexpr std::size_t kThingSlots = kSaveThingSlots;
+constexpr std::size_t kThingRecord = kSaveThingRecordSize;
 constexpr std::size_t kItemSize = 0x7080;
 constexpr std::size_t kSectorStuffSize = 0x5800;
 constexpr std::size_t kSampleCountsSize = 300 * 4;
@@ -77,6 +77,35 @@ constexpr std::size_t kPlayerWeaponSlotAt = 0x3294;
 constexpr std::size_t kPlayerWeaponMaskAt = 0x3298;
 constexpr std::size_t kPlayerAmmoAt = 0x329c;
 constexpr std::size_t kPlayerAmmoSlots = 12;
+
+// Field offsets inside the typed blocks of docs/SAVE_BLOCKS.md.
+constexpr std::size_t kDoorDeltaAt = 0x48;
+constexpr std::size_t kDoorConstantAt = 0x60;
+constexpr std::size_t kDoorFlagsAt = 0x68;
+constexpr std::size_t kDoorIdsAt = 0x6c;
+constexpr std::size_t kDoorStateAt = 0x80;
+constexpr std::size_t kDoorSectorAt = 0x84;
+constexpr std::size_t kDoorObjectAt = 0x88;
+constexpr std::size_t kDoorPhasePrevAt = 0x8c;
+constexpr std::size_t kDoorPhaseNextAt = 0x90;
+constexpr std::size_t kDoorStepAt = 0x94;
+constexpr std::size_t kDoorParam5At = 0x98;
+constexpr std::size_t kDoorParam6At = 0x9c;
+constexpr std::size_t kDoorVAt = 0xa0;
+constexpr std::size_t kDoorNAt = 0xac;
+
+constexpr std::size_t kSpriteScaleXAt = 0x00;
+constexpr std::size_t kSpriteScaleYAt = 0x04;
+constexpr std::size_t kSpriteRuntimeAt = 0x08;
+constexpr std::size_t kSpritePosAt = 0x0c;
+constexpr std::size_t kSpriteParamAt = 0x18;
+constexpr std::size_t kSpriteReserved0At = 0x19;
+constexpr std::size_t kSpriteFlagsAt = 0x1c;
+constexpr std::size_t kSpriteEffectAt = 0x20;
+constexpr std::size_t kSpriteParam16At = 0x24;
+constexpr std::size_t kSpriteReserved1At = 0x26;
+constexpr std::size_t kSpriteSpawnAt = 0x28;
+
 
 constexpr std::int32_t kMaxGauge = 1000000;
 
@@ -137,6 +166,15 @@ double le_f64(std::span<const std::uint8_t> data, std::size_t off) {
     return std::bit_cast<double>(le64(data, off));
 }
 
+std::uint16_t le16(std::span<const std::uint8_t> data, std::size_t off) {
+    return static_cast<std::uint16_t>(data[off]) |
+           static_cast<std::uint16_t>(static_cast<std::uint16_t>(data[off + 1]) << 8);
+}
+
+float le_f32(std::span<const std::uint8_t> data, std::size_t off) {
+    return std::bit_cast<float>(le32(data, off));
+}
+
 void put32(std::vector<std::uint8_t>& data, std::size_t off, std::uint32_t value) {
     data[off] = static_cast<std::uint8_t>(value & 0xff);
     data[off + 1] = static_cast<std::uint8_t>((value >> 8) & 0xff);
@@ -153,6 +191,15 @@ void put_f64(std::vector<std::uint8_t>& data, std::size_t off, double value) {
     for (std::size_t i = 0; i < 8; ++i) {
         data[off + i] = static_cast<std::uint8_t>((bits >> (8 * i)) & 0xff);
     }
+}
+
+void put16(std::vector<std::uint8_t>& data, std::size_t off, std::uint16_t value) {
+    data[off] = static_cast<std::uint8_t>(value & 0xff);
+    data[off + 1] = static_cast<std::uint8_t>((value >> 8) & 0xff);
+}
+
+void put_f32(std::vector<std::uint8_t>& data, std::size_t off, float value) {
+    put32(data, off, std::bit_cast<std::uint32_t>(value));
 }
 
 /// Bounds-checked cursor over the save bytes.  Every failure keeps the first
@@ -231,6 +278,86 @@ private:
     std::size_t pos_;
     std::string& error_;
 };
+
+SaveSwitch decode_switch(std::span<const std::uint8_t> rec) {
+    SaveSwitch s;
+    s.kind = le_i32(rec, 0x00);
+    s.id = le_i32(rec, 0x04);
+    s.radius = le_i32(rec, 0x08);
+    for (std::size_t i = 0; i < 3; ++i) {
+        s.pos[i] = le_i32(rec, 0x0c + 4 * i);
+    }
+    s.aux = le_i32(rec, 0x18);
+    s.sound = le_i32(rec, 0x1c);
+    return s;
+}
+
+SaveDoor decode_door(std::span<const std::uint8_t> rec) {
+    SaveDoor d;
+    for (std::size_t i = 0; i < 9; ++i) {
+        d.box[i] = le_f64(rec, 8 * i);
+    }
+    for (std::size_t i = 0; i < 3; ++i) {
+        d.delta[i] = le_f64(rec, kDoorDeltaAt + 8 * i);
+    }
+    d.constant = le_f64(rec, kDoorConstantAt);
+    d.flags = le_i32(rec, kDoorFlagsAt);
+    for (std::size_t i = 0; i < 5; ++i) {
+        d.ids[i] = le_i32(rec, kDoorIdsAt + 4 * i);
+    }
+    d.state = le_i32(rec, kDoorStateAt);
+    d.sector = le_i32(rec, kDoorSectorAt);
+    d.object = le_i32(rec, kDoorObjectAt);
+    d.phase_prev = le32(rec, kDoorPhasePrevAt);
+    d.phase_next = le32(rec, kDoorPhaseNextAt);
+    d.step = le_i32(rec, kDoorStepAt);
+    d.param5 = le_i32(rec, kDoorParam5At);
+    d.param6 = le_i32(rec, kDoorParam6At);
+    for (std::size_t i = 0; i < 3; ++i) {
+        d.v[i] = le_i32(rec, kDoorVAt + 4 * i);
+        d.n[i] = le_i32(rec, kDoorNAt + 4 * i);
+    }
+    return d;
+}
+
+SaveSprite decode_sprite(std::span<const std::uint8_t> rec) {
+    SaveSprite s;
+    s.scale_x = le_f32(rec, kSpriteScaleXAt);
+    s.scale_y = le_f32(rec, kSpriteScaleYAt);
+    s.runtime_object = le32(rec, kSpriteRuntimeAt);
+    for (std::size_t i = 0; i < 3; ++i) {
+        s.pos[i] = le_i32(rec, kSpritePosAt + 4 * i);
+    }
+    s.param = rec[kSpriteParamAt];
+    std::copy_n(rec.begin() + static_cast<std::ptrdiff_t>(kSpriteReserved0At),
+                s.reserved0.size(), s.reserved0.begin());
+    s.flags = le32(rec, kSpriteFlagsAt);
+    s.effect_id = le_i32(rec, kSpriteEffectAt);
+    s.param16 = le16(rec, kSpriteParam16At);
+    std::copy_n(rec.begin() + static_cast<std::ptrdiff_t>(kSpriteReserved1At),
+                s.reserved1.size(), s.reserved1.begin());
+    s.spawn_time = le32(rec, kSpriteSpawnAt);
+    return s;
+}
+
+void decode_sounds(std::span<const std::uint8_t> body, std::uint32_t count,
+                   std::vector<SaveSound>& out) {
+    // Block 7 is column-major: five i32 columns (x, y, z, volume, sample)
+    // followed by one f64 pitch column (tools/re/save_fields.py parse_sounds).
+    const std::size_t n = count;
+    out.clear();
+    out.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        SaveSound s;
+        s.x = le_i32(body, 0x00 + 4 * i);
+        s.y = le_i32(body, 4 * n + 4 * i);
+        s.z = le_i32(body, 8 * n + 4 * i);
+        s.volume = le_i32(body, 12 * n + 4 * i);
+        s.sample = le_i32(body, 16 * n + 4 * i);
+        s.pitch = le_f64(body, 20 * n + 8 * i);
+        out.push_back(s);
+    }
+}
 
 void set_player_fields(SavePlayer& player, std::span<const std::uint8_t> st) {
     for (std::size_t i = 0; i < 3; ++i) {
@@ -459,6 +586,262 @@ bool encode_player(const SavePlayer& player, std::vector<std::uint8_t>& out,
     return true;
 }
 
+void append_switch(std::vector<std::uint8_t>& out, const SaveSwitch& s) {
+    const std::size_t base = out.size();
+    out.resize(base + kBlockStrideSwitch);
+    put_i32(out, base + 0x00, s.kind);
+    put_i32(out, base + 0x04, s.id);
+    put_i32(out, base + 0x08, s.radius);
+    for (std::size_t i = 0; i < 3; ++i) {
+        put_i32(out, base + 0x0c + 4 * i, s.pos[i]);
+    }
+    put_i32(out, base + 0x18, s.aux);
+    put_i32(out, base + 0x1c, s.sound);
+}
+
+void append_door(std::vector<std::uint8_t>& out, const SaveDoor& d) {
+    const std::size_t base = out.size();
+    out.resize(base + kBlockStrideDoor);
+    for (std::size_t i = 0; i < 9; ++i) {
+        put_f64(out, base + 8 * i, d.box[i]);
+    }
+    for (std::size_t i = 0; i < 3; ++i) {
+        put_f64(out, base + kDoorDeltaAt + 8 * i, d.delta[i]);
+    }
+    put_f64(out, base + kDoorConstantAt, d.constant);
+    put_i32(out, base + kDoorFlagsAt, d.flags);
+    for (std::size_t i = 0; i < 5; ++i) {
+        put_i32(out, base + kDoorIdsAt + 4 * i, d.ids[i]);
+    }
+    put_i32(out, base + kDoorStateAt, d.state);
+    put_i32(out, base + kDoorSectorAt, d.sector);
+    put_i32(out, base + kDoorObjectAt, d.object);
+    put32(out, base + kDoorPhasePrevAt, d.phase_prev);
+    put32(out, base + kDoorPhaseNextAt, d.phase_next);
+    put_i32(out, base + kDoorStepAt, d.step);
+    put_i32(out, base + kDoorParam5At, d.param5);
+    put_i32(out, base + kDoorParam6At, d.param6);
+    for (std::size_t i = 0; i < 3; ++i) {
+        put_i32(out, base + kDoorVAt + 4 * i, d.v[i]);
+        put_i32(out, base + kDoorNAt + 4 * i, d.n[i]);
+    }
+}
+
+void append_sprite(std::vector<std::uint8_t>& out, const SaveSprite& s) {
+    const std::size_t base = out.size();
+    out.resize(base + kBlockStrideSprite);
+    put_f32(out, base + kSpriteScaleXAt, s.scale_x);
+    put_f32(out, base + kSpriteScaleYAt, s.scale_y);
+    put32(out, base + kSpriteRuntimeAt, s.runtime_object);
+    for (std::size_t i = 0; i < 3; ++i) {
+        put_i32(out, base + kSpritePosAt + 4 * i, s.pos[i]);
+    }
+    out[base + kSpriteParamAt] = s.param;
+    std::copy(s.reserved0.begin(), s.reserved0.end(),
+              out.begin() + static_cast<std::ptrdiff_t>(base + kSpriteReserved0At));
+    put32(out, base + kSpriteFlagsAt, s.flags);
+    put_i32(out, base + kSpriteEffectAt, s.effect_id);
+    put16(out, base + kSpriteParam16At, s.param16);
+    std::copy(s.reserved1.begin(), s.reserved1.end(),
+              out.begin() + static_cast<std::ptrdiff_t>(base + kSpriteReserved1At));
+    put32(out, base + kSpriteSpawnAt, s.spawn_time);
+}
+
+
+std::string count_error(const char* what, std::size_t count, std::size_t limit) {
+    return std::string(what) + ": count " + std::to_string(count) +
+           " out of range [0, " + std::to_string(limit) + "]";
+}
+
+bool encode_switches(const std::vector<SaveSwitch>& records, std::vector<std::uint8_t>& out,
+                     std::string& error) {
+    if (records.size() > kMaxSwitches) {
+        error = count_error("switches", records.size(), kMaxSwitches);
+        return false;
+    }
+    out.clear();
+    out.resize(4);
+    put32(out, 0, static_cast<std::uint32_t>(records.size()));
+    out.reserve(4 + records.size() * kBlockStrideSwitch);
+    for (const SaveSwitch& s : records) {
+        append_switch(out, s);
+    }
+    return true;
+}
+
+bool encode_doors(const std::vector<SaveDoor>& records, std::vector<std::uint8_t>& out,
+                  std::string& error) {
+    if (records.size() > kMaxDoors) {
+        error = count_error("doors", records.size(), kMaxDoors);
+        return false;
+    }
+    out.clear();
+    out.resize(4);
+    put32(out, 0, static_cast<std::uint32_t>(records.size()));
+    out.reserve(4 + records.size() * kBlockStrideDoor);
+    for (const SaveDoor& d : records) {
+        append_door(out, d);
+    }
+    return true;
+}
+
+bool encode_sprites(const std::vector<SaveSprite>& records, std::vector<std::uint8_t>& out,
+                    std::string& error) {
+    if (records.size() > kMaxSprites) {
+        error = count_error("sprites", records.size(), kMaxSprites);
+        return false;
+    }
+    out.clear();
+    out.resize(4);
+    put32(out, 0, static_cast<std::uint32_t>(records.size()));
+    out.reserve(4 + records.size() * kBlockStrideSprite);
+    for (const SaveSprite& s : records) {
+        append_sprite(out, s);
+    }
+    return true;
+}
+
+bool encode_sounds(const std::vector<SaveSound>& records, std::vector<std::uint8_t>& out,
+                   std::string& error) {
+    if (records.size() > kMaxSounds) {
+        error = count_error("sound sources", records.size(), kMaxSounds);
+        return false;
+    }
+    out.clear();
+    out.resize(4);
+    put32(out, 0, static_cast<std::uint32_t>(records.size()));
+    out.reserve(4 + records.size() * kBlockStrideSound);
+    // Column-major, matching parse_sounds(): x, y, z, volume, sample, pitch.
+    for (int column = 0; column < 5; ++column) {
+        for (const SaveSound& s : records) {
+            std::int32_t value = 0;
+            switch (column) {
+            case 0: value = s.x; break;
+            case 1: value = s.y; break;
+            case 2: value = s.z; break;
+            case 3: value = s.volume; break;
+            default: value = s.sample; break;
+            }
+            const std::size_t at = out.size();
+            out.resize(at + 4);
+            put_i32(out, at, value);
+        }
+    }
+    for (const SaveSound& s : records) {
+        const std::size_t at = out.size();
+        out.resize(at + 8);
+        put_f64(out, at, s.pitch);
+    }
+    return true;
+}
+
+bool encode_things(const std::array<bool, kThingSlots>& present,
+                   const std::vector<SaveThing>& records, std::vector<std::uint8_t>& out,
+                   std::string& error) {
+    const std::size_t expected =
+        static_cast<std::size_t>(std::count(present.begin(), present.end(), true));
+    if (records.size() != expected) {
+        error = "things: " + std::to_string(records.size()) + " records for " +
+                std::to_string(expected) + " presence flags";
+        return false;
+    }
+    out.clear();
+    out.reserve(kThingSlots + records.size() * kThingRecord);
+    std::size_t next = 0;
+    for (std::size_t i = 0; i < kThingSlots; ++i) {
+        out.push_back(present[i] ? 1 : 0);
+        if (!present[i]) {
+            continue;
+        }
+        if (records[next].slot != i) {
+            error = "things: record " + std::to_string(next) + " is for slot " +
+                    std::to_string(records[next].slot) + ", expected slot " +
+                    std::to_string(i);
+            return false;
+        }
+        const auto& raw = records[next].raw;
+        out.insert(out.end(), raw.begin(), raw.end());
+        ++next;
+    }
+    return true;
+}
+
+bool same_switch(const SaveSwitch& a, const SaveSwitch& b) {
+    return a.kind == b.kind && a.id == b.id && a.radius == b.radius && a.pos == b.pos &&
+           a.aux == b.aux && a.sound == b.sound;
+}
+
+bool same_double(double a, double b) {
+    return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
+}
+
+bool same_float(float a, float b) {
+    return std::bit_cast<std::uint32_t>(a) == std::bit_cast<std::uint32_t>(b);
+}
+
+bool same_door(const SaveDoor& a, const SaveDoor& b) {
+    for (std::size_t i = 0; i < 9; ++i) {
+        if (!same_double(a.box[i], b.box[i])) {
+            return false;
+        }
+    }
+    for (std::size_t i = 0; i < 3; ++i) {
+        if (!same_double(a.delta[i], b.delta[i])) {
+            return false;
+        }
+    }
+    return same_double(a.constant, b.constant) && a.flags == b.flags && a.ids == b.ids &&
+           a.state == b.state && a.sector == b.sector && a.object == b.object &&
+           a.phase_prev == b.phase_prev && a.phase_next == b.phase_next &&
+           a.step == b.step && a.param5 == b.param5 && a.param6 == b.param6 &&
+           a.v == b.v && a.n == b.n;
+}
+
+bool same_sprite(const SaveSprite& a, const SaveSprite& b) {
+    return same_float(a.scale_x, b.scale_x) && same_float(a.scale_y, b.scale_y) &&
+           a.runtime_object == b.runtime_object && a.pos == b.pos && a.param == b.param &&
+           a.reserved0 == b.reserved0 && a.flags == b.flags &&
+           a.effect_id == b.effect_id && a.param16 == b.param16 &&
+           a.reserved1 == b.reserved1 && a.spawn_time == b.spawn_time;
+}
+
+bool same_sound(const SaveSound& a, const SaveSound& b) {
+    return a.x == b.x && a.y == b.y && a.z == b.z && a.volume == b.volume &&
+           a.sample == b.sample && same_double(a.pitch, b.pitch);
+}
+
+bool same_things(const Save& a, const Save& b) {
+    if (a.thing_present != b.thing_present || a.things.size() != b.things.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.things.size(); ++i) {
+        if (a.things[i].slot != b.things[i].slot || a.things[i].raw != b.things[i].raw) {
+            return false;
+        }
+    }
+    return true;
+}
+
+template <typename T, typename Eq>
+bool same_vector(const std::vector<T>& a, const std::vector<T>& b, Eq eq) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (!eq(a[i], b[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool same_typed_blocks(const Save& a, const Save& b) {
+    return same_vector(a.switches, b.switches, same_switch) &&
+           same_vector(a.doors, b.doors, same_door) && same_things(a, b) &&
+           same_vector(a.sprites, b.sprites, same_sprite) &&
+           same_vector(a.sounds, b.sounds, same_sound);
+}
+
 bool same_player(const SavePlayer& a, const SavePlayer& b) {
     if (a.has_slot != b.has_slot || a.present != b.present ||
         a.attachment_counts != b.attachment_counts || a.pair_headers != b.pair_headers) {
@@ -575,16 +958,36 @@ bool parse_block(Reader& r, Save& save, std::uint8_t id, std::size_t offset,
         if (!r.count(count, kMaxSwitches, "switches")) {
             return false;
         }
-        return r.skip(static_cast<std::size_t>(count) * kBlockStrideSwitch, "switch records");
+        save.switches.clear();
+        save.switches.reserve(count);
+        for (std::uint32_t i = 0; i < count; ++i) {
+            std::span<const std::uint8_t> rec;
+            if (!r.bytes(kBlockStrideSwitch, rec, "switch record")) {
+                return false;
+            }
+            save.switches.push_back(decode_switch(rec));
+        }
+        return true;
     }
     case 2: { // doors
         if (!r.count(count, kMaxDoors, "doors")) {
             return false;
         }
-        return r.skip(static_cast<std::size_t>(count) * kBlockStrideDoor, "door records");
+        save.doors.clear();
+        save.doors.reserve(count);
+        for (std::uint32_t i = 0; i < count; ++i) {
+            std::span<const std::uint8_t> rec;
+            if (!r.bytes(kBlockStrideDoor, rec, "door record")) {
+                return false;
+            }
+            save.doors.push_back(decode_door(rec));
+        }
+        return true;
     }
     case 3: { // things: 260 x {u8 present; optional 0x528}
         std::uint32_t present = 0;
+        save.thing_present.fill(false);
+        save.things.clear();
         for (std::size_t i = 0; i < kThingSlots; ++i) {
             std::uint8_t flag = 0;
             if (!r.u8(flag, "thing presence flag")) {
@@ -595,12 +998,19 @@ bool parse_block(Reader& r, Save& save, std::uint8_t id, std::size_t offset,
                        std::to_string(flag) + " is not 0/1");
                 return false;
             }
-            if (flag) {
-                ++present;
-                if (!r.skip(kThingRecord, "thing record")) {
-                    return false;
-                }
+            save.thing_present[i] = flag != 0;
+            if (!flag) {
+                continue;
             }
+            ++present;
+            std::span<const std::uint8_t> rec;
+            if (!r.bytes(kThingRecord, rec, "thing record")) {
+                return false;
+            }
+            SaveThing thing;
+            thing.slot = i;
+            std::copy(rec.begin(), rec.end(), thing.raw.begin());
+            save.things.push_back(thing);
         }
         count = present;
         return true;
@@ -617,16 +1027,33 @@ bool parse_block(Reader& r, Save& save, std::uint8_t id, std::size_t offset,
         }
         return r.skip(static_cast<std::size_t>(count) * kBlockStrideNamedItem,
                       "named item records");
-    case 6: // sprites
+    case 6: { // sprites
         if (!r.count(count, kMaxSprites, "sprites")) {
             return false;
         }
-        return r.skip(static_cast<std::size_t>(count) * kBlockStrideSprite, "sprite records");
-    case 7: // sound sources
+        save.sprites.clear();
+        save.sprites.reserve(count);
+        for (std::uint32_t i = 0; i < count; ++i) {
+            std::span<const std::uint8_t> rec;
+            if (!r.bytes(kBlockStrideSprite, rec, "sprite record")) {
+                return false;
+            }
+            save.sprites.push_back(decode_sprite(rec));
+        }
+        return true;
+    }
+    case 7: { // sound sources, column-major
         if (!r.count(count, kMaxSounds, "sound sources")) {
             return false;
         }
-        return r.skip(static_cast<std::size_t>(count) * kBlockStrideSound, "sound records");
+        std::span<const std::uint8_t> body;
+        if (!r.bytes(static_cast<std::size_t>(count) * kBlockStrideSound, body,
+                     "sound records")) {
+            return false;
+        }
+        decode_sounds(body, count, save.sounds);
+        return true;
+    }
     case 8: // SECTOR_STUFF, fixed 256 x 0x58
         return r.skip(kSectorStuffSize, "sector stuff");
     case 9: // player
@@ -902,13 +1329,66 @@ std::optional<std::vector<std::uint8_t>> Save::to_bytes(std::string& error) cons
         seen[block.id] = true;
 
         out.push_back(block.id);
+        std::vector<std::uint8_t> payload;
+        bool have_payload = false;
         if (block.id == 9 && player) {
-            std::vector<std::uint8_t> payload;
             if (!encode_player(*player, payload, error)) {
                 return std::nullopt;
             }
-            out.insert(out.end(), payload.begin(), payload.end());
+            have_payload = true;
             player_written = true;
+        } else {
+            switch (block.id) {
+            case 1:
+                if (!switches.empty()) {
+                    if (!encode_switches(switches, payload, error)) {
+                        return std::nullopt;
+                    }
+                    have_payload = true;
+                }
+                break;
+            case 2:
+                if (!doors.empty()) {
+                    if (!encode_doors(doors, payload, error)) {
+                        return std::nullopt;
+                    }
+                    have_payload = true;
+                }
+                break;
+            case 3: {
+                const bool any_flag =
+                    std::any_of(thing_present.begin(), thing_present.end(),
+                                [](bool v) { return v; });
+                if (any_flag || !things.empty()) {
+                    if (!encode_things(thing_present, things, payload, error)) {
+                        return std::nullopt;
+                    }
+                    have_payload = true;
+                }
+                break;
+            }
+            case 6:
+                if (!sprites.empty()) {
+                    if (!encode_sprites(sprites, payload, error)) {
+                        return std::nullopt;
+                    }
+                    have_payload = true;
+                }
+                break;
+            case 7:
+                if (!sounds.empty()) {
+                    if (!encode_sounds(sounds, payload, error)) {
+                        return std::nullopt;
+                    }
+                    have_payload = true;
+                }
+                break;
+            default:
+                break;
+            }
+        }
+        if (have_payload) {
+            out.insert(out.end(), payload.begin(), payload.end());
         } else {
             if (block.raw.empty()) {
                 error = "block " + std::to_string(block.id) + " has no raw payload";
@@ -971,6 +1451,10 @@ std::optional<std::vector<std::uint8_t>> rebuild_save(Save& save, bool verify,
         }
         if (save.player && !same_player(*save.player, *parsed->player)) {
             error = "player fields did not survive the rebuild";
+            return std::nullopt;
+        }
+        if (!same_typed_blocks(save, *parsed)) {
+            error = "typed block fields did not survive the rebuild";
             return std::nullopt;
         }
         if (save.blocks.size() != parsed->blocks.size()) {

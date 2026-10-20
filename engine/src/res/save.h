@@ -135,10 +135,103 @@ struct SavePlayer {
     }
 };
 
+/// Block 1 record (0x20), one per ``ADD_SWITCH`` operand set.
+/// All eight dwords are the verbatim script operands (docs/SAVE_FIELDS.md §4).
+constexpr std::size_t kSaveSwitchRecordSize = 0x20;
+constexpr std::uint32_t kSaveMaxSwitches = 0x200;
+
+struct SaveSwitch {
+    std::int32_t kind = 0;   ///< +0x00: 0 ordinary, 0x101 transformed, 0x102..0x104 source
+    std::int32_t id = 0;     ///< +0x04: entity id passed to GENERATE
+    std::int32_t radius = 0; ///< +0x08: trigger radius for kinds 0x102..0x104
+    std::array<std::int32_t, 3> pos{}; ///< +0x0c: world X/Y/Z
+    std::int32_t aux = 0;    ///< +0x18: auxiliary sound argument (hypothesis)
+    std::int32_t sound = -1; ///< +0x1c: sample index, -1 = silent
+};
+
+/// Block 2 record (0xB8), runtime door state.
+/// Everything in the record is covered by the proven/unknown map; the
+/// unknown constant at +0x60 is kept verbatim so an untouched door round-trips.
+constexpr std::size_t kSaveDoorRecordSize = 0xb8;
+constexpr std::uint32_t kSaveMaxDoors = 100;
+
+struct SaveDoor {
+    std::array<double, 9> box{};   ///< +0x00: closed corner (3), open corner (3), size (3)
+    std::array<double, 3> delta{}; ///< +0x48: per-tick box movement
+    double constant = 0.03;        ///< +0x60: ADD_DOOR constant, no reader known
+    std::int32_t flags = 0;        ///< +0x68: low nibble type 1..3, bit 0x40 usable
+    std::array<std::int32_t, 5> ids{}; ///< +0x6c: five E operands
+    std::int32_t state = 0;        ///< +0x80: -1 closing, 0 closed, +1 opening
+    std::int32_t sector = 0;       ///< +0x84: sector index in the .sbw
+    std::int32_t object = 0;       ///< +0x88: object index inside the sector
+    std::uint32_t phase_prev = 0;  ///< +0x8c: animation phase before the tick
+    std::uint32_t phase_next = 0;  ///< +0x90: animation phase after the tick
+    std::int32_t step = 0;         ///< +0x94: phase increment per tick
+    std::int32_t param5 = 0;       ///< +0x98: script L6, no reader known
+    std::int32_t param6 = 0;       ///< +0x9c: script L7, no reader known
+    std::array<std::int32_t, 3> v{}; ///< +0xa0: V operands of the VNVNVN tail
+    std::array<std::int32_t, 3> n{}; ///< +0xac: N operands of the VNVNVN tail
+};
+
+/// Block 3 slot (0x528).  The game does not expose a field map for the body
+/// yet, so the whole record is kept verbatim together with its slot index.
+constexpr std::size_t kSaveThingSlots = 260;
+constexpr std::size_t kSaveThingRecordSize = 0x528;
+
+struct SaveThing {
+    std::size_t slot = 0; ///< 0..259, index of the presence flag
+    std::array<std::uint8_t, kSaveThingRecordSize> raw{}; ///< opaque runtime state
+};
+
+/// Block 6 record (0x2c), runtime sprite.
+constexpr std::size_t kSaveSpriteRecordSize = 0x2c;
+constexpr std::uint32_t kSaveMaxSprites = 0x1f3;
+
+struct SaveSprite {
+    float scale_x = 0.0f;        ///< +0x00: X scale (script arg 9)
+    float scale_y = 0.0f;        ///< +0x04: Y scale (script arg 10)
+    std::uint32_t runtime_object = 0; ///< +0x08: stale runtime handle, re-created on load
+    std::array<std::int32_t, 3> pos{}; ///< +0x0c: world X/Y/Z
+    std::uint8_t param = 0;      ///< +0x18: byte parameter (hypothesis)
+    std::array<std::uint8_t, 3> reserved0{}; ///< +0x19: alignment/not mapped
+    std::uint32_t flags = 0;     ///< +0x1c: render flags (hypothesis)
+    std::int32_t effect_id = 0;  ///< +0x20: sprite/effect model id
+    std::uint16_t param16 = 0;   ///< +0x24: 16-bit render parameter (hypothesis)
+    std::array<std::uint8_t, 2> reserved1{}; ///< +0x26: alignment/padding
+    std::uint32_t spawn_time = 0; ///< +0x28: level clock at creation
+};
+
+/// Block 7 source.  The file groups six parallel columns (x, y, z, volume,
+/// sample as i32, then pitch as f64); SaveSound is the logical per-source
+/// record and the writer transposes it back into columns.
+constexpr std::size_t kSaveSoundRecordSize = 28;
+constexpr std::uint32_t kSaveMaxSounds = 0x7f;
+
+struct SaveSound {
+    std::int32_t x = 0;      ///< +0x00
+    std::int32_t y = 0;      ///< +0x04
+    std::int32_t z = 0;      ///< +0x08
+    std::int32_t volume = 0; ///< +0x0c
+    std::int32_t sample = 0; ///< +0x10: SOUND_SAMPLE_TABLE index
+    double pitch = 0.0;      ///< +0x14
+};
+
 struct Save {
     SaveHeader header;
     std::vector<SaveBlock> blocks;
     std::optional<SavePlayer> player; ///< set when block 9 is present
+
+    /// Typed blocks 1/2/3/6/7 (docs/SAVE_BLOCKS.md).  parse_save fills them
+    /// from the payload; to_bytes re-encodes a block from these vectors when
+    /// they are non-empty (block 3: when any presence flag is set) and falls
+    /// back to SaveBlock::raw otherwise, so an all-zero count still round-trips.
+    std::vector<SaveSwitch> switches; ///< block 1, file order
+    std::vector<SaveDoor> doors;      ///< block 2, file order
+    std::array<bool, kSaveThingSlots> thing_present{}; ///< block 3 slot flags
+    std::vector<SaveThing> things;    ///< block 3 present slots, ascending
+    std::vector<SaveSprite> sprites;  ///< block 6, file order
+    std::vector<SaveSound> sounds;    ///< block 7, file order
+
     std::size_t size = 0;
 
     const SaveBlock* find_block(std::uint8_t id) const {
