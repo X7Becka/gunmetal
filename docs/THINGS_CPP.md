@@ -161,8 +161,8 @@ struct Thing {
 `health` и `shield_max` — копии на спавне. AI пока их не использует.
 Для `dm1`/`level0` первый `bgchunk1`: `movement_type=6`,
 `search_radius=6000`, `target_zone=200`, `history=0`,
-`max_health=health=2000`, `shields=0`, `expire_event=destroy_event=-30071`
-(CTest `things`).
+`max_health=health=2000`, `shields=0`, `timeout_event=death_event=0`,
+`create_event=-30069`, `expire_event=destroy_event=-30071` (CTest `things`).
 
 `gm::thing_type_events(level, type)` даёт те же event-id без построения
 `Things`; загрузчик оружия использует его для `THING_TYPES[type]`
