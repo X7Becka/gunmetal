@@ -601,7 +601,8 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > power-up-ветки 36/37/38 загружены в `thing_variants` и выбираются
       > `variant_for_power`/`select_blasts_at_power`. `projectile_speed`
       > теперь `THING_TYPES+0x10 × 91` (ед/тик доказаны `0x4752d0`);
-      > `charge*operand[9]` остаётся добавкой игрового слоя.
+      > `fire(..., charge)` применяет `charge*operand[9]`; остаётся передать
+      > заряд из игрового слоя.
 - 🟡 `M2.2.7` AI/things: состояния, path, дети, мораль, оружие, события.
       > C++ `world/things.*` (CTest `things`/`things_full`): top-level 4008,
       > recursive 7563, executed 7617, 391 старт, 2896/2896 model refs;
@@ -617,7 +618,8 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > fallback-цели — абсолютные живые вещи (`target_thing`); статусы
       > `burn`/`status` зеркалятся из вещи. `apply_thing_damage(Things&, id)`
       > обновляет вещь и постит `damaged`/`destroy` в `EventQueue`;
-      > `Things::tick(..., EventQueue*)` постит `expire` при `+0x1e8`.
+      > `Things::tick(..., EventQueue*)` постит `expire` при `+0x1e8`;
+      > `Things::spawn`/`remove` дают runtime-жизненный цикл с create/destroy.
       > path/навигация и реальное оружие — ещё нет.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
