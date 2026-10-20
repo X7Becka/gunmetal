@@ -260,11 +260,9 @@ std::size_t GameState::apply_to_doors(WorldState& world, std::string* error) con
         if (!index) {
             continue;
         }
-        // `doors()` exposes the vector as const.  This method takes the
-        // WorldState by non-const reference, so the underlying objects are
-        // mutable; the cast only works around the missing mutable accessor
-        // (world/doors.h is out of scope for this change).
-        Door& door = const_cast<Door&>(world.doors()[*index]);
+        // ``doors_mutable`` is the documented state-restore path; the indices
+        // and their ``(sector, object)`` bindings do not change here.
+        Door& door = world.doors_mutable()[*index];
 
         door.flags = saved.flags;
         door.kind = saved.flags & 0xf;

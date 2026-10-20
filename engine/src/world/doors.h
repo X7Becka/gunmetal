@@ -176,6 +176,9 @@ public:
 
     const WorldStats& stats() const { return stats_; }
     const std::vector<Door>& doors() const { return doors_; }
+    /// Mutable view for state restore (``game/state.*``); the world owns the
+    /// doors and callers must keep `(sector, object)` bindings intact.
+    std::vector<Door>& doors_mutable() { return doors_; }
     const std::vector<Switch>& switches() const { return switches_; }
     const std::vector<Lift>& lifts() const { return lifts_; }
     const std::vector<WorldEvent>& events() const { return events_; }
