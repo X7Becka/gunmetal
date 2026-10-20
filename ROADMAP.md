@@ -618,6 +618,7 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > fallback-цели — абсолютные живые вещи (`target_thing`); статусы
       > `burn`/`status` зеркалятся из вещи. `apply_thing_damage(Things&, id)`
       > обновляет вещь и постит `damaged`/`destroy` в `EventQueue`;
+      > AI-события несут `aim_point`, `target`/`target_thing`;
       > `Things::tick(..., EventQueue*)` постит `expire` при `+0x1e8`;
       > `Things::spawn`/`remove` дают runtime-жизненный цикл с create/destroy.
       > path/навигация и реальное оружие — ещё нет.
