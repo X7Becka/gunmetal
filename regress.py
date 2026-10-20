@@ -983,6 +983,14 @@ def main() -> int:
                          + ([] if opts.full else ["--check"]),
                          ["sob: 672 converted, 0 failed"] if opts.full
                          else ["sob: 672 parsed, 0 failed"]))
+    if opts.full:
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "sob_writer.py"), "--check"],
+                           capture_output=True, text=True, cwd=HERE)
+        results.append(report("sob / 672-model writer round-trip",
+                              p.returncode == 0 and "672/672 identical" in p.stdout
+                              and "byte-exact via raw        : 672/672" in p.stdout,
+                              "semantic + raw byte-exact"))
     render_checks(G, results, out, opts.full)
     # One shared sweep feeds "all levels decode", the 1.875 world-frame ratio
     # and the ADD_THING check below.
