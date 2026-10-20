@@ -569,9 +569,18 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > гравитация, прыжок, step-up/down, slide, 91 Гц, субшаги; golden
       > `level0` — 100 тиков вперёд `x=91.671875`, глаз `z=58.546876`.
       > Ghidra: `op4` — единицы/тик, `1.70*91 = 154.7` ед/с; тик 91 Гц
-      > доказан `0x44db80`; коэффициент `0x81bfb8` = 0.9…0.96, его трактовка
-      > ещё проверяется; `SET_LEVEL_GRAVITY` — множитель `0x80f840`
-      > (default 1.0), скалярная база не найдена (`docs/PLAYER_GHIDRA.md`).
+      > доказан `0x44db80`; `0x81bfb8` — **k** (доля скорости за тик, 0.9 у
+      > LIGHT по сейву), трактовка доказана **исполнением байтов** цикла
+      > `0x444476..0x4444d5` (`tools/re/player_integrator.py`): `v ← v·k + Δv`,
+      > смещение = сумма обновлённых скоростей, `vz ← 0.85·vz + 0.15·pitch`.
+      > Вход (`Δv`) — знаковая разность счётчиков действий
+      > (`0x81c3ac−0x81c3b0`, `0x81c388−0x81c38c`; счётчики копируются
+      > блоком из `0x5a49f0` в `0x443690`). Порт в C++:
+      > `integrate_velocity`/`integrate_batch`/`integrate_vertical`/
+      > `input_delta`/`weight_limited_speed`/`nominal_speed`
+      > (`docs/PLAYER_GHIDRA.md` §4.8–§4.9, `docs/PLAYER_CONTROLLER.md`
+      > §3.11); `SET_LEVEL_GRAVITY` — множитель `0x80f840` (default 1.0),
+      > скалярная база не найдена.
       > `game/weapons.*` (CTest `weapons`): DEFINE_WEAPONS/AMMO, сейвовый
       > loadout, cooldown = сырые тики (MG 17, CANNON 80), spread, recoil;
       > hitscan BULLET/LASER и

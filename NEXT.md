@@ -13,8 +13,22 @@
    использовать `Thing::health/shields/hits/events` в runtime.
 3. **Event effects.** Реестр текста `0x619860`, побочные эффекты switch,
    сетевой event-блоб (`u32 len + bytes`).
-4. **Player integrator.** Проверить `0x81bfb8` (`v = v*k + step`) в отладчике:
-   согласовать `op4` как ускорение/максимум и `ControllerConfig`.
+4. **Player integrator.** Интегратор оригинала **доказан исполнением его
+   байтов**: `tools/re/player_integrator.py` выполняет цикл
+   `0x444476..0x4444d5` — `v ← v·k + Δv` (`k = 0x81bfb8` = retention, 0.9 у
+   LIGHT по сейву), смещение = сумма обновлённых скоростей,
+   `vz ← 0.85·vz + 0.15·pitch`; расхождение с замкнутой формой — 5·10⁻¹⁶
+   (одна единица в последнем разряде: x87 держит 80-битные промежуточные).
+   Порт в C++ (`integrate_velocity`/`integrate_batch`/`integrate_vertical`/
+   `input_delta`/`weight_limited_speed`/`nominal_speed`/`chassis_from_config`)
+   и его голдены — вывод эмулятора; `docs/PLAYER_GHIDRA.md` §4.8–§4.9,
+   `docs/PLAYER_CONTROLLER.md` §3.11. Вход (`Δv`) — знаковая разность
+   счётчиков действий (`0x81c3ac−0x81c3b0`, `0x81c388−0x81c38c`; блок
+   копируется из `0x5a49f0` в `0x443690`). `op4` — **номинал** (ед/тик), не
+   ускорение и не предел: `ControllerConfig::max_speed` = конверсия
+   номинала (`1.70·91`), `retention` = k. Осталось: числовые значения `n` и
+   `param_2` в живом кадре (нужен отладчик оригинала) и подвеска/коллизии
+   оригинала — до них `step()` остаётся синтетикой.
 5. **Полный регресс.** `ctest` 45/53: 8 падений — внешние `level1/2` swap,
    `camera_rig` (правки пользователя) и `controls` (KEYCFG); `regress.py`
    113/113, `--full` — в работе. Код-регрессий нет.
@@ -27,6 +41,16 @@
 
 ## Последний ход
 
+- **Player integrator (пункт 4) закрыт настолько, насколько позволяет
+  статика.** Новый инструмент `tools/re/player_integrator.py` выполняет
+  байты оригинала (PE-образ `gundx.exe` в плоской памяти, подстановка
+  состояния игрока и кадра вызывающего, цикл x87); константы `0.15`/`-0.85`
+  и опкоды цикла сверяются с образом — «эмулируем не то» исключено.
+  C++-порт и голдены — в `engine/src/player/controller.*` и
+  `engine/tests/test_player_controller.cpp` (диадические векторы, совпадение
+  побитовое). Проверки: `player_controller` 1/1, полный CTest в worktree
+  44/52 (8 падений — те же внешние `level1/2` swap и `KEYCFG`, не код),
+  `regress.py` 113/113. Коммиты `05736f8`, `44b9b6a` (merge), `9d1e3c8`.
 - Impact-ветки: H1 (нейтральные blast’ы под водой), RGM (`ADD_THING` type 32,
   пустой `impact_blasts`, expire 3), H2 guards (`air/water/ground/DM`; TAC
   NUKE 15 в таблице, по 3 на контекст), hitscan impact-события (CANNON,
