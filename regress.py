@@ -160,6 +160,15 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           p.returncode == 0,
                           (p.stdout.strip().splitlines() or ["no output"])[-1]))
 
+    # .soo playback: mode 1 wraps, frame_at mirrors the engine interpolator.
+    rc, text = run_raw(["soo", os.path.join(G, "Sobanim", "Cultist.soo"),
+                        "--timeline", "--at", "50"])
+    ok = (rc == 0 and "mode=loop count=4" in text
+          and "[    0..50   ) 0 cult1a       -> 1" in text
+          and "at 50 ms: frame 1 cult1a alpha=0.000 -> cult1b" in text)
+    results.append(report("soo / loop timeline + interpolated pose", ok,
+                          "Cultist: 4 frames / 400 ms, wrap to frame 0"))
+
     # .soe/THING_TYPES field map: 77 fields, 36 proven by loader/consumers.
     rc, text = run_raw(["soe", "--fields"])
     ok = (rc == 0 and "soe fields: 77" in text

@@ -78,6 +78,7 @@ docs/PLAYER.md        спавн игрока, DM-респавн, высота �
 docs/SAVE.md          сейвы: контейнер, блоки, byte-exact rebuild
 docs/RECORDS.md       SECTOR_STUFF/ITEM/LIFT: поля, xref, writer
 docs/SOE.md           .soe/THING_TYPES: 77 полей, 36 proven, xref
+docs/SOO.md           .soo: mode/loop, ms timeline, морфинг поз
 ROADMAP.md            план: от текущего тулкита до полного движка (M0…M12)
 NOTES.md              рабочие заметки, карта адресов движка, CLI-справка
 ```

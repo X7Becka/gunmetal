@@ -306,12 +306,17 @@ round-trip'ы проверены на поставке.
 Формат текстовый: первые два числа, затем пары `имя_кадра длительность`.
 Пример: `Sobanim/BigGate.soo` = `0 3 / BigGate1 200 / BigGate2 6000 / BigGate3 10`.
 
-- 🟡 Разобрать семантику первых двух чисел (`mode`, `loop`? как у `.soa`).
-      > Частично: числа читаются (0/1), но «один раз / цикл» не доказано.
+- ✅ Семантика первых двух чисел: `mode 0` — one-shot (время
+      прижимается к `total-1`, последняя поза держится), `mode 1` — loop
+      (`t %= total`, последний кадр морфится в первый); `count` — авторитетное
+      число кадров, длительности — миллисекунды игровых часов. Загрузчик
+      `0x42b4e1`, плеер `0x433e00` (`docs/SOO.md`).
 - ✅ Понять, на что ссылаются имена кадров: `.sob`-файлы, кадры внутри `.sob`
       или записи `SOB_TABLE`.
-- 🟡 `gm/soo.py`: `parse`, `to_bytes`, `from_frames`, `render`.
-      > Частично: `parse`/`to_bytes`/`--rebuild` есть; `from_frames`/`render` — нет (кадры смотрятся через `gm.py view`).
+- ✅ `gm/soo.py`: `parse`, `to_bytes`, `timeline()`, `frame_at(ms)`,
+      `engine_frames`/`dropped_frames`/`short`, контактный лист в
+      `tools/re/soo_semantics.py`; `gm.py soo --timeline/--at`.
+      > Покадровый морфинг в `gm.py view` не подключён.
 - ✅ `gm.py soo`, `--rebuild`; round-trip 40/40.
 - ✅ Проверить на `BigGate`, `Cloud`, `Cultist`, `Dev1`, `Fire`, `NUKEring`.
 

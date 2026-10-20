@@ -738,13 +738,35 @@ def cmd_soo(opts) -> int:
         miss = [f.name for f in a.frames if sobs and f.name.lower() not in sobs]
         missing += len(miss)
         report.append({"file": os.path.basename(p), "path": p, "mode": a.mode,
-                       "count": a.count, "frames": len(a.frames),
-                       "duration": a.duration, "missing": miss})
+                       "loop": a.mode == 1, "count": a.count,
+                       "frames": len(a.frames), "engine_frames": len(a.engine_frames),
+                       "dropped": len(a.dropped_frames), "short": a.short,
+                       "duration": a.duration, "engine_duration": a.engine_duration,
+                       "timeline": [{"index": x.index, "name": x.name,
+                                     "start": x.start, "end": x.end,
+                                     "next": x.next_index} for x in a.timeline()],
+                       "missing": miss})
         if not opts.json:
             extra = "" if gap == 0 else " (%+d vs declared)" % gap
             print("%-16s mode=%d frames=%d%s total=%d ms"
                   % (os.path.basename(p), a.mode, len(a.frames), extra,
                      a.duration))
+            if opts.timeline:
+                print("    mode=%s count=%d engine=%d dropped=%d %s total=%d ms"
+                      % ("loop" if a.mode == 1 else "one-shot", a.count,
+                         len(a.engine_frames), len(a.dropped_frames),
+                         "SHORT" if a.short else "ok", a.engine_duration))
+                for x in a.timeline():
+                    print("      [%5d..%-5d) %d %-12s -> %d"
+                          % (x.start, x.end, x.index, x.name, x.next_index))
+            if opts.at is not None:
+                try:
+                    pose = a.frame_at(opts.at)
+                    print("    at %d ms: frame %d %s alpha=%.3f -> %s"
+                          % (opts.at, pose.index, pose.name, pose.alpha,
+                             pose.next_name))
+                except ValueError as exc:
+                    print("    at %d ms: %s" % (opts.at, exc))
             if opts.verbose:
                 for f in a.frames:
                     mark = "" if not sobs or f.name.lower() in sobs else "  (no .sob)"
@@ -2107,6 +2129,10 @@ def main(argv=None) -> int:
     p.add_argument("-v", "--verbose", action="store_true",
                    help="list every frame")
     p.add_argument("--rebuild", metavar="DIR", help="write re-serialised copies")
+    p.add_argument("--timeline", action="store_true",
+                   help="print loop/one-shot mode and the engine frame intervals")
+    p.add_argument("--at", type=int, metavar="MS",
+                   help="print the interpolated pose at MS milliseconds")
     p.set_defaults(func=cmd_soo)
 
     p = sub.add_parser("look", help="analyse LOOK16.TAB / LOOK162.TAB lookup cubes")
