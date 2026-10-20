@@ -16,7 +16,6 @@
 #include "res/scene.h"
 #include "res/sbc.h"
 #include "res/sob.h"
-#include "res/anim.h"
 #include "res/text.h"
 #include "res/level.h"
 #include "res/sbv.h"
