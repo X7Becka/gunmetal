@@ -28,7 +28,8 @@
 //     THING weapons (0x45e19d -> 0x46ea40 -> 0x46d8b0); the current runtime
 //     still treats every weapon as a projectile and uses
 //     `kDefaultProjectileSpeed`.
-//   * the damage split between one shield quadrant and the hull.
+//   * `apply_damage_gauge` is the exact 0x453b50 plate/hull model (hundredths,
+//     flags, spill, statuses); `apply_damage` keeps the old synthetic API.
 //   * spread sampling (uniform in the tangent square, deterministic seed).
 //
 // Recoil is *not* a weapon field: the original `SOURCEPLAYER_RECOIL` handler
@@ -308,6 +309,11 @@ struct Vitals {
     std::int32_t armor_max = 0;
     std::int32_t shield_max = 0;
     std::array<std::int32_t, 4> shields{}; ///< front/back/left/right
+    double mult_plate = 1.0;               ///< 0x81bff0, skipped with damage flag 4
+    double mult_hull = 1.0;                ///< 0x81bff8, skipped with damage flag 4
+    std::int32_t burn_timer = 0;            ///< status -1 accumulator
+    std::int32_t hitstun = 0;               ///< 0x81c408
+    std::uint32_t status_flags = 0;         ///< temporary 0x20/0xc0 bits
 };
 
 struct DamageResult {
@@ -320,10 +326,34 @@ struct DamageResult {
 };
 
 /// Apply `points` points of damage to one shield quadrant first, then the
-/// armor (hypothesis: the exact per-damage-type multipliers at `0x443c7d` are
-/// not mapped).  `points` are converted to hundredths with `llround`.
+/// armor.  This is the synthetic convenience API (kept for existing callers);
+/// it is **not** the exact original plate/hull model.  Use
+/// `apply_damage_gauge()` for `0x453b50` semantics.
 DamageResult apply_damage(Vitals& vitals, double points,
                           ShieldSide side = ShieldSide::front);
+
+/// Result of the exact `0x453b50` damage model (hundredths).
+struct GaugeDamageResult {
+    bool ok = false;
+    const char* error = "";
+    std::int32_t plate_absorbed = 0;
+    std::int32_t hull_absorbed = 0;
+    std::int32_t overflow = 0;
+    std::array<bool, 4> broken{};
+    bool dead = false;
+    bool low_health = false;  ///< crossed below 50% (event -17)
+    bool recovered = false;   ///< crossed back above 50% (event -18)
+    std::int32_t stun = 0;
+};
+
+/// Exact player damage intake from `0x453b50`: `plate` is the selected shield
+/// quadrant (front/back/left/right); `hull` is the armor.  Values are integer
+/// hundredths (400 = 4.00).  `side` is -1 for the non-directional path; flags:
+/// 1 = no direction, 2 = full damage per plate, 4 = already scaled.
+/// Negative `plate` is a status: -1 burn, -2 freeze/electro.
+GaugeDamageResult apply_damage_gauge(Vitals& vitals, std::int32_t plate,
+                                     std::int32_t hull, std::uint32_t flags = 0,
+                                     int side = -1);
 
 /// Build `Vitals` from the parsed save state.
 Vitals vitals_from_game(const GameState& game);

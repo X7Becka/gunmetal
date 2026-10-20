@@ -579,6 +579,24 @@ void apply_recoil(PlayerState& player, double view_pitch, double impulse) {
     player.vel = player.vel + recoil_velocity_delta(player.yaw, view_pitch, impulse);
 }
 
+namespace {
+
+std::int32_t gauge_trunc(double value) {
+    if (!std::isfinite(value)) {
+        return value < 0.0 ? std::numeric_limits<std::int32_t>::min()
+                           : std::numeric_limits<std::int32_t>::max();
+    }
+    if (value <= static_cast<double>(std::numeric_limits<std::int32_t>::min())) {
+        return std::numeric_limits<std::int32_t>::min();
+    }
+    if (value >= static_cast<double>(std::numeric_limits<std::int32_t>::max())) {
+        return std::numeric_limits<std::int32_t>::max();
+    }
+    return static_cast<std::int32_t>(value); // truncation toward zero
+}
+
+} // namespace
+
 DamageResult apply_damage(Vitals& vitals, double points, ShieldSide side) {
     DamageResult result;
     if (!std::isfinite(points) || points < 0.0) {
@@ -616,6 +634,106 @@ DamageResult apply_damage(Vitals& vitals, double points, ShieldSide side) {
     result.armor_absorbed = static_cast<std::int32_t>(armor_take);
     result.overflow = static_cast<std::int32_t>(rest);
     result.dead = vitals.armor <= 0;
+    return result;
+}
+
+GaugeDamageResult apply_damage_gauge(Vitals& vitals, std::int32_t plate,
+                                     std::int32_t hull, std::uint32_t flags,
+                                     int side) {
+    GaugeDamageResult result;
+    if (side < -1 || side > 3) {
+        result.error = "shield side outside -1..3";
+        return result;
+    }
+    if ((flags & 1U) != 0U) {
+        side = -1;
+    }
+
+    if (plate < 0) {
+        if (plate == -1) {
+            vitals.burn_timer += (hull * 91) / 100;
+            if (vitals.burn_timer >= 1) {
+                vitals.status_flags |= 0x20U;
+            }
+        } else if (plate == -2) {
+            vitals.status_flags |= 0xC0U;
+        }
+        result.ok = true;
+        result.stun = vitals.hitstun;
+        return result;
+    }
+
+    if ((flags & 4U) == 0U) {
+        plate = gauge_trunc(static_cast<double>(plate) * vitals.mult_plate);
+        hull = gauge_trunc(static_cast<double>(hull) * vitals.mult_hull);
+        if (plate == 0 && hull == 0) {
+            result.ok = true;
+            result.stun = vitals.hitstun;
+            return result;
+        }
+    }
+
+    const std::int64_t pool =
+        static_cast<std::int64_t>(vitals.armor) + static_cast<std::int64_t>(vitals.shield_max);
+    const double denom = std::max(1.0, static_cast<double>(pool) * (1.0 / 64.0));
+    std::int32_t stun = gauge_trunc(524288.0 * static_cast<double>(plate + hull) / denom);
+    stun = std::clamp<std::int32_t>(stun, 0x10000, 0x80000);
+    if (vitals.hitstun < stun) {
+        vitals.hitstun = stun;
+    }
+    result.stun = vitals.hitstun;
+
+    std::int32_t spill = hull;
+    std::array<bool, 4> broken{};
+
+    if (side >= 0) {
+        const auto index = static_cast<std::size_t>(side);
+        if (vitals.shields[index] > 0) {
+            vitals.shields[index] -= plate;
+            result.plate_absorbed = plate;
+        } else {
+            spill = plate + hull;
+        }
+    } else {
+        if ((flags & 2U) == 0U) {
+            plate >>= 2;
+        }
+        for (std::size_t i = 0; i < vitals.shields.size(); ++i) {
+            if (vitals.shields[i] > 0) {
+                vitals.shields[i] -= plate;
+                result.plate_absorbed += plate;
+            } else {
+                spill += ((flags & 2U) != 0U) ? (plate >> 2) : plate;
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < vitals.shields.size(); ++i) {
+        if (vitals.shields[i] < 0) {
+            const std::int32_t negative =
+                ((flags & 2U) != 0U) ? (vitals.shields[i] >> 2) : vitals.shields[i];
+            spill -= negative;
+            vitals.shields[i] = 0;
+            broken[i] = true;
+        }
+    }
+
+    const std::int32_t old_armor = vitals.armor;
+    vitals.armor -= spill;
+    result.hull_absorbed = spill;
+    result.broken = broken;
+    if (vitals.armor < 0) {
+        result.overflow = -vitals.armor;
+        vitals.armor = 0;
+    }
+    result.dead = vitals.armor <= 0;
+
+    if (!result.dead && vitals.armor_max > 0) {
+        const std::int32_t half = vitals.armor_max / 2;
+        result.low_health = old_armor >= half && vitals.armor < half;
+        result.recovered = old_armor < half && vitals.armor >= half;
+    }
+    result.ok = true;
     return result;
 }
 

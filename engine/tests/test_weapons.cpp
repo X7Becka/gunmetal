@@ -566,6 +566,109 @@ void test_damage_and_armor() {
     CHECK(!gm::apply_damage(bad, 1.0, static_cast<gm::ShieldSide>(9)).ok);
 }
 
+void test_damage_gauge() {
+    auto light = [] {
+        gm::Vitals v;
+        v.armor = 10000;
+        v.armor_max = 10000;
+        v.shield_max = 8000;
+        v.shields = {8000, 8000, 8000, 8000};
+        return v;
+    };
+
+    // Vector 1: one front plate, no spill at exactly zero.
+    gm::Vitals v = light();
+    gm::GaugeDamageResult r = gm::apply_damage_gauge(v, 400, 0, 0, 0);
+    CHECK(r.ok);
+    CHECK_EQ(v.shields[0], 7600);
+    CHECK_EQ(v.armor, 10000);
+    CHECK(!r.broken[0]);
+    CHECK_EQ(r.stun, 0x80000);
+
+    // Vector 2/3: exact zero is not "broken"; the next hit spills into hull.
+    for (int i = 0; i < 19; ++i) {
+        r = gm::apply_damage_gauge(v, 400, 0, 0, 0);
+        CHECK(r.ok);
+    }
+    CHECK_EQ(v.shields[0], 0);
+    CHECK_EQ(v.armor, 10000);
+    CHECK(!r.broken[0]);
+    r = gm::apply_damage_gauge(v, 400, 0, 0, 0);
+    CHECK_EQ(v.shields[0], 0);
+    CHECK_EQ(v.armor, 9600);
+    CHECK(!r.broken[0]);
+
+    // Vector 4: a plate that crosses zero clamps and marks broken.
+    v = light();
+    v.shields[0] = 300;
+    r = gm::apply_damage_gauge(v, 400, 0, 0, 0);
+    CHECK_EQ(v.shields[0], 0);
+    CHECK_EQ(v.armor, 9900);
+    CHECK(r.broken[0]);
+
+    // Vector 5/7: non-directional and full-plate flags.
+    v = light();
+    r = gm::apply_damage_gauge(v, 400, 0, 1, 0);
+    CHECK_EQ(v.shields[0], 7900);
+    CHECK_EQ(v.shields[1], 7900);
+    CHECK_EQ(v.armor, 10000);
+    CHECK(!r.broken[0]);
+
+    v = light();
+    r = gm::apply_damage_gauge(v, 400, 0, 3, 0);
+    CHECK_EQ(v.shields[0], 7600);
+    CHECK_EQ(v.shields[3], 7600);
+    CHECK_EQ(v.armor, 10000);
+
+    // Vector 10/11: half-health threshold and healing.
+    v = light();
+    v.armor = 6000;
+    r = gm::apply_damage_gauge(v, 1500, 0, 0, 1);
+    CHECK_EQ(v.armor, 6000); // selected plate absorbed it
+    CHECK_EQ(v.shields[1], 6500);
+    r = gm::apply_damage_gauge(v, 0, 0, 0, 0);
+    CHECK(!r.low_health);
+
+    v = light();
+    v.armor = 6000;
+    v.shields[1] = 0;
+    r = gm::apply_damage_gauge(v, 1500, 0, 0, 1);
+    CHECK_EQ(v.armor, 4500);
+    CHECK(r.low_health);
+    CHECK(!r.recovered);
+    r = gm::apply_damage_gauge(v, 0, -1500, 0, 0);
+    CHECK_EQ(v.armor, 6000);
+    CHECK(r.recovered);
+
+    // Vector 12/13: multipliers, then flags&4 bypasses them.
+    v = light();
+    v.mult_plate = 0.2;
+    v.mult_hull = 0.1;
+    r = gm::apply_damage_gauge(v, 400, 1500, 0, 0);
+    CHECK_EQ(v.shields[0], 7920);
+    CHECK_EQ(v.armor, 9850);
+    CHECK(r.ok);
+
+    v = light();
+    v.mult_plate = 0.2;
+    v.mult_hull = 0.1;
+    r = gm::apply_damage_gauge(v, 400, 1500, 4, 0);
+    CHECK_EQ(v.shields[0], 7600);
+    CHECK_EQ(v.armor, 8500);
+
+    // Vector 15: status -1 is burn, not damage.
+    v = light();
+    r = gm::apply_damage_gauge(v, -1, 150, 0, 0);
+    CHECK(r.ok);
+    CHECK_EQ(v.armor, 10000);
+    CHECK_EQ(v.shields[0], 8000);
+    CHECK_EQ(v.burn_timer, 136);
+    CHECK((v.status_flags & 0x20U) != 0U);
+
+    gm::Vitals bad = light();
+    CHECK(!gm::apply_damage_gauge(bad, 400, 0, 0, 9).ok);
+}
+
 void test_negatives_synthetic() {
     gm::Weapons table({make_weapon(0, 1, false)});
     gm::CollisionWorld world;
@@ -854,6 +957,7 @@ int main() {
     test_projectile();
     test_recoil();
     test_damage_and_armor();
+    test_damage_gauge();
     test_negatives_synthetic();
 
     if (fs::exists(kGame / "SAVEGAME" / "saved0.sbt") &&

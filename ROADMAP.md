@@ -453,7 +453,7 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
 роли многих полей — по смещениям.
 
 - ✅ Сопоставить поля `.soe` с `THING_TYPES` (936 Б, 0x3A8) и потребителями:
-      77 полей — 36 proven, 25 hypothesis, 16 unknown; загрузчик `0x47cb6c`,
+      77 полей — 40 proven, 22 hypothesis, 15 unknown; загрузчик `0x47cb6c`,
       движение `+0x1b4`, коллизия `+0x1a0`, SOB `+0x1a4`, shields/events/
       weapons/children/path (`docs/SOE.md`).
 - ✅ Названы коллизия, shields, events, weapons, children, path, expire,
@@ -462,7 +462,7 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       --check/--exe-check`; человекочитаемая карта с xref.
 - ✅ `to_bytes` точен на всём поставочном `.soe` (1/1, round-trip).
 - ✅ C++-читатель `engine/src/res/soe.*`: railrock 340 Б / 67 токенов,
-      карта 77 полей (36 proven), CTest `soe`.
+      карта 77 полей (40 proven), CTest `soe`.
 
 **Выход:** документированная карта «поле → смещение → смысл/статус»; неизвестные
 помечены `fXX`, без догадок «под видом факта».

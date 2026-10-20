@@ -36,13 +36,14 @@ enum class AiState : std::uint8_t {
 
 const char* ai_state_name(AiState state);
 
-/// Tunables.  The shipped `.soe` has fields for attack range (+0x1cc), period
-/// (+0x1d0) and movement type (+0x1b4), but the values below are **not** read
-/// from a thing type yet: they are deliberate hypothesis constants for this
-/// scaffold.  See docs/AI_CPP.md §3 for the proven/hypothesis split.
+/// Tunables.  The shipped `.soe` has fields for search radius (+0x58), target
+/// zone threshold (+0x1cc), target history lag (+0x1d0), max HP (+0x1d4) and
+/// movement type (+0x1b4), but the values below are **not** read from a thing
+/// type yet: they are deliberate hypothesis constants for this scaffold.  See
+/// docs/AI_CPP.md §3 for the proven/hypothesis split.
 struct AiConfig {
     double sight_range = 512.0;        ///< world units, eye-to-eye
-    double attack_range = 96.0;        ///< world units, eye-to-eye
+    double attack_range = 96.0;        ///< C++ zone radius; original +0x1cc is a target-zone threshold
     double leash = 384.0;              ///< world units, home -> agent
     double eye_height = 10.0;          ///< agent eye above its feet (LIGHT chassis)
     double alert_seconds = 0.5;        ///< visible + in range -> attack delay
@@ -50,7 +51,7 @@ struct AiConfig {
     double patrol_after_seconds = 2.0; ///< idle -> patrol when no target
     double attack_period = 0.75;       ///< seconds between attack events
     double return_speed = 200.0;       ///< world units / second while returning
-    double health = 100.0;             ///< per-agent hit points
+    double health = 100.0;             ///< per-agent hit points; original max is +0x1d4 (0 = immune)
     double max_dt = 0.25;              ///< larger tick arguments are clamped
     double los_skin = 1e-3;            ///< "still visible" tolerance at the target
 };

@@ -111,7 +111,7 @@ latin1: `0x09..0x0d`, `0x1c..0x1f`, `0x20`, `0x85`, `0xa0`. Регистр фо�
 ## 4. Карта 77 полей
 
 `field_map()` — построчная копия `FIELD_MAP` из `gm/soe.py`:
-**36 proven, 25 hypothesis, 16 unknown**. Смещения от базы записи
+**40 proven, 22 hypothesis, 15 unknown**. Смещения от базы записи
 `0x776d60`, шаг `0x3a8`. Ключевые точки:
 
 * `+0x000` `name[16]` — имя типа (копируется загрузчиком из аргумента, не из
@@ -138,7 +138,7 @@ hypothesis — смещение и ширина доказаны, роль вы�
 * встроены точные байты `railrock.soe` и 67 строк «label/kind/value» из
   Python; сверяются все значения, порядок, смещения (`class_name` → `0x1a4`,
   `weapon[0].w2` → `0x27c`), имя/id/версия/extra, `to_bytes()`;
-* 77/36/25/16, уникальность строк, размеры `int`/`double`/`name16`,
+* 77/40/22/15, уникальность строк, размеры `int`/`double`/`name16`,
   резолв всех `soe`-меток и массивов, `kSoeRecordSize == 936`;
 * 14 фикстур v0..v13: гейты `f1b0`, `event_b`, `shield1/3`, `expire_event`,
   `falling_fear`, `create_event`, morale/timeout/damaged, `f1cc`, `f_a8`,
@@ -189,18 +189,19 @@ C++ — нет (в поставке не встречаются).
 
 ## 7. Доказано / гипотеза / остаток
 
-Доказано (proven, 36): имена/смещения/роли, подписанные загрузчиком и
+Доказано (proven, 40): имена/смещения/роли, подписанные загрузчиком и
 потребителями — `name`, `sob_index` `+0x1a4`, `collision_kind`, `movement_type`,
-щиты, события create/expire/damaged/morale/timeout, `sound_id`, `health`
-(смещение и копирование), `expire_ticks`, текстуры, счётчики и массивы
-оружия/детей/пути, радиусы.
+`search_radius` `+0x58`, `target_zone_threshold` `+0x1cc`,
+`target_history_offset` `+0x1d0`, `max_health` `+0x1d4`, щиты, события
+create/expire/damaged/morale/timeout, `sound_id`, `expire_ticks`, текстуры,
+счётчики и массивы оружия/детей/пути, радиусы.
 
-Гипотеза (25): `off_z`, `f20/f28`, `col_f90/98/a0`, `f198/f19c`, флаги
+Гипотеза (22): `off_z`, `f20/f28`, `col_f90/98/a0`, `f198/f19c`, флаги
 `f1a8/f1ac/f1b0`, `event_low_health`/`event_death`/`event_destroy`,
-`hits`, `attack_range`, `burst_period`, `timer_period/step`, `sound_volume`,
-`weapon_p0..p2`, `leash_distance`.
+`hits`, `timer_period/step`, `sound_volume`, `weapon_p0..p2`,
+`leash_distance`.
 
-Неизвестно (16): `f10`-подобные double (`f18`, `f50`, `f58`, `f60`, `f68`,
+Неизвестно (15): `f10`-подобные double (`f18`, `f50`, `f60`, `f68`,
 `f70`, `f78`, `f80`, `f88`, `f_a8`, `f_b0`, `f_b8`, `f_c0`) и
 `weapon_p3..p5`.
 

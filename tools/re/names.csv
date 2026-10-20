@@ -60,7 +60,11 @@ va,name,kind,subsystem,status,evidence
 0x81bd88,player_speed_after_weight,data,player,код,Ghidra: 0x4524d0 клампит min 0.05
 0x81bda8,player_collision_radius,data,player,код,Ghidra: obj+0x60 (f32 radius SOB) из 0x452240
 0x80f840,level_gravity_mul,data,player,код,Ghidra: op96; default 1.0; suspension -0.2*dt
-0x45e19d,fire_sourceplayer_thing,code,combat,код,Ghidra: cid=20; 0x46ea40 fire_thing
+0x453b50,damage_player,code,combat,код,Ghidra: plate/hull hundredths, flags 1/2/4
+0x478b30,damage_thing,code,combat,код,Ghidra: wrapper -> 0x453b50/0x470500
+0x477280,blast_radius_damage,code,combat,код,Ghidra: radial plate/hull damage
+0x81bff0,damage_mult_plate,data,combat,код,Ghidra: per-player plate multiplier
+0x81bff8,damage_mult_hull,data,combat,код,Ghidra: per-player hull multiplier\n0x45e19d,fire_sourceplayer_thing,code,combat,код,Ghidra: cid=20; 0x46ea40 fire_thing
 0x46ea40,fire_thing,code,combat,код,Ghidra: THING_TYPES+0x10 speed + charge*operand9
 0x46d8b0,thing_spawn_from_type,code,combat,код,Ghidra: create thing from THING_TYPES type
 0x478520,hitscan_bullet,code,combat,код,Ghidra: bullet trace/damage L2

@@ -150,16 +150,16 @@ state machine — следующий шаг. Все числа ниже — **г
 | константа | значение | статус | почему |
 |---|---:|---|---|
 | `kAiTickHz` | 91 | **proven** | тот же фиксированный тик, что `Things`/`Doors`/HUD (docs/THINGS_CPP.md, docs/PLAYER_CONTROLLER.md) |
-| `sight_range` | 512 | hypothesis | удобный радиус уровня; поле дальности атаки в `.soe` есть (`+0x1cc`), дальность зрения не доказана |
-| `attack_range` | 96 | hypothesis | масштаб уровня; `+0x1cc` пока не подключён |
+| `sight_range` | 512 | hypothesis | удобный радиус уровня; в `.soe` есть радиус **поиска** `+0x58`, но C++ его пока не читает |
+| `attack_range` | 96 | hypothesis | масштаб уровня; `+0x1cc` — порог «цель в зоне» (default 200), а не дальность атаки; пока не подключён |
 | `leash` | 384 | hypothesis | 0.75 × sight; оригинальный leash не разобран |
 | `eye_height` | 10 | hypothesis | LIGHT chassis = 10.0 (docs/PLAYER.md §5); у вещей высота глаза не доказана |
 | `alert_seconds` | 0.5 | hypothesis | задержка «увидел → атака» |
 | `lose_sight_seconds` | 3.0 | hypothesis | время забывания цели |
 | `patrol_after_seconds` | 2.0 | hypothesis | idle → patrol без цели |
-| `attack_period` | 0.75 | hypothesis | период события атаки; `+0x1d0` не подключён |
+| `attack_period` | 0.75 | hypothesis | период события атаки; `+0x1d0` — не период, а лаг истории цели, поэтому он не подходит |
 | `return_speed` | 200 | hypothesis | скорость возврата, не ориентация движения `+0x1b4` |
-| `health` | 100 | hypothesis | HP вещи; `+0x1d4` не подключён |
+| `health` | 100 | hypothesis | HP вещи; `+0x1d4` — max HP, 0 означает неуязвимость; пока не подключён |
 | `max_dt` | 0.25 | hypothesis | защита от «огромного dt» |
 | `los_skin` | 1e-3 | hypothesis | допуск на конечную точку луча |
 
