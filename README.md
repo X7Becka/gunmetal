@@ -119,6 +119,10 @@ python3 gm.py view "…/Gunmetal 3dfx/Sobanim/Cultist.soo" --at 1000 --out pose.
 # то же в C++
 gunmetal --anim Cultist --at 1000 --width 240 --height 240 --render pose.png
 
+# HUD-фильм поверх кадра (тик 0, позиция AMMO4)
+gunmetal --level level0 --render hud.png --width 320 --height 200 \
+    --hud AMMO4 --hud-tick 0 --hud-x 14 --hud-y 125 --hud-scale 1
+
 # все текстуры и спрайты в PNG (палитра берётся из установки)
 python3 gm.py textures "…/Gunmetal 3dfx" out/textures
 python3 gm.py sprites  "…/Gunmetal 3dfx" out/sprites --transparent 0
