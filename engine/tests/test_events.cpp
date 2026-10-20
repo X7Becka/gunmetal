@@ -5,6 +5,8 @@
 // overflow rule (check before append) and truncated/unknown records.
 #include "game/events.h"
 
+#include "world/things.h"
+
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -459,6 +461,50 @@ void test_dispatch_switch() {
     CHECK(dropped.generated.empty());
 }
 
+
+void test_thing_events() {
+    gm::Thing thing;
+    thing.id = 5;
+    thing.position = std::array<int, 3>{10, 20, 30};
+    thing.create_event = 1000;
+    thing.damaged_event = 1001;
+    thing.collide_event = 1002;
+    thing.expire_event = 1003;
+    thing.timeout_event = 1004;
+    thing.destroy_event = 1005;
+
+    CHECK_EQ(gm::thing_event_id(thing, gm::ThingEventKind::create), 1000U);
+    CHECK_EQ(gm::thing_event_id(thing, gm::ThingEventKind::destroy), 1005U);
+
+    gm::EventQueue queue;
+    CHECK(gm::post_thing_event(queue, thing, gm::ThingEventKind::create));
+    const gm::EventParseResult parsed = queue.drain();
+    CHECK(parsed.ok);
+    CHECK_EQ(parsed.events.size(), 1U);
+    if (parsed.events.size() == 1) {
+        CHECK_EQ(parsed.events[0].id, 1000);
+        CHECK_EQ(parsed.events[0].x, 10);
+        CHECK_EQ(parsed.events[0].y, 20);
+        CHECK_EQ(parsed.events[0].z, 30);
+        CHECK_EQ(parsed.events[0].extra,
+                 static_cast<std::uint32_t>(5 - 0xfff8));
+    }
+
+    // A missing event id is a no-op; source-relative things use zero coords.
+    thing.create_event = 0;
+    CHECK(!gm::post_thing_event(queue, thing, gm::ThingEventKind::create));
+    thing.create_event = 1000;
+    thing.position.reset();
+    CHECK(gm::post_thing_event(queue, thing, gm::ThingEventKind::create));
+    const gm::EventParseResult relative = queue.drain();
+    CHECK_EQ(relative.events.size(), 1U);
+    if (relative.events.size() == 1) {
+        CHECK_EQ(relative.events[0].x, 0);
+        CHECK_EQ(relative.events[0].y, 0);
+        CHECK_EQ(relative.events[0].z, 0);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -471,6 +517,7 @@ int main() {
     test_text_registry();
     test_network_blob();
     test_dispatch_switch();
+    test_thing_events();
     if (g_failures != 0) {
         std::fprintf(stderr, "events: %d failure(s)\n", g_failures);
         return 1;

@@ -142,6 +142,28 @@ private:
 /// 4..12 branch).  Non-text events are ignored and return false.
 bool post_event(TextRegistry& registry, const Event& event, std::uint32_t now);
 
+class EventQueue;
+struct Thing;
+/// Event fields of one THING_TYPES record (docs/THINGS_CPP.md).
+enum class ThingEventKind : std::uint8_t {
+    create,  ///< +0x1f0
+    damaged, ///< +0x1f4
+    destroy, ///< +0x1f8
+    expire,  ///< +0x1ec
+    timeout, ///< +0x1c0
+    collide, ///< +0x1c4
+};
+
+/// Event id for `kind`, or 0 when the shipped type has no such event.
+std::uint32_t thing_event_id(const Thing& thing, ThingEventKind kind);
+
+/// Post one thing event through the original queue.  The call site is the
+/// original one (`0x4703a0`/`0x470290`): world position of the thing and
+/// `extra = id - 0xfff8`; source-relative things without a world position use
+/// zero coordinates (the original resolves a transform, which the C++ level
+/// view does not retain).  Returns false for a zero event id or a full queue.
+bool post_thing_event(EventQueue& queue, const Thing& thing, ThingEventKind kind);
+
 /// One entry of the original runtime switch table `0x5a4af0` (stride 0x20),
 /// written by the level/trigger setup and consumed by `FUN_0044f960`.
 struct SwitchEffect {

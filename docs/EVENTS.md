@@ -82,6 +82,14 @@
 `event_post` **не создаёт объект, не ищет модель и не задаёт скорость**. Это
 только очередь.
 
+Мост THING → очередь: `gm::post_thing_event(queue, thing, kind)` берёт id из
+`Thing::create_event`/`damaged`/`destroy`/`expire`/`timeout`/`collide`
+(+0x1f0/+0x1f4/+0x1f8/+0x1ec/+0x1c0/+0x1c4), координаты — из абсолютной
+`Thing::position`, `extra = id − 0xfff8` (как `0x4703a0`/`0x470290`).
+Source-relative вещь без мировой точки даёт координаты 0: оригинал берёт
+трансформацию через `FUN_004277cd`, а C++ статическое представление её не
+хранит.
+
 ## 2. `event_dispatch` — `0x4799b0`
 
 В начале кадра (при `DAT_0083d620 == 2/3`) записи копируются из staging-буфера

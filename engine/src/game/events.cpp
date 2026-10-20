@@ -1,5 +1,7 @@
 #include "game/events.h"
 
+#include "world/things.h"
+
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -470,6 +472,47 @@ EventDispatchResult EventDispatcher::dispatch(EventQueue& queue, std::uint32_t n
                                               TextRegistry& registry) {
     EventParseResult parsed = queue.drain();
     return dispatch(parsed, now, registry);
+}
+
+
+std::uint32_t thing_event_id(const Thing& thing, ThingEventKind kind) {
+    switch (kind) {
+    case ThingEventKind::create:
+        return thing.create_event;
+    case ThingEventKind::damaged:
+        return thing.damaged_event;
+    case ThingEventKind::destroy:
+        return thing.destroy_event;
+    case ThingEventKind::expire:
+        return thing.expire_event;
+    case ThingEventKind::timeout:
+        return thing.timeout_event;
+    case ThingEventKind::collide:
+        return thing.collide_event;
+    }
+    return 0;
+}
+
+bool post_thing_event(EventQueue& queue, const Thing& thing, ThingEventKind kind) {
+    const std::uint32_t id = thing_event_id(thing, kind);
+    if (id == 0) {
+        return false;
+    }
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::int32_t z = 0;
+    if (thing.position.has_value()) {
+        const auto& p = *thing.position;
+        x = p[0];
+        y = p[1];
+        z = p[2];
+    }
+    // 0x4703a0/0x470290 pass `thing_index - 0xfff8` as the last argument.
+    const std::uint32_t extra =
+        static_cast<std::uint32_t>(thing.id - 0xfff8);
+    return queue.post_generate(static_cast<std::int32_t>(id), 0,
+                               static_cast<double>(x), static_cast<double>(y),
+                               static_cast<double>(z), extra);
 }
 
 EventParseResult EventQueue::parse_network_blob(std::span<const std::uint8_t> bytes) {
