@@ -58,6 +58,14 @@ objdump -D -M intel "/mnt/d/games/Gunmetal 3dfx/gundx.exe" > /tmp/opencode/gundx
 | `emu.py` | минимальный интерпретатор x86 (по тексту objdump) — оракул для кодека `.sbv`; требует `objdump` |
 | `x86mini.py` | мини-интерпретатор x86 по **реальным байтам** exe — исполняет самомодифицирующиеся декодеры `SOU1`/`SOU2` |
 | `sou_decode.py` | декод `SOU1` через `x86mini` (эталон): `sou_decode.py INTRO out.wav`, `--list` |
+| `sou1_model.py` | независимая модель SOU1 (4-битный ADPCM), `--verify`/`--check` на 983 записях |
+| `spawn.py` | `SET_PLAYER_START`/`SET_DEATHMATCH_START` по 36 уровням, высота глаза шасси |
+| `camera.py` | базис первого лица `0x41e025`, проекция, `--selftest`, `--json` |
+| `records.py` | `SECTOR_STUFF`/`ITEM`/`LIFT`: поля, writer, `--self-test` |
+| `save_rebuild.py` | сейв: `--check`/`--out`/`--diff`, byte-exact rebuild saved0/saved1 |
+| `soe_semantics.py` | `.soe`/THING_TYPES: 77 полей, `--fields`/`--json`/`--exe-check` |
+| `soo_semantics.py` | `.soo`: mode/loop, ms timeline, контактные листы `--png` |
+| `sob_writer.py` | `.sob` writer: `--check` 672 моделей, `--rebuild`, `--edit`, `--self-test` |
 | `sou1_model.py` | независимая модель `SOU1` (`0x852b40/0x852c00/0x852cc0`), WAV и сверка: `--verify` (983/983, ~7 мин), `--check docs/manifests/sou1-fnv.json` (быстро), `--list` |
 | `campaign.py` | карта переходов кампании/DM из скриптов всех `*.sbt`: `campaign.py [--game DIR] [--json]` (имя, секреты, лучшее время, выходы с условиями) |
 | `chassis_models.py` | как уровень выбирает модель игрока: `SOB_TABLE` уровня (восемь моделей шасси по индексам 15–18/21–24), записи `DEFINE_PLAYER_TYPES` (`op5`, звук `op11`) и проверка, что `CHEVY` не встречается нигде |
