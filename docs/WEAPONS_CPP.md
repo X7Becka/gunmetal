@@ -52,6 +52,18 @@ struct Weapon {
     bool hitscan; double projectile_speed;
 };
 
+// CAUSE_BLAST_RADIUS_DAMAGE (op 75): целые сотые, plate < 0 — статус.
+struct Blast {
+    int32_t plate, hull; int radius; uint32_t flags, event;
+    bool no_direction;
+};
+
+struct ThingVitals {              // runtime THING +0x7ac418..+0x7ac430
+    int32_t hp, max_hp;
+    std::array<int32_t,4> shields, shield_max;
+    bool alive; uint32_t flags, flags2, flags3;
+};
+
 struct AmmoType { std::string name; uint32_t max, pickup, flags, lot, price,
                                          weight, rounds_per_unit; };
 
@@ -78,6 +90,9 @@ struct Arsenal {
 | `Weapons::load(level_path)` | только таблицы; `initial()` пустой. |
 | `can_fire(table, arsenal, slot)` | слот 0..11, запись в таблице, бит маски, не идёт перезарядка, кулдаун 0, есть патроны/магазин. Возвращает `FireError`. |
 | `fire(table, arsenal, origin, dir, world)` | один выстрел. Сначала валидация (ничего не тратится при ошибке), затем списание, кулдаун, разброс, `raycast`, `ShotResult`. |
+| `blast_damage` / `blast_hull_damage` | целочисленный falloff `value*(radius-d)/radius`; `plate < 0` не масштабируется; `radius <= 0` → 0. |
+| `apply_blast` | сферический запрос `0x477280` без LOS; цели-игроки/THING, флаги bit0/2/3, событие на попадание. |
+| `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`. |
 | `reload(table, arsenal, slot)` | требует `magazine > 0`, бит маски, неполный магазин и резерв. `reload_ticks == 0` — мгновенно. |
 | `tick(table, arsenal, ticks)` | уменьшает кулдауны/таймеры, завершает перезарядку. `ticks == 0` — no-op. |
 | `switch_slot(table, arsenal, slot)` | 0..11 + бит маски; текущий слот — успешный no-op. Перезарядку не отменяет. |
@@ -284,6 +299,28 @@ bit0/2/3, границы игроков 8 / THING 260, событие на ка�
 
 `Vitals` строится из `GameState` (`vitals_from_game`), так что сейвовые
 `armor=10000`, `shields=8000` можно использовать без пересчёта.
+
+#### Impact/THING: числа `level0` (Ghidra §7)
+
+| оружие | прямой | снаряд/событие | blast (воздух) |
+|---|---|---|---|
+| MACHINE GUN | 4.00 | TT23/24/25, hits 1 | 0@50 (f1, вспышка) |
+| CANNON/AUTOCANNON | 15.00 | TT26 | 1500@200; вода 1500@400 |
+| GRENADE | — | TT28, speed 2, expire 364 | 8000@350 (f1); вода 8000@500 |
+| ROCKET | 0.03 dummy | TT31, speed 18, hits 1, expire 728 | 10000@80 + 12000@256; вода 10000@512 |
+| RGM | 0.03 dummy | TT32, speed 18, hits 0, expire 910 | 15000@256 |
+| TAC NUKE | 0.03 dummy | TT33, speed 10, hits 1 | ветки DM/вода/земля, до 80000@2250 |
+| MRL | 0.00 dummy | TT46 ×3, speed 25, expire 546 | 1000@80 + 2000@300 |
+| LASER | 3.00 (вода 1.00) | hitscan | 0@50 (f1) |
+| FUSIONBEAM | 3.00 | hitscan | 500@128; вода 500@256 |
+| PLASMA | — | TT36/37/38 по заряду | 10800@200 / 5000@150 / 2200@150 |
+| EMP | 0 | hitscan 900016 | кольца 0@4500 + 1500@76 + 2000@256 + 2000@512 + 1500@720 |
+| DISINTEGRATOR | 0 | TT34, speed 16, hits 1 | 0@200 + hitscan 400.00 в r200 |
+
+Это **не** единая таблица для всех уровней: 33 из 36 используют базовые
+ROCKET 8000/10000, а `level0` — 10000/12000; `level20` меняет TAC NUKE.
+Impact-события и `GENERATE` пока не склеены с `Weapon`; C++ предоставляет
+`Blast`/`apply_blast`, а загрузчик всё ещё ищет только первый `FIRE_*`.
 
 ---
 
