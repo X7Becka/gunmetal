@@ -53,6 +53,27 @@ def run(args: list[str]) -> tuple[int, str]:
     return run_raw([*args, "--force"])
 
 
+def config_checks(G: str, results: list[bool]) -> None:
+    """GUNMETAL.CFG field map and the opaque CONTROLS.CFG container."""
+    rc, text = run_raw(["misc", os.path.join(G, "GUNMETAL.CFG"), "--json"])
+    rows = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
+    row = rows[0] if rows else {}
+    ok = (rc == 0 and row.get("width") == 800 and row.get("height") == 600
+          and row.get("colour_depth") == 8
+          and row.get("key_profiles") == ["PERFECT", "SPLIT1"]
+          and row.get("opaque") is False)
+    results.append(report("config / GUNMETAL.CFG fields", ok,
+                          "800x600x8, keys PERFECT/SPLIT1"))
+
+    rc, text = run_raw(["misc", os.path.join(G, "CONTROLS.CFG"), "--json"])
+    rows = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
+    row = rows[0] if rows else {}
+    results.append(report("config / CONTROLS.CFG is opaque",
+                          rc == 0 and row.get("opaque") is True
+                          and str(row.get("version")) == "1.91",
+                          "av1.91, unread by gundx.exe"))
+
+
 def security_checks(G: str, results: list[bool], out: str) -> None:
     """Trust-boundary checks: malformed input fails cleanly, outputs are guarded."""
     audit = os.path.join(out, "audit")
@@ -833,6 +854,7 @@ def main() -> int:
     results.append(check("archives / music",    ["list", f"{G}/MUSIC/SOU.IDX"],    ["3092 entries"]))
 
     security_checks(G, results, out)
+    config_checks(G, results)
 
     # --- BIGFILE write path: extract -> pack must reproduce the archive ----
     raw = os.path.join(out, "raw_spr")

@@ -532,6 +532,7 @@ def cmd_soa(opts) -> int:
 def cmd_misc(opts) -> int:
     """Inspect the small formats: ``.sub``, ``.skk``/``.skb``, ``.sni``,
     ``.key``, ``.hi``."""
+    from gm import config as gmconfig
     from gm import small
     paths = []
     for p in opts.paths:
@@ -571,9 +572,17 @@ def cmd_misc(opts) -> int:
                 info = {"name": obj.name,
                         "codes": [c for c, _ in obj.entries]}
             elif ext == ".cfg":
-                obj = small.parse_cfg(raw)
-                summary = "%r, version %s" % (obj.header, obj.version)
-                info = {"header": obj.header, "version": obj.version}
+                obj = gmconfig.parse(raw)
+                summary = gmconfig.summary(obj)
+                if isinstance(obj, gmconfig.OpaqueConfig):
+                    info = {"header": obj.magic.decode("latin1").rstrip("\0"),
+                            "version": obj.version, "opaque": True}
+                else:
+                    info = {"version": obj.version, "width": obj.width,
+                            "height": obj.height,
+                            "colour_depth": obj.colour_depth,
+                            "key_profiles": [n.text for n in obj.key_names],
+                            "opaque": False}
             elif ext == ".hi":
                 obj = small.parse_hi(raw)
                 summary = "%d records" % len(obj.records)
@@ -1177,7 +1186,7 @@ INVENTORY = {
     ".sni": ("gm/small.py", "чтение + запись (текст)"),
     ".key": ("gm/small.py", "чтение + запись (376 Б)"),
     ".sub": ("gm/small.py", "чтение + запись (текст)"),
-    ".cfg": ("gm/small.py", "шапка/версия, поля не размечены"),
+    ".cfg": ("gm/config.py", "1.93: чтение + запись, поля размечены; CONTROLS — opaque"),
     ".exe": ("tools/re", "PE-карта, дизасм, xref"),
     ".dll": ("—", "бинарь/система"),
     ".pif": ("—", "не игровой"),
