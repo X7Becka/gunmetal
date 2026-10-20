@@ -154,6 +154,9 @@ struct AiEvent {
     int thing_id = -1;
     AiState from = AiState::idle;
     AiState to = AiState::idle;
+    int target = -1;          ///< player slot at the event, -1 for a thing
+    int target_thing = -1;    ///< Thing::id at the event, -1 for a player
+    Vec3d aim{};              ///< aim point at the event (see AiAgent::aim_point)
     double value = 0.0;       ///< distance, damage amount or health after damage
     std::uint64_t tick = 0;
 };

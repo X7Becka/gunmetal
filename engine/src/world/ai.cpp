@@ -243,6 +243,9 @@ void Ai::log(AiEventType type, const AiAgent& agent, double value, std::uint64_t
     event.thing_id = agent.thing_id;
     event.from = agent.state;
     event.to = agent.state;
+    event.target = agent.target;
+    event.target_thing = agent.target_is_thing ? agent.target_thing : -1;
+    event.aim = agent.aim_point;
     event.value = value;
     event.tick = tick;
     events_.push_back(event);

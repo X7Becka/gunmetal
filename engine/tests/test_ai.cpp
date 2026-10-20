@@ -373,6 +373,18 @@ void test_attach_and_transitions() {
     }
     CHECK(ai.stats().attacks > before);
     CHECK(has_event(ai, gm::AiEventType::attack, 0));
+    const gm::AiEvent* attack_event = nullptr;
+    for (const gm::AiEvent& event : ai.events()) {
+        if (event.type == gm::AiEventType::attack && event.thing_id == 0) {
+            attack_event = &event;
+        }
+    }
+    CHECK(attack_event != nullptr);
+    if (attack_event != nullptr) {
+        CHECK_EQ(attack_event->target, 0);
+        CHECK_EQ(attack_event->target_thing, -1);
+        CHECK_NEAR(attack_event->aim.y, 60.0, 0.0);
+    }
     CHECK_EQ(ai.stats().ticks, 116u);
 }
 

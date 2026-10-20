@@ -286,6 +286,7 @@ SBT/SCRIPT: два абсолютных `ADD_THING` в `(0,0,0)` и `(1000,0,0)`
 | история: кольцо | 240 записей → `size=240`, lag 239 = самая старая, `attach`/`clear_player` очищают |
 | история: поля типа | `use_thing_fields` + `+0x1d0` = 3/500/−4 → `history_lag` 3/239/0; без opt-in → 0 |
 | история: прицел | лаг 3 после 5 тиков (x=1..5) → `aim_point.x=2`, `aim_distance=2`; без игрока `has_aim=false` |
+| событие attack | несёт `target`, `target_thing` и `aim_point`; проверено на игроке `(0,60,10)` |
 | несколько игроков | `set_players` (2 eye, dist 60/30) → `target=1`, `distance=30`, у player 1 своё кольцо; пустой набор отклонён |
 | вещь как цель | после `clear_player` агент видит вторую вещь → `target_thing=1`, `distance≈1000.05` (eye z=10), `aim_point=(1000,0,0)` |
 | статусы вещи | `burn_timer=91`, `status_flags=0x40` в `Thing` → те же поля у агента после `sync_vitals` |
