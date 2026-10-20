@@ -782,6 +782,22 @@ def cmd_look(opts) -> int:
 
 
 def cmd_soe(opts) -> int:
+    from gm import soe as soemod
+    if opts.fields:
+        rows = soemod.field_map()
+        for fi in rows:
+            print("0x%03x %-6s %-14s %-10s %s  [%s]"
+                  % (fi.offset, fi.kind, fi.name, fi.status, fi.role,
+                     ", ".join(fi.evidence)))
+        counts = {}
+        for fi in rows:
+            counts[fi.status] = counts.get(fi.status, 0) + 1
+        print("soe fields: %d (%s)"
+              % (len(rows), ", ".join("%s %d" % kv for kv in sorted(counts.items()))))
+        return 0
+    if not opts.paths:
+        print("soe: paths required unless --fields", file=sys.stderr)
+        return 2
     n = bad = 0
     for p, rel in _iter_with_rel(opts.paths, ".soe"):
         try:
@@ -2057,7 +2073,9 @@ def main(argv=None) -> int:
     p.set_defaults(func=cmd_soa)
 
     p = sub.add_parser("soe", help="parse .soe thing-type definitions (text)")
-    p.add_argument("paths", nargs="+", help="one or more .soe files or directories")
+    p.add_argument("paths", nargs="*", help="one or more .soe files or directories")
+    p.add_argument("--fields", action="store_true",
+                   help="print the THING_TYPES field map (offset/kind/status/xrefs)")
     p.add_argument("-v", "--verbose", action="store_true",
                    help="dump every field of the token stream")
     p.add_argument("--rebuild", help="write each .soe back (re-serialised) into this directory")

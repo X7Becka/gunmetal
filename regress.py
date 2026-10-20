@@ -160,6 +160,13 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           p.returncode == 0,
                           (p.stdout.strip().splitlines() or ["no output"])[-1]))
 
+    # .soe/THING_TYPES field map: 77 fields, 36 proven by loader/consumers.
+    rc, text = run_raw(["soe", "--fields"])
+    ok = (rc == 0 and "soe fields: 77" in text
+          and "proven 36" in text and "0x1a4" in text)
+    results.append(report("soe / THING_TYPES field map", ok,
+                          "77 fields: 36 proven, 25 hypothesis, 16 unknown"))
+
     # SECTOR_STUFF/ITEM/LIFT field round-trip and trust edge cases.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "records.py"),
                         "--self-test"], capture_output=True, text=True, cwd=HERE)

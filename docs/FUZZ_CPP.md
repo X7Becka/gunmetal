@@ -17,6 +17,9 @@ production surprise.
 | SBT | `gm::parse_sbt` | synthetic header+terminator + `LEVEL0.SBT` |
 | SBM | `gm::parse_sbm` | synthetic 4x4 mip + first texture from `PICS/SBM.IDX` |
 | SBC | `gm::parse_sbc` | synthetic one-record block + `DM2.sbc` |
+| SOB | `gm::parse_sob` | synthetic two-face stream + `SOBS/20mmclp.sob` |
+| SOF | `gm::parse_sof`, `Sof::frame` | synthetic two-tile film |
+| SOU1 | `gm::decode_sou1_raw` | synthetic 8 kHz mono blob (`0x4b` payload) |
 
 Every seed gets:
 
@@ -30,9 +33,14 @@ Every seed gets:
   `0`/negative values up to `0xFFFFFFFF`, plus payload mutations routed through
   the pixel decoder.
 
-`SOU2`, `SOU`, `SOB`, BMP/PNG and the VM are **not** covered here. SOU2 has its
-own full-corpus parity test (`test_sou2.cpp`); the others are out of scope for
-this matrix.
+`SOU2`, `SOU0` (raw PCM), BMP/PNG, `.soe` and the VM are not covered here.
+SOU2 has its own full-corpus parity test (`test_sou2.cpp`), and `.sof`/SOU1
+have golden tests; the remaining formats are out of scope for this matrix.
+
+The SOB coverage already paid for itself: the wide run found a truncated
+face-index list read past the token vector and an unbounded face-chain
+recursion.  `parse_sob` now checks `q + nv <= tokens.size()` and caps the
+recursive sentinel walk at 512 faces (shipped maximum is 310).
 
 ## Running
 
@@ -79,8 +87,8 @@ Measured on this machine (Debug sandbox build / RelWithDebInfo):
 
 | Mode | Debug | Release |
 |---|---|---|
-| `--quick` | ~5.7 s (3 451 cases) | ~0.3 s |
-| `--full` | ~23 s (8 119 cases) | ~0.8 s |
+| `--quick` | ~5.7 s (4 396 cases) | ~0.3 s |
+| `--full` | ~23 s (10 399 cases) | ~0.8 s |
 
 The ASan+UBSan preset (`build/asan`) also runs both modes clean.
 

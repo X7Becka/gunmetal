@@ -77,6 +77,7 @@ docs/FILM.md          .sof/.fdx: тайлы, тайминг, привязка к
 docs/PLAYER.md        спавн игрока, DM-респавн, высота глаза, камера
 docs/SAVE.md          сейвы: контейнер, блоки, byte-exact rebuild
 docs/RECORDS.md       SECTOR_STUFF/ITEM/LIFT: поля, xref, writer
+docs/SOE.md           .soe/THING_TYPES: 77 полей, 36 proven, xref
 ROADMAP.md            план: от текущего тулкита до полного движка (M0…M12)
 NOTES.md              рабочие заметки, карта адресов движка, CLI-справка
 ```

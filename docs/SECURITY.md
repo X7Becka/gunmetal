@@ -80,8 +80,8 @@ python3 tools/fuzz_formats.py --game … --timeout 2
 случай либо штатно отвергнут, либо успешно разобран.
 
 C++-читатели покрыты отдельной in-process матрицей `gm_fuzz_tests`
-(`engine/tests/test_fuzz.cpp`, см. `docs/FUZZ_CPP.md`): 3 451 кейс в `--quick`
-и 8 119 в `--full`; битые `.idx/.dat`, `.sbv` (включая декодирование кадра),
+(`engine/tests/test_fuzz.cpp`, см. `docs/FUZZ_CPP.md`): 4 396 кейсов в `--quick`
+и 10 399 в `--full`; битые `.idx/.dat`, `.sbv` (включая декодирование кадра),
 `.sbw`, `.sbt`, `.sbm`, `.sbc`. Она нашла и зафиксировала четыре реальных
 бага: вечный цикл SBV при `width 8..15`/`height 16`, signed overflow в
 `base_grid`, отрицательный сдвиг в `.sbm`, гигантский `reserve` в `.sbw`.
@@ -126,7 +126,7 @@ ctest --test-dir build/sandbox -R fuzz --output-on-failure
 ```bash
 export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
 python3 tools/fuzz_formats.py
-python3 regress.py                 # 97/97, включая trust-проверки
+python3 regress.py                 # 99/99, включая trust-проверки
 ctest --test-dir build/release -L quick
 ctest --test-dir build/release -R fuzz
 ```

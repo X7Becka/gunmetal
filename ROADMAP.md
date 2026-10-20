@@ -420,11 +420,15 @@ round-trip'ы проверены на поставке.
 В поставке один файл (`SOBS/railrock.soe`), но типов 2896. Грамматика снята,
 роли многих полей — по смещениям.
 
-- ⬜ Сопоставить поля `.soe` с `THING_TYPES` (936 Б) и потребителями в коде.
-- ⬜ Назвать хотя бы: коллизию, shields, events, weapons, children, path,
-      expire, morale, leash.
-- ⬜ `gm.py soe --fields` — человекочитаемая карта.
-- ⬜ Проверить, что `to_bytes` точен для всех существующих `.soe` (1/1).
+- ✅ Сопоставить поля `.soe` с `THING_TYPES` (936 Б, 0x3A8) и потребителями:
+      77 полей — 36 proven, 25 hypothesis, 16 unknown; загрузчик `0x47cb6c`,
+      движение `+0x1b4`, коллизия `+0x1a0`, SOB `+0x1a4`, shields/events/
+      weapons/children/path (`docs/SOE.md`).
+- ✅ Названы коллизия, shields, events, weapons, children, path, expire,
+      morale, leash (часть — hypothesis, честно помечена).
+- ✅ `gm.py soe --fields` и `tools/re/soe_semantics.py --fields/--json/
+      --check/--exe-check`; человекочитаемая карта с xref.
+- ✅ `to_bytes` точен на всём поставочном `.soe` (1/1, round-trip).
 
 **Выход:** документированная карта «поле → смещение → смысл/статус»; неизвестные
 помечены `fXX`, без догадок «под видом факта».
