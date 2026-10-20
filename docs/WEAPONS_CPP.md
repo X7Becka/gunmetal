@@ -52,14 +52,20 @@ struct Weapon {
     bool hitscan; double projectile_speed;
     int thing_type; double projectile_charge; // THING air branch
     std::vector<Blast> impact_blasts, expire_blasts; // collide/expire events
-    std::vector<Blast> select_blasts(bool expired, bool underwater) const;
+    std::vector<Blast> select_blasts(bool expired, bool underwater,
+                                     bool from_ground = true,
+                                     bool deathmatch = true) const;
 };
 
 // CAUSE_BLAST_RADIUS_DAMAGE (op 75): целые сотые, plate < 0 — статус.
 struct Blast {
     int32_t plate, hull; int radius; uint32_t flags, event;
     bool no_direction;
-    bool air, water; // neutral op: both true; underwater branch: one
+    // Guards: neutral op has both flags of a pair true; a taken IF body sets
+    // the opposite flag false.  select_blasts picks exactly one context.
+    bool air, water;
+    bool ground, not_ground;
+    bool deathmatch, not_deathmatch;
 };
 
 struct ThingVitals {              // runtime THING +0x7ac418..+0x7ac430
@@ -97,7 +103,7 @@ struct Arsenal {
 | `blast_damage` / `blast_hull_damage` | целочисленный falloff `value*(radius-d)/radius`; `plate < 0` не масштабируется; `radius <= 0` → 0. |
 | `apply_blast` | сферический запрос `0x477280` без LOS; цели-игроки/THING, флаги bit0/2/3, событие на попадание. |
 | `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |
-| `Weapon::select_blasts(expired, underwater)` | копия `expire_blasts` или `impact_blasts` только для выбранной среды; рантайм вызывает после попадания/истечения. |
+| `Weapon::select_blasts(expired, underwater, from_ground, deathmatch)` | копия `expire_blasts` или `impact_blasts` только для выбранного контекста; нейтральные blast’ы проходят всегда. Рантайм вызывает после попадания/истечения. |
 | `reload(table, arsenal, slot)` | требует `magazine > 0`, бит маски, неполный магазин и резерв. `reload_ticks == 0` — мгновенно. |
 | `tick(table, arsenal, ticks)` | уменьшает кулдауны/таймеры, завершает перезарядку. `ticks == 0` — no-op. |
 | `switch_slot(table, arsenal, slot)` | 0..11 + бит маски; текущий слот — успешный no-op. Перезарядку не отменяет. |
@@ -332,13 +338,17 @@ ROCKET 8000/10000, а `level0` — 10000/12000; `level20` меняет TAC NUKE.
 `ADD_THING_AT_SOURCE_WEAPON_POINT` (не из `FIRE_THING`), поэтому больше не
 считается hitscan с уроном 0.03.
 
+TAC NUKE содержит несколько взаимоисключающих top-level IF
+(`SOURCE_UNDERWATER`, `SOURCE_FROM_GROUND`, `DEATHMATCH_GAME`). Загрузчик
+сохраняет все 15 blast’ов, но помечает их guards’ами; `select_blasts`
+возвращает 3 blast’а для каждого проверенного контекста (вода/воздух ×
+земля/не-земля × DM/не-DM). Вложенный `IF DEATHMATCH_GAME` даёт 2
+DM-only blast’а плюс общий статус, поэтому DM и non-DM дают по 3, а не 5.
+
 Осталось: (1) inline-impact’ы hitscan (`CANNON 1500@200`, EMP-кольца,
-FUSION/MICROWAVE/DISRUPTOR/DISINT) в `Weapon` не собираются; (2) TAC NUKE
-содержит несколько взаимоисключающих top-level IF (`SOURCE_UNDERWATER`,
-`SOURCE_FROM_GROUND`, `DEATHMATCH_GAME`) — загрузчик пока складывает все
-ветки (15 blast’ов), и `select_blasts` не различает ground/DM; это
-задокументированное ограничение, а не данные. (3) `projectile_speed=12000`
-остаётся placeholder’ом до доказательства единиц `THING_TYPES+0x10`.
+FUSION/MICROWAVE/DISRUPTOR/DISINT) в `Weapon` не собираются;
+(2) `projectile_speed=12000` остаётся placeholder’ом до доказательства
+единиц `THING_TYPES+0x10`.
 
 ---
 

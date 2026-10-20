@@ -170,14 +170,23 @@ std::uint32_t Weapons::ammo_max_for(int ammo_type) const {
     return ammo_types_[static_cast<std::size_t>(ammo_type)].max;
 }
 
-std::vector<Blast> Weapon::select_blasts(bool expired, bool underwater) const {
+std::vector<Blast> Weapon::select_blasts(bool expired, bool underwater,
+                                        bool from_ground,
+                                        bool deathmatch) const {
     const std::vector<Blast>& source = expired ? expire_blasts : impact_blasts;
     std::vector<Blast> out;
     out.reserve(source.size());
     for (const Blast& blast : source) {
-        if (underwater ? blast.water : blast.air) {
-            out.push_back(blast);
+        if (!(underwater ? blast.water : blast.air)) {
+            continue;
         }
+        if (!(from_ground ? blast.ground : blast.not_ground)) {
+            continue;
+        }
+        if (!(deathmatch ? blast.deathmatch : blast.not_deathmatch)) {
+            continue;
+        }
+        out.push_back(blast);
     }
     return out;
 }
@@ -330,101 +339,145 @@ std::optional<Blast> blast_from_insn(const SbtInsn& insn) {
     return blast;
 }
 
-struct MediumGuard {
+/// Guards for the mutually exclusive IF branches we can prove in the shipped
+/// data: medium, ground contact and deathmatch.  `true` means the blast runs
+/// in that context; an op outside a guarded IF has every flag true.
+struct BlastGuard {
     bool air = true;
     bool water = true;
+    bool ground = true;
+    bool not_ground = true;
+    bool deathmatch = true;
+    bool not_deathmatch = true;
 };
 
+bool guarded_condition(const std::string& condition) {
+    return condition == "SOURCE_UNDERWATER" ||
+           condition.rfind("SOURCE_FROM_GROUND", 0) == 0 ||
+           condition == "DEATHMATCH_GAME";
+}
+
+BlastGuard branch_guard(BlastGuard guard, const std::string& condition,
+                        bool truth) {
+    if (condition == "SOURCE_UNDERWATER") {
+        (truth ? guard.air : guard.water) = false;
+    } else if (condition.rfind("SOURCE_FROM_GROUND", 0) == 0) {
+        (truth ? guard.not_ground : guard.ground) = false;
+    } else if (condition == "DEATHMATCH_GAME") {
+        (truth ? guard.not_deathmatch : guard.deathmatch) = false;
+    }
+    return guard;
+}
+
 void scan_blasts(const std::vector<SbtInsn>& insns, std::vector<Blast>& out,
-                 MediumGuard medium = {});
+                 BlastGuard guard = {});
 
 void scan_blast_insn(const SbtInsn& insn, std::vector<Blast>& out,
-                     MediumGuard medium) {
+                     BlastGuard guard) {
     if (auto blast = blast_from_insn(insn)) {
-        blast->air = medium.air;
-        blast->water = medium.water;
+        blast->air = guard.air;
+        blast->water = guard.water;
+        blast->ground = guard.ground;
+        blast->not_ground = guard.not_ground;
+        blast->deathmatch = guard.deathmatch;
+        blast->not_deathmatch = guard.not_deathmatch;
         out.push_back(*blast);
     }
     if (!insn.body.empty()) {
-        scan_blasts(insn.body, out, medium);
+        scan_blasts(insn.body, out, guard);
     }
 }
 
 void scan_blasts(const std::vector<SbtInsn>& insns, std::vector<Blast>& out,
-                 MediumGuard medium) {
+                 BlastGuard guard) {
     for (std::size_t i = 0; i < insns.size(); ++i) {
         const SbtInsn& insn = insns[i];
-        if (insn.name == "IF" && insn.condition == "SOURCE_UNDERWATER") {
-            // The IF body carries the water instructions and a trailing ELSE
-            // marker.  The decoder leaves the ELSE body as the following
-            // siblings up to `ELSE.target`, so scan those as air-only too.
+        if (insn.name == "IF" && guarded_condition(insn.condition)) {
+            const BlastGuard taken =
+                branch_guard(guard, insn.condition, true);
+            const BlastGuard fallthrough =
+                branch_guard(guard, insn.condition, false);
             std::uint32_t else_target = 0;
+            std::vector<SbtInsn> body;
             for (const SbtInsn& child : insn.body) {
                 if (child.name == "ELSE") {
                     else_target = child.target;
                 } else {
-                    scan_blast_insn(child, out, {false, medium.water});
+                    body.push_back(child);
                 }
             }
+            scan_blasts(body, out, taken);
             if (else_target != 0) {
                 std::size_t j = i + 1;
                 while (j < insns.size() && insns[j].offset < else_target) {
-                    scan_blast_insn(insns[j], out, {medium.air, false});
                     ++j;
+                }
+                if (j > i + 1) {
+                    std::vector<SbtInsn> fall(insns.begin() + i + 1,
+                                              insns.begin() + j);
+                    scan_blasts(fall, out, fallthrough);
                 }
                 i = j - 1;
             }
             continue;
         }
-        scan_blast_insn(insn, out, medium);
+        scan_blast_insn(insn, out, guard);
     }
 }
 
 void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
                           std::vector<Blast>& out, int depth = 0,
-                          MediumGuard medium = {});
+                          BlastGuard guard = {});
 
 void scan_generates(const SbtLevel& level, const std::vector<SbtInsn>& insns,
-                    std::vector<Blast>& out, int depth, MediumGuard medium);
+                    std::vector<Blast>& out, int depth, BlastGuard guard);
 
 void scan_generate_insn(const SbtLevel& level, const SbtInsn& insn,
                         std::vector<Blast>& out, int depth,
-                        MediumGuard medium) {
+                        BlastGuard guard) {
     if (insn.name == "GENERATE" && !insn.args.empty()) {
         collect_event_blasts(level, as_uint(insn.args[0]), out, depth + 1,
-                             medium);
+                             guard);
     }
     if (!insn.body.empty()) {
-        scan_generates(level, insn.body, out, depth, medium);
+        scan_generates(level, insn.body, out, depth, guard);
     }
 }
 
 void scan_generates(const SbtLevel& level, const std::vector<SbtInsn>& insns,
-                    std::vector<Blast>& out, int depth, MediumGuard medium) {
+                    std::vector<Blast>& out, int depth, BlastGuard guard) {
     for (std::size_t i = 0; i < insns.size(); ++i) {
         const SbtInsn& insn = insns[i];
-        if (insn.name == "IF" && insn.condition == "SOURCE_UNDERWATER") {
+        if (insn.name == "IF" && guarded_condition(insn.condition)) {
+            const BlastGuard taken =
+                branch_guard(guard, insn.condition, true);
+            const BlastGuard fallthrough =
+                branch_guard(guard, insn.condition, false);
             std::uint32_t else_target = 0;
+            std::vector<SbtInsn> body;
             for (const SbtInsn& child : insn.body) {
                 if (child.name == "ELSE") {
                     else_target = child.target;
                 } else {
-                    scan_generate_insn(level, child, out, depth,
-                                       {false, medium.water});
+                    body.push_back(child);
                 }
             }
+            scan_generates(level, body, out, depth, taken);
             if (else_target != 0) {
                 std::size_t j = i + 1;
                 while (j < insns.size() && insns[j].offset < else_target) {
-                    scan_generate_insn(level, insns[j], out, depth,
-                                       {medium.air, false});
                     ++j;
+                }
+                if (j > i + 1) {
+                    std::vector<SbtInsn> fall(insns.begin() + i + 1,
+                                              insns.begin() + j);
+                    scan_generates(level, fall, out, depth, fallthrough);
                 }
                 i = j - 1;
             }
             continue;
         }
-        scan_generate_insn(level, insn, out, depth, medium);
+        scan_generate_insn(level, insn, out, depth, guard);
     }
 }
 
@@ -434,7 +487,7 @@ void scan_generates(const SbtLevel& level, const std::vector<SbtInsn>& insns,
 /// secondary debris effects, so the limit is one child.
 void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
                           std::vector<Blast>& out, int depth,
-                          MediumGuard medium) {
+                          BlastGuard guard) {
     if (event_id == 0 || event_id == 0xffffffffU || depth > 1) {
         return;
     }
@@ -442,8 +495,8 @@ void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
     if (!program) {
         return;
     }
-    scan_blasts(program->insns, out, medium);
-    scan_generates(level, program->insns, out, depth, medium);
+    scan_blasts(program->insns, out, guard);
+    scan_generates(level, program->insns, out, depth, guard);
 }
 
 bool parse_tables(const std::filesystem::path& level_path, std::string* error,

@@ -806,6 +806,12 @@ void test_real_weapon_modes() {
         CHECK(rail->hitscan);
         CHECK_NEAR(rail->damage, 60.0, 0.0);
     }
+    const gm::Weapon* nuke = find("TAC NUKE");
+    if (nuke != nullptr) {
+        CHECK_EQ(nuke->impact_blasts.size(), 15U); // all guarded branches kept
+        CHECK_EQ(nuke->select_blasts(true, false, false, false).size(), 3U);
+        CHECK_EQ(nuke->select_blasts(true, true, false, false).size(), 3U);
+    }
     const gm::Weapon* rgm = find("RGM");
     if (rgm != nullptr) {
         CHECK(!rgm->hitscan);

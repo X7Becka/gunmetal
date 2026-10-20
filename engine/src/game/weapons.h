@@ -88,6 +88,10 @@ struct Blast {
     /// one branch, so callers filter with `select_blasts`.
     bool air = true;
     bool water = true;
+    bool ground = true;        ///< `SOURCE_FROM_GROUND` true
+    bool not_ground = true;    ///< `SOURCE_FROM_GROUND` false
+    bool deathmatch = true;    ///< `DEATHMATCH_GAME` true
+    bool not_deathmatch = true;///< `DEATHMATCH_GAME` false
 };
 
 /// One `DEFINE_WEAPONS` record mapped to the runtime fields.
@@ -137,9 +141,13 @@ struct Weapon {
     std::vector<Blast> impact_blasts;
     std::vector<Blast> expire_blasts;
 
-    /// Copy the blasts of one branch that apply to the current medium.
-    /// `expired=false` is the collision/impact event, `true` is expiry.
-    std::vector<Blast> select_blasts(bool expired, bool underwater) const;
+    /// Copy the blasts of one branch that apply to the current context.
+    /// `expired=false` is the collision/impact event, `true` is expiry;
+    /// `underwater`, `from_ground` and `deathmatch` select the guarded IF
+    /// branches.  Neutral ops (no guard) pass every context.
+    std::vector<Blast> select_blasts(bool expired, bool underwater,
+                                     bool from_ground = true,
+                                     bool deathmatch = true) const;
 };
 
 /// One `DEFINE_AMMO` record (`0x450b10`, record 0x38).
