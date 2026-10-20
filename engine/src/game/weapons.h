@@ -23,8 +23,10 @@
 //   * `magazine` / `reload_ticks` / `damage` / `hitscan` / `projectile_speed`.
 //     `load()` keeps magazine 0 = direct feed and no reload.  It resolves
 //     BULLET/LASER hitscan and their direct damage from the entity sub-script;
-//     THING weapons spawn an entity (0x45e19d -> 0x46ea40 -> 0x46d8b0) and
-//     keep the `kDefaultProjectileSpeed` runtime placeholder.
+//     THING weapons spawn an entity (0x45e19d -> 0x46ea40 -> 0x46d8b0);
+//     projectile impact/blast uses the separate `Blast`/`apply_blast` and
+//     `apply_thing_damage` model, while `projectile_speed` stays a placeholder
+//     until the THING_TYPES speed table is wired into `Weapon`.
 //   * `apply_damage_gauge` is the exact 0x453b50 plate/hull model (hundredths,
 //     flags, spill, statuses); `apply_damage` keeps the old synthetic API.
 //   * spread sampling (uniform in the tangent square, deterministic seed).
