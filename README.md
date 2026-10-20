@@ -83,7 +83,7 @@ docs/SHAKE.md        тряска камеры, view-pitch, отдача
 docs/SAVE_FIELDS.md  сейвы: карта 128 полей (83 proven), xref
 docs/RECORDS.md       SECTOR_STUFF/ITEM/LIFT: поля, xref, writer
 docs/SOE.md           .soe/THING_TYPES: 77 полей, 36 proven, xref
-docs/SOO.md           .soo: mode/loop, ms timeline, морфинг поз
+docs/SOO.md           .soo: mode/loop, тики 91 Гц, морфинг поз
 docs/SOB.md           .sob writer: canonical/raw, --rebuild, правка вершины
 ROADMAP.md            план: от текущего тулкита до полного движка (M0…M12)
 CURRENT_STATE.md      фактический срез прогресса, затраченное время и переоценка
@@ -102,10 +102,10 @@ python3 gm.py spawn "…/Gunmetal 3dfx/level0.sbt" --json
 # камера первого лица из спавна (level0, slot 0)
 python3 gm.py view "…/Gunmetal 3dfx/level0.sbw" --spawn --size 640 --out spawn.png
 
-# поза .soo-анимации на 100 мс (морфинг двух кадров)
-python3 gm.py view "…/Gunmetal 3dfx/Sobanim/Cultist.soo" --at 100 --out pose.png
+# поза .soo-анимации на 1000 мс (морфинг двух кадров)
+python3 gm.py view "…/Gunmetal 3dfx/Sobanim/Cultist.soo" --at 1000 --out pose.png
 # то же в C++
-gunmetal --anim Cultist --at 100 --width 240 --height 240 --render pose.png
+gunmetal --anim Cultist --at 1000 --width 240 --height 240 --render pose.png
 
 # все текстуры и спрайты в PNG (палитра берётся из установки)
 python3 gm.py textures "…/Gunmetal 3dfx" out/textures
