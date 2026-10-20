@@ -799,6 +799,87 @@ void test_runtime_blast_bridge() {
     CHECK_EQ(expire.hits.size(), 2U);
 }
 
+void test_weapon_corpus() {
+    const auto find = [](const gm::Weapons& table,
+                         std::string_view name) -> const gm::Weapon* {
+        for (const gm::Weapon& weapon : table.table()) {
+            if (weapon.name == name) {
+                return &weapon;
+            }
+        }
+        return nullptr;
+    };
+    std::size_t levels = 0;
+    for (const auto& entry : fs::directory_iterator(kGame)) {
+        if (entry.path().extension() != ".sbt") {
+            continue;
+        }
+        std::string error;
+        const auto table = gm::Weapons::load(entry.path(), &error);
+        if (!table) {
+            std::fprintf(stderr, "corpus load %s: %s\n",
+                         entry.path().filename().string().c_str(),
+                         error.c_str());
+            ++g_failures;
+            continue;
+        }
+        ++levels;
+
+        const gm::Weapon* rgm = find(*table, "RGM");
+        CHECK(rgm != nullptr);
+        if (rgm != nullptr) {
+            CHECK(!rgm->hitscan);
+            CHECK_EQ(rgm->thing_type, 32);
+            CHECK_EQ(rgm->impact_blasts.size(), 0U);
+            CHECK_EQ(rgm->expire_blasts.size(), 3U);
+            CHECK_NEAR(rgm->projectile_speed, 18.0 * 91.0, 1e-9);
+        }
+        const gm::Weapon* rocket = find(*table, "ROCKET");
+        CHECK(rocket != nullptr);
+        if (rocket != nullptr) {
+            CHECK_EQ(rocket->thing_type, 31);
+            CHECK_EQ(rocket->select_blasts(false, false).size(), 2U);
+            CHECK_EQ(rocket->select_blasts(false, true).size(), 2U);
+            CHECK_NEAR(rocket->projectile_speed, 18.0 * 91.0, 1e-9);
+        }
+        const gm::Weapon* nuke = find(*table, "TAC NUKE");
+        CHECK(nuke != nullptr);
+        if (nuke != nullptr) {
+            CHECK_EQ(nuke->thing_type, 33);
+            const std::string file = entry.path().filename().string();
+            const std::size_t imp =
+                file == "level20.sbt" ? 13U : (file == "level24.sbt" ? 16U : 15U);
+            const std::size_t air =
+                file == "level24.sbt" ? 4U : 3U;
+            const std::size_t water =
+                file == "level20.sbt" ? 2U : (file == "level24.sbt" ? 4U : 3U);
+            CHECK_EQ(nuke->impact_blasts.size(), imp);
+            CHECK_EQ(nuke->select_blasts(false, false, false, false).size(),
+                     air);
+            CHECK_EQ(nuke->select_blasts(false, true, false, false).size(),
+                     water);
+        }
+        const gm::Weapon* plasma = find(*table, "PLASMA CANNON");
+        CHECK(plasma != nullptr);
+        if (plasma != nullptr) {
+            CHECK_EQ(plasma->thing_type, 36);
+            CHECK_EQ(plasma->thing_variants.size(), 3U);
+            if (plasma->thing_variants.size() == 3) {
+                CHECK_EQ(plasma->thing_variants[0].thing_type, 36);
+                CHECK_EQ(plasma->thing_variants[1].thing_type, 37);
+                CHECK_EQ(plasma->thing_variants[2].thing_type, 38);
+            }
+        }
+        const gm::Weapon* cannon = find(*table, "CANNON");
+        CHECK(cannon != nullptr);
+        if (cannon != nullptr) {
+            CHECK_EQ(cannon->impact_blasts.size(), 3U);
+            CHECK_NEAR(cannon->damage, 15.0, 0.0);
+        }
+    }
+    CHECK_EQ(levels, 36U);
+}
+
 void test_negatives_synthetic() {
     gm::Weapons table({make_weapon(0, 1, false)});
     gm::CollisionWorld world;
@@ -1363,6 +1444,7 @@ int main() {
         fs::exists(kGame / "SAVEGAME" / "saved1.sbt") &&
         fs::exists(kGame / "level0.sbt")) {
         test_real_weapon_modes();
+        test_weapon_corpus();
         test_runtime_blast_bridge();
         for (const GoldenSave& golden : kSaves) {
             test_real_save(golden);
