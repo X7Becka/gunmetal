@@ -9,8 +9,8 @@ namespace gm {
 namespace {
 
 // ---------------------------------------------------------------------------
-// Record map: the C++ copy of gm/soe.py FIELD_MAP (77 rows: 36 proven,
-// 25 hypothesis, 16 unknown).  Keep the order and the strings identical to the
+// Record map: the C++ copy of gm/soe.py FIELD_MAP (77 rows: 40 proven,
+// 22 hypothesis, 15 unknown).  Keep the order and the strings identical to the
 // Python table; docs/SOE.md §3 explains every row.
 // ---------------------------------------------------------------------------
 const std::array<SoeFieldInfo, 77> kFieldMap = {{
