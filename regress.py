@@ -137,6 +137,16 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
     results.append(report("sou2 / Python port parity (fast)", p.returncode == 0,
                           (p.stdout.strip().splitlines() or ["no output"])[-1]))
 
+    # End-to-end music export (one entry) must produce a playable SOU2 WAV.
+    music_dir = os.path.join(out, "music_one")
+    rc, text = run(["music", os.path.join(G, "MUSIC", "SOU.IDX"), music_dir,
+                    "--limit", "1"])
+    wav = os.path.join(music_dir, "DM1A01.wav")
+    results.append(report("music / SOU2 WAV export",
+                          rc == 0 and os.path.exists(wav)
+                          and open(wav, "rb").read(4) == b"RIFF",
+                          "DM1A01.wav"))
+
     # The full hostile-input matrix lives in its own tool; run the cheap pass.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
                         "--game", G, "--quick"], capture_output=True, text=True, cwd=HERE)
