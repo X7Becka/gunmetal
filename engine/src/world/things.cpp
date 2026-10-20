@@ -715,6 +715,41 @@ void Things::tick(std::uint64_t ticks, EventQueue* events) {
     }
 }
 
+int Things::spawn(Thing thing, EventQueue* events) {
+    int id = thing.id;
+    if (id < 0) {
+        id = 0;
+        while (by_id_.find(id) != by_id_.end()) {
+            ++id;
+        }
+    } else if (by_id_.find(id) != by_id_.end()) {
+        return -1;
+    }
+    thing.id = id;
+    thing.alive = true;
+    thing.executed = true;
+    thing.age = 0;
+    thing.expired = false;
+    things_.push_back(std::move(thing));
+    by_id_.emplace(id, things_.size() - 1);
+    if (events != nullptr) {
+        post_thing_event(*events, things_.back(), ThingEventKind::create);
+    }
+    return id;
+}
+
+bool Things::remove(int id, EventQueue* events) {
+    Thing* thing = by_id(id);
+    if (thing == nullptr) {
+        return false;
+    }
+    if (events != nullptr) {
+        post_thing_event(*events, *thing, ThingEventKind::destroy);
+    }
+    thing->alive = false;
+    return true;
+}
+
 bool Things::kill(int id) {
     return set_alive(id, false);
 }

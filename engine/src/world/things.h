@@ -194,6 +194,16 @@ public:
     /// `events` is given, posts its +0x1ec expire event once.
     void tick(std::uint64_t ticks = 1, EventQueue* events = nullptr);
 
+    /// Runtime spawn: append a thing, assign an id when `thing.id < 0`, mark it
+    /// alive/executed and optionally post its +0x1f0 create event.  Returns the
+    /// id, or -1 when an explicit id is already present.
+    int spawn(Thing thing, EventQueue* events = nullptr);
+
+    /// Runtime removal: mark the thing dead and optionally post its +0x1f8
+    /// destroy event.  The record stays in `things()` so external indices and
+    /// the deterministic order remain stable.
+    bool remove(int id, EventQueue* events = nullptr);
+
     bool kill(int id);
     bool revive(int id);
     bool set_alive(int id, bool alive);

@@ -201,6 +201,12 @@ god_mode); переопределяются только `game_mode` и `playert
 
 ### 2.3. `tick`, `alive`, `children`
 
+`spawn(thing, events)` добавляет runtime-экземпляр, назначает свободный id
+при `thing.id < 0` (явный занятый id отклоняется), ставит `executed/alive`,
+сбрасывает `age/expired` и опционально постит `+0x1f0` create-event.
+`remove(id, events)` оставляет запись в `things_` (индексы стабильны), ставит
+`alive=false` и опционально постит `+0x1f8` destroy-event.
+
 `tick(n, events)` увеличивает `clock()` и `age` **только живых** вещей. Если
 у типа `+0x1e8 > 0` и `age` дошёл до него, вещь получает `expired=true` и в
 `events` (если передан) уходит один `+0x1ec` expire-event через

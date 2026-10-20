@@ -845,12 +845,60 @@ void test_expire_lifetime() {
     CHECK(queue.empty());
 }
 
+
+void test_spawn_remove() {
+    gm::Things things;
+    gm::Thing prototype;
+    prototype.id = -1;
+    prototype.type = 7;
+    prototype.position = std::array<int, 3>{1, 2, 3};
+    prototype.create_event = 700;
+    prototype.destroy_event = 701;
+
+    gm::EventQueue queue;
+    const int id = things.spawn(prototype, &queue);
+    CHECK_EQ(id, 0);
+    const gm::Thing* spawned = things.by_id(id);
+    CHECK(spawned != nullptr);
+    if (spawned != nullptr) {
+        CHECK(spawned->alive);
+        CHECK(spawned->executed);
+        CHECK_EQ(spawned->id, id);
+        CHECK_EQ(spawned->age, 0U);
+        CHECK_EQ(spawned->expired, false);
+    }
+    const gm::EventParseResult created = queue.drain();
+    CHECK_EQ(created.events.size(), 1U);
+    if (created.events.size() == 1) {
+        CHECK_EQ(created.events[0].id, 700);
+    }
+
+    // An explicit id that already exists is rejected; a free id is accepted.
+    gm::Thing duplicate = prototype;
+    duplicate.id = id;
+    CHECK_EQ(things.spawn(duplicate), -1);
+    gm::Thing explicit_id = prototype;
+    explicit_id.id = 5;
+    CHECK_EQ(things.spawn(explicit_id), 5);
+
+    CHECK(things.remove(id, &queue));
+    CHECK(things.by_id(id) != nullptr);
+    CHECK(!things.by_id(id)->alive);
+    const gm::EventParseResult destroyed = queue.drain();
+    CHECK_EQ(destroyed.events.size(), 1U);
+    if (destroyed.events.size() == 1) {
+        CHECK_EQ(destroyed.events[0].id, 701);
+    }
+    CHECK(!things.remove(999, &queue));
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     const bool full = argc > 1 && std::string(argv[1]) == "--full";
     test_synthetic();
     test_expire_lifetime();
+    test_spawn_remove();
     test_generate_and_cycle();
     test_negatives();
     test_real_dm1();
