@@ -128,6 +128,13 @@ gm_label(things quick)
 add_test(NAME things_full COMMAND gm_things_tests --full)
 gm_label(things_full full)
 
+# Minimal thing AI (docs/AI_CPP.md).  Synthetic state transitions, LOS through
+# render/collide, timers, leash/return, death and dm1/level0 attach goldens.
+add_executable(gm_ai_tests test_ai.cpp)
+target_link_libraries(gm_ai_tests PRIVATE gm_engine)
+add_test(NAME thing_ai COMMAND gm_ai_tests)
+gm_label(thing_ai quick)
+
 add_executable(gm_sof_tests test_sof.cpp)
 target_link_libraries(gm_sof_tests PRIVATE gm_engine)
 add_test(NAME film_sof COMMAND gm_sof_tests)
