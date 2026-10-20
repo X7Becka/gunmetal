@@ -948,6 +948,15 @@ def main() -> int:
     run(["film", f"{G}/Film/AMMO4.SOF", "--frame", "0", "--png", film_png] + FORCE)
     results.append(report("film / tile export", os.path.exists(film_png)
                           and os.path.getsize(film_png) > 0, film_png))
+    rc, text = run_raw(["film", os.path.join(G, "Film", "AMMO4.SOF"), "--json"])
+    rows = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
+    body = (rows[0].get("binding") or {}) if rows else {}
+    ok = (rc == 0 and rows and rows[0].get("tiles") == 132
+          and body.get("family") == "AMMO" and body.get("id") == 4
+          and body.get("count") == 131 and body.get("fps") == 24
+          and body.get("extra_tiles") == 1)
+    results.append(report("film / family/index binding", ok,
+                          "AMMO id=4, 131@24, one trailing tile"))
     misc_dir = os.path.join(out, "misc")
     rc, text = run(["misc", G, "--rebuild", misc_dir] + FORCE)
     srcs = [os.path.join(G, p) for p in (
@@ -1169,6 +1178,11 @@ def main() -> int:
             ("frontend / BMP.DAT",
              ["frontend", G, os.path.join(out, "fe")], ["143 files"]),
         ]))
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "parity_film.py"),
+                            "--quick"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("film / .sof/.fdx parity",
+                              p.returncode == 0,
+                              (p.stdout.strip().splitlines() or ["no output"])[-1]))
 
     passed = sum(results)
     print(f"\nregress: {passed}/{len(results)} checks passed in "

@@ -642,9 +642,11 @@ def cmd_film(opts) -> int:
     n = bad = 0
     for path in paths:
         try:
-            tiles, size = sofmod.tile_count(path)
+            film = sofmod.parse_file(path)
+            tiles, size = len(film), film.byte_size
             idx = sofmod.find_fdx(path)
             seqs = sofmod.parse_fdx(idx) if idx else []
+            info = sofmod.binding(path)
         except (OSError, ValueError) as exc:
             bad += 1
             print("  FAIL %s: %s" % (path, exc), file=sys.stderr)
@@ -652,12 +654,16 @@ def cmd_film(opts) -> int:
         if opts.json:
             print(json.dumps({"file": os.path.basename(path), "bytes": size,
                               "tiles": tiles, "fdx": idx,
-                              "sequences": seqs}))
+                              "sequences": seqs, "binding": info}))
         else:
             print("%-14s %8d bytes, %d tiles (%dx%d)%s"
                   % (os.path.basename(path), size, tiles,
                      sofmod.TILE_W, sofmod.TILE_H,
-                     "" if size % sofmod.TILE_BYTES == 0 else "  [not tile-aligned]"))
+                     "" if film.aligned else "  [not tile-aligned]"))
+            if info.get("family"):
+                print("    family=%s id=%s count=%s fps=%s extra=%s"
+                      % (info["family"], info["id"], info["count"], info["fps"],
+                         info["extra_tiles"]))
             if seqs:
                 print("    %s: %d sequences, %s"
                       % (os.path.basename(idx), len(seqs),
@@ -665,7 +671,7 @@ def cmd_film(opts) -> int:
                          + (" ..." if len(seqs) > 6 else "")))
         if opts.png:
             try:
-                data = sofmod.frame(path, opts.frame)
+                data = film.frame(opts.frame)
             except ValueError as exc:
                 print("  FAIL %s: %s" % (path, exc), file=sys.stderr)
                 bad += 1
