@@ -72,6 +72,15 @@ add_test(NAME cli_dump_missing COMMAND gunmetal --dump ${CMAKE_CURRENT_SOURCE_DI
 set_tests_properties(cli_dump_missing PROPERTIES WILL_FAIL TRUE)
 gm_label(cli_dump_missing quick)
 
+add_executable(gm_collide_tests test_collide.cpp)
+target_link_libraries(gm_collide_tests PRIVATE gm_engine)
+# Ray/sphere casts over .sbw triangles (docs/COLLIDE.md): cube, floor and
+# two standalone triangles for exact t/point/normal, misses, parallel rays,
+# origins inside, radius/edge/vertex contacts, degenerate polygons, NaN/inf,
+# plus level0 floor/wall/AABB goldens from the Python sweep.
+add_test(NAME collide COMMAND gm_collide_tests)
+gm_label(collide quick)
+
 add_executable(gm_sou2_tests test_sou2.cpp)
 target_link_libraries(gm_sou2_tests PRIVATE gm_engine)
 add_test(NAME sou2 COMMAND gm_sou2_tests)
