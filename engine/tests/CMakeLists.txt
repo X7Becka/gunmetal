@@ -185,6 +185,15 @@ target_link_libraries(gm_mixer_tests PRIVATE gm_engine)
 add_test(NAME mixer COMMAND gm_mixer_tests)
 gm_label(mixer quick)
 
+# Platform audio output (docs/AUDIO_OUTPUT.md): deterministic null backend for
+# the ring, underrun/overrun accounting, pause, the 0..255 volume curve and the
+# PullSource hook (including a real Mixer); the SDL3 path runs only when a
+# driver/device exists and prints an explicit SKIP reason otherwise.
+add_executable(gm_audio_output_tests test_audio_output.cpp)
+target_link_libraries(gm_audio_output_tests PRIVATE gm_engine)
+add_test(NAME audio_output COMMAND gm_audio_output_tests)
+gm_label(audio_output quick)
+
 add_executable(gm_sbv_video_tests test_sbv_video.cpp)
 target_link_libraries(gm_sbv_video_tests PRIVATE gm_engine)
 # `ctest` runs the full 500-frame Intro sweep; `gm_sbv_video_tests --quick`
