@@ -110,6 +110,12 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           rc1 == 0 and rc2 != 0 and "refusing to overwrite" in text2
                           and rc3 == 0, "needs --force"))
 
+    # Python SOU2 decoder vs the C++/engine reference (six pinned records).
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "parity_sou2.py"),
+                        "--fast", "--game", G], capture_output=True, text=True, cwd=HERE)
+    results.append(report("sou2 / Python port parity (fast)", p.returncode == 0,
+                          (p.stdout.strip().splitlines() or ["no output"])[-1]))
+
     # The full hostile-input matrix lives in its own tool; run the cheap pass.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
                         "--game", G, "--quick"], capture_output=True, text=True, cwd=HERE)

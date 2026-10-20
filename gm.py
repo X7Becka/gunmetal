@@ -36,6 +36,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from gm import (  # noqa: E402
+    sou2,
     bigfile,
     bmp,
     look,
@@ -285,7 +286,7 @@ def cmd_sounds(opts) -> int:
     os.makedirs(opts.out, exist_ok=True)
     dat = open(bf.dat_path, "rb").read()
     codecs: dict[str, int] = {}
-    pcm = coded = bad = 0
+    pcm = music = coded = bad = 0
     for e in bf.entries:
         try:
             snd = sou.parse(e.data(dat))
@@ -297,6 +298,17 @@ def cmd_sounds(opts) -> int:
             with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".wav"), opts) as f:
                 f.write(snd.to_wav())
             pcm += 1
+        elif snd.magic == "SOU2":
+            # Format 4 is fully decoded (gm/sou2.py); export real PCM.
+            try:
+                wav = sou2.to_wav(e.data(dat))
+            except ValueError as exc:
+                print(f"  {e.name}: {exc}", file=sys.stderr)
+                bad += 1
+                continue
+            with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".wav"), opts) as f:
+                f.write(wav)
+            music += 1
         else:
             # Honest raw dump: the payload is a driver-side codec, not PCM, so
             # no WAV is written (see gm/sou.py and docs/FORMATS.md).
@@ -306,9 +318,41 @@ def cmd_sounds(opts) -> int:
             with _wopen(os.path.join(opts.out, name), opts) as f:
                 f.write(snd.payload)
             coded += 1
-    print(f"sounds: {pcm} PCM WAV, {coded} coded payloads dumped raw, {bad} failed")
+    print(f"sounds: {pcm} PCM WAV, {music} SOU2 WAV, "
+          f"{coded} coded payloads dumped raw, {bad} failed")
     print(f"  containers: {codecs}")
     return 0 if bad == 0 else 1
+
+
+def cmd_music(opts) -> int:
+    """MUSIC/SOU.IDX -> one WAV per SOU2 entry (format-4 decoder)."""
+    bf = bigfile.BigFile(opts.idx)
+    os.makedirs(opts.out, exist_ok=True)
+    dat = open(bf.dat_path, "rb").read()
+    n = failed = skipped = 0
+    frames = 0
+    for e in bf.entries:
+        if opts.limit and n >= opts.limit:
+            break
+        blob = e.data(dat)
+        try:
+            rate, payload = sou2.decode_sou2_raw(blob, opts.volume)
+        except ValueError as exc:
+            if blob[:4] != sou2.MAGIC:
+                skipped += 1
+                continue
+            print(f"  {e.name}: {exc}", file=sys.stderr)
+            failed += 1
+            continue
+        name = bigfile.safe_name(e.name) + ".wav"
+        with _wopen(os.path.join(opts.out, name), opts) as f:
+            f.write(sou2.to_wav(blob, opts.volume))
+        n += 1
+        frames += len(payload) // 2
+    seconds = frames / 32000.0
+    print(f"music: {n} WAV ({seconds:.1f} s), {skipped} non-SOU2 skipped, "
+          f"{failed} failed -> {opts.out}")
+    return 0 if failed == 0 else 1
 
 
 def cmd_frontend(opts) -> int:
@@ -1740,10 +1784,18 @@ def main(argv=None) -> int:
     p.add_argument("--transparent", type=int, default=0, help="palette index to make transparent (default 0)")
     p.set_defaults(func=cmd_sprites)
 
-    p = sub.add_parser("sounds", help="sounds/SOU.DAT -> WAV (SOU0) / raw payloads (SOU1-2)")
+    p = sub.add_parser("sounds", help="sounds/SOU.DAT -> WAV (SOU0/SOU2) / raw payloads (SOU1)")
     p.add_argument("game")
     p.add_argument("out")
     p.set_defaults(func=cmd_sounds)
+
+    p = sub.add_parser("music", help="MUSIC/SOU.IDX -> one WAV per SOU2 entry")
+    p.add_argument("idx", help="music .IDX (the .DAT is its sibling)")
+    p.add_argument("out")
+    p.add_argument("--limit", type=int, help="decode only the first N entries")
+    p.add_argument("--volume", type=int, default=sou2.MAX_VOLUME,
+                   help=f"mixer volume 0..32 (default {sou2.MAX_VOLUME})")
+    p.set_defaults(func=cmd_music)
 
     p = sub.add_parser("sbc", help=".sbc lightmap blobs -> per-record grayscale PNG + contact sheet")
     p.add_argument("paths", nargs="+", help="one or more .sbc files, or directories to scan")

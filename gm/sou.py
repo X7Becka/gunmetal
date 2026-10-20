@@ -61,6 +61,7 @@ class Sou:
     payload: bytes
     length_field: int
     meta: tuple[int, ...] = field(default_factory=tuple)
+    raw: bytes = b""          # original blob, needed by the SOU2 decoder
 
     @property
     def channels(self) -> int:
@@ -72,7 +73,10 @@ class Sou:
         return self.codec == CODEC_PCM
 
     def to_wav(self) -> bytes:
-        """Unsigned 8-bit PCM WAV.  Only valid for ``is_pcm`` entries."""
+        """WAV for raw PCM (SOU0) or the decoded format-4 stream (SOU2)."""
+        if self.magic == "SOU2":
+            from . import sou2
+            return sou2.to_wav(self.raw)
         if not self.is_pcm:
             raise ValueError(
                 f"{self.magic} payload is a compressed codec, not raw PCM; "
@@ -109,7 +113,7 @@ def parse(data: bytes) -> Sou:
         payload = data[20 : 20 + length]
         if len(payload) != length:
             raise ValueError(f"truncated SOU2 payload: want {length}, have {len(payload)}")
-        return Sou(magic, CODEC_CODED, rate, 0, payload, length, (meta1, meta2))
+        return Sou(magic, CODEC_CODED, rate, 0, payload, length, (meta1, meta2), data)
 
     if len(data) < 16:
         raise ValueError("truncated SOU0/SOU1 header")
@@ -120,7 +124,7 @@ def parse(data: bytes) -> Sou:
     # payload for the stereo ones, so size the payload from the file.
     payload = data[16 : 16 + min(length, len(data) - 16)]
     codec = CODEC_PCM if magic == "SOU0" else CODEC_CODED
-    return Sou(magic, codec, rate, flags, payload, length)
+    return Sou(magic, codec, rate, flags, payload, length, (), data)
 
 
 def parse_file(path: str) -> Sou:
