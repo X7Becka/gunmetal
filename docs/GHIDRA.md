@@ -55,6 +55,11 @@ opencode mcp list            # ghidra connected
 машине), затем проект открывается из `re/ghidra/`. Сервер слушает только
 loopback; `opencode.json` подключает его как remote MCP без OAuth.
 
+Конфиг добавлен и в проект (`gunmetal-re/opencode.json`), и глобально
+(`~/.config/opencode/opencode.json`): текущая сессия OpenCode может стартовать
+из `/mnt/c/Users/nooverload`, где проектный конфиг не виден. Для проектного
+конфига нужен запуск OpenCode из `gunmetal-re`; глобальный работает всегда.
+
 Бинарник в проекте называется **`/gundx.exe-902b77`**. Это имя нужно передавать
 в `binary_name` инструментов.
 
