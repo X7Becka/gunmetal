@@ -96,7 +96,7 @@ struct Arsenal {
 | `fire(table, arsenal, origin, dir, world)` | один выстрел. Сначала валидация (ничего не тратится при ошибке), затем списание, кулдаун, разброс, `raycast`, `ShotResult`. |
 | `blast_damage` / `blast_hull_damage` | целочисленный falloff `value*(radius-d)/radius`; `plate < 0` не масштабируется; `radius <= 0` → 0. |
 | `apply_blast` | сферический запрос `0x477280` без LOS; цели-игроки/THING, флаги bit0/2/3, событие на попадание. |
-| `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`. |
+| `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |
 | `Weapon::select_blasts(expired, underwater)` | копия `expire_blasts` или `impact_blasts` только для выбранной среды; рантайм вызывает после попадания/истечения. |
 | `reload(table, arsenal, slot)` | требует `magazine > 0`, бит маски, неполный магазин и резерв. `reload_ticks == 0` — мгновенно. |
 | `tick(table, arsenal, ticks)` | уменьшает кулдауны/таймеры, завершает перезарядку. `ticks == 0` — no-op. |

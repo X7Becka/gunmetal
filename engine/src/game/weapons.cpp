@@ -1076,6 +1076,7 @@ ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
         }
     }
 
+    const std::int32_t old_hp = vitals.hp;
     vitals.hp = static_cast<std::int32_t>(
         static_cast<std::int64_t>(vitals.hp) - spill);
     if (vitals.hp < 0) {
@@ -1084,6 +1085,11 @@ ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
     }
     result.hull_absorbed = static_cast<std::int32_t>(spill);
     result.dead = vitals.hp <= 0;
+    if (!result.dead && vitals.max_hp > 0 &&
+        (vitals.flags2 & 0x1000U) != 0U) {
+        const std::int32_t half = vitals.max_hp / 2;
+        result.low_health_event = old_hp >= half && vitals.hp < half;
+    }
     result.damaged_event = !result.dead;
     result.ok = true;
     return result;

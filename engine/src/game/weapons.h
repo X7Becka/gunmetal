@@ -441,6 +441,7 @@ struct ThingDamageResult {
     std::array<bool, 4> broken{};
     bool dead = false;
     bool damaged_event = false; ///< target survived; caller posts +0x1f4
+    bool low_health_event = false; ///< crossed half with `flags2 & 0x1000`
 };
 
 /// Exact `0x470500` intake for a THING: no plate/hull multipliers, shield

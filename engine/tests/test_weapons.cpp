@@ -723,6 +723,16 @@ void test_blast_and_thing_damage() {
     CHECK(tr.broken[0]);
     CHECK(!tr.dead);
     CHECK(tr.damaged_event);
+    CHECK(!tr.low_health_event); // flags2 bit 0x1000 is clear
+
+    // Low-health event only when THING flags2 bit 0x1000 is set and the
+    // integer half-health threshold is crossed (Ghidra 0x470500).
+    thing.hp = 1000;
+    thing.flags2 = 0x1000;
+    tr = gm::apply_thing_damage(thing, 0, 600, 0, -1);
+    CHECK(!tr.dead);
+    CHECK(tr.low_health_event);
+    CHECK_EQ(thing.hp, 400);
 
     // Lethal blast through the front quadrant.
     thing.hp = 800;
