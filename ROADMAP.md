@@ -538,12 +538,12 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
 
 ### M2.1. Инструменты
 
-- ⬜ `M2.1.1` Поставить Ghidra headless в `~/tools` (без root), либо rizin/radare2;
-      зафиксировать версию в `docs/TOOLCHAIN.md`.
-- ⬜ `M2.1.2` Импортировать `gundx.exe` (ImageBase `0x400000`), включить
-      автоанализ, сохранить проект.
-- ⬜ `M2.1.3` Экспортировать: функции, строки, xref, call graph, структуры —
-      в текстовые артефакты, чтобы они были в git (без бинарников).
+- ✅ `M2.1.1` Ghidra 12.1.4 + Temurin 21 + pyghidra-mcp 0.2.7 в `~/tools`;
+      выбор варианта и установка — `docs/GHIDRA.md`.
+- ✅ `M2.1.2` `gundx.exe` импортирован (`ImageBase 0x400000`), auto-analysis;
+      проект `re/ghidra/` (не в git), headless MCP на `127.0.0.1:8765`.
+- 🟡 `M2.1.3` Экспорт: 4 функции + xref/strings в `docs/re/ghidra/`; полный
+      экспорт функций/структур/call graph ещё нет. `tools/ghidra/export.py`.
 - ✅ `M2.1.4` Синхронизировать имена с `tools/re/` и `docs/FORMATS.md`; вести
       `tools/re/names.csv` (VA, имя, статус, доказательство).
 - 🟡 `M2.1.5` Расширить `tools/re/emu.py` до трассировки функций (вход/выход,

@@ -89,3 +89,5 @@ va,name,kind,subsystem,status,evidence
 0x4059c0,input_acquire,code,input,код,DirectInput Acquire/Unacquire по WM_ACTIVATE
 0x404630,memory_status,code,main,код,GlobalMemoryStatus -> [0x4bf290] МБ
 0x44a460,game_init,code,main,код,вызывается из 0x404320 после создания окна
+0x477f90,weapon_target_scan,code,combat,гипотеза,Ghidra 12.1.4 decompile: обход things по range/spread, выбор ближайшей цели
+0x473a00,thing_target_scan,code,ai,гипотеза,Ghidra 12.1.4 decompile: обход 0x7ac3e0/0x81c244, ближайшая цель в radius

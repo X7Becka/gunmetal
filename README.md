@@ -102,6 +102,7 @@ docs/THINGS_CPP.md  C++ things: 4008/7563/7617, recursive script
 docs/WEAPONS_CPP.md C++ оружие: слоты, ammo, cooldown, hitscan
 docs/CAMERA_CPP.md  C++ камера: first/third, FOV, shake/recoil
 docs/AI_CPP.md      C++ AI: idle/patrol/alert/attack/dead, LOS
+docs/GHIDRA.md      Ghidra 12.1.4 headless + pyghidra-mcp: выбор, запуск
 docs/DOORS_CPP.md   C++ двери/переключатели/лифты: 91 Гц, группы
 docs/SOO_PLAYER.md  C++ .soo runtime: кэш SOB, loop/hold, морфинг
 docs/SCREEN_CPP.md  C++ SML-экран: страницы, строки, <I>, selection

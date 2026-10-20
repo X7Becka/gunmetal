@@ -1,0 +1,108 @@
+# Ghidra: выбор, установка и рабочий процесс
+
+**Статус:** Ghidra 12.1.4 + pyghidra-mcp 0.2.7 работают headless в WSL2.
+Проект — `re/ghidra/` (не в git), текстовые выгрузки — `docs/re/ghidra/`.
+
+## 1. Почему не GUI-плагины
+
+| вариант | режим | плюсы | минусы | вердикт |
+|---|---|---|---|---|
+| LaurieWired/GhidraMCP | Ghidra GUI + HTTP plugin | самый известный, простой | нужен GUI/X11, headless-режима нет | не для WSL |
+| GhidrAssistMCP | Ghidra GUI extension | 100 tools, ресурсы, prompts | GUI, Java 25 | не для WSL |
+| bethington/ghidra-mcp | GUI plugin + headless server + bridge | 209 tools, create/structs/debugger, production | extension + bridge + Maven/headless jar, больше движущихся частей | запасной вариант |
+| mrphrazer/ghidra-headless-mcp | pyghidra, 212 tools | headless, transactions, scripts | молодой проект, «vibe coded» | близкий второй |
+| **clearbluejar/pyghidra-mcp** | **pyghidra, headless-first** | **stdio/HTTP, проекты, semantic search, CLI, Apache-2.0, зрелые тесты** | **15 tools, нет create_function/structs** | **выбран** |
+
+Для этой задачи важнее не «200 инструментов», а стабильный headless-процесс,
+повторяемый проект и возможность ходить в него из OpenCode. PyGhidra-MCP даёт
+именно это; недостающие операции (создание функций, кастомные скрипты) можно
+добавить отдельным pyghidra-скриптом, не меняя MCP-слой. Bethington имеет
+`create_function` из коробки, но требует GUI-extension + bridge + headless jar;
+его имеет смысл подключить вторым сервером, если понадобится struct/debugger.
+
+## 2. Установка (без root)
+
+| компонент | версия | путь |
+|---|---|---|
+| Temurin JDK | 21.0.12.1+1 | `~/tools/jdk-21.0.12.1+1` |
+| Ghidra | 12.1.4 PUBLIC (`20260921`) | `~/tools/ghidra_12.1.4_PUBLIC` |
+| uv | 0.13.3 | `~/tools/bin/uv` |
+| Python для MCP | 3.13.16 (uv-managed) | `~/.local/share/uv/python/...` |
+| pyghidra-mcp | 0.2.7 | `~/.local/bin/pyghidra-mcp` |
+
+Ghidra распакована из официального zip. **Важно:** Python `zipfile` не сохраняет
+Unix-биты, поэтому `Ghidra/Features/Decompiler/os/linux_x86_64/decompile` и
+`sleigh` надо `chmod +x`; иначе декомпилятор молча возвращает пустой `code`.
+Это уже исправлено в установке; при переустановке повторить:
+
+```bash
+chmod +x ~/tools/ghidra_12.1.4_PUBLIC/ghidraRun \
+         ~/tools/ghidra_12.1.4_PUBLIC/support/analyzeHeadless
+find ~/tools/ghidra_12.1.4_PUBLIC/Ghidra -path '*/os/linux_x86_64/*' \
+     -type f -exec chmod +x {} +
+```
+
+## 3. Запуск
+
+```bash
+cd ~/gunmetal-re
+./tools/ghidra/start.sh      # headless HTTP на 127.0.0.1:8765
+opencode mcp list            # ghidra connected
+./tools/ghidra/stop.sh
+```
+
+Первый запуск импортирует `gundx.exe` и делает auto-analysis (≈1 мин на этой
+машине), затем проект открывается из `re/ghidra/`. Сервер слушает только
+loopback; `opencode.json` подключает его как remote MCP без OAuth.
+
+Бинарник в проекте называется **`/gundx.exe-902b77`**. Это имя нужно передавать
+в `binary_name` инструментов.
+
+## 4. Инструменты, которыми пользуемся
+
+- `decompile_function(binary, address|name, include_xrefs/strings/callees)` —
+  псевдо-C; принимает и список адресов.
+- `list_xrefs`, `gen_callgraph` — кто вызывает и кого вызывает.
+- `disassemble` — точные инструкции, когда декомпилятор врёт на x87.
+- `search_symbols_by_name`, `search_strings`, `search_code` (semantic/literal).
+- `rename_function`, `rename_variable`, `set_variable_type`,
+  `set_function_prototype`, `set_comment` — аннотирование проекта.
+- `read_bytes`, `list_imports`, `list_exports`, `metadata`.
+
+Проверено на пилоте:
+
+```text
+0x477f90  weapon_target_scan   обход things по range/spread
+0x473a00  thing_target_scan    обход 0x7ac3e0/0x81c244, ближайшая цель
+0x41e025  camera_basis         Rz(-yaw)*Rx(-pitch)*Ry(roll)
+0x433e00  soo_player           проигрыватель .soo
+```
+
+Выгрузки — `docs/re/ghidra/*.c`, `index.json`, `metadata.json`; команда:
+
+```bash
+~/.local/share/uv/tools/pyghidra-mcp/bin/python tools/ghidra/export.py
+```
+
+## 5. Правила доказательности
+
+1. Декомпилятор — **инструмент гипотез**, не доказательство. x87, union,
+   indirect calls и ручной ассемблер часто дают неверные типы.
+2. Любой вывод проверяется `tools/re/emu.py`, байтовым кодеком или golden-тестом.
+3. Имена в `tools/re/names.csv` получают `status=гипотеза`, пока нет xref +
+   теста/эмуляции; только потом `код`.
+4. Проект Ghidra и бинарники игры в git не попадают; в git — только текстовые
+   выгрузки и скрипты.
+
+## 6. Ограничения текущего выбора
+
+- Нет `create_function`/struct-editor tools: функции, которые Ghidra не создала,
+  приходится заводить pyghidra-скриптом или disassemble-эвристикой.
+- Нет `run_script` в MCP: кастомные Ghidra-скрипты запускаются отдельным
+  процессом (проект должен быть закрыт).
+- Semantic-индекс (`ChromaDB`, `all-MiniLM`) грузится фоном; первые
+  `search_code` могут ждать индексации.
+- Реальный GUI/отладчик не используются.
+
+Если понадобится `create_function`, structs или debugger — второй сервер
+`bethington/ghidra-mcp` можно поставить рядом на другом порту, не меняя этот.

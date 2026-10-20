@@ -26,12 +26,16 @@
 |---|---|
 | дизассемблер | `objdump -D -b pei-i386 -M intel gundx.exe` → `/tmp/opencode/gundx.asm` |
 | обёртки | `tools/re/disrange.py`, `tools/re/xref.py`, `tools/re/exelib.py` |
-| карта адресов | `tools/re/names.csv` (90 записей) + `tools/re/names.py` |
-| Ghidra | **не используется**: в системе нет Java, ставить JDK+Ghidra (~650 МБ) не понадобилось — карта собрана по objdump и проверена кодом |
+| карта адресов | `tools/re/names.csv` (92 записи) + `tools/re/names.py` |
+| декомпилятор | **Ghidra 12.1.4 PUBLIC** + **pyghidra-mcp 0.2.7**, headless |
+| Java | Temurin **21.0.12.1+1** (портативный, `~/tools`) |
+| MCP | HTTP `http://127.0.0.1:8765/mcp`, конфиг — `opencode.json` |
+| проект | `re/ghidra/` (не в git); текстовые выгрузки — `docs/re/ghidra/` |
+| запуск | `tools/ghidra/start.sh` / `stop.sh`; см. `docs/GHIDRA.md` |
 
-Ghidra можно добавить позже (портативный JDK 21 + Ghidra в `~/tools`), когда
-потребуется декомпилятор для `M5+`; `names.csv` уже совместим с любым
-импортом (VA, имя, подсистема).
+Ghidra импортирует `gundx.exe` с `ImageBase 0x400000`; проект и бинарники игры
+в git не попадают. `names.csv` остаётся источником имён для MCP/экспорта.
+Установка и сравнение MCP-вариантов — `docs/GHIDRA.md`.
 
 ## C++ (M3)
 

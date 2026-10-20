@@ -1,0 +1,292 @@
+[
+  {
+    "name": "weapon_target_scan",
+    "address": "0x477f90",
+    "note": "weapon target/aim scan (hypothesis)",
+    "xrefs": [
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "004459bd",
+        "to_address": "00477f90",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046ea40",
+        "from_address": "0046ee84",
+        "to_address": "00477f90",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00478520",
+        "from_address": "004787f2",
+        "to_address": "00477f90",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00478520",
+        "from_address": "00478a95",
+        "to_address": "00477f90",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00478be0",
+        "from_address": "00478eea",
+        "to_address": "00477f90",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00478be0",
+        "from_address": "00479300",
+        "to_address": "00477f90",
+        "type": "UNCONDITIONAL_CALL"
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "thing_target_scan",
+    "address": "0x473a00",
+    "note": "thing/AI target scan (hypothesis)",
+    "xrefs": [
+      {
+        "function_name": "FUN_00476a50",
+        "from_address": "00476a95",
+        "to_address": "00473a00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00473240",
+        "from_address": "0047328a",
+        "to_address": "00473a00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004746b0",
+        "from_address": "004746e8",
+        "to_address": "00473a00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00474ea0",
+        "from_address": "00474ee6",
+        "to_address": "00473a00",
+        "type": "UNCONDITIONAL_CALL"
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "camera_basis",
+    "address": "0x41e025",
+    "note": "camera basis Rz(-yaw)*Rx(-pitch)*Ry(roll) (proven)",
+    "xrefs": [
+      {
+        "function_name": "FUN_00446590",
+        "from_address": "00446910",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044a020",
+        "from_address": "0044a17c",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00443690",
+        "from_address": "00444c9a",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00443690",
+        "from_address": "00444d37",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "004458b0",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044e6f0",
+        "from_address": "0044e7e8",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044fc30",
+        "from_address": "0044fe14",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00452240",
+        "from_address": "0045237f",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004534a0",
+        "from_address": "00453514",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00453590",
+        "from_address": "00453604",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004677b0",
+        "from_address": "00467af0",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00467cd0",
+        "from_address": "004680c9",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004684b0",
+        "from_address": "00468555",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00468840",
+        "from_address": "00468905",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046a970",
+        "from_address": "0046a9d9",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046d8b0",
+        "from_address": "0046e186",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470c70",
+        "from_address": "00471c18",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0041e141",
+        "from_address": "0041e16b",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004776d0",
+        "from_address": "00477745",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00477f90",
+        "from_address": "0047806c",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044ec20",
+        "from_address": "0044ed2e",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00451c20",
+        "from_address": "00451d74",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046ea40",
+        "from_address": "0046eaf0",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046fd90",
+        "from_address": "0046feb4",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00476070",
+        "from_address": "0047670b",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "00458eb3",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046ccb0",
+        "from_address": "0046ce0e",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044e800",
+        "from_address": "0044ea8c",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "0045d967",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00478be0",
+        "from_address": "00478e9f",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004543e0",
+        "from_address": "00454552",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00475930",
+        "from_address": "00475e97",
+        "to_address": "0041e025",
+        "type": "UNCONDITIONAL_CALL"
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "soo_player",
+    "address": "0x433e00",
+    "note": "SOO/thing animation player (proven)",
+    "xrefs": [
+      {
+        "function_name": "FUN_0041a625",
+        "from_address": "0041a9c1",
+        "to_address": "00433e00",
+        "type": "UNCONDITIONAL_CALL"
+      }
+    ],
+    "error": null
+  }
+]
