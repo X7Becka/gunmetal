@@ -17,6 +17,7 @@ add_library(gm_engine STATIC
     src/render/render.cpp
     src/render/collide.cpp
     src/player/controller.cpp
+    src/input/controls.cpp
     src/render/text_layout.cpp
     src/render/hud.cpp
     src/render/sprite.cpp

@@ -90,6 +90,17 @@ target_link_libraries(gm_player_controller_tests PRIVATE gm_engine)
 add_test(NAME player_controller COMMAND gm_player_controller_tests)
 gm_label(player_controller quick)
 
+add_executable(gm_controls_tests test_controls.cpp)
+target_link_libraries(gm_controls_tests PRIVATE gm_engine)
+# `.key` profiles and controller config (docs/CONTROLS_CPP.md): synthetic
+# bind/override/conflict, pressed/held/released edges, axis deadzone + invert,
+# diagonal length 1, unknown-key preservation and truncated/bad-magic
+# negatives; real PERFECT/SPLIT1/SPLIT2 (29/19/19 slots, 45 pairs, identical
+# stack tail) and GUNMETAL.CFG (profiles, axes 4/8/0, 2200 ms, buttons
+# 5/15/5/15, four identical controller records).
+add_test(NAME controls COMMAND gm_controls_tests)
+gm_label(controls quick)
+
 add_executable(gm_sou2_tests test_sou2.cpp)
 target_link_libraries(gm_sou2_tests PRIVATE gm_engine)
 add_test(NAME sou2 COMMAND gm_sou2_tests)
