@@ -81,6 +81,15 @@ target_link_libraries(gm_collide_tests PRIVATE gm_engine)
 add_test(NAME collide COMMAND gm_collide_tests)
 gm_label(collide quick)
 
+add_executable(gm_player_controller_tests test_player_controller.cpp)
+target_link_libraries(gm_player_controller_tests PRIVATE gm_engine)
+# Deterministic 91 Hz player controller (docs/PLAYER_CONTROLLER.md): synthetic
+# floor/wall/step/ceiling worlds with exact post-tick positions, falling,
+# jumping, sliding, step-up/down, speed clamp, two-run determinism, negatives,
+# plus level0 spawn and a 100-tick forward golden.
+add_test(NAME player_controller COMMAND gm_player_controller_tests)
+gm_label(player_controller quick)
+
 add_executable(gm_sou2_tests test_sou2.cpp)
 target_link_libraries(gm_sou2_tests PRIVATE gm_engine)
 add_test(NAME sou2 COMMAND gm_sou2_tests)
