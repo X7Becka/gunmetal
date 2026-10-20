@@ -129,6 +129,17 @@ gm_label(sou1 quick)
 add_test(NAME sou1_full COMMAND gm_sou1_tests --full)
 gm_label(sou1_full full)
 
+# `audio/sou1.h` (docs/SOU1_CPP.md): source-rate `Sou1Sound`, a chunked
+# `Sou1Stream` and the container checks on top of the same verified decoder.
+# `sou1_audio` pins synthetic vectors and seven real records; `sou1_audio_full`
+# hashes all 983 entries forward and in reverse index order.
+add_executable(gm_sou1_audio_tests test_sou1_audio.cpp)
+target_link_libraries(gm_sou1_audio_tests PRIVATE gm_engine)
+add_test(NAME sou1_audio COMMAND gm_sou1_audio_tests)
+gm_label(sou1_audio quick)
+add_test(NAME sou1_audio_full COMMAND gm_sou1_audio_tests --full)
+gm_label(sou1_audio_full full)
+
 add_executable(gm_sbv_video_tests test_sbv_video.cpp)
 target_link_libraries(gm_sbv_video_tests PRIVATE gm_engine)
 # `ctest` runs the full 500-frame Intro sweep; `gm_sbv_video_tests --quick`

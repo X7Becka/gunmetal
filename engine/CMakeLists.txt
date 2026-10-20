@@ -4,6 +4,7 @@ add_library(gm_engine STATIC
     src/core/path.cpp
     src/core/config.cpp
     src/core/time.cpp
+    src/audio/sou1.cpp
     src/platform/window.cpp
     src/platform/audio.cpp
     src/res/anim.cpp
