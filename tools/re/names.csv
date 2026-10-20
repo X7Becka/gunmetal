@@ -55,6 +55,7 @@ va,name,kind,subsystem,status,evidence
 0x81bd78,player_speed_effective,data,player,код,Ghidra: speed * health factor в 0x443690
 0x81bd80,player_speed_weight_penalty,data,player,код,Ghidra: штраф за превышение веса
 0x81bd88,player_speed_after_weight,data,player,код,Ghidra: 0x4524d0 клампит min 0.05
+0x81bda8,player_collision_radius,data,player,код,Ghidra: obj+0x60 (f32 radius SOB) из 0x452240
 0x80f840,level_gravity_mul,data,player,код,Ghidra: op96; default 1.0; suspension -0.2*dt
 0x47b642,shop_ammo_clamp,code,combat,код,покупка клампится по DEFINE_AMMO.L0
 0x47c990,model_index_to_pointer,code,models,код,SOBS/<имя>.sob или Sobanim/<имя>.soo

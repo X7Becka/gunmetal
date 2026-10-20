@@ -55,7 +55,7 @@ struct Input {
 /// Tunables.  Defaults are a LIGHT-chassis-sized capsule; the provenance of
 /// every number is in docs/PLAYER_CONTROLLER.md §4.
 struct ControllerConfig {
-    double radius = 3.0;          ///< capsule radius (world units)
+    double radius = 3.0;          ///< LIGHT approximation; the original uses SOB object radius (obj+0x60)
     double height = 10.0;         ///< standing capsule height
     double eye_height = 10.0;     ///< eye above the feet (LIGHT CHASSIS = 10.0)
     double gravity = 700.0;       ///< synthetic; the original uses a 0x80f840-scaled suspension, not a scalar g
