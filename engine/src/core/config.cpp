@@ -251,6 +251,30 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 error = "--transparent-index expects an integer";
                 return std::nullopt;
             }
+        } else if (arg == "--spawn-camera") {
+            options.spawn_camera = true;
+        } else if (arg == "--spawn-slot") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.spawn_slot = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--spawn-slot expects an integer";
+                return std::nullopt;
+            }
+        } else if (arg == "--spawn-eye") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.spawn_eye = std::stof(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--spawn-eye expects a number";
+                return std::nullopt;
+            }
         } else if (arg == "--things") {
             options.things = true;
         } else if (arg == "--thing-scale") {

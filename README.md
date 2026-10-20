@@ -75,6 +75,7 @@ docs/MIPMAPS.md       mip/bilinear/alpha в Python-рендере, доказа�
 docs/FILM.md          .sof/.fdx: тайлы, тайминг, привязка к оружию/экранам
                       C++-читатель + --film
 docs/PLAYER.md        спавн игрока, DM-респавн, высота глаза, камера
+docs/CAMERA.md        базис первого лица, проекция, xref 0x41e025
 docs/SAVE.md          сейвы: контейнер, блоки, byte-exact rebuild
 docs/RECORDS.md       SECTOR_STUFF/ITEM/LIFT: поля, xref, writer
 docs/SOE.md           .soe/THING_TYPES: 77 полей, 36 proven, xref

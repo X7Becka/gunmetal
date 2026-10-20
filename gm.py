@@ -1572,6 +1572,9 @@ def cmd_view(opts) -> int:
     if pos is None and look is not None:
         print("--look needs --pos", file=sys.stderr)
         return 2
+    if opts.spawn and pos is not None:
+        print("--spawn and --pos are mutually exclusive", file=sys.stderr)
+        return 2
     paths: list[str] = []
     for p in opts.paths:
         if os.path.isdir(p):
@@ -1601,7 +1604,19 @@ def cmd_view(opts) -> int:
                 sbc_path = os.path.splitext(p)[0] + ".sbc"
                 if not opts.no_lightmap and os.path.isfile(sbc_path):
                     lms = render.import_lightmaps(sbc_path)
-                meshes = render.level_meshes(w, lms, transform=opts.transform)
+                if opts.spawn:
+                    sbt_path = os.path.splitext(p)[0] + ".sbt"
+                    sc0 = scenemod.load(sbt_path)
+                    starts = [s for s in sc0.spawns
+                              if s.kind == "campaign" and s.index == opts.spawn_slot]
+                    if not starts:
+                        raise ValueError("no campaign spawn for slot %d"
+                                         % opts.spawn_slot)
+                    eye0, look0, _basis = scenemod.first_person(
+                        starts[0], opts.spawn_eye)
+                    pos, look = eye0, look0
+                meshes = render.level_meshes(w, lms,
+                                             transform=opts.transform or opts.spawn)
                 kind = f"level {len(w.sectors)}s/{w.n_objects}o"
                 if lms:
                     kind += f" +{len(lms.records)} lightmaps"
@@ -1864,10 +1879,11 @@ def cmd_spawn(opts) -> int:
         deathmatch = [s for s in sc.spawns if s.kind == "deathmatch"]
         out[name] = {
             "eye_height": eye,
-            "campaign": [{"slot": s.index, "pos": list(s.pos),
-                          "angles": list(s.angles),
-                          "camera": [s.pos[0], s.pos[1], s.pos[2] + eye]}
-                         for s in campaign],
+            "campaign": [dict(
+                {"slot": s.index, "pos": list(s.pos), "angles": list(s.angles)},
+                **dict(zip(("eye", "look", "basis"),
+                           scenemod.first_person(s, eye))))
+                for s in campaign],
             "deathmatch": [{"slot": s.index, "pos": list(s.pos),
                             "angles": list(s.angles)} for s in deathmatch],
         }
@@ -1875,8 +1891,11 @@ def cmd_spawn(opts) -> int:
             print(f"{os.path.basename(p)}: {len(campaign)} campaign start(s), "
                   f"{len(deathmatch)} DM start(s), eye +{eye:g}")
             for s in campaign[:opts.show]:
+                eye_pos, _look, basis = scenemod.first_person(s, eye)
                 print(f"  campaign slot={s.index} pos={s.pos} "
-                      f"yaw={s.angles[2]:.3f} camera_z={s.pos[2] + eye:g}")
+                      f"yaw={s.angles[2]:.3f} camera={eye_pos} "
+                      f"forward=({basis['forward'][0]:+.3f},"
+                      f"{basis['forward'][1]:+.3f},{basis['forward'][2]:+.3f})")
             for s in deathmatch[:opts.show]:
                 print(f"  deathmatch slot={s.index} pos={s.pos} "
                       f"yaw={s.angles[2]:.3f}")
@@ -2068,6 +2087,12 @@ def main(argv=None) -> int:
                    help="place the .sbw objects in the engine world frame "
                         "(origin + basis*local from the 96-byte object header; "
                         "the default keeps the raw file frame)")
+    p.add_argument("--spawn", action="store_true",
+                   help="camera at SET_PLAYER_START (sibling .sbt; implies --transform)")
+    p.add_argument("--spawn-slot", type=int, default=0,
+                   help="player slot for --spawn (default 0)")
+    p.add_argument("--spawn-eye", type=float, default=10.0,
+                   help="camera height above the spawn (default 10 = LIGHT)")
     p.add_argument("--things", action="store_true",
                    help="place the models of the level's things (ADD_THING* in "
                         "the entity sub-scripts) alongside the geometry")

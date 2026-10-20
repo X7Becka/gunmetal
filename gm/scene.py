@@ -331,6 +331,36 @@ class Spawn:
     kind: str = "campaign"          # "campaign" | "deathmatch"
 
 
+EYE_HEIGHTS = {"LIGHT": 10.0, "MEDIUM": 11.0, "STEALTH": 11.0,
+               "HEAVY": 12.0, "57 CHEVY": 14.0}
+
+
+def first_person(spawn, eye: float = 10.0, distance: float = 100.0):
+    """Camera at *spawn* (feet + *eye*), using the proven engine basis.
+
+    ``spawn.angles`` are ``(pitch, roll, yaw)`` (player ``+0x18/+0x20/+0x28``).
+    Roll is ignored here (always 0 in the shipped starts).  The engine's basis
+    ``0x41e025`` gives, with X right / Y forward / Z up::
+
+        forward = ( sin(yaw)cos(pitch), cos(yaw)cos(pitch), -sin(pitch) )
+        right   = ( cos(yaw),          -sin(yaw),           0            )
+        up      = ( sin(yaw)sin(pitch), cos(yaw)sin(pitch),  cos(pitch) )
+
+    Returns ``(eye_pos, look_at, basis_dict)`` in the scene frame.
+    """
+    import math
+    pitch, _roll, yaw = (float(v) for v in spawn.angles)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    forward = (sy * cp, cy * cp, -sp)
+    right = (cy, -sy, 0.0)
+    up = (sy * sp, cy * sp, cp)
+    eye_pos = (spawn.pos[0], spawn.pos[1], spawn.pos[2] + eye)
+    look = tuple(eye_pos[i] + forward[i] * distance for i in range(3))
+    return eye_pos, look, {"forward": forward, "right": right, "up": up,
+                           "yaw": yaw, "pitch": pitch}
+
+
 @dataclass
 class Scene:
     lights: list[Light] = field(default_factory=list)

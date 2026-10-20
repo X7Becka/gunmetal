@@ -480,11 +480,14 @@ def scene_checks(G: str, results: list[bool], out: str,
     # out as slot,x,y,z + three f64 angles (docs/PLAYER.md).
     s0 = scene.load(os.path.join(G, "level0.sbt"))
     starts0 = [s for s in s0.spawns if s.kind == "campaign" and s.index == 0]
+    eye0, look0, basis0 = scene.first_person(starts0[0]) if starts0 else (None, None, {})
     ok_start = (len(s0.spawns) == 8 and len(starts0) == 1
                 and starts0[0].pos == (24, -208, 48)
-                and starts0[0].angles == (0.0, 0.0, 0.0))
-    results.append(report("scene / player start (level0)", ok_start,
-                          "8 campaign starts, slot 0 at (24,-208,48), yaw 0"))
+                and starts0[0].angles == (0.0, 0.0, 0.0)
+                and eye0 == (24, -208, 58)
+                and basis0.get("forward") == (0.0, 1.0, -0.0))
+    results.append(report("scene / player start + first-person basis", ok_start,
+                          "slot 0 (24,-208,48), eye z+10, forward +Y"))
     dm = scene.load(os.path.join(G, "dm1.sbt"))
     campaign = sum(1 for s in dm.spawns if s.kind == "campaign")
     deathmatch = sum(1 for s in dm.spawns if s.kind == "deathmatch")

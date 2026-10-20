@@ -470,6 +470,9 @@ int dump_file(const gm::Options& options) {
     return 0;
 }
 
+bool start_camera(const gm::Options& options, const gm::SbtLevel& entities,
+                  gm::Vec3d& eye, gm::Vec3d& target, std::string& error);
+
 int render_image(const gm::Options& options) {
     std::string error;
     std::vector<gm::RenderMesh> meshes;
@@ -582,6 +585,14 @@ int render_image(const gm::Options& options) {
         render.camera_override = true;
         render.eye = {options.pos[0], options.pos[1], options.pos[2]};
         render.target = {options.look[0], options.look[1], options.look[2]};
+    } else if (options.spawn_camera && level->entities) {
+        std::string spawn_error;
+        if (!start_camera(options, *level->entities, render.eye, render.target,
+                          spawn_error)) {
+            gm::logf(gm::LogLevel::Error, "render", spawn_error);
+            return 2;
+        }
+        render.camera_override = true;
     }
     render.clip = options.clip;
 
@@ -663,6 +674,37 @@ int show_level(const gm::Options& options) {
                     level->lightmaps->magic.c_str(), level->lightmaps->records.size(), texels);
     }
     return 0;
+}
+
+/// Camera at SET_PLAYER_START: eye = feet + height, forward from the proven
+/// 0x41e025 basis (X right, Y forward at yaw 0, Z up).
+bool start_camera(const gm::Options& options, const gm::SbtLevel& entities,
+                  gm::Vec3d& eye, gm::Vec3d& target, std::string& error) {
+    const auto scene = gm::extract_scene(entities, error, false);
+    if (!scene) {
+        return false;
+    }
+    const gm::SceneSpawn* found = nullptr;
+    for (const auto& spawn : scene->spawns) {
+        if (!spawn.deathmatch && spawn.slot == options.spawn_slot) {
+            found = &spawn;
+            break;
+        }
+    }
+    if (found == nullptr) {
+        error = "no campaign spawn for slot " + std::to_string(options.spawn_slot);
+        return false;
+    }
+    const double pitch = found->angles[0];
+    const double yaw = found->angles[2];
+    const double cp = std::cos(pitch), sp = std::sin(pitch);
+    const double cy = std::cos(yaw), sy = std::sin(yaw);
+    const gm::Vec3d forward{sy * cp, cy * cp, -sp};
+    eye = {static_cast<double>(found->x), static_cast<double>(found->y),
+           static_cast<double>(found->z) + options.spawn_eye};
+    target = {eye.x + forward.x * 100.0, eye.y + forward.y * 100.0,
+              eye.z + forward.z * 100.0};
+    return true;
 }
 
 int show_film(const gm::Options& options) {
@@ -1313,6 +1355,12 @@ int run(const gm::Options& options) {
         if (options.has_pos && options.has_look) {
             eye = {options.pos[0], options.pos[1], options.pos[2]};
             target = {options.look[0], options.look[1], options.look[2]};
+        } else if (options.spawn_camera && level->entities) {
+            std::string spawn_error;
+            if (!start_camera(options, *level->entities, eye, target, spawn_error)) {
+                gm::logf(gm::LogLevel::Error, "run", spawn_error);
+                return 2;
+            }
         } else {
             const double a = options.az * 0.017453292519943295;
             const double e = options.el * 0.017453292519943295;

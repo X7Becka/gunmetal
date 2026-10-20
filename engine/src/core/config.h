@@ -46,6 +46,9 @@ struct Options {
     bool bilinear = false;     // opt-in bilinear filtering
     bool alpha_test = false;   // key out the transparent palette index
     int transparent_index = 0;
+    bool spawn_camera = false;  // start the viewer at SET_PLAYER_START
+    int spawn_slot = 0;
+    float spawn_eye = 10.0f;    // LIGHT chassis (player+0x2F50)
     bool things = false;       // place the scene's ADD_THING models
     float thing_scale = 1.0f;  // extra scale for those models
     bool info = false;

@@ -1484,6 +1484,46 @@ void test_render() {
                 covered += background ? 0 : 1;
             }
             CHECK(covered > image.rgb.size() / 3 / 4);
+
+            // --spawn-camera: level0 slot 0, eye z+10, yaw 0 -> +Y; same bytes
+            // as gm.py view --spawn (FNV 4bb462b101263118).
+            if (level->entities) {
+                std::string scene_error;
+                const auto scene = gm::extract_scene(*level->entities, scene_error, false);
+                CHECK(scene.has_value());
+                if (scene) {
+                    const gm::SceneSpawn* start = nullptr;
+                    for (const auto& spawn : scene->spawns) {
+                        if (!spawn.deathmatch && spawn.slot == 0) {
+                            start = &spawn;
+                            break;
+                        }
+                    }
+                    CHECK(start != nullptr);
+                    if (start) {
+                        const double pitch = start->angles[0];
+                        const double yaw = start->angles[2];
+                        const gm::Vec3d forward{std::sin(yaw) * std::cos(pitch),
+                                                std::cos(yaw) * std::cos(pitch),
+                                                -std::sin(pitch)};
+                        gm::RenderOptions spawn_options;
+                        spawn_options.width = 200;
+                        spawn_options.height = 200;
+                        spawn_options.lightmap_world = true;
+                        spawn_options.camera_override = true;
+                        spawn_options.eye = {static_cast<double>(start->x),
+                                             static_cast<double>(start->y),
+                                             static_cast<double>(start->z) + 10.0};
+                        spawn_options.target = {
+                            spawn_options.eye.x + forward.x * 100.0,
+                            spawn_options.eye.y + forward.y * 100.0,
+                            spawn_options.eye.z + forward.z * 100.0};
+                        const auto spawn_image = gm::render_scene(
+                            meshes, spawn_options, &pool, lightmaps);
+                        CHECK_EQ(fnv_rgb(spawn_image.rgb), 0x4bb462b101263118ull);
+                    }
+                }
+            }
         }
     }
 }
