@@ -85,6 +85,7 @@ std::size_t Ai::attach(const Things& things) {
     events_.clear();
     history_.reset();
     stats_ = AiStats{};
+    things_ = &things;
 
     for (const Thing& thing : things.things()) {
         if (!thing.absolute()) {
@@ -236,6 +237,11 @@ void Ai::tick(const CollisionWorld& world, double dt) {
 
     ++stats_.ticks;
     const std::uint64_t tick = stats_.ticks;
+
+    // The vitals of the owning things come first: a thing that died
+    // elsewhere (the weapons apply `apply_thing_damage`) turns its agent
+    // dead before the state machine runs.
+    sync_vitals();
 
     // One target position per accepted tick, mirroring the original's write
     // into history[240][3] every update (docs/SAVE_FIELDS.md §9.2).  Without a
@@ -393,6 +399,40 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         }
     }
     refresh_stats();
+}
+
+std::size_t Ai::sync_vitals() {
+    if (things_ == nullptr) {
+        return 0;
+    }
+    std::size_t changed = 0;
+    for (AiAgent& agent : agents_) {
+        const Thing* thing = things_->by_id(agent.thing_id);
+        if (thing == nullptr) {
+            continue;
+        }
+        // The thing's own gauges are the truth (0x470500 writes them).
+        agent.shields = thing->shields;
+        agent.hits_left = thing->hits_left;
+        if (config_.use_thing_fields) {
+            agent.health = static_cast<double>(thing->health > 0 ? thing->health : 0);
+        }
+        const bool dead = !thing->alive ||
+                          (config_.use_thing_fields && !agent.immune && agent.health <= 0.0);
+        if (dead && agent.state != AiState::dead) {
+            agent.target = -1;
+            agent.alertness = 0.0;
+            agent.timer = 0.0;
+            agent.returning = false;
+            set_state(agent, AiState::dead, stats_.ticks);
+            ++stats_.thing_deaths;
+            log(AiEventType::death, agent, 0.0, stats_.ticks);
+            ++changed;
+        }
+    }
+    ++stats_.vitals_syncs;
+    refresh_stats();
+    return changed;
 }
 
 bool Ai::damage(int thing_id, double amount) {

@@ -8,11 +8,13 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 состояния на фиксированном тике **91 Гц**.
 
 Статус: API, состояния, LOS, таймеры, leash/return, synthetic- и
-поставочные golden'ы, а также 240-слотовая история позиции цели с лагом
-`Thing::target_history_offset` готовы. CTest `thing_ai` (quick, **0.35 с**)
-проходит, `python3 regress.py` — **113/113** (скрипт не менялся). Игра только
-читается; `Things` AI не мутирует. Навигации и принятия решений по истории
-(куда стрелять/идти) по-прежнему нет — см. §6.
+поставочные golden'ы, 240-слотовая история позиции цели с лагом
+`Thing::target_history_offset` и зеркало виталов вещи (`sync_vitals`: HP,
+щиты, счётчик попаданий; мёртвая вещь убивает агента) готовы. CTest
+`thing_ai` (quick, **0.35 с**) проходит, `python3 regress.py` — **113/113**
+(скрипт не менялся). Игра только читается; `Things` AI не мутирует.
+Навигации и принятия решений по истории (куда стрелять/идти) по-прежнему нет
+— см. §6.
 
 ---
 
@@ -30,7 +32,7 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 | dm1 | attached **5** из 141, первый id **115** `(-350, 1304, 40)` |
 | level0 | attached **6** из 121, первый id **115** `(24, 2708, -92)` |
 | движение | только return к `home`; alert/attack не преследуют |
-| урон | `damage()` меняет только AI-агента, не `Things` |
+| урон | `damage()` меняет только AI-агента, не `Things`; `sync_vitals()` читает виталы вещи (щиты, hits, HP) и убивает агента вместе с вещью |
 | история цели | кольцо **240** позиций; `tick` пишет один слот, лаг 0..239 |
 | лаг из данных | `Thing::target_history_offset` (+0x1d0): 0 = текущая, иначе 1..239 |
 
@@ -48,6 +50,7 @@ ai.tick(world);                  // ровно один тик 1/91 с
 ai.tick(world, dt);              // dt зажимается до config().max_dt
 ai.damage(id, 25.0);             // true, если агент жив и урон принят
 ai.place(id, {x, y, z});         // только тест/отладка, без навигации
+ai.sync_vitals();                // зеркалить здоровье/щиты/hits вещи в агента
 
 const auto& agents = ai.agents();
 const gm::AiAgent* a = ai.agent(id);
@@ -83,6 +86,8 @@ struct AiAgent {
     Vec3d home;         // абсолютная Thing::position, не меняется
     Vec3d position;     // home, пока агент не ушёл в return
     double health;
+    std::array<int, 4> shields;  // зеркало щитов вещи (сотые)
+    int hits_left;               // зеркало счётчика попаданий вещи (+0x1c8)
     double distance;    // последняя дистанция eye-to-eye
     bool visible;       // последний LOS
     bool returning;     // idle-подсостояние «идёт домой»
@@ -99,7 +104,9 @@ struct AiAgent {
 `AiStats` — счётчики на текущий момент: `attached`, `skipped_without_position`,
 `idle/patrol/alert/attack/dead`, `ticks`, `los_checks`, `los_blocked`,
 `transitions`, `attacks`, `damage_events`, `deaths`, `ignored_ticks`,
-`clamped_ticks`, `invalid_damage`, `typed_agents`, `immune_hits`.
+`clamped_ticks`, `invalid_damage`, `typed_agents`, `immune_hits`,
+`vitals_syncs` (вызовы `sync_vitals`), `thing_deaths` (агенты, убитые
+виталями вещи).
 
 `events()` возвращает упорядоченный журнал `AiEvent { type, thing_id, from, to,
 value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
@@ -107,7 +114,6 @@ value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
 `clear_events()` очищает только журнал, не состояние.
 
 ### 1.3. История позиции цели
-
 `TargetHistory` — фиксированное кольцо `slots[240]`, `next` (следующий слот,
 аналог `history_index` +0x3204) и `count` (0..240). `Ai::tick` после проверки
 `dt` пишет ровно одну точку — eye игрока; без игрока записи нет. `attach()` и
@@ -121,6 +127,24 @@ value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
 * `AiAgent::history_lag` — результат `ai_history_lag(+0x1d0)`: 0 остаётся 0,
   положительное значение зажимается в 1..239. Это данные агента; state machine
   пока их не использует (см. §6).
+
+### 1.4. Витали вещи → агент (`sync_vitals`)
+
+`Ai::attach` запоминает `Things` (только на чтение). `Ai::sync_vitals()`
+зеркалит в агента то, что пишет runtime-путь урона:
+
+| поле агента | источник |
+|---|---|
+| `shields[4]` | `Thing::shields` (+0x1d8…+0x1e4) |
+| `hits_left` | `Thing::hits_left` (+0x1c8) |
+| `health` | `Thing::health` (+0x1d4, текущее значение) — только при `use_thing_fields` |
+
+Вещь, которая мертва (`alive == false`) или у которой здоровье дошло до нуля
+(и она не `immune`), переводит своего агента в `AiState::dead`. `tick()`
+вызывает `sync_vitals()` до состоянийной машины, поэтому урон, нанесённый
+оружием (`apply_thing_damage` → `Things`), виден агентам на следующем тике.
+AI **не меняет** `Things` — только читает. Счётчики: `vitals_syncs`,
+`thing_deaths`.
 
 ---
 
@@ -289,10 +313,11 @@ AI не пытается её вывести (docs/THINGS_CPP.md §1.3).
 clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`). Остаётся:
 
 1. **Типы вещей**: подключить `THING_TYPES +0x1b4` (movement), `+0x1cc`
-   (attack range), `+0x1d4` (health), `+0x1c8`/`+0x1c4`
+   (attack range), `+0x1c8`/`+0x1c4`
    (счётчик попаданий/событие смерти), `+0x1e8` (expire). `+0x1d0` уже
-   подключён как `history_lag`, но пока не влияет на решения. Для остальных
-   `Things` должен отдавать разрешённые поля типа.
+   подключён как `history_lag`, но пока не влияет на решения; `+0x1d4`
+   (health) и `+0x1d8` (щиты) подключены как зеркало виталов (§1.4).
+   Для остальных `Things` должен отдавать разрешённые поля типа.
 2. **Принятие решений**: использовать `history_lag` в реальном выборе точки
    прицеливания/движения (стрельба с упреждением, сглаживание), привязать
    историю к конкретной цели, а не к единственному eye; сейчас state machine

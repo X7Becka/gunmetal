@@ -106,6 +106,10 @@ struct AiAgent {
     Vec3d home{};               ///< absolute `Thing::position`, never changes
     Vec3d position{};           ///< starts at home; only return movement changes it
     double health = 0.0;
+    /// The vitals of the owning thing, mirrored by `Ai::sync_vitals()`:
+    /// the four shield gauges (hundredths) and the geometry hits left.
+    std::array<int, 4> shields{};
+    int hits_left = 0;
     double distance = 0.0;      ///< last eye-to-eye distance (0 without a player)
     bool visible = false;       ///< last line-of-sight result
     bool returning = false;     ///< idle substate: walking home, no sight checks
@@ -154,6 +158,8 @@ struct AiStats {
     std::uint64_t ignored_ticks = 0;
     std::uint64_t clamped_ticks = 0;
     std::uint64_t invalid_damage = 0;
+    std::uint64_t vitals_syncs = 0;  ///< `sync_vitals()` calls
+    std::uint64_t thing_deaths = 0;  ///< agents killed by the thing's vitals
     std::size_t typed_agents = 0;   ///< agents with a THING_TYPES record
     std::uint64_t immune_hits = 0;  ///< damage rejected by max_health == 0
 };
@@ -185,6 +191,18 @@ public:
     /// non-positive amounts are rejected (and counted in `invalid_damage`).
     /// The AI state dies at `health <= 0`; the owning `Things` is not changed.
     bool damage(int thing_id, double amount);
+
+    /// Mirror the vitals of the owning things into the agents: the four
+    /// shield gauges, the geometry hits left and (with
+    /// `use_thing_fields`) the current health.  A thing that is dead
+    /// (`alive == false`) or whose health reached zero turns its agent into
+    /// `AiState::dead`.
+    ///
+    /// This is the bridge to the runtime damage path: the weapons apply
+    /// `apply_thing_damage` to the thing, and the AI picks the result up on
+    /// the next tick.  The AI never mutates `Things`.  Returns the number of
+    /// agents that changed state.
+    std::size_t sync_vitals();
 
     /// Test/debug hook: move an agent without changing its state.  Used to put
     /// an agent outside its leash; real movement (navigation) is not modelled.
@@ -226,6 +244,8 @@ private:
     TargetHistory history_;
     Vec3d player_eye_{};
     bool has_player_ = false;
+    /// The things the agents belong to (read only); set by `attach()`.
+    const Things* things_ = nullptr;
 };
 
 } // namespace gm

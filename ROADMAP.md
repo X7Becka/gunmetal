@@ -608,7 +608,11 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > ADD_THING/ABS/GENERATE, циклы/глубина. `world/ai.*` (CTest `thing_ai`):
       > idle/patrol/alert/attack/dead, LOS через collide, leash/return;
       > dm1 5 агентов, level0 6; opt-in `use_thing_fields` берёт
-      > search/zone/HP/movement из THING_TYPES; path/навигация и оружие — ещё нет.
+      > search/zone/HP/movement из THING_TYPES; **виталы вещи подключены**:
+      > `Ai::sync_vitals()` зеркалит HP (+0x1d4), щиты (+0x1d8) и счётчик
+      > попаданий (+0x1c8) и убивает агента вместе с вещью (урон оружия виден
+      > на следующем тике, `Things` AI не мутирует). path/навигация и
+      > оружие — ещё нет.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
       > ray/sphere vs triangle, floor, AABB broad-phase, double, без аллокаций;

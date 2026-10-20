@@ -99,6 +99,9 @@ struct TypeSpec {
     const char* name;
     std::uint32_t model_index;
     int history_offset = 0; ///< THING_TYPES +0x1d0
+    int max_health = 0;    ///< THING_TYPES +0x1d4, 0 = damage immune
+    std::array<int, 4> shields{}; ///< THING_TYPES +0x1d8..+0x1e4
+    int hits_left = 0;     ///< THING_TYPES +0x1c8
 };
 
 gm::SbtLevel make_sbt_level(const std::vector<std::uint8_t>& code,
@@ -125,8 +128,16 @@ gm::SbtLevel make_sbt_level(const std::vector<std::uint8_t>& code,
         const std::size_t length = std::min<std::size_t>(std::strlen(types[i].name), 15);
         std::memcpy(types_record.payload.data() + base, types[i].name, length);
         put_u32(types_record.payload, base + 0x1A4, types[i].model_index);
+        put_u32(types_record.payload, base + 0x1C8,
+                static_cast<std::uint32_t>(types[i].hits_left));
         put_u32(types_record.payload, base + 0x1D0,
                 static_cast<std::uint32_t>(types[i].history_offset));
+        put_u32(types_record.payload, base + 0x1D4,
+                static_cast<std::uint32_t>(types[i].max_health));
+        for (std::size_t s = 0; s < types[i].shields.size(); ++s) {
+            put_u32(types_record.payload, base + 0x1D8 + s * 4,
+                    static_cast<std::uint32_t>(types[i].shields[s]));
+        }
     }
     level.records.push_back(std::move(types_record));
 
@@ -165,7 +176,7 @@ void add_thing_at_source(std::vector<std::uint8_t>& code, std::uint32_t type, in
     append_f64(code, 0.0);
 }
 
-gm::Things make_synthetic_things(int history_offset = 0) {
+gm::Things make_synthetic_things(int history_offset = 0, int max_health = 0) {
     std::vector<std::uint8_t> code;
     add_thing(code, 0, 0, 0, 0);        // agent 0, home (0,0,0)
     add_thing(code, 0, 1000, 0, 0);     // agent 1, home (1000,0,0)
@@ -173,7 +184,8 @@ gm::Things make_synthetic_things(int history_offset = 0) {
     code.push_back(0xFF);
 
     std::vector<Row> rows{{0x3FF, 42, 0}};
-    const std::vector<TypeSpec> types{{"TEST_THING", 0, history_offset}};
+    TypeSpec spec{"TEST_THING", 0, history_offset, max_health, {10, 20, 30, 40}, 3};
+    const std::vector<TypeSpec> types{spec};
     const std::vector<std::string> models{"TEST_MODEL"};
     const gm::SbtLevel level = make_sbt_level(code, rows, types, models);
     const gm::VmState vm = gm::vm_state_from_level(level);
@@ -684,6 +696,60 @@ void test_target_history() {
     }
 }
 
+void test_vitals_sync() {
+    // The AI mirrors the vitals of the owning thing.  The runtime damage
+    // path (apply_thing_damage) writes the thing, the AI picks the result up
+    // on the next tick; the AI never mutates `Things`.
+    gm::Things things = make_synthetic_things(0, 100);
+    gm::AiConfig config;
+    config.use_thing_fields = true;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+
+    const gm::AiAgent* first = ai.agent(0);
+    CHECK(first != nullptr);
+    if (first != nullptr) {
+        CHECK_NEAR(first->health, 100.0, 0.0);
+        CHECK(!first->immune);
+        CHECK_EQ(first->max_health, 100.0);
+    }
+
+    // The thing takes damage somewhere else.
+    gm::Thing* thing = things.by_id(0);
+    CHECK(thing != nullptr);
+    if (thing != nullptr) {
+        thing->health = 40;
+        thing->shields = {1, 2, 3, 4};
+        thing->hits_left = 1;
+    }
+    const gm::CollisionWorld empty;
+    ai.tick(empty);
+    first = ai.agent(0);
+    CHECK(first != nullptr);
+    if (first != nullptr) {
+        CHECK_NEAR(first->health, 40.0, 0.0);
+        CHECK_EQ(first->shields[0], 1);
+        CHECK_EQ(first->shields[3], 4);
+        CHECK_EQ(first->hits_left, 1);
+        CHECK_EQ(first->state, gm::AiState::idle);
+    }
+    CHECK_EQ(ai.stats().vitals_syncs, 1u);
+
+    // The thing dies: the agent follows on the next tick.
+    CHECK(things.kill(0));
+    ai.tick(empty);
+    first = ai.agent(0);
+    CHECK(first != nullptr);
+    if (first != nullptr) {
+        CHECK_EQ(first->state, gm::AiState::dead);
+    }
+    CHECK_EQ(ai.stats().thing_deaths, 1u);
+    // A dead agent stays dead and is not counted twice.
+    ai.tick(empty);
+    CHECK_EQ(ai.stats().thing_deaths, 1u);
+    CHECK_EQ(ai.stats().dead, 1u);
+}
+
 void test_real_level(const fs::path& path, const char* name, std::size_t expect_things,
                      std::size_t expect_attached, int first_id, double x, double y,
                      double z) {
@@ -813,6 +879,7 @@ int main() {
     test_dt_and_player_negatives();
     test_two_runs();
     test_target_history();
+    test_vitals_sync();
     test_real_dm1();
     if (g_failures != 0) {
         std::fprintf(stderr, "ai: %d failure(s)\n", g_failures);
