@@ -576,14 +576,18 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > loadout, cooldown = сырые тики (MG 17, CANNON 80), spread, recoil;
       > hitscan BULLET/LASER и
       > урон из подскриптов (MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00);
-      > `apply_damage_gauge` — точная модель `0x453b50`. Магазин и урон
-      > THING/impact — ещё нет.
+      > `apply_damage_gauge` — точная модель `0x453b50`; `apply_thing_damage`
+      > (`0x470500`) и `apply_blast` (`0x477280`, без LOS, целочисленный
+      > falloff) добавлены; `ShieldSide` исправлен на front/right/back/left.
+      > Магазина в оригинале нет; осталось подключить event/impact-ветки
+      > `.sbt` (GRENADE/ROCKET/PLASMA/NUKE/EMP) и `level10`.
 - 🟡 `M2.2.7` AI/things: состояния, path, дети, мораль, оружие, события.
       > C++ `world/things.*` (CTest `things`/`things_full`): top-level 4008,
       > recursive 7563, executed 7617, 391 старт, 2896/2896 model refs;
       > ADD_THING/ABS/GENERATE, циклы/глубина. `world/ai.*` (CTest `thing_ai`):
       > idle/patrol/alert/attack/dead, LOS через collide, leash/return;
-      > dm1 5 агентов, level0 6; path/урон/оружие — ещё нет.
+      > dm1 5 агентов, level0 6; opt-in `use_thing_fields` берёт
+      > search/zone/HP/movement из THING_TYPES; path/навигация и оружие — ещё нет.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
       > ray/sphere vs triangle, floor, AABB broad-phase, double, без аллокаций;
