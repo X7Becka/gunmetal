@@ -31,6 +31,9 @@
 #include "res/sbv.h"
 #include "res/sbv_video.h"
 #include "res/sbw.h"
+#include "res/sob.h"
+#include "res/sof.h"
+#include "res/sou1.h"
 
 #include <algorithm>
 #include <chrono>
@@ -328,6 +331,21 @@ void parse_sbm_only(std::span<const std::uint8_t> data) {
 void parse_sbc_only(std::span<const std::uint8_t> data) {
     std::string error;
     (void)gm::parse_sbc(data, error);
+}
+
+void parse_sob_only(std::span<const std::uint8_t> data) {
+    std::string error;
+    (void)gm::parse_sob(data, error);
+}
+
+void parse_sof_only(std::span<const std::uint8_t> data) {
+    std::string error;
+    (void)gm::parse_sof(data, error);
+}
+
+void decode_sou1_only(std::span<const std::uint8_t> data) {
+    std::string error;
+    (void)gm::decode_sou1_raw(data, error);
 }
 
 // ---------------------------------------------------------------------------
@@ -795,6 +813,60 @@ void fuzz_sbc(Fuzzer& fz, int random_cuts, int header_budget, int flip_budget) {
     }
 }
 
+void fuzz_sob(Fuzzer& fz, int random_cuts, int header_budget, int flip_budget) {
+    Bytes raw;
+    if (read_file("/mnt/d/games/Gunmetal 3dfx/SOBS/20mmclp.sob", raw)) {
+        fuzz_blob(fz, "sob corpus", raw, random_cuts, header_budget, flip_budget,
+                  parse_sob_only);
+        return;
+    }
+    // Model grammar: vertex count, face count, then token rows.
+    const std::string text = " 1\r\n 1\r\n 3  0  1  2\r\n 0  0  0\r\n";
+    const Bytes synthetic(text.begin(), text.end());
+    fuzz_blob(fz, "sob synth", synthetic, random_cuts, header_budget, flip_budget,
+              parse_sob_only);
+}
+
+void fuzz_sof(Fuzzer& fz, int random_cuts, int header_budget, int flip_budget) {
+    // Two all-zero tiles: the parser accepts any whole/partial tile count.
+    Bytes synthetic(gm::kSofTileBytes * 2, 0);
+    {
+        std::string error;
+        const auto film = gm::parse_sof(synthetic, error);
+        expect(film.has_value() && film->tiles() == 2, "synthetic SOF parses");
+        if (film && film->tiles() == 2) {
+            const auto frame = film->frame(0);
+            expect(frame.has_value() && frame->size() == gm::kSofTileBytes,
+                   "SOF frame decodes to 128x64");
+        }
+    }
+    fuzz_blob(fz, "sof synth", synthetic, random_cuts, header_budget, flip_budget,
+              parse_sof_only);
+}
+
+void fuzz_sou1(Fuzzer& fz, int random_cuts, int header_budget, int flip_budget) {
+    // SOU1 header (16 bytes) + 64 payload bytes (32 mono samples).
+    Bytes synthetic(16 + 64, 0);
+    std::memcpy(synthetic.data(), "SOU1", 4);
+    put_u32(synthetic, 4, 8000);  // sample rate
+    put_u32(synthetic, 8, 0);     // mono
+    put_u32(synthetic, 12, 64);   // payload length
+    for (std::size_t i = 16; i < synthetic.size(); ++i) {
+        synthetic[i] = 0x4B; // valid positive-adaptation nibbles (4, B)
+    }
+    {
+        std::string error;
+        const auto clip = gm::decode_sou1_raw(synthetic, error);
+        if (!clip) {
+            std::fprintf(stderr, "sou1 synthetic: %s\n", error.c_str());
+        }
+        expect(clip.has_value() && !clip->samples.empty(),
+               "synthetic SOU1 decodes");
+    }
+    fuzz_blob(fz, "sou1 synth", synthetic, random_cuts, header_budget, flip_budget,
+              decode_sou1_only);
+}
+
 } // namespace
 
 void* operator new(std::size_t size) {
@@ -862,6 +934,9 @@ int main(int argc, char** argv) {
     fuzz_sbt(fz, random_cuts, header_budget, flip_budget);
     fuzz_sbm(fz, random_cuts, header_budget, flip_budget);
     fuzz_sbc(fz, random_cuts, header_budget, flip_budget);
+    fuzz_sob(fz, random_cuts, header_budget, flip_budget);
+    fuzz_sof(fz, random_cuts, header_budget, flip_budget);
+    fuzz_sou1(fz, random_cuts, header_budget, flip_budget);
 
     fz.report(full ? "full" : "quick");
     if (g_failures != 0) {

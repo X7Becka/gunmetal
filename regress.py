@@ -160,6 +160,13 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           p.returncode == 0,
                           (p.stdout.strip().splitlines() or ["no output"])[-1]))
 
+    # SECTOR_STUFF/ITEM/LIFT field round-trip and trust edge cases.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "records.py"),
+                        "--self-test"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("records / SECTOR_STUFF+ITEM+LIFT fields",
+                          p.returncode == 0,
+                          (p.stdout.strip().splitlines() or ["no output"])[-1]))
+
     # The full hostile-input matrix lives in its own tool; run the cheap pass.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
                         "--game", G, "--quick"], capture_output=True, text=True, cwd=HERE)

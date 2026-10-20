@@ -9,6 +9,9 @@ namespace {
 
 constexpr int kTexSlots = 8;
 constexpr int kPlaneNumbers = 15;
+// A face chain is walked recursively (the sentinel makes the grammar
+// ambiguous); a hostile token stream must not overflow the stack.
+constexpr int kMaxFaceDepth = 512;
 
 std::vector<std::string> tokenize(std::span<const std::uint8_t> data) {
     std::vector<std::string> out;
@@ -53,7 +56,11 @@ struct Walker {
     std::unordered_map<std::size_t, long long> memo; // -2 in progress, -1 fail
     std::unordered_map<std::size_t, int> extra;
 
-    long long walk(std::size_t p) {
+    long long walk(std::size_t p, int depth = 0) {
+        if (depth > kMaxFaceDepth) {
+            memo[p] = -1;
+            return -1;
+        }
         if (const auto it = memo.find(p); it != memo.end()) {
             return it->second == -2 ? -1 : it->second;
         }
@@ -70,7 +77,10 @@ struct Walker {
                   to_int(tokens[q + 1], nv) && nv >= 3 && nv <= 32;
         if (ok) {
             q += 2;
-            for (int k = 0; k < nv; ++k) {
+            if (q + static_cast<std::size_t>(nv) > tokens.size()) {
+                ok = false;
+            }
+            for (int k = 0; ok && k < nv; ++k) {
                 int index = 0;
                 if (!to_int(tokens[q + k], index) || index < 0) {
                     ok = false;
@@ -91,7 +101,7 @@ struct Walker {
         }
         if (ok) {
             // No sentinel.
-            const long long r0 = walk(q);
+            const long long r0 = walk(q, depth + 1);
             if (r0 >= 0) {
                 memo[p] = r0;
                 extra[p] = 0;
@@ -99,7 +109,7 @@ struct Walker {
             }
             // Optional lone -1 sentinel.
             if (q < tokens.size() && tokens[q] == "-1") {
-                const long long r1 = walk(q + 1);
+                const long long r1 = walk(q + 1, depth + 1);
                 if (r1 >= 0) {
                     memo[p] = r1;
                     extra[p] = 1;
