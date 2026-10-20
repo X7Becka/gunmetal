@@ -344,6 +344,11 @@ gm_label(save_blocks quick)
 # Game state bridge (docs/GAME_STATE.md): save block 9/2 -> PlayerState /
 # WorldState, write-back with unknown blocks preserved, shipped saves,
 # byte-exact no-op and negatives.  state.cpp is part of gm_engine.
+add_executable(gm_events_tests test_events.cpp)
+target_link_libraries(gm_events_tests PRIVATE gm_engine)
+add_test(NAME events COMMAND gm_events_tests)
+gm_label(events quick)
+
 add_executable(gm_game_state_tests test_game_state.cpp)
 target_link_libraries(gm_game_state_tests PRIVATE gm_engine)
 add_test(NAME game_state COMMAND gm_game_state_tests)
