@@ -16,6 +16,8 @@ struct Options {
     std::string play;
     std::string song;
     std::string scene;
+    std::string film;
+    int frame = 0;
     std::string music;
     std::string sou1;
     std::string sou2;

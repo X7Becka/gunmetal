@@ -106,6 +106,23 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.music = std::string(*v);
+        } else if (arg == "--film") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.film = std::string(*v);
+        } else if (arg == "--frame") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.frame = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--frame expects an integer";
+                return std::nullopt;
+            }
         } else if (arg == "--scene") {
             const auto v = value(arg);
             if (!v) {
@@ -314,6 +331,8 @@ std::string usage() {
        << "usage: gunmetal [options]\n\n"
        << "  -g, --game DIR    installation root (default: $GUNMETAL_DIR or\n"
        << "                    /mnt/d/games/Gunmetal 3dfx)\n"
+       << "      --film NAME   inspect a Film/*.sof (tiles, .fdx, frame FNV)\\n"
+       << "      --frame N     frame for --film (default 0)\\n"
        << "  -l, --level NAME  level to load (opens the viewer; with --info prints a summary)\n"
        << "  -d, --dump FILE   print size and the first bytes of FILE, then exit\n"
        << "      --png OUT     with --dump of a .sbm/.bmp: write OUT as PNG\n"

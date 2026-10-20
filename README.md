@@ -73,6 +73,7 @@ docs/SECURITY.md      границы доверия: лимиты парсеро
 docs/CONFIG.md        GUNMETAL.CFG: карта полей, xref, CONTROLS.CFG
 docs/MIPMAPS.md       mip/bilinear/alpha в Python-рендере, доказательства Glide
 docs/FILM.md          .sof/.fdx: тайлы, тайминг, привязка к оружию/экранам
+                      C++-читатель + --film
 docs/PLAYER.md        спавн игрока, DM-респавн, высота глаза, камера
 ROADMAP.md            план: от текущего тулкита до полного движка (M0…M12)
 NOTES.md              рабочие заметки, карта адресов движка, CLI-справка

@@ -11,6 +11,7 @@
 #include "res/sbm.h"
 #include "res/sbw.h"
 #include "res/sou.h"
+#include "res/sof.h"
 #include "res/sou1.h"
 #include "res/sou2.h"
 #include "res/sbt.h"
@@ -660,6 +661,70 @@ int show_level(const gm::Options& options) {
         }
         std::printf("lightmaps: magic=%s records=%zu texels=%zu\n",
                     level->lightmaps->magic.c_str(), level->lightmaps->records.size(), texels);
+    }
+    return 0;
+}
+
+int show_film(const gm::Options& options) {
+    std::string error;
+    std::string name = options.film;
+    if (name.size() < 4 || name.compare(name.size() - 4, 4, ".sof") != 0) {
+        name += ".sof";
+    }
+    auto path = gm::resolve_ci(options.game / "Film", name);
+    if (!path) {
+        path = gm::resolve_ci(options.game, name);
+    }
+    if (!path) {
+        gm::logf(gm::LogLevel::Error, "film", "not found: " + name);
+        return 2;
+    }
+    const auto bytes = read_file(*path, error);
+    if (!bytes) {
+        gm::logf(gm::LogLevel::Error, "film", error);
+        return 2;
+    }
+    const auto film = gm::parse_sof(*bytes, error);
+    if (!film) {
+        gm::logf(gm::LogLevel::Error, "film", error);
+        return 2;
+    }
+    std::printf("film: %s\n", path->filename().string().c_str());
+    std::printf("bytes: %zu tiles: %zu tail: %zu\n", bytes->size(), film->tiles(),
+                film->tail());
+    std::uint64_t h = 0xcbf29ce484222325ull;
+    if (const auto frame = film->frame(static_cast<std::size_t>(std::max(0, options.frame)))) {
+        for (std::uint8_t b : *frame) {
+            h ^= b;
+            h *= 0x100000001b3ull;
+        }
+        std::printf("frame %d: %zu bytes fnv1a64=%016llx\n", options.frame, frame->size(),
+                    static_cast<unsigned long long>(h));
+    } else {
+        std::printf("frame %d: out of range\n", options.frame);
+    }
+    std::string stem = path->stem().string();
+    std::string letters;
+    for (char c : stem) {
+        if (std::isalpha(static_cast<unsigned char>(c)) != 0) {
+            letters.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        }
+    }
+    if (!letters.empty()) {
+        if (const auto fdx_path = gm::resolve_ci(path->parent_path(), letters + ".fdx")) {
+            const auto fdx_bytes = read_file(*fdx_path, error);
+            if (const auto fdx = fdx_bytes ? gm::parse_fdx(*fdx_bytes, error)
+                                           : std::optional<gm::Fdx>{}) {
+                std::printf("fdx: %s entries: %zu", fdx_path->filename().string().c_str(),
+                            fdx->entries.size());
+                const int index = static_cast<int>(path->stem().string().back() - '0');
+                if (index >= 0 && static_cast<std::size_t>(index) < fdx->entries.size()) {
+                    const auto& e = fdx->entries[static_cast<std::size_t>(index)];
+                    std::printf(" line %d: count=%u fps=%u", index, e.count, e.fps);
+                }
+                std::printf("\n");
+            }
+        }
     }
     return 0;
 }
@@ -1351,6 +1416,9 @@ int main(int argc, char** argv) {
     }
     if (!options->music.empty()) {
         return play_music(*options);
+    }
+    if (!options->film.empty()) {
+        return show_film(*options);
     }
     if (!options->scene.empty()) {
         return show_scene(*options);

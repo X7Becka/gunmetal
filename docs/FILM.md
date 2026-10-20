@@ -460,3 +460,21 @@ CLI-флаги, которых сейчас нет: `--tiles` (список ка
 | `soyboy.sof` | — | — | 499 | нет ссылок |
 
 Итого 48 файлов / 11 637 тайлов / 95 330 304 Б.
+
+## C++ reader
+
+`engine/src/res/sof.{h,cpp}` mirrors the Python tile codec:
+
+```sh
+gunmetal --film AMMO4 --frame 0
+# film: AMMO4.sof
+# bytes: 1081344 tiles: 132 tail: 0
+# frame 0: 8192 bytes fnv1a64=06531011db474c67
+# fdx: ammo.fdx entries: 16 line 4: count=131 fps=24
+```
+
+`gm_sof_tests` (CTest `film_sof`) checks all 48 films / 11 637 frames against
+the Python aggregate FNV `8e1f0f6d9e5c88bd`, the encode/decode round-trip of
+every stored tile, and the six indexes (entry counts, positive count/fps,
+byte-exact `to_bytes`/`build_fdx`).  The reader keeps the whole file, so a
+partial trailing tile (if one ever appears) is preserved.

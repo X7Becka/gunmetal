@@ -25,6 +25,7 @@ add_library(gm_engine STATIC
     src/res/sou.cpp
     src/res/sou1.cpp
     src/res/sou2.cpp
+    src/res/sof.cpp
     src/res/text.cpp
 )
 
