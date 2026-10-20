@@ -155,8 +155,8 @@ struct Thing {
 Новые поля — `THING_TYPES +0x1b4/+0x10/+0x58/+0x1cc/+0x1d0/+0x1d4` плюс боевой
 блок `+0x1c4` (**collide event**, второй string десятиполевого блока; 0x4752d0),
 `+0x1c8` (hits), `+0x1d8..+0x1e4` (shields), `+0x1ec` (expire),
-`+0x1f4` (damaged), `+0x1f8` (destroy), `+0x1f0` (create) и `+0x1c0`
-(time-out), копируемые в runtime (`docs/SOE.md`, отчёт impact §4.1).
+`+0x1f4` (damaged), `+0x1f8` (destroy), `+0x1f0` (create), `+0x1c0`
+(time-out) и `+0x1e8` (expire ticks), копируемые в runtime (`docs/SOE.md`, отчёт impact §4.1).
 `speed` (`+0x10`, double) — мировые единицы за тик; `0x4752d0` двигает
 снаряд как `pos += speed·dt`, поэтому оружие переводит её в ед/с (`×91`).
 `Things::load` заполняет их для статических и executed-экземпляров;

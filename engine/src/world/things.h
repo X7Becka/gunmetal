@@ -65,6 +65,7 @@ struct Thing {
     std::array<int, 4> shields{};    // +0x1d8..+0x1e4
     std::array<int, 4> shield_max{}; // +0x1d8..+0x1e4 max copies
     int hits_left = 0;               // +0x1c8 geometry hits
+    int expire_ticks = 0;            // +0x1e8 lifetime in 91 Hz ticks
     std::uint32_t timeout_event = 0; // +0x1c0
     std::uint32_t collide_event = 0; // +0x1c4, posted by 0x4752d0 on collision
     std::uint32_t expire_event = 0;  // +0x1ec, 0x4703a0 when hits/lifetime ends
@@ -83,6 +84,7 @@ struct Thing {
 struct ThingTypeEvents {
     int type = -1;
     double speed = 0.0; ///< +0x10 (double), world units per 91 Hz tick
+    int expire_ticks = 0; ///< +0x1e8 lifetime in ticks
     std::uint32_t collide_event = 0;
     std::uint32_t expire_event = 0;
     std::uint32_t damaged_event = 0;

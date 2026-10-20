@@ -65,6 +65,7 @@ struct TypeTable {
     std::vector<int> max_health;
     std::vector<std::array<int, 4>> shields;
     std::vector<int> hits;
+    std::vector<int> expire_ticks;
     std::vector<std::uint32_t> collide_events;
     std::vector<std::uint32_t> expire_events;
     std::vector<std::uint32_t> damaged_events;
@@ -101,6 +102,7 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.max_health.reserve(count);
         table.shields.reserve(count);
         table.hits.reserve(count);
+        table.expire_ticks.reserve(count);
         table.collide_events.reserve(count);
         table.expire_events.reserve(count);
         table.damaged_events.reserve(count);
@@ -134,6 +136,8 @@ TypeTable resolve_types(const SbtLevel& level) {
             }
             table.shields.push_back(shields);
             table.hits.push_back(static_cast<std::int32_t>(rd32(entry + 0x1c8)));
+            table.expire_ticks.push_back(
+                static_cast<std::int32_t>(rd32(entry + 0x1e8)));
             table.collide_events.push_back(rd32(entry + 0x1c4));
             table.expire_events.push_back(rd32(entry + 0x1ec));
             table.damaged_events.push_back(rd32(entry + 0x1f4));
@@ -162,6 +166,7 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.shields = types.shields[i];
     thing.shield_max = thing.shields;
     thing.hits_left = types.hits[i];
+    thing.expire_ticks = types.expire_ticks[i];
     thing.timeout_event = types.timeout_events[i];
     thing.collide_event = types.collide_events[i];
     thing.expire_event = types.expire_events[i];
@@ -386,6 +391,7 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     ThingTypeEvents out;
     out.type = type;
     out.speed = types.speeds[index];
+    out.expire_ticks = types.expire_ticks[index];
     out.collide_event = types.collide_events[index];
     out.expire_event = types.expire_events[index];
     out.damaged_event = types.damaged_events[index];

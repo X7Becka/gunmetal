@@ -110,6 +110,9 @@ std::size_t Ai::attach(const Things& things) {
             agent.search_radius = thing.search_radius;
             agent.target_zone = thing.target_zone_threshold;
             agent.history_lag = ai_history_lag(thing.target_history_offset);
+            agent.expire_ticks = thing.expire_ticks;
+            agent.collide_event = thing.collide_event;
+            agent.expire_event = thing.expire_event;
             agent.max_health = static_cast<double>(std::max(0, thing.max_health));
             agent.immune = thing.max_health == 0;
             agent.health = thing.alive ? (agent.immune ? 0.0 : agent.max_health) : 0.0;

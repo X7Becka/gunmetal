@@ -113,6 +113,9 @@ struct AiAgent {
     /// the four shield gauges (hundredths) and the geometry hits left.
     std::array<int, 4> shields{};
     int hits_left = 0;
+    int expire_ticks = 0;        ///< THING_TYPES +0x1e8, data only
+    std::uint32_t collide_event = 0; ///< +0x1c4
+    std::uint32_t expire_event = 0;  ///< +0x1ec
     double distance = 0.0;      ///< last eye-to-eye distance (0 without a player)
     /// Aim point from `target_history_offset` (lag 0 = live eye).  The state
     /// machine keeps using the live distance for range/LOS; this is the point

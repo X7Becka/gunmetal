@@ -618,6 +618,7 @@ void test_type_events() {
     CHECK(rocket.has_value());
     if (rocket) {
         CHECK(rocket->speed == 18.0); // +0x10, units per tick
+        CHECK_EQ(rocket->expire_ticks, 728); // +0x1e8
         CHECK_EQ(rocket->collide_event, static_cast<std::uint32_t>(-30103));
         CHECK_EQ(rocket->expire_event, static_cast<std::uint32_t>(-30103));
         CHECK_EQ(rocket->create_event, static_cast<std::uint32_t>(-30104));
@@ -626,6 +627,7 @@ void test_type_events() {
     const auto grenade = gm::thing_type_events(level, 28);
     CHECK(grenade.has_value());
     if (grenade) {
+        CHECK_EQ(grenade->expire_ticks, 364);
         CHECK_EQ(grenade->collide_event, static_cast<std::uint32_t>(-30094));
         CHECK_EQ(grenade->expire_event, static_cast<std::uint32_t>(-30093));
         CHECK_EQ(grenade->create_event, 0u);

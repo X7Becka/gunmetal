@@ -329,10 +329,10 @@ AI не пытается её вывести (docs/THINGS_CPP.md §1.3).
 clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`). Остаётся:
 
 1. **Типы вещей**: `+0x1b4` (movement), `+0x1cc` (attack range), `+0x1c8`
-   (hits) уже в `AiAgent`; `+0x1d4` (health) и `+0x1d8` (щиты) — зеркало
-   виталов (§1.4). Осталось подключить `+0x1c4` (collide event) и `+0x1e8`
-   (expire ticks), а также отдавать эти поля через `Things` для остальных
-   потребителей.
+   (hits), `+0x1c4` (collide event), `+0x1ec` (expire event) и `+0x1e8`
+   (expire ticks) уже в `AiAgent`; `+0x1d4` (health) и `+0x1d8` (щиты) —
+   зеркало виталов (§1.4). Осталось использовать expire-поля в runtime
+   (spawn/despawn) и отдавать их другим потребителям.
 2. **Принятие решений**: `history_lag` даёт `AiAgent::aim_point`
    (упреждение на N записей), `target` — индекс ближайшего видимого игрока,
    у каждого игрока своё кольцо. Осталось использовать `aim_point` в
