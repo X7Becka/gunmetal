@@ -349,6 +349,15 @@ target_link_libraries(gm_game_state_tests PRIVATE gm_engine)
 add_test(NAME game_state COMMAND gm_game_state_tests)
 gm_label(game_state quick)
 
+# Weapon runtime (docs/WEAPONS_CPP.md): DEFINE_WEAPONS/DEFINE_AMMO, save
+# ammo/mask/slot, fixed-tick cooldown/reload, hitscan/projectile, spread,
+# recoil and damage.  Synthetic tables/worlds plus saved0/saved1 + level0.sbt
+# first-shot goldens.
+add_executable(gm_weapons_tests test_weapons.cpp)
+target_link_libraries(gm_weapons_tests PRIVATE gm_engine)
+add_test(NAME weapons COMMAND gm_weapons_tests)
+gm_label(weapons quick)
+
 find_program(GM_PYTHON3 python3)
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
     add_test(NAME parity_levels
