@@ -696,6 +696,8 @@
   параллельно, `sbc`/`sob` в быстром режиме только парсят (`--check`).
 * **Границы доверия** — `docs/SECURITY.md`: лимиты парсеров, `--force` для
   всех пишущих команд, `tools/fuzz_formats.py` (≈640 кейсов, 0 падений).
+* **SOU2** — `gm/sou2.py` (порт `engine/src/res/sou2.cpp`), паритет на 3092
+  записях музыки; `gm.py music`, `gm.py sounds` (SOU2 → WAV).
 * **Сохранения** — пара файлов уровня `savegame\saved<N>.sbt` + `.sbw`
   (`0x4ab460`/`0x4ab478`). `.sbw` — обычный мир (в `saved0` = `level0.sbw`
   + одна запись текстуры, +14 байт). `.sbt` — контейнер `A SAVED GAME`:

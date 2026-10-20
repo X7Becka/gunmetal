@@ -51,6 +51,8 @@ gm/                   модули по форматам:
   look.py             таблицы поиска LOOK16.TAB / LOOK162.TAB
   render.py           софт-рендер моделей/уровней в PNG (камера, z-буфер,
                       планарные UV, текстуры из PICS/sprites)
+  sou.py              контейнеры .sou (SOU0 PCM, SOU1, SOU2-контейнер)
+  sou2.py             декодер SOU2 «формат 4» (13 подпотоков, level 2/3)
   palette.py, bmp.py, png.py   палитра и вывод изображений
 tools/gen_sbtvm.py    генератор gm/sbtvm.py из exe (правь его, не вывод)
 tools/avatar.py       аватар из модели .sob: суперсэмплинг, билинейные текстуры,
@@ -60,6 +62,8 @@ tools/avatar.py       аватар из модели .sob: суперсэмпл�
 tools/re/             инструментарий реверса exe (PE-карта, дизасм, xref,
                       таблицы команд, эмулятор x86) — см. tools/re/README.md
 tools/fuzz_formats.py фазз-матрица парсеров (пустые/битые/мутированные файлы)
+tools/parity_sou2.py  Python↔C++ паритет SOU2 (--fast/--quick/полный архив)
+tools/gen_sou2_table.py  извлечение gain-таблицы 0x852340 из sou2.cpp
 docs/FORMATS.md       спецификации форматов (главный документ)
 docs/RENDER.md        конвейер рендерера C++, паритет с вьювером, FPS
 docs/SECURITY.md      границы доверия: лимиты парсеров, --force, фаззинг
@@ -77,8 +81,12 @@ python3 gm.py list "…/PICS/SBM.IDX"
 python3 gm.py textures "…/Gunmetal 3dfx" out/textures
 python3 gm.py sprites  "…/Gunmetal 3dfx" out/sprites --transparent 0
 
-# звуки в WAV (формат SOU0) и «сырьё» (SOU1/2 — кодек Miles, не PCM)
+# звуки: WAV для SOU0 и SOU2, «сырьё» только для недоказанного SOU1
 python3 gm.py sounds   "…/Gunmetal 3dfx" out/sounds
+
+# музыка: 3092 записи MUSIC/SOU.IDX -> WAV (формат 4, Python-декодер)
+python3 gm.py music    "…/Gunmetal 3dfx/MUSIC/SOU.IDX" out/music
+python3 gm.py music    "…/Gunmetal 3dfx/MUSIC/SOU.IDX" out/music --limit 10
 
 # repack архивов: собрать из каталога или заменить одну запись
 python3 gm.py extract  "…/Gunmetal 3dfx/sprites/SBM.IDX" out/raw

@@ -63,11 +63,6 @@ def fnv_u16(h: int, v: int) -> int:
     return ((h ^ (v >> 8)) * FNV_PRIME) & MASK
 
 
-def pcm16(v: int) -> int:
-    v >>= 1
-    return 32767 if v > 32767 else (-32768 if v < -32768 else v)
-
-
 def cpp_hashes() -> dict[str, tuple[int, int]]:
     text = (ROOT / "engine" / "tests" / "test_sou2.cpp").read_text()
     return {name: (int(raw, 16), int(pcm, 16))
@@ -79,13 +74,26 @@ def hash_samples(raw, rawh: int = FNV_BASIS,
                  pcmh: int = FNV_BASIS) -> tuple[int, int, int, int]:
     nonzero = 0
     max_abs = 0
+    p = FNV_PRIME
+    m = MASK
     for v in raw:
-        rawh = fnv_u32(rawh, v & 0xFFFFFFFF)
+        u = v & 0xFFFFFFFF
+        rawh = ((rawh ^ (u & 0xFF)) * p) & m
+        u >>= 8
+        rawh = ((rawh ^ (u & 0xFF)) * p) & m
+        u >>= 8
+        rawh = ((rawh ^ (u & 0xFF)) * p) & m
+        rawh = ((rawh ^ (u >> 8)) * p) & m
         a = -v if v < 0 else v
         if a > max_abs:
             max_abs = a
-        x = pcm16(v)
-        pcmh = fnv_u16(pcmh, x & 0xFFFF)
+        x = v >> 1
+        if x > 32767:
+            x = 32767
+        elif x < -32768:
+            x = -32768
+        pcmh = ((pcmh ^ (x & 0xFF)) * p) & m
+        pcmh = ((pcmh ^ ((x >> 8) & 0xFF)) * p) & m
         if x:
             nonzero += 1
     return rawh, pcmh, nonzero, max_abs
@@ -136,7 +144,7 @@ def main(argv=None) -> int:
         frames += len(raw) // 2
         r, p, nz, mx = hash_samples(raw, rawh if aggregate else FNV_BASIS,
                                     pcmh if aggregate else FNV_BASIS)
-        if e.name in refs:
+        if not aggregate and e.name in refs:
             want_r, want_p = refs[e.name]
             if (r, p) != (want_r, want_p):
                 failures.append(f"{e.name}: raw {r:016x} (want {want_r:016x}), "

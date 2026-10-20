@@ -330,13 +330,13 @@ def cmd_music(opts) -> int:
     os.makedirs(opts.out, exist_ok=True)
     dat = open(bf.dat_path, "rb").read()
     n = failed = skipped = 0
-    frames = 0
+    seconds = 0.0
     for e in bf.entries:
         if opts.limit and n >= opts.limit:
             break
         blob = e.data(dat)
         try:
-            rate, payload = sou2.decode_sou2_raw(blob, opts.volume)
+            rate, pcm = sou2.decode_sou2(blob, opts.volume)
         except ValueError as exc:
             if blob[:4] != sou2.MAGIC:
                 skipped += 1
@@ -345,11 +345,10 @@ def cmd_music(opts) -> int:
             failed += 1
             continue
         name = bigfile.safe_name(e.name) + ".wav"
+        seconds += (len(pcm) // 4) / rate
         with _wopen(os.path.join(opts.out, name), opts) as f:
-            f.write(sou2.to_wav(blob, opts.volume))
+            f.write(sou2.wav_from_pcm(rate, pcm))
         n += 1
-        frames += len(payload) // 2
-    seconds = frames / 32000.0
     print(f"music: {n} WAV ({seconds:.1f} s), {skipped} non-SOU2 skipped, "
           f"{failed} failed -> {opts.out}")
     return 0 if failed == 0 else 1

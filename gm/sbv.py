@@ -594,8 +594,10 @@ def _decode_planes(frame: bytes, width: int, height: int) -> _Mem:
 
 def decode_frame_planes(frame: bytes, width: int, height: int) -> bytes:
     """Decode one frame block into raw signed-16 plane samples."""
-    if (width < 8 or width > MAX_WIDTH or width % 2 or
-            height < 16 or height > MAX_HEIGHT or height % 16):
+    # The C++ decoder (and the original loops) need a 16-pixel stride and a
+    # 2x4 smallest pyramid stage; 8..15 wide / 16 high inputs spin forever.
+    if (width % 16 or height % 16 or height < 32 or
+            width > MAX_WIDTH or height > MAX_HEIGHT):
         raise ValueError(f"unsupported frame geometry {width}x{height}")
     return bytes(_decode_planes(frame, width, height).m)
 

@@ -1118,8 +1118,9 @@ def main() -> int:
              ["textures", G, os.path.join(out, "tex")], ["0 failed"]),
             ("sprites / sprites -> PNG",
              ["sprites", G, os.path.join(out, "spr")], ["0 failed"]),
-            ("sounds / sounds -> WAV",
-             ["sounds", G, os.path.join(out, "snd")], ["0 failed"]),
+            ("sounds / SOU0+SOU2 -> WAV, SOU1 raw",
+             ["sounds", G, os.path.join(out, "snd")],
+             ["13 PCM WAV, 3 SOU2 WAV, 983 coded payloads dumped raw, 0 failed"]),
             ("frontend / BMP.DAT",
              ["frontend", G, os.path.join(out, "fe")], ["143 files"]),
         ]))

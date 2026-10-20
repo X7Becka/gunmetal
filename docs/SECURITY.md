@@ -78,6 +78,19 @@ python3 tools/fuzz_formats.py --game … --timeout 2
 считаются провалом. Ожидаемый результат — `0 failure(s)`: любой исключённый
 случай либо штатно отвергнут, либо успешно разобран.
 
+C++-читатели покрыты отдельной in-process матрицей `gm_fuzz_tests`
+(`engine/tests/test_fuzz.cpp`, см. `docs/FUZZ_CPP.md`): 3 451 кейс в `--quick`
+и 8 119 в `--full`; битые `.idx/.dat`, `.sbv` (включая декодирование кадра),
+`.sbw`, `.sbt`, `.sbm`, `.sbc`. Она нашла и зафиксировала четыре реальных
+бага: вечный цикл SBV при `width 8..15`/`height 16`, signed overflow в
+`base_grid`, отрицательный сдвиг в `.sbm`, гигантский `reserve` в `.sbw`.
+
+```bash
+export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
+cmake --build build/sandbox -j
+ctest --test-dir build/sandbox -R fuzz --output-on-failure
+```
+
 `regress.py` содержит шесть проверок границ доверия (86/86 в быстром прогоне):
 смещение за EOF в `.idx`, обрезанный `.sbw`, невозможная высота `.sbv`,
 отказ от перезаписи при повторном `extract`, быстрый фазз-прогон.
@@ -94,12 +107,12 @@ python3 tools/fuzz_formats.py --game … --timeout 2
    квадратичных взрывов от заголовка, но честный большой файл будет считаться
    долго.
 3. **`sou.py` SOU1** не имеет доказанного декодера; ошибки там — это
-   незавершённость формата, а не граница доверия. SOU2 декодируется в C++
-   (`decode_sou2`, 3092/3092), в Python пока только контейнер.
-4. **C++ и Python имеют независимые проверки.** Golden-тесты ловят расхождения
-   на поставочном корпусе, но фазз-матрица гоняет только Python. C++-читатели
-   проверяют границы вручную (`BigFile::read`, SBW/SBT/SBV, лимиты геометрии
-   и монотонность кадров), однако систематического C++-фаззера пока нет.
+   незавершённость формата, а не граница доверия. SOU2 декодируется и в C++
+   (`decode_sou2`), и в Python (`gm/sou2.py`: 3092/3092, лимит кадров
+   20 000 000 на запись).
+4. **Фазз-покрытие неполное.** Python-матрица не покрывает `.soo/.sof/.sou/
+   .sml/.soe/.sog`, C++ — `.sou/.sob/BMP/PNG` и VM/рендер. Golden-тесты и
+   ручные лимиты (`BigFile::read`, SBW/SBT/SBV) остаются второй линией.
 5. **Нет CI и sandbox.** `regress.py`/CTest — локальные; для «совсем
    недоверенных» файлов нужен внешний sandbox (seccomp/контейнер), которого в
    проекте нет.
@@ -114,4 +127,5 @@ export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
 python3 tools/fuzz_formats.py
 python3 regress.py                 # 86/86, включая trust-проверки
 ctest --test-dir build/release -L quick
+ctest --test-dir build/release -R fuzz
 ```

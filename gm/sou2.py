@@ -446,9 +446,8 @@ def decode_sou2(blob: bytes, volume: int = MAX_VOLUME) -> tuple[int, bytes]:
     return rate, out.tobytes()
 
 
-def to_wav(blob: bytes, volume: int = MAX_VOLUME) -> bytes:
-    """Decode *blob* and wrap the PCM in a canonical 44-byte WAV header."""
-    rate, pcm = decode_sou2(blob, volume)
+def wav_from_pcm(rate: int, pcm: bytes) -> bytes:
+    """Wrap interleaved 16-bit stereo *pcm* in a canonical 44-byte WAV header."""
     channels = 2
     bits = 16
     block = channels * bits // 8
@@ -457,6 +456,12 @@ def to_wav(blob: bytes, volume: int = MAX_VOLUME) -> bytes:
                                       rate * block, block, bits)
               + b"data" + struct.pack("<I", len(pcm)))
     return header + pcm
+
+
+def to_wav(blob: bytes, volume: int = MAX_VOLUME) -> bytes:
+    """Decode *blob* and wrap the PCM in a canonical 44-byte WAV header."""
+    rate, pcm = decode_sou2(blob, volume)
+    return wav_from_pcm(rate, pcm)
 
 
 #: ``{esi, off}`` per sub-stream, in engine order (c == 12 is the odd one).
