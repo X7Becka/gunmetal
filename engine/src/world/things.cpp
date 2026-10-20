@@ -1,6 +1,7 @@
 #include "world/things.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <iterator>
 #include <limits>
@@ -56,6 +57,11 @@ struct TypeTable {
     std::vector<std::string> names;
     std::vector<int> model_indices;
     std::vector<std::string> models;
+    std::vector<int> movement_types;
+    std::vector<double> search_radii;
+    std::vector<int> target_zone_thresholds;
+    std::vector<int> target_history_offsets;
+    std::vector<int> max_health;
     std::size_t valid_models = 0;
     std::size_t missing_models = 0;
 };
@@ -78,6 +84,11 @@ TypeTable resolve_types(const SbtLevel& level) {
         }
         table.names.reserve(count);
         table.model_indices.reserve(count);
+        table.movement_types.reserve(count);
+        table.search_radii.reserve(count);
+        table.target_zone_thresholds.reserve(count);
+        table.target_history_offsets.reserve(count);
+        table.max_health.reserve(count);
         for (std::uint32_t i = 0; i < count; ++i) {
             const std::uint8_t* entry =
                 record.payload.data() + kThingTypeHeader +
@@ -91,10 +102,30 @@ TypeTable resolve_types(const SbtLevel& level) {
                 table.model_indices.push_back(-1);
                 ++table.missing_models;
             }
+            table.movement_types.push_back(static_cast<std::int32_t>(rd32(entry + 0x1b4)));
+            table.search_radii.push_back(std::bit_cast<double>(rd64(entry + 0x58)));
+            table.target_zone_thresholds.push_back(
+                static_cast<std::int32_t>(rd32(entry + 0x1cc)));
+            table.target_history_offsets.push_back(
+                static_cast<std::int32_t>(rd32(entry + 0x1d0)));
+            table.max_health.push_back(static_cast<std::int32_t>(rd32(entry + 0x1d4)));
         }
         return table;
     }
     return table;
+}
+
+void apply_type_fields(Thing& thing, const TypeTable& types) {
+    if (thing.type < 0 ||
+        static_cast<std::size_t>(thing.type) >= types.names.size()) {
+        return;
+    }
+    const auto i = static_cast<std::size_t>(thing.type);
+    thing.movement_type = types.movement_types[i];
+    thing.search_radius = types.search_radii[i];
+    thing.target_zone_threshold = types.target_zone_thresholds[i];
+    thing.target_history_offset = types.target_history_offsets[i];
+    thing.max_health = types.max_health[i];
 }
 
 /// Split an ADD_THING* operand list exactly like gm/scene.py's _thing_args:
@@ -428,6 +459,12 @@ Things Things::load(const SbtLevel& level, const VmState& vm,
             ++out.stats_.null_type_static;
         }
     }
+    for (Thing& thing : out.top_level_) {
+        apply_type_fields(thing, types);
+    }
+    for (Thing& thing : out.recursive_) {
+        apply_type_fields(thing, types);
+    }
 
     std::map<std::uint32_t, PathInfo> paths;
     for (const Thing& thing : out.recursive_) {
@@ -521,6 +558,7 @@ Things Things::load(const SbtLevel& level, const VmState& vm,
                             types.models[static_cast<std::size_t>(thing.model_index)];
                     }
                 }
+                apply_type_fields(thing, types);
                 if (thing.type < 0) {
                     ++out.stats_.null_type_things;
                 } else if (static_cast<std::size_t>(thing.type) >= types.names.size()) {

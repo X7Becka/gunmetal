@@ -643,6 +643,12 @@ void test_real_dm1() {
         CHECK_EQ(first->depth, 1);
         CHECK(!first->absolute());
         CHECK_EQ(first->angles.size(), 7u);
+        // THING_TYPES fields copied into the runtime instance.
+        CHECK_EQ(first->movement_type, 6);
+        CHECK(first->search_radius == 6000.0);
+        CHECK_EQ(first->target_zone_threshold, 200);
+        CHECK_EQ(first->target_history_offset, 0);
+        CHECK_EQ(first->max_health, 2000);
     }
     // Golden last runtime instance (Python: dm1 executed[-1]).
     const gm::Thing* last = things.by_id(static_cast<int>(things.things().size()) - 1);

@@ -52,6 +52,15 @@ struct Thing {
     bool executed = false;      // true for the VM-built view
     std::uint64_t age = 0;      // ticks since creation (no AI yet)
 
+    // THING_TYPES fields copied by 0x46d8b0; names/roles are proven in
+    // docs/SOE.md.  They are exposed for AI wiring but not yet used by the
+    // C++ state machine.
+    int movement_type = -1;          // +0x1b4, 0..18
+    double search_radius = 0.0;      // +0x58 (double), target search radius
+    int target_zone_threshold = 200; // +0x1cc, default 200
+    int target_history_offset = 0;   // +0x1d0, target position-history lag
+    int max_health = 0;              // +0x1d4, 0 = damage-immune
+
     bool absolute() const { return position.has_value(); }
 };
 

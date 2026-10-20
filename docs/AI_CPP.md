@@ -150,7 +150,7 @@ state machine — следующий шаг. Все числа ниже — **г
 | константа | значение | статус | почему |
 |---|---:|---|---|
 | `kAiTickHz` | 91 | **proven** | тот же фиксированный тик, что `Things`/`Doors`/HUD (docs/THINGS_CPP.md, docs/PLAYER_CONTROLLER.md) |
-| `sight_range` | 512 | hypothesis | удобный радиус уровня; в `.soe` есть радиус **поиска** `+0x58`, но C++ его пока не читает |
+| `sight_range` | 512 | hypothesis | удобный радиус уровня; `Thing::search_radius` уже заполняется из `+0x58`, но AI его пока не использует |
 | `attack_range` | 96 | hypothesis | масштаб уровня; `+0x1cc` — порог «цель в зоне» (default 200), а не дальность атаки; пока не подключён |
 | `leash` | 384 | hypothesis | 0.75 × sight; оригинальный leash не разобран |
 | `eye_height` | 10 | hypothesis | LIGHT chassis = 10.0 (docs/PLAYER.md §5); у вещей высота глаза не доказана |
@@ -163,11 +163,11 @@ state machine — следующий шаг. Все числа ниже — **г
 | `max_dt` | 0.25 | hypothesis | защита от «огромного dt» |
 | `los_skin` | 1e-3 | hypothesis | допуск на конечную точку луча |
 
-Тип движения (`+0x1b4`, 19 имён: `none/plain/chaos/.../attack/flee/...`) и
-дальность/период атаки (`+0x1cc`, `+0x1d0`) известны из docs/SOE.md, но здесь
-не используются: у `Things` нет разрешённого поля типа движения, а
-`THING_TYPES` в `.sbt` хранит уже масштабированные значения. Это осознанно
-оставлено на следующий этап.
+`Things` теперь отдаёт `movement_type`, `search_radius`, `target_zone_threshold`,
+`target_history_offset` и `max_health` (`docs/THINGS_CPP.md`), но `Ai` пока
+использует fallback-константы: привязка состояния/переходов к этим полям —
+следующий этап. Значения в `.sbt` уже масштабированы, повторно их умножать
+нельзя.
 
 ---
 
