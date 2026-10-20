@@ -20,6 +20,7 @@ struct Options {
     std::string film;
     std::string anim;
     std::string hud;          // optional Film/*.sof overlay
+    std::filesystem::path hud_screen; // --hud-screen SML/... overlay
     int hud_tick = 0;         // 91 Hz tick for --render
     int hud_x = 0;
     int hud_y = 0;

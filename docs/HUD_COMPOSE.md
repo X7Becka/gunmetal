@@ -260,3 +260,10 @@ g++-14, распакованном без root через `apt-get download`/`dp
 5. **Палитра по фильму.** В поставке несколько `Kflm*.BMP`; сейчас палитра —
    аргумент вызывающего. Правило выбора (`Kflm0000` для HUD) не проверено
    для всех фильмов.
+
+## CLI
+
+`gunmetal --level NAME --render OUT --hud-screen SML/design/ammo4.sml --hud-tick 0`
+прогоняет весь конвейер (`parse_sml → parse_binding → resolve_film →
+frame_at → layout → blit`) и печатает family/film/line/frame/placements.
+Это `--render`-путь; интерактивный viewer пока использует явный `--hud NAME`.

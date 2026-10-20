@@ -27,6 +27,7 @@
 #include "res/soe.h"
 #include "res/sml.h"
 #include "render/hud_player.h"
+#include "render/hud_compose.h"
 #include "render/render.h"
 
 #include <algorithm>
@@ -837,6 +838,26 @@ int render_image(const gm::Options& options) {
                      hud_error)) {
         gm::logf(gm::LogLevel::Error, "hud", hud_error);
         return 2;
+    }
+    if (!options.hud_screen.empty()) {
+        const auto palette = gm::installed_palette(options.game, hud_error);
+        if (!palette) {
+            gm::logf(gm::LogLevel::Error, "hud", hud_error);
+            return 2;
+        }
+        gm::HudState state;
+        const auto summary = gm::compose_hud(
+            image, options.game, options.game / options.hud_screen, state,
+            *palette, static_cast<std::uint64_t>(options.hud_tick), hud_error);
+        if (!summary) {
+            gm::logf(gm::LogLevel::Error, "hud", hud_error);
+            return 2;
+        }
+        std::printf("hud: %s family=%s film=%s line=%d frame=%zu "
+                    "placements=%zu visible=%zu clipped=%zu\n",
+                    summary->stem.c_str(), summary->family_name.c_str(),
+                    summary->film.c_str(), summary->line, summary->frame,
+                    summary->placements, summary->visible, summary->clipped);
     }
 
     std::vector<std::uint8_t> rgba(static_cast<std::size_t>(image.width) * image.height * 4, 255);

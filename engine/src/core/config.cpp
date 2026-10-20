@@ -136,6 +136,12 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.hud = std::string(*v);
+        } else if (arg == "--hud-screen") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.hud_screen = std::filesystem::path(std::string(*v));
         } else if (arg == "--hud-tick") {
             const auto v = value(arg);
             if (!v) {
