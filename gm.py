@@ -644,6 +644,17 @@ def cmd_film(opts) -> int:
     if opts.palette:
         from gm import bmp
         palette = bmp.parse(open(opts.palette, "rb").read()).palette
+    elif opts.apng:
+        from gm import bmp
+        for cand in ("Kflm0000.bmp", os.path.join("Film", "Kflm0000.bmp")):
+            path0 = os.path.join(os.path.dirname(os.path.abspath(paths[0])), cand) \
+                if paths else ""
+            if path0 and os.path.isfile(path0):
+                palette = bmp.parse(open(path0, "rb").read()).palette
+                break
+        if palette is None:
+            print("film: --apng needs --palette (Kflm0000.bmp not found)", file=sys.stderr)
+            return 2
     n = bad = 0
     for path in paths:
         try:
@@ -692,6 +703,27 @@ def cmd_film(opts) -> int:
                 blob = png.gray(sofmod.TILE_W, sofmod.TILE_H, data)
             with _wopen(out, opts) as fh:
                 fh.write(blob)
+        if opts.apng:
+            binding_count = info.get("count") or len(film)
+            count = min(int(binding_count), len(film))
+            if opts.limit_frames:
+                count = min(count, opts.limit_frames)
+            fps = opts.fps or int(info.get("fps") or 24)
+            if count <= 0 or fps <= 0:
+                print("  FAIL %s: no frames/fps for APNG" % path, file=sys.stderr)
+                bad += 1
+            else:
+                out = opts.apng
+                if len(paths) > 1 or os.path.isdir(out) or out.lower().endswith(os.sep):
+                    os.makedirs(out, exist_ok=True)
+                    out = os.path.join(out, os.path.splitext(os.path.basename(path))[0]
+                                       + ".apng")
+                with _wopen(out, opts) as fh:
+                    fh.write(png.apng_indexed(film.frames()[:count],
+                                              sofmod.TILE_W, sofmod.TILE_H,
+                                              palette, fps))
+                if not opts.json:
+                    print("    apng: %d frames @ %d fps -> %s" % (count, fps, out))
         if opts.rebuild:
             os.makedirs(opts.rebuild, exist_ok=True)
             dst = os.path.join(opts.rebuild, os.path.basename(path))
@@ -2171,6 +2203,12 @@ def main(argv=None) -> int:
     p.add_argument("--png", metavar="OUT",
                    help="write the tile as PNG (a file, or a directory for many)")
     p.add_argument("--palette", help="BMP whose palette to apply to --png")
+    p.add_argument("--apng", metavar="OUT",
+                   help="write the film as animated PNG (needs the VGA palette)")
+    p.add_argument("--fps", type=int, default=0,
+                   help="APNG fps (default: sibling .fdx line or 24)")
+    p.add_argument("--limit-frames", type=int,
+                   help="APNG: write only the first N frames (testing)")
     p.add_argument("--rebuild", metavar="DIR",
                    help="write every .sof (and its .fdx) back, byte-exact")
     p.set_defaults(func=cmd_film)

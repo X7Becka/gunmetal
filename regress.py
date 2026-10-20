@@ -1029,6 +1029,14 @@ def main() -> int:
             same = same and a.read() == b.read()
     results.append(report("film / byte-exact rebuild", rc == 0 and same,
                           "AMMO4.SOF + ammo.fdx"))
+    apng = os.path.join(out, "ammo4.apng")
+    rc, text = run(["film", film_src, "--apng", apng, "--limit-frames", "4"])
+    ok = False
+    if rc == 0 and os.path.exists(apng):
+        blob = open(apng, "rb").read()
+        ok = blob[:8] == b"\x89PNG\r\n\x1a\n" and blob.count(b"fcTL") == 4 \
+            and b"acTL" in blob
+    results.append(report("film / APNG export", ok, "AMMO4: 4 frames"))
     misc_dir = os.path.join(out, "misc")
     rc, text = run(["misc", G, "--rebuild", misc_dir] + FORCE)
     srcs = [os.path.join(G, p) for p in (

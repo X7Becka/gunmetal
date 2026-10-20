@@ -74,6 +74,44 @@ def gray(width: int, height: int, pixels: bytes) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + _ihdr(width, height, 8, 0) + _chunk(b"IDAT", _pack(rows)) + _chunk(b"IEND", b"")
 
 
+def apng_indexed(frames, width: int, height: int, palette: bytes,
+                 fps: int = 24, loops: int = 0) -> bytes:
+    """Animated PNG (colour type 3) from 8-bit palette frames.
+
+    Each frame is one full-canvas fcTL/IDAT|fdAT pair; ``fps`` becomes the
+    APNG delay fraction ``1/fps`` and ``loops=0`` means loop forever.  Frames
+    must all have the same size and palette (HUD films do).
+    """
+    if not frames:
+        raise ValueError("apng: no frames")
+    if fps <= 0:
+        raise ValueError("apng: fps must be positive")
+    ncol = min(256, len(palette) // 4)
+    plte = bytearray()
+    for i in range(ncol):
+        plte += palette[4 * i:4 * i + 3]
+    out = bytearray(b"\x89PNG\r\n\x1a\n" + _ihdr(width, height, 8, 3))
+    out += _chunk(b"PLTE", bytes(plte))
+    out += _chunk(b"acTL", struct.pack(">II", len(frames), loops))
+    seq = 0
+    for i, pixels in enumerate(frames):
+        if len(pixels) != width * height:
+            raise ValueError("apng: frame %d has %d pixels, expected %d"
+                             % (i, len(pixels), width * height))
+        rows = [bytes(pixels[y * width:(y + 1) * width]) for y in range(height)]
+        data = _pack(rows)
+        fctl = struct.pack(">IIIIIHHBB", seq, width, height, 0, 0, 1, fps, 0, 0)
+        out += _chunk(b"fcTL", fctl)
+        seq += 1
+        if i == 0:
+            out += _chunk(b"IDAT", data)
+        else:
+            out += _chunk(b"fdAT", struct.pack(">I", seq) + data)
+            seq += 1
+    out += _chunk(b"IEND", b"")
+    return bytes(out)
+
+
 def indexed(
     pixels: bytes | bytearray,
     width: int,
