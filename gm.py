@@ -563,6 +563,13 @@ def cmd_soa(opts) -> int:
             print(f"  FAIL {p}: {exc}", file=sys.stderr)
             continue
         extra = "" if len(a.names) == a.frame_count else f" (+{len(a.names) - a.frame_count} extra)"
+        try:
+            intervals = a.timeline()
+        except ValueError as exc:
+            intervals = []
+            timeline_error = str(exc)
+        else:
+            timeline_error = None
         record = {"file": os.path.basename(p), "path": p, "mode": a.mode,
                   "period": a.period, "period_ticks": a.period_ticks,
                   "loop": a.loop, "declared": a.frame_count,
@@ -572,7 +579,9 @@ def cmd_soa(opts) -> int:
                                 "start_tick": x.start_tick,
                                 "end_tick": x.end_tick,
                                 "start_ms": x.start_ms, "end_ms": x.end_ms}
-                               for x in a.timeline()]}
+                               for x in intervals]}
+        if timeline_error:
+            record["timeline_error"] = timeline_error
         if opts.at is not None:
             try:
                 pose = a.frame_at(opts.at)
@@ -587,8 +596,10 @@ def cmd_soa(opts) -> int:
             print(f"{os.path.basename(p):16s} mode={a.mode} period={a.period} "
                   f"({a.period_ticks} ticks) loop={a.loop} "
                   f"frames={a.frame_count}{extra}")
+            if opts.timeline and record.get("timeline_error"):
+                print("    timeline: %s" % record["timeline_error"])
             if opts.timeline:
-                for x in a.timeline():
+                for x in intervals:
                     end = "hold" if x.end_tick is None else str(x.end_tick)
                     print("      [%5d..%-5s) %d %-14s"
                           % (x.start_tick, end, x.index, x.name))
