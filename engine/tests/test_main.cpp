@@ -16,6 +16,7 @@
 #include "res/scene.h"
 #include "res/sbc.h"
 #include "res/sob.h"
+#include "res/anim.h"
 #include "res/text.h"
 #include "res/level.h"
 #include "res/sbv.h"
@@ -1530,6 +1531,57 @@ void test_render() {
 
 bool g_full = false;
 
+void test_soo_anim() {
+    const fs::path game = "/mnt/d/games/Gunmetal 3dfx";
+    std::error_code ec;
+    const fs::path soo_path = game / "Sobanim/Cultist.soo";
+    if (!fs::is_regular_file(soo_path, ec)) {
+        return;
+    }
+    auto read = [](const fs::path& path) {
+        std::ifstream in(path, std::ios::binary);
+        return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(in)),
+                                         std::istreambuf_iterator<char>());
+    };
+    std::string error;
+    const auto soo = gm::parse_soo(read(soo_path), error);
+    CHECK(soo.has_value());
+    if (!soo) {
+        return;
+    }
+    const auto pose = gm::soo_pose_at(*soo, 100, error);
+    CHECK(pose.has_value());
+    if (!pose) {
+        return;
+    }
+    CHECK_EQ(pose->index, 1);
+    CHECK_EQ(pose->next_index, 2);
+    CHECK(std::abs(pose->alpha - 1.0 / 3.0) < 1e-12);
+    const auto first = gm::parse_sob(read(game / "SOBS/cult1a.sob"), error);
+    const auto second = gm::parse_sob(read(game / "SOBS/cult1b.sob"), error);
+    CHECK(first.has_value() && second.has_value());
+    if (!first || !second) {
+        return;
+    }
+    const auto morphed = gm::morph_sob(*first, *second, pose->alpha, error);
+    CHECK(morphed.has_value());
+    if (!morphed) {
+        return;
+    }
+    gm::TexturePool pool(game);
+    gm::RenderOptions options;
+    options.width = 240;
+    options.height = 240;
+    const auto image =
+        gm::render_scene(gm::build_model_meshes(*morphed), options, &pool, nullptr);
+    std::uint64_t h = 0xcbf29ce484222325ull;
+    for (std::uint8_t b : image.rgb) {
+        h ^= b;
+        h *= 0x100000001b3ull;
+    }
+    CHECK_EQ(h, 0x882000344a825410ull);
+}
+
 void test_place_model() {
     const fs::path path = "/mnt/d/games/Gunmetal 3dfx/SOBS/MOCLASS.SOB";
     std::error_code ec;
@@ -1774,7 +1826,7 @@ int main(int argc, char** argv) {
     test_sou();
     test_sbt();
     test_sbc();
-    test_anim();
+    test_soo_anim();
     test_sob();
     test_text();
     test_level();
@@ -1782,6 +1834,7 @@ int main(int argc, char** argv) {
     test_cache();
     test_render();
     test_place_model();
+    test_anim();
     test_scene();
 
     if (g_failures != 0) {

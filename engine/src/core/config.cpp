@@ -112,6 +112,23 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.film = std::string(*v);
+        } else if (arg == "--anim") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.anim = std::string(*v);
+        } else if (arg == "--at") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.at = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--at expects an integer (milliseconds)";
+                return std::nullopt;
+            }
         } else if (arg == "--frame") {
             const auto v = value(arg);
             if (!v) {
@@ -357,6 +374,8 @@ std::string usage() {
        << "                    /mnt/d/games/Gunmetal 3dfx)\n"
        << "      --film NAME   inspect a Film/*.sof (tiles, .fdx, frame FNV)\\n"
        << "      --frame N     frame for --film (default 0)\\n"
+       << "      --anim NAME   morph a Sobanim/NAME.soo pose into --render\\n"
+       << "      --at MS       animation time for --anim (default 0)\\n"
        << "  -l, --level NAME  level to load (opens the viewer; with --info prints a summary)\n"
        << "  -d, --dump FILE   print size and the first bytes of FILE, then exit\n"
        << "      --png OUT     with --dump of a .sbm/.bmp: write OUT as PNG\n"

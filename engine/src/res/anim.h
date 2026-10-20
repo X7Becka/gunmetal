@@ -20,6 +20,22 @@ struct Soo {
     std::vector<SooFrame> frames;
 };
 
+/// One instant of playback, mirroring gm/soo.py's ``Pose``.
+struct SooPose {
+    int index = 0;
+    int next_index = 0;
+    double alpha = 0.0;
+    int elapsed = 0;
+    int phase = 0;
+    int total = 0;
+    std::string name;
+    std::string next_name;
+};
+
+/// Engine timeline (player 0x433e00): mode 0 holds the last frame, mode 1
+/// wraps to frame 0; negative time clamps to 0.
+std::optional<SooPose> soo_pose_at(const Soo& soo, int ms, std::string& error);
+
 std::optional<Soo> parse_soo(std::span<const std::uint8_t> data, std::string& error);
 
 struct Soa {

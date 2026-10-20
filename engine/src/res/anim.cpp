@@ -90,6 +90,59 @@ std::optional<Soo> parse_soo(std::span<const std::uint8_t> data, std::string& er
     return soo;
 }
 
+std::optional<SooPose> soo_pose_at(const Soo& soo, int ms, std::string& error) {
+    const std::size_t count = soo.declared > 0
+                                  ? std::min<std::size_t>(static_cast<std::size_t>(soo.declared),
+                                                          soo.frames.size())
+                                  : 0;
+    if (count == 0) {
+        error = "animation has no frames";
+        return std::nullopt;
+    }
+    if (soo.mode != 0 && soo.mode != 1) {
+        error = "unsupported .soo mode " + std::to_string(soo.mode);
+        return std::nullopt;
+    }
+    int total = 0;
+    for (std::size_t i = 0; i < count; ++i) {
+        total += soo.frames[i].duration;
+    }
+    if (total <= 0) {
+        error = "animation duration is not positive";
+        return std::nullopt;
+    }
+    int phase = std::max(0, ms);
+    if (soo.mode == 0) {
+        if (phase >= total) {
+            phase = total - 1;
+        }
+    } else {
+        phase %= total;
+    }
+    int acc = 0;
+    std::size_t index = count - 1;
+    for (std::size_t i = 0; i < count; ++i) {
+        if (phase < acc + soo.frames[i].duration) {
+            index = i;
+            break;
+        }
+        acc += soo.frames[i].duration;
+    }
+    const std::size_t next = index + 1 < count ? index + 1 : (soo.mode == 1 ? 0 : index);
+    SooPose pose;
+    pose.index = static_cast<int>(index);
+    pose.next_index = static_cast<int>(next);
+    pose.elapsed = phase - acc;
+    pose.phase = phase;
+    pose.total = total;
+    pose.name = soo.frames[index].name;
+    pose.next_name = soo.frames[next].name;
+    pose.alpha = soo.frames[index].duration > 0
+                     ? static_cast<double>(pose.elapsed) / soo.frames[index].duration
+                     : 1.0;
+    return pose;
+}
+
 std::optional<Soa> parse_soa(std::span<const std::uint8_t> data, std::string& error) {
     const std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = split_lines(text);

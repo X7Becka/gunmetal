@@ -480,7 +480,57 @@ int render_image(const gm::Options& options) {
 
     std::optional<gm::LevelBundle> level;
     std::optional<gm::Sob> model;
-    if (!options.model.empty()) {
+    if (!options.anim.empty()) {
+        std::string name = options.anim;
+        if (name.size() < 4 || name.compare(name.size() - 4, 4, ".soo") != 0) {
+            name += ".soo";
+        }
+        auto path = gm::resolve_ci(options.game / "Sobanim", name);
+        if (!path) {
+            gm::logf(gm::LogLevel::Error, "anim", "not found: " + name);
+            return 2;
+        }
+        const auto bytes = read_file(*path, error);
+        if (!bytes) {
+            gm::logf(gm::LogLevel::Error, "anim", error);
+            return 2;
+        }
+        const auto soo = gm::parse_soo(*bytes, error);
+        if (!soo) {
+            gm::logf(gm::LogLevel::Error, "anim", error);
+            return 2;
+        }
+        const auto pose = gm::soo_pose_at(*soo, options.at, error);
+        if (!pose) {
+            gm::logf(gm::LogLevel::Error, "anim", error);
+            return 2;
+        }
+        auto load_pose = [&](const std::string& model_name) -> std::optional<gm::Sob> {
+            const auto model_path = gm::resolve_ci(options.game / "SOBS",
+                                                   model_name + ".sob");
+            if (!model_path) {
+                error = "pose model not found: " + model_name;
+                return std::nullopt;
+            }
+            const auto model_bytes = read_file(*model_path, error);
+            return model_bytes ? gm::parse_sob(*model_bytes, error) : std::nullopt;
+        };
+        const auto first = load_pose(pose->name);
+        const auto second = load_pose(pose->next_name);
+        if (!first || !second) {
+            gm::logf(gm::LogLevel::Error, "anim", error);
+            return 2;
+        }
+        const auto morphed = gm::morph_sob(*first, *second, pose->alpha, error);
+        if (!morphed) {
+            gm::logf(gm::LogLevel::Error, "anim", error);
+            return 2;
+        }
+        meshes = gm::build_model_meshes(*morphed);
+        gm::logf(gm::LogLevel::Info, "anim", "mode=", soo->mode, " frame=", pose->index,
+                 "->", pose->next_index, " alpha=", pose->alpha, " at=", options.at,
+                 "ms");
+    } else if (!options.model.empty()) {
         const auto bytes = read_file(options.model, error);
         if (!bytes) {
             gm::logf(gm::LogLevel::Error, "render", error);

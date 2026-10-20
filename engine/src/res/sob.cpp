@@ -204,4 +204,39 @@ std::optional<Sob> parse_sob(std::span<const std::uint8_t> data, std::string& er
     return sob;
 }
 
+std::optional<Sob> morph_sob(const Sob& a, const Sob& b, double alpha,
+                             std::string& error) {
+    if (a.vertices.size() != b.vertices.size() || a.faces.size() != b.faces.size()) {
+        error = "animation poses have different topology: " +
+                std::to_string(a.vertices.size()) + "/" + std::to_string(b.vertices.size()) +
+                " v, " + std::to_string(a.faces.size()) + "/" +
+                std::to_string(b.faces.size()) + " f";
+        return std::nullopt;
+    }
+    alpha = std::max(0.0, std::min(1.0, alpha));
+    Sob out;
+    out.vertices.resize(a.vertices.size());
+    for (std::size_t i = 0; i < a.vertices.size(); ++i) {
+        const auto& va = a.vertices[i];
+        const auto& vb = b.vertices[i];
+        out.vertices[i] = {static_cast<float>(va.x * (1.0 - alpha) + vb.x * alpha),
+                           static_cast<float>(va.y * (1.0 - alpha) + vb.y * alpha),
+                           static_cast<float>(va.z * (1.0 - alpha) + vb.z * alpha)};
+    }
+    out.faces = a.faces;
+    auto mix = [alpha](const Vec3f& x, const Vec3f& y) {
+        return Vec3f{static_cast<float>(x.x * (1.0 - alpha) + y.x * alpha),
+                     static_cast<float>(x.y * (1.0 - alpha) + y.y * alpha),
+                     static_cast<float>(x.z * (1.0 - alpha) + y.z * alpha)};
+    };
+    for (std::size_t i = 0; i < a.faces.size(); ++i) {
+        out.faces[i].origin = mix(a.faces[i].origin, b.faces[i].origin);
+        out.faces[i].u = mix(a.faces[i].u, b.faces[i].u);
+        out.faces[i].v = mix(a.faces[i].v, b.faces[i].v);
+        out.faces[i].normal = mix(a.faces[i].normal, b.faces[i].normal);
+        out.faces[i].spare = mix(a.faces[i].spare, b.faces[i].spare);
+    }
+    return out;
+}
+
 } // namespace gm

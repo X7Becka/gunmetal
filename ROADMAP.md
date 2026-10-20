@@ -316,9 +316,9 @@ round-trip'ы проверены на поставке.
 - ✅ `gm/soo.py`: `parse`, `to_bytes`, `timeline()`, `frame_at(ms)`,
       `engine_frames`/`dropped_frames`/`short`, контактный лист в
       `tools/re/soo_semantics.py`; `gm.py soo --timeline/--at`.
-- ✅ `gm.py view FILE.soo --at MS` морфит две соседние позы
-      (`render.morph_models`, линейно вершины и плоскости, как `0x433e00`);
-      C++-вьювер пока не морфит.
+- ✅ `gm.py view FILE.soo --at MS` и C++ `--anim NAME --at MS` морфят две
+      соседние позы (вершины и плоскости, как `0x433e00`); кадр Cultist
+      240×240 побитово совпадает (FNV `882000344a825410`).
 - ✅ `gm.py soo`, `--rebuild`; round-trip 40/40.
 - ✅ Проверить на `BigGate`, `Cloud`, `Cultist`, `Dev1`, `Fire`, `NUKEring`.
 

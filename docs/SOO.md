@@ -497,4 +497,14 @@ the animation, calls `frame_at(100)` and linearly morphs the two pose `.sob`
 models (`gm.render.morph_models`: vertices plus face origin/u/v/normal/spare).
 The engine requires equal topology, so mismatched poses raise instead of
 guessing.  Time 0 and 100 ms of `Cultist` produce different images; the
-SMOKE/regress check pins that.
+regress check pins that.
+
+C++ has the same path:
+
+```sh
+gunmetal --anim Cultist --at 100 --width 240 --height 240 --render pose.png
+```
+
+`anim.cpp:soo_pose_at` and `sob.cpp:morph_sob` mirror the Python timeline and
+interpolator; the 240×240 frame is bit-identical (FNV-1a64 RGB
+`882000344a825410`, pinned in `gm_tests`).

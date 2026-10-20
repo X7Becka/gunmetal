@@ -98,6 +98,8 @@ python3 gm.py view "…/Gunmetal 3dfx/level0.sbw" --spawn --size 640 --out spawn
 
 # поза .soo-анимации на 100 мс (морфинг двух кадров)
 python3 gm.py view "…/Gunmetal 3dfx/Sobanim/Cultist.soo" --at 100 --out pose.png
+# то же в C++
+gunmetal --anim Cultist --at 100 --width 240 --height 240 --render pose.png
 
 # все текстуры и спрайты в PNG (палитра берётся из установки)
 python3 gm.py textures "…/Gunmetal 3dfx" out/textures

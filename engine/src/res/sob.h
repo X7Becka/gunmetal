@@ -33,4 +33,9 @@ struct Sob {
 
 std::optional<Sob> parse_sob(std::span<const std::uint8_t> data, std::string& error);
 
+/// Linear morph between two equal-topology poses (engine 0x433e00).  Vertices
+/// and the per-face planes are interpolated; textures/indices come from *a*.
+std::optional<Sob> morph_sob(const Sob& a, const Sob& b, double alpha,
+                             std::string& error);
+
 } // namespace gm
