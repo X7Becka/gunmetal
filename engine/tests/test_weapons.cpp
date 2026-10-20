@@ -751,9 +751,18 @@ void test_runtime_blast_bridge() {
         return;
     }
     const gm::Weapon* rocket = nullptr;
+    const gm::Weapon* plasma = nullptr;
+    const gm::Weapon* rgm = nullptr;
+    const gm::Weapon* nuke = nullptr;
     for (const gm::Weapon& weapon : table->table()) {
         if (weapon.name == "ROCKET") {
             rocket = &weapon;
+        } else if (weapon.name == "PLASMA CANNON") {
+            plasma = &weapon;
+        } else if (weapon.name == "RGM") {
+            rgm = &weapon;
+        } else if (weapon.name == "TAC NUKE") {
+            nuke = &weapon;
         }
     }
     CHECK(rocket != nullptr);
@@ -797,6 +806,53 @@ void test_runtime_blast_bridge() {
         *rocket, true, {0.0, 0.0, 0.0}, false, true, true, -1, -1,
         no_players, no_player_vitals, things, alive, vitals);
     CHECK_EQ(expire.hits.size(), 2U);
+
+    // PLASMA power-up picks TT36/37/38 and its own expire vector.
+    if (plasma != nullptr) {
+        const auto at_power = [&](double power) {
+            vitals[0].hp = 20000;
+            vitals[0].alive = true;
+            return gm::apply_weapon_blast(
+                *plasma, true, {0.0, 0.0, 0.0}, false, true, true, -1, -1,
+                no_players, no_player_vitals, things, alive, vitals, power);
+        };
+        const gm::BlastDamageResult full = at_power(1.0);
+        const gm::BlastDamageResult mid = at_power(0.5);
+        const gm::BlastDamageResult low = at_power(0.1);
+        CHECK_EQ(full.hits.size(), 2U);
+        CHECK_EQ(mid.hits.size(), 2U);
+        CHECK_EQ(low.hits.size(), 2U);
+        if (full.hits.size() == 2 && mid.hits.size() == 2 &&
+            low.hits.size() == 2) {
+            CHECK_EQ(full.hits[1].hit.plate, 8100);  // 10800@200, d=50
+            CHECK_EQ(mid.hits[1].hit.plate, 3333);   // 5000@150
+            CHECK_EQ(low.hits[1].hit.plate, 1466);   // 2200@150
+        }
+    }
+
+    // RGM has no collide damage: only the expire vector fires.
+    if (rgm != nullptr) {
+        vitals[0].hp = 20000;
+        vitals[0].alive = true;
+        const gm::BlastDamageResult rgm_blasts = gm::apply_weapon_blast(
+            *rgm, true, {0.0, 0.0, 0.0}, false, true, true, -1, -1,
+            no_players, no_player_vitals, things, alive, vitals);
+        CHECK_EQ(rgm_blasts.hits.size(), 2U);
+        if (rgm_blasts.hits.size() == 2) {
+            CHECK_EQ(rgm_blasts.hits[0].hit.plate, 0);
+            CHECK_EQ(rgm_blasts.hits[1].hit.plate, 12070); // 15000@256
+        }
+    }
+
+    // TAC NUKE's guarded default branch contributes exactly three blasts.
+    if (nuke != nullptr) {
+        vitals[0].hp = 200000;
+        vitals[0].alive = true;
+        const gm::BlastDamageResult nuke_blasts = gm::apply_weapon_blast(
+            *nuke, false, {0.0, 0.0, 0.0}, false, false, false, -1, -1,
+            no_players, no_player_vitals, things, alive, vitals);
+        CHECK_EQ(nuke_blasts.hits.size(), 3U);
+    }
 }
 
 void test_weapon_corpus() {
