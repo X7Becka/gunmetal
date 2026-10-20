@@ -78,6 +78,16 @@ gm_label(sou2 quick)
 add_test(NAME sou2_full COMMAND gm_sou2_tests --full)
 gm_label(sou2_full full)
 
+add_executable(gm_sou1_tests test_sou1.cpp)
+target_link_libraries(gm_sou1_tests PRIVATE gm_engine)
+# `sou1` pins 11 records covering every sample rate, mono/stereo and the
+# long-track boundaries; `sou1_full` checks all 983 SOU1 entries against
+# docs/manifests/sou1-fnv.json (both parse all 999 container headers).
+add_test(NAME sou1 COMMAND gm_sou1_tests)
+gm_label(sou1 quick)
+add_test(NAME sou1_full COMMAND gm_sou1_tests --full)
+gm_label(sou1_full full)
+
 add_executable(gm_sbv_video_tests test_sbv_video.cpp)
 target_link_libraries(gm_sbv_video_tests PRIVATE gm_engine)
 # `ctest` runs the full 500-frame Intro sweep; `gm_sbv_video_tests --quick`
@@ -114,7 +124,7 @@ endif()
 # Fast targets for the inner loop: build the binaries, then run CTest.
 #   cmake --build build/dev --target check-quick
 #   cmake --build build/test --target check
-set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sbv_video_tests gm_sbtvm_tests gm_fuzz_tests gunmetal)
+set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sbv_video_tests gm_sbtvm_tests gm_fuzz_tests gunmetal)
 add_custom_target(check-quick
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -L quick -j 8
             --output-on-failure
