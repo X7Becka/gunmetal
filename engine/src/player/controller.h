@@ -52,6 +52,85 @@ struct Input {
     bool crouch = false;
 };
 
+/// Fixed tick rate of the original game (91 ticks = 1 s, `0x44db80`).
+constexpr double kPlayerTickHz = 91.0;
+
+/// The horizontal velocity of the original integrator, in world units per tick.
+/// The original keeps `player+0x81bd90/0x81bd98` in that unit; the loop is
+/// `0x444476`..`0x4444d5` (docs/PLAYER_GHIDRA.md §4).
+struct TickVelocity {
+    double vx = 0.0;
+    double vy = 0.0;
+};
+
+/// Chassis speed model of the original (`0x47a980`, `0x4524d0`, `0x443690`).
+///
+/// `max_speed` is the `op4` field of `DEFINE_PLAYER_TYPES` (`0x81bd70`) in
+/// world units *per tick*; `weight_penalty` is `0x81bd80`; `health_factor` is
+/// `0x81bf88`; `retention` is the per-tick retention `k` of `0x81bfb8`.
+/// The values of the shipped LIGHT chassis are in docs/FORMATS.md §12.3.
+struct ChassisMotion {
+    double max_speed = 1.70;       ///< op4 (`0x81bd70`), world units per tick
+    double weight_penalty = 0.003; ///< `0x81bd80`, per unit of excess weight
+    double weight = 0.0;           ///< `0x81c374`
+    double weight_limit = 0.0;     ///< `0x81c378`
+    double health_factor = 1.0;    ///< `0x81bf88`
+    double retention = 0.9;        ///< k (`0x81bfb8`); LIGHT 0.9 (save data)
+};
+
+/// `0x4524d0`: the speed after the weight penalty, clamped to 0.05.
+/// `1.7 - 0.003 * (615 - 500) = 1.355` for the shipped LIGHT save.
+double weight_limited_speed(const ChassisMotion& chassis);
+
+/// `0x443690`: the nominal speed the integrator uses, world units per tick
+/// (`weight_limited_speed * health_factor`).
+double nominal_speed(const ChassisMotion& chassis);
+
+/// One tick of the original integrator (`0x444478`): `v <- v*k + step`.
+/// `step` is the per-tick input delta, already divided by the batch length
+/// (the original divides it at `0x44444c`/`0x44445e`).
+TickVelocity integrate_velocity(const TickVelocity& velocity, double retention,
+                                 const TickVelocity& step);
+
+/// The result of a batch of ticks: the final velocity and the displacement
+/// the original accumulates (`local_38`/`local_40`, `0x4444a3`/`0x4444bb`).
+struct IntegrationResult {
+    TickVelocity velocity{};
+    double displacement_x = 0.0;
+    double displacement_y = 0.0;
+};
+
+/// A batch of `ticks` ticks of the original integrator.  `ticks <= 0` returns
+/// the input velocity and a zero displacement.
+IntegrationResult integrate_batch(const TickVelocity& velocity, double retention,
+                                   const TickVelocity& step, int ticks);
+
+/// The per-tick input delta of the original (`0x443690`).
+///
+/// The original keeps one counter per action in a 31 dword block
+/// (`0x5a49f0` for player one, `0x5a4958` for player two); the counter of an
+/// action is incremented once per tick while the action is held
+/// (`FUN_0044bdc0`) and the block is copied into the player struct every
+/// frame (`FUN_0044d4c0`).  The movement uses two *differences* of those
+/// counters:
+///
+///   `forward_ticks` = `player+0x81c3ac` - `player+0x81c3b0`
+///   `strafe_ticks`  = `player+0x81c388` - `player+0x81c38c`
+///
+/// and the nominal speed, projected on the heading:
+///
+///   dx = (sin(h)*v)*strafe - (cos(h)*v)*forward
+///   dy = (cos(h)*v)*strafe + (sin(h)*v)*forward
+///
+/// divided by the batch length.  The components are the original's local
+/// frame (the matrix has a negative determinant, i.e. it mirrors the axis).
+TickVelocity input_delta(double heading, double nominal, int forward_ticks,
+                         int strafe_ticks, int ticks);
+
+/// The vertical channel of the same loop: `vz <- 0.85*vz + 0.15*pitch`
+/// (`0x4a2368`/`0x4a2360`, the look angle is clamped to `+-pi/12`).
+double integrate_vertical(double vz, double pitch);
+
 /// Tunables.  Defaults are a LIGHT-chassis-sized capsule; the provenance of
 /// every number is in docs/PLAYER_CONTROLLER.md §4.
 struct ControllerConfig {
@@ -61,7 +140,12 @@ struct ControllerConfig {
     double gravity = 700.0;       ///< synthetic; the original uses a 0x80f840-scaled suspension, not a scalar g
     double accel = 10.0;          ///< ground acceleration, 1/s
     double friction = 8.0;        ///< ground friction, 1/s
-    double max_speed = 1.70 * 91.0; ///< 154.7: LIGHT op4 (units/tick) * 91 ticks/s
+    double max_speed = 1.70 * 91.0; ///< 154.7: LIGHT op4 (units/tick) * 91 ticks/s.
+                                   ///< This is the *nominal* of the chassis, not
+                                   ///< a clamp: the original has no speed limit,
+                                   ///< its steady state is `step/(1-k)`.
+    double retention = 0.9;       ///< k of the chassis (`0x81bfb8`), the per-tick
+                                   ///< share of the velocity the original keeps
     double step_height = 3.0;     ///< max step-up and step-down snap
     double dt = 1.0 / 91.0;       ///< fixed tick length (seconds)
     double jump_speed = 200.0;    ///< take-off vertical speed
@@ -72,6 +156,11 @@ struct ControllerConfig {
     int max_slides = 4;           ///< collide-and-slide iterations per substep
     int max_substeps = 32;        ///< hard cap on substeps per tick
 };
+
+/// The chassis numbers of the C++ config, converted into the units of the
+/// original (`max_speed` is stored in units/second there, `op4` is stored in
+/// units per tick).
+ChassisMotion chassis_from_config(const ControllerConfig& config);
 
 /// Outcome of one tick.  On `ok == false` `error` explains why and `state` is
 /// the unchanged input state; the controller never throws and never mutates

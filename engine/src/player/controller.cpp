@@ -561,4 +561,89 @@ StepResult step(const PlayerState& state, const Input& input, const CollisionWor
     return result;
 }
 
+// --- the original integrator (0x443690) --------------------------------------
+//
+// The functions below are the exact model of the loop
+// `0x444476`..`0x4444d5` of `FUN_00443690`:
+//
+//     vx' = vx*k + dvx          (0x444478..0x444489)
+//     vy' = vy*k + dvy          (0x44448f..0x4444a7)
+//     displacement_x += vx'     (0x4444bb)
+//     displacement_y += vy'     (0x4444a3)
+//     vz'  = 0.85*vz + 0.15*pitch  (0x4444ad..0x4444cd)
+//
+// `k` is the retention coefficient of the chassis (`player+0x81bfb8`), the
+// deltas are divided by the batch length before the loop (`0x44444c`,
+// `0x44445e`).  The bytes were executed by `tools/re/player_integrator.py`,
+// which reproduces the numbers below bit for bit.
+
+double weight_limited_speed(const ChassisMotion& chassis) {
+    double speed = chassis.max_speed;
+    if (chassis.weight > chassis.weight_limit) {
+        speed -= (chassis.weight - chassis.weight_limit) * chassis.weight_penalty;
+    }
+    // 0x4524d0 clamps the result to 0.05.
+    return speed < 0.05 ? 0.05 : speed;
+}
+
+double nominal_speed(const ChassisMotion& chassis) {
+    return weight_limited_speed(chassis) * chassis.health_factor;
+}
+
+ChassisMotion chassis_from_config(const ControllerConfig& config) {
+    ChassisMotion chassis;
+    chassis.max_speed = config.max_speed / kPlayerTickHz;
+    chassis.retention = config.retention;
+    return chassis;
+}
+
+TickVelocity integrate_velocity(const TickVelocity& velocity, double retention,
+                                 const TickVelocity& step) {
+    TickVelocity out;
+    out.vx = velocity.vx * retention + step.vx;
+    out.vy = velocity.vy * retention + step.vy;
+    return out;
+}
+
+IntegrationResult integrate_batch(const TickVelocity& velocity, double retention,
+                                   const TickVelocity& step, int ticks) {
+    IntegrationResult result;
+    result.velocity = velocity;
+    if (ticks <= 0) {
+        return result;
+    }
+    TickVelocity current = velocity;
+    for (int tick = 0; tick < ticks; ++tick) {
+        current = integrate_velocity(current, retention, step);
+        result.displacement_x += current.vx;
+        result.displacement_y += current.vy;
+    }
+    result.velocity = current;
+    return result;
+}
+
+TickVelocity input_delta(double heading, double nominal, int forward_ticks,
+                         int strafe_ticks, int ticks) {
+    TickVelocity step;
+    if (ticks <= 0) {
+        return step;
+    }
+    // 0x443690: the nominal speed is projected on the heading, scaled by the
+    // signed tick counters of the two input axes and divided by the length of
+    // the batch.
+    const double cos_h = std::cos(heading) * nominal;
+    const double sin_h = std::sin(heading) * nominal;
+    const double forward = -(cos_h * forward_ticks);
+    const double strafe = sin_h * strafe_ticks;
+    step.vx = (strafe + forward) / static_cast<double>(ticks);
+    step.vy = (cos_h * strafe_ticks + sin_h * forward_ticks) / static_cast<double>(ticks);
+    return step;
+}
+
+double integrate_vertical(double vz, double pitch) {
+    // The look angle of the original is clamped to +-pi/12 before the loop
+    // (0x444422..0x444446); the clamp is left to the caller.
+    return 0.85 * vz + 0.15 * pitch;
+}
+
 } // namespace gm
