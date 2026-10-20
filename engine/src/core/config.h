@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace gm {
 
@@ -32,6 +33,7 @@ struct Options {
     std::filesystem::path wav;
     std::filesystem::path dump;
     std::filesystem::path save_out; // --dump a save: re-serialise it here
+    std::vector<std::string> save_edits; // --set KEY=VALUE (ammo0, armor, ...)
     std::filesystem::path png;
     std::filesystem::path render; // output PNG for --render
     std::filesystem::path model;  // .sob to render instead of a level

@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -90,6 +91,9 @@ int export_png(const gm::Options& options, int width, int height,
     std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
     return 0;
 }
+
+bool apply_save_edits(const gm::Options& options, gm::SavePlayer& player,
+                      std::string& error);
 
 int dump_file(const gm::Options& options) {
     fs::path path = options.dump;
@@ -392,7 +396,7 @@ int dump_file(const gm::Options& options) {
         // a level script starts with binary SBT records.  Try the save reader
         // first; on failure fall through to the level parser.
         std::string save_error;
-        if (const auto save = gm::parse_save(*bytes, save_error)) {
+        if (auto save = gm::parse_save(*bytes, save_error)) {
             std::printf("kind: SAVE\n");
             std::printf("title: %s\n", save->header.title.c_str());
             std::printf("version word: 0x%x\n", save->header.version);
@@ -404,6 +408,17 @@ int dump_file(const gm::Options& options) {
             }
             std::printf("F0/F1: %u/%u\n", save->header.fields[0],
                         save->header.fields[1]);
+            if (!options.save_edits.empty()) {
+                if (!save->player) {
+                    gm::logf(gm::LogLevel::Error, "save", "--set needs a player block");
+                    return 2;
+                }
+                std::string edit_error;
+                if (!apply_save_edits(options, *save->player, edit_error)) {
+                    gm::logf(gm::LogLevel::Error, "save", edit_error);
+                    return 2;
+                }
+            }
             if (!options.save_out.empty()) {
                 std::string write_error;
                 const auto out = save->to_bytes(write_error);
@@ -553,6 +568,61 @@ int dump_file(const gm::Options& options) {
 
 bool start_camera(const gm::Options& options, const gm::SbtLevel& entities,
                   gm::Vec3d& eye, gm::Vec3d& target, std::string& error);
+
+/// Apply ``--set`` edits to the first present save player.
+bool apply_save_edits(const gm::Options& options, gm::SavePlayer& player,
+                      std::string& error) {
+    for (const std::string& spec : options.save_edits) {
+        const std::size_t eq = spec.find('=');
+        if (eq == std::string::npos || eq == 0 || eq + 1 >= spec.size()) {
+            error = "--set expects KEY=VALUE: " + spec;
+            return false;
+        }
+        std::string key = spec.substr(0, eq);
+        for (char& c : key) {
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        const std::string value = spec.substr(eq + 1);
+        try {
+            const long number = std::stol(value);
+            if (key == "armor") {
+                player.armor = static_cast<std::int32_t>(number * 100);
+            } else if (key == "armor_max") {
+                player.armor_max = static_cast<std::int32_t>(number * 100);
+            } else if (key == "shield_max") {
+                player.shield_max = static_cast<std::int32_t>(number * 100);
+            } else if (key == "weapon") {
+                player.weapon_slot = static_cast<std::int32_t>(number);
+            } else if (key == "posx" || key == "posy" || key == "posz") {
+                const double v = std::stod(value);
+                player.position[key == "posx" ? 0 : (key == "posy" ? 1 : 2)] = v;
+            } else if (key.rfind("ammo", 0) == 0) {
+                const int slot = std::stoi(key.substr(4));
+                if (slot < 0 || slot >= 12) {
+                    error = "--set ammo slot must be 0..11: " + spec;
+                    return false;
+                }
+                player.ammo[static_cast<std::size_t>(slot)] =
+                    static_cast<std::uint32_t>(number);
+            } else if (key.rfind("shield", 0) == 0) {
+                const int slot = std::stoi(key.substr(6));
+                if (slot < 0 || slot >= 4) {
+                    error = "--set shield slot must be 0..3: " + spec;
+                    return false;
+                }
+                player.shields[static_cast<std::size_t>(slot)] =
+                    static_cast<std::int32_t>(number * 100);
+            } else {
+                error = "unknown --set key: " + key;
+                return false;
+            }
+        } catch (const std::exception&) {
+            error = "bad --set value: " + spec;
+            return false;
+        }
+    }
+    return true;
+}
 
 /// Compose the optional `--hud` film onto an already rendered frame.
 bool overlay_hud(const gm::Options& options, gm::RenderResult& image,
