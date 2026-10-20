@@ -32,8 +32,8 @@ taken from the handler error strings)::
     3  THING                u8 exists;        if exists: 0x528 bytes
     4  THING_TYPES          u32 n (<=0x80);   n * 936-byte types
     5  NAMED_ITEMS          u32 n (<=0x31);   n * 52-byte items
-    6  SPRITES              u32 n (<=0x1f3);  n * 44 bytes
-    7  SOUND_SOURCES        u32 n (<=0x7f);   5*n*4 + n*8 bytes
+    6  SPRITES              u32 n (<0x1f4);   n * 44 bytes
+    7  SOUND_SOURCES        u32 n (<0x80);    5*n*4 + n*8 bytes
     8  SECTOR_STUFF         fixed 0x5800 bytes
     9  PLAYER_STATUS        u8 exists;        if exists: 0x3510 bytes
     11 SCRIPT               see below
@@ -46,8 +46,14 @@ taken from the handler error strings)::
     20 SOB_TABLE            u32 n (<=0xc8);   n * 20 bytes
     255 END_OF_FILE
 
-Types 10 and 13 map to a stub that returns -1 (unsupported); they never occur
-in shipped data and are reported as corrupt here.
+Types 10 and 13 map to the stub ``0x4971b0`` (``mov eax,-1; ret``): the
+dispatcher accepts the byte but the type carries no payload and never occurs
+in shipped data.  Type 14 jumps to the "corrupt" error path ``0x4555ae``.
+
+The handler for each type is not a guess: ``0x455150`` indexes the byte table
+``0x455658`` with ``type-1`` and jumps through ``0x455604``.  The addresses in
+the table above are the first instruction of each handler; the full map and
+per-field evidence are in ``docs/SBT_RECORDS.md``.
 
 The three handle tables (15/16/17) are the interesting part.  They are stored
 *column-major*: for ``n`` handles the file holds ``n`` u32 of the first column,
@@ -106,6 +112,17 @@ from dataclasses import dataclass, field
 
 MAGIC = b"BINARY SAVE\x00"
 HEADER_SIZE = 84  # 80-byte magic block + u32 version
+
+#: Loader-enforced counters (the binary dispatcher ``0x455150`` / table
+#: ``0x455604`` jumps to one handler per type; each handler validates its own
+#: counter before reading the records).
+SWITCH_MAX = 0x200
+DOOR_MAX = 100
+SPRITE_MAX = 0x1F3
+SOUND_SOURCE_MAX = 0x7F
+LIFT_MAX = 0x1E
+STOP_MAX = 0xC8
+SAMPLE_SLOTS = 300
 
 TYPE_NAMES = {
     1: "SWITCH",
@@ -178,17 +195,133 @@ class NamedItems:
 
 @dataclass
 class Sprites:
+    """``SPRITES`` (6): ``u32 n`` then ``n * 44`` records at ``0x5ab800``.
+
+    The 44-byte record layout is documented in ``docs/SBT_RECORDS.md`` (field
+    meaning from ``0x456130``..``0x456185``); it is kept as bytes here because
+    the same runtime record is also written by the save chain.
+    """
+
     count: int
+    records: list[bytes] = field(default_factory=list)  # 44 bytes each
+    entries: list[tuple] = field(default_factory=list)   # decoded view
 
 
 @dataclass
 class SoundSources:
+    """``SOUND_SOURCES`` (7): five ``u32`` columns + one ``f64`` column.
+
+    The loader (``0x46b280``) reads five parallel ``u32`` arrays followed by
+    one parallel ``double`` array, all of ``count`` elements.  Column order is
+    proven by ``ADD_SOUND_SOURCE`` / the saver: ``x, y, z, volume, sample,
+    pitch`` (see ``docs/SAVE_FIELDS.md`` §6 and ``docs/SBT_RECORDS.md``).
+    """
+
     count: int
+    columns: tuple = ()  # five tuples of count ints
+    pitches: tuple = ()  # count doubles (the sixth column)
+
+
+@dataclass
+class SectorSlot:
+    """One 0x58-byte ``SECTOR_STUFF`` slot (layout in docs/RECORDS.md §2)."""
+
+    move: tuple = (0.0, 0.0, 0.0)
+    extra: tuple = (0.0, 0.0, 0.0)
+    sound_param: float = 0.0
+    event_a: int = 0
+    event_b: int = 0
+    damage_lo: int = 0
+    damage_hi: int = 0
+    sound: int = 0
+    sound_count: int = 0
+    flags: int = 0
+    unused: int = 0
+    pad_42: bytes = b"\0\0"
+    pad_46: bytes = b"\0\0"
+
+    def encode(self) -> bytes:
+        out = bytearray(struct.pack("<3d", *self.move))
+        out += struct.pack("<3d", *self.extra)
+        out += struct.pack("<d", self.sound_param)
+        out += struct.pack("<ii", self.event_a, self.event_b)
+        out += struct.pack("<H", self.damage_lo) + self.pad_42
+        out += struct.pack("<H", self.damage_hi) + self.pad_46
+        out += struct.pack("<iiII", self.sound, self.sound_count,
+                           self.flags, self.unused)
+        assert len(out) == 0x58
+        return bytes(out)
+
+    @classmethod
+    def decode(cls, raw: bytes) -> "SectorSlot":
+        if len(raw) != 0x58:
+            raise ValueError("sector slot is %d bytes, expected 0x58" % len(raw))
+        return cls(
+            struct.unpack_from("<3d", raw, 0x00),
+            struct.unpack_from("<3d", raw, 0x18),
+            struct.unpack_from("<d", raw, 0x30)[0],
+            struct.unpack_from("<i", raw, 0x38)[0],
+            struct.unpack_from("<i", raw, 0x3C)[0],
+            struct.unpack_from("<H", raw, 0x40)[0],
+            struct.unpack_from("<H", raw, 0x44)[0],
+            struct.unpack_from("<i", raw, 0x48)[0],
+            struct.unpack_from("<i", raw, 0x4C)[0],
+            struct.unpack_from("<I", raw, 0x50)[0],
+            struct.unpack_from("<I", raw, 0x54)[0],
+            raw[0x42:0x44], raw[0x46:0x48],
+        )
+
+
+@dataclass
+class ItemSlot:
+    """One 0x60-byte ``ITEM`` slot (layout in docs/RECORDS.md §3)."""
+
+    basis: tuple = (0.0, 0.0, 0.0)
+    position: tuple = (0.0, 0.0, 0.0)
+    runtime_object: int = 0
+    kind: int = 0
+    state: int = 0
+    op2: int = 0
+    sob_index: int = 0
+    ops: tuple = (0, 0, 0, 0, 0)
+    flags: int = 0
+    pad: bytes = b"\0\0\0"
+    sentinel: int = 0xFFFF
+
+    def encode(self) -> bytes:
+        out = bytearray(struct.pack("<3d", *self.basis))
+        out += struct.pack("<3d", *self.position)
+        out += struct.pack("<IIiIi", self.runtime_object, self.kind,
+                           self.state, self.op2, self.sob_index)
+        out += struct.pack("<5I", *self.ops)
+        out += bytes((self.flags,)) + self.pad
+        out += struct.pack("<I", self.sentinel)
+        assert len(out) == 0x60
+        return bytes(out)
+
+    @classmethod
+    def decode(cls, raw: bytes) -> "ItemSlot":
+        if len(raw) != 0x60:
+            raise ValueError("item slot is %d bytes, expected 0x60" % len(raw))
+        return cls(
+            struct.unpack_from("<3d", raw, 0x00),
+            struct.unpack_from("<3d", raw, 0x18),
+            struct.unpack_from("<I", raw, 0x30)[0],
+            struct.unpack_from("<I", raw, 0x34)[0],
+            struct.unpack_from("<i", raw, 0x38)[0],
+            struct.unpack_from("<I", raw, 0x3C)[0],
+            struct.unpack_from("<i", raw, 0x40)[0],
+            struct.unpack_from("<5I", raw, 0x44),
+            raw[0x58],
+            raw[0x59:0x5C],
+            struct.unpack_from("<I", raw, 0x5C)[0],
+        )
 
 
 @dataclass
 class SectorStuff:
     raw: bytes = b""
+    slots: list = field(default_factory=list)
 
 
 @dataclass
@@ -240,8 +373,16 @@ class Script:
 
 @dataclass
 class SampleTable:
+    """``SOUND_SAMPLE_TABLE`` (12): 300 ``u32`` counts + 300 9-byte names.
+
+    ``name_slots`` keeps the exact ``0xa8c`` name region (including bytes after
+    the first NUL, which do occur in shipped files); ``names`` is the decoded
+    view used by the rest of the code base.
+    """
+
     counts: tuple = ()  # 300 u32
     names: tuple = ()  # 300 names (<=8 chars + NUL, 9-byte slots)
+    name_slots: bytes = b""  # exact 0xa8c bytes
 
 
 @dataclass
@@ -307,13 +448,23 @@ class Handles(HandleTable):
 
 @dataclass
 class Lift:
+    """``LIFT`` (18): ``u32 n`` + ``n * 0xa8`` + ``u32 k`` + three columns.
+
+    The loader/writer is ``0x44ec20``/``0x44eed0``; the 168-byte records and
+    the three parallel stop columns are stored verbatim because no shipped file
+    contains a type-18 record (the layout is code-proven only).
+    """
+
     lifts: int
     stops: int
+    records: list[bytes] = field(default_factory=list)  # 0xa8 bytes each
+    stop_columns: tuple = ()  # three tuples of *stops* u32
 
 
 @dataclass
 class Item:
     raw: bytes = b""
+    slots: list = field(default_factory=list)
 
 
 @dataclass
@@ -350,11 +501,11 @@ class Sbt:
         return [r for r in self.records if r.type == type_]
 
     def to_bytes(self) -> bytes:
-        """Re-serialise the file (byte-exact round-trip of the shipped data).
+        """Re-serialise the file from the stored raw payload bytes.
 
-        Records are emitted from their stored ``raw`` payload, so an edit is
-        made either by writing ``record.raw`` directly or through
-        :meth:`set_payload` for the fully-modelled record types.
+        Records are emitted from their ``raw`` payload, so this is the exact
+        round-trip of the shipped data.  Use :meth:`rebuild` to emit from the
+        structured payload fields instead.
         """
         out = bytearray(self.header or self._default_header())
         for r in self.records:
@@ -362,6 +513,40 @@ class Sbt:
             if r.type != END_OF_FILE:
                 out += r.raw
         return bytes(out)
+
+    def rebuild(self, verify: bool = False) -> bytes:
+        """Re-serialise every record from its structured payload.
+
+        The header is preserved verbatim.  For record types whose payload is
+        only framed (count + opaque per-record bytes) the stored record bytes
+        are emitted; every type whose fields are decoded is re-encoded from
+        those fields (see :func:`encode_payload`).  With ``verify`` a record
+        whose field encoding differs from the bytes read from disk raises,
+        which is how ``tools/re/records.py --check`` detects a modelling bug.
+        """
+        out = bytearray(self.header or self._default_header())
+        for r in self.records:
+            out.append(r.type)
+            if r.type == END_OF_FILE:
+                continue
+            data = encode_payload(r.type, r.payload)
+            if verify and data != r.raw:
+                raise ValueError(
+                    f"{r.name} at 0x{r.offset:x}: structural encoding differs "
+                    f"from the file ({len(data)} vs {len(r.raw)} bytes)")
+            out += data
+        return bytes(out)
+
+    def reencode(self) -> int:
+        """Replace every ``raw`` with its structural encoding; return the count."""
+        n = 0
+        for r in self.records:
+            if r.type == END_OF_FILE:
+                continue
+            r.raw = encode_payload(r.type, r.payload)
+            r.size = 1 + len(r.raw)
+            n += 1
+        return n
 
     def _default_header(self) -> bytes:
         return MAGIC + b"\0" * (80 - len(MAGIC)) + struct.pack("<I", self.version)
@@ -418,6 +603,42 @@ def _count(r: _R, lo: int, hi: int, what: str) -> int:
     return n
 
 
+SPRITE_SIZE = 44
+SPRITE_FIELDS = (
+    (0x00, "scale_x", "f32"),
+    (0x04, "scale_y", "f32"),
+    (0x08, "runtime_object", "u32"),
+    (0x0C, "x", "i32"),
+    (0x10, "y", "i32"),
+    (0x14, "z", "i32"),
+    (0x18, "param", "u8"),
+    (0x1C, "flags", "u32"),
+    (0x20, "effect_id", "i32"),
+    (0x24, "param16", "u16"),
+    (0x28, "spawn_time", "u32"),
+)
+
+
+def decode_sprite(raw: bytes) -> dict:
+    """Decode one 44-byte sprite record (``0x456130``..``0x456185``)."""
+    if len(raw) != SPRITE_SIZE:
+        raise ValueError(f"sprite record is {len(raw)} bytes, expected {SPRITE_SIZE}")
+    return {
+        "scale_x": struct.unpack_from("<f", raw, 0x00)[0],
+        "scale_y": struct.unpack_from("<f", raw, 0x04)[0],
+        "runtime_object": struct.unpack_from("<I", raw, 0x08)[0],
+        "x": struct.unpack_from("<i", raw, 0x0C)[0],
+        "y": struct.unpack_from("<i", raw, 0x10)[0],
+        "z": struct.unpack_from("<i", raw, 0x14)[0],
+        "param": raw[0x18],
+        "flags": struct.unpack_from("<I", raw, 0x1C)[0],
+        "effect_id": struct.unpack_from("<i", raw, 0x20)[0],
+        "param16": struct.unpack_from("<H", raw, 0x24)[0],
+        "spawn_time": struct.unpack_from("<I", raw, 0x28)[0],
+        "pad": raw[0x19:0x1C] + raw[0x26:0x28],
+    }
+
+
 def _columns(r: _R, n: int, width: int, what: str) -> list[tuple]:
     """Read a column-major handle table: ``width`` arrays of ``n`` u32 each."""
     return [struct.unpack(f"<{n}I", r.take(4 * n, what)) for _ in range(width)]
@@ -425,10 +646,10 @@ def _columns(r: _R, n: int, width: int, what: str) -> list[tuple]:
 
 def _read_record(r: _R, type_: int) -> object:
     if type_ == 1:
-        n = _count(r, 0, 0x200, "SWITCH")
+        n = _count(r, 0, SWITCH_MAX, "SWITCH")
         return Switch(n, [r.take(32, "switch info") for _ in range(n)])
     if type_ == 2:
-        n = _count(r, 0, 100, "DOOR")
+        n = _count(r, 0, DOOR_MAX, "DOOR")
         return Door(n, [r.take(184, "door info") for _ in range(n)])
     if type_ == 3:
         exists = r.u8() != 0
@@ -452,15 +673,19 @@ def _read_record(r: _R, type_: int) -> object:
             out.append(NamedItem(name, struct.unpack("<9I", r.take(36, "named item")), nraw))
         return NamedItems(out)
     if type_ == 6:
-        n = _count(r, 0, 0x1F3, "SPRITES")
-        r.take(n * 44, "sprites")
-        return Sprites(n)
+        n = _count(r, 0, SPRITE_MAX, "SPRITES")
+        records = [r.take(SPRITE_SIZE, "sprites") for _ in range(n)]
+        return Sprites(n, records, [decode_sprite(x) for x in records])
     if type_ == 7:
-        n = _count(r, 0, 0x7F, "SOUND_SOURCES")
-        r.take(n * 28, "sound sources")
-        return SoundSources(n)
+        n = _count(r, 0, SOUND_SOURCE_MAX, "SOUND_SOURCES")
+        cols = tuple(struct.unpack(f"<{n}i", r.take(4 * n, "sound sources"))
+                     for _ in range(5))
+        pitches = struct.unpack(f"<{n}d", r.take(8 * n, "sound source pitch"))
+        return SoundSources(n, cols, pitches)
     if type_ == 8:
-        return SectorStuff(r.take(0x5800, "sector stuff"))
+        raw = r.take(0x5800, "sector stuff")
+        return SectorStuff(raw, [SectorSlot.decode(raw[i * 0x58:(i + 1) * 0x58])
+                                 for i in range(256)])
     if type_ == 9:
         exists = r.u8() != 0
         return PlayerStatus(exists, r.take(0x3510, "player status") if exists else b"")
@@ -480,7 +705,7 @@ def _read_record(r: _R, type_: int) -> object:
         names = tuple(
             namesb[i * 9 : i * 9 + 9].split(b"\0", 1)[0].decode("latin1") for i in range(300)
         )
-        return SampleTable(counts, names)
+        return SampleTable(counts, names, namesb)
     if type_ == 15:
         n = _count(r, 0, 0x1F3, "POLY_HANDLE")
         return PolyHandles(*_columns(r, n, 4, "poly handle"))
@@ -491,11 +716,16 @@ def _read_record(r: _R, type_: int) -> object:
         n = _count(r, 0, 0xFF, "SECTOR_HANDLE")
         return SectorHandles(*_columns(r, n, 2, "sector handle"))
     if type_ == 18:
-        n = _count(r, 0, 0x1E, "LIFT")
-        r.take(n * 168, "lift info")
-        return Lift(n, _count(r, 0, 0xC8, "LIFT/total stops"))
+        n = _count(r, 0, LIFT_MAX, "LIFT")
+        records = [r.take(0xA8, "lift info") for _ in range(n)]
+        k = _count(r, 0, STOP_MAX, "LIFT/total stops")
+        cols = tuple(struct.unpack(f"<{k}I", r.take(4 * k, "lift stops"))
+                     for _ in range(3))
+        return Lift(n, k, records, cols)
     if type_ == 19:
-        return Item(r.take(0x7080, "item"))
+        raw = r.take(0x7080, "item")
+        return Item(raw, [ItemSlot.decode(raw[i * 0x60:(i + 1) * 0x60])
+                          for i in range(300)])
     if type_ == 20:
         n = _count(r, 0, 0xC8, "SOB_TABLE")
         out = []
@@ -509,6 +739,20 @@ def _read_record(r: _R, type_: int) -> object:
     if type_ in UNSUPPORTED:
         raise ValueError(f"record type {type_} is not supported by the loader")
     raise ValueError(f"unknown record type {type_}")
+
+
+def parse_payload(type_: int, data: bytes) -> object:
+    """Decode one payload (without its type byte) and require full consumption.
+
+    Used by ``tools/re/records.py`` to rebuild the save-chain blocks, which
+    carry the same payloads as the corresponding ``.sbt`` records.
+    """
+    r = _R(data, 0)
+    payload = _read_record(r, type_)
+    if r.o != len(data):
+        raise ValueError(
+            f"record type {type_}: {len(data) - r.o} trailing payload bytes")
+    return payload
 
 
 def parse(data: bytes) -> Sbt:
@@ -548,10 +792,24 @@ def parse(data: bytes) -> Sbt:
 def encode_payload(type_: int, payload: object) -> bytes:
     """Re-encode a record payload from its structured form.
 
-    Implemented for the fully-modelled record types (handle tables 15/16/17,
-    NAMED_ITEMS 5, THING_TYPES 4, SOB_TABLE 20); for every other type the raw
-    bytes kept on the payload/record are returned unchanged.
+    Every supported record type has a writer: types whose layout is proven are
+    rebuilt from named fields, types whose per-record fields are not known are
+    rebuilt from the count plus the exact record bytes (framing only, no
+    normalisation).  :func:`gm.sbt.parse` fills both representations.
     """
+    if isinstance(payload, Switch):
+        if len(payload.records) != payload.count:
+            raise ValueError("SWITCH: count/records mismatch")
+        return struct.pack("<I", payload.count) + b"".join(payload.records)
+    if isinstance(payload, Door):
+        if len(payload.records) != payload.count:
+            raise ValueError("DOOR: count/records mismatch")
+        return struct.pack("<I", payload.count) + b"".join(payload.records)
+    if isinstance(payload, Thing):
+        body = payload.raw if payload.exists else b""
+        if payload.exists and len(body) != 0x528:
+            raise ValueError("THING: record is %d bytes, expected 0x528" % len(body))
+        return bytes((1 if payload.exists else 0,)) + body
     if isinstance(payload, HandleTable):
         n = len(payload)
         out = bytearray(struct.pack("<I", n))
@@ -570,17 +828,78 @@ def encode_payload(type_: int, payload: object) -> bytes:
             out += e.name_raw or e.name.encode("latin1")[:16].ljust(16, b"\0")
             out += struct.pack("<49d", *e.params) + e.tail
         return bytes(out)
+    if isinstance(payload, Sprites):
+        if len(payload.records) != payload.count:
+            raise ValueError("SPRITES: count/records mismatch")
+        for rec in payload.records:
+            if len(rec) != SPRITE_SIZE:
+                raise ValueError("SPRITES: record is %d bytes, expected 44" % len(rec))
+        return struct.pack("<I", payload.count) + b"".join(payload.records)
+    if isinstance(payload, SoundSources):
+        n = payload.count
+        if len(payload.columns) != 5 or any(len(c) != n for c in payload.columns):
+            raise ValueError("SOUND_SOURCES: expected five columns of %d" % n)
+        if len(payload.pitches) != n:
+            raise ValueError("SOUND_SOURCES: expected %d pitch values" % n)
+        out = bytearray(struct.pack("<I", n))
+        for col in payload.columns:
+            out += struct.pack("<%di" % n, *col)
+        out += struct.pack("<%dd" % n, *payload.pitches)
+        return bytes(out)
+    if isinstance(payload, SectorStuff):
+        if len(payload.slots) == 256:
+            return b"".join(s.encode() for s in payload.slots)
+        if len(payload.raw) != 0x5800:
+            raise ValueError("SECTOR_STUFF: payload is %d bytes, expected 0x5800"
+                             % len(payload.raw))
+        return payload.raw
+    if isinstance(payload, PlayerStatus):
+        body = payload.raw if payload.exists else b""
+        if payload.exists and len(body) != 0x3510:
+            raise ValueError("PLAYER_STATUS: record is %d bytes, expected 0x3510"
+                             % len(body))
+        return bytes((1 if payload.exists else 0,)) + body
+    if isinstance(payload, Script):
+        return payload.encode()
+    if isinstance(payload, SampleTable):
+        if len(payload.counts) != SAMPLE_SLOTS:
+            raise ValueError("SOUND_SAMPLE_TABLE: expected 300 counts")
+        slots = payload.name_slots
+        if len(slots) != 0xA8C:
+            if len(payload.names) != SAMPLE_SLOTS:
+                raise ValueError("SOUND_SAMPLE_TABLE: expected 300 names")
+            slots = b"".join(
+                n.encode("latin1")[:8].ljust(9, b"\0") for n in payload.names)
+        return struct.pack("<300I", *payload.counts) + slots
+    if isinstance(payload, Lift):
+        if len(payload.records) != payload.lifts:
+            raise ValueError("LIFT: lift count/records mismatch")
+        if any(len(r) != 0xA8 for r in payload.records):
+            raise ValueError("LIFT: record is not 0xa8 bytes")
+        if len(payload.stop_columns) != 3:
+            raise ValueError("LIFT: expected three stop columns")
+        for col in payload.stop_columns:
+            if len(col) != payload.stops:
+                raise ValueError("LIFT: stop column length mismatch")
+        out = bytearray(struct.pack("<I", payload.lifts))
+        out += b"".join(payload.records)
+        out += struct.pack("<I", payload.stops)
+        for col in payload.stop_columns:
+            out += struct.pack("<%dI" % payload.stops, *col)
+        return bytes(out)
+    if isinstance(payload, Item):
+        if len(payload.slots) == 300:
+            return b"".join(s.encode() for s in payload.slots)
+        if len(payload.raw) != 0x7080:
+            raise ValueError("ITEM: payload is %d bytes, expected 0x7080"
+                             % len(payload.raw))
+        return payload.raw
     if isinstance(payload, SobTable):
         out = bytearray(struct.pack("<I", len(payload.entries)))
         for e in payload.entries:
             out += e.name_raw or e.name.encode("latin1")[:12].ljust(12, b"\0")
             out += struct.pack("<II", e.amount, e.ptr)
         return bytes(out)
-    if isinstance(payload, Script):
-        return payload.encode()
-    raw = getattr(payload, "raw", None)
-    if raw is not None:
-        return raw
     raise ValueError(f"cannot re-encode a {type(payload).__name__} payload")
 
 
