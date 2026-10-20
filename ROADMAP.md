@@ -331,8 +331,8 @@ round-trip'ы проверены на поставке.
       транспонированным 64×128), без RLE; `.fdx` — текст `count,fps`, номер
       строки = id. Round-trip 48/48 `.sof` + 6/6 `.fdx` + `ammo.idx`
       (`tools/parity_film.py`), 11 637/11 637 тайлов `encode(decode(t)) == t`.
-- 🟡 Экспорт: PNG одного кадра есть; APNG/GIF-последовательности и
-      `--rebuild` в CLI пока нет (round-trip доступен через `Sof.to_bytes`).
+- 🟡 Экспорт: PNG одного кадра и `--rebuild DIR` (байт-в-байт `.sof` + `.fdx`)
+      есть; APNG/GIF-последовательности пока нет.
 - ✅ Привязка семейств: `WEAPON`/`AMMO`/`TANK`/`SHIELD`/`EQUIP`/`DEFAULT`
       (xref `0x4958d0`), 8 скриптовых фильмов; точная семантика глобала
       `0x81c4a0` — гипотеза (`docs/FILM.md`).

@@ -629,12 +629,17 @@ def cmd_film(opts) -> int:
     """Inspect ``.sof`` HUD films (8 KB tiles) and their ``.fdx`` indexes."""
     from gm import png, sof as sofmod
     paths = []
+    index_paths = set()
     for p in opts.paths:
         if os.path.isdir(p):
-            paths += sorted(os.path.join(p, n) for n in os.listdir(p)
-                            if n.lower().endswith(".sof"))
+            names = sorted(os.listdir(p))
+            paths += [os.path.join(p, n) for n in names if n.lower().endswith(".sof")]
+            index_paths.update(os.path.join(p, n) for n in names
+                               if n.lower().endswith((".fdx", ".idx")))
         else:
             paths.append(p)
+            if p.lower().endswith((".fdx", ".idx")):
+                index_paths.add(p)
     palette = None
     if opts.palette:
         from gm import bmp
@@ -687,7 +692,27 @@ def cmd_film(opts) -> int:
                 blob = png.gray(sofmod.TILE_W, sofmod.TILE_H, data)
             with _wopen(out, opts) as fh:
                 fh.write(blob)
+        if opts.rebuild:
+            os.makedirs(opts.rebuild, exist_ok=True)
+            dst = os.path.join(opts.rebuild, os.path.basename(path))
+            with _wopen(dst, opts) as fh:
+                fh.write(film.to_bytes())
+            if idx:
+                index_paths.add(idx)
         n += 1
+    if opts.rebuild:
+        for idx in sorted(index_paths):
+            try:
+                fdx = sofmod.load_fdx(idx)
+            except (OSError, ValueError) as exc:
+                bad += 1
+                print("  FAIL %s: %s" % (idx, exc), file=sys.stderr)
+                continue
+            os.makedirs(opts.rebuild, exist_ok=True)
+            dst = os.path.join(opts.rebuild, os.path.basename(idx))
+            if not os.path.exists(dst) or opts.force:
+                with _wopen(dst, opts) as fh:
+                    fh.write(fdx.to_bytes())
     if not opts.json:
         print("film: %d inspected, %d failed" % (n, bad))
     return 0 if bad == 0 else 1
@@ -2031,6 +2056,8 @@ def main(argv=None) -> int:
     p.add_argument("--png", metavar="OUT",
                    help="write the tile as PNG (a file, or a directory for many)")
     p.add_argument("--palette", help="BMP whose palette to apply to --png")
+    p.add_argument("--rebuild", metavar="DIR",
+                   help="write every .sof (and its .fdx) back, byte-exact")
     p.set_defaults(func=cmd_film)
 
     p = sub.add_parser("soo", help="parse .soo flipbook animations (text)")

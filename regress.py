@@ -973,6 +973,19 @@ def main() -> int:
           and body.get("extra_tiles") == 1)
     results.append(report("film / family/index binding", ok,
                           "AMMO id=4, 131@24, one trailing tile"))
+    film_src = os.path.join(G, "Film", "AMMO4.SOF")
+    film_out = os.path.join(out, "film_rebuild")
+    rc, text = run_raw(["film", film_src, "--rebuild", film_out])
+    same = (os.path.exists(os.path.join(film_out, "AMMO4.SOF"))
+            and os.path.exists(os.path.join(film_out, "ammo.fdx")))
+    if same:
+        with open(film_src, "rb") as a, open(os.path.join(film_out, "AMMO4.SOF"), "rb") as b:
+            same = a.read() == b.read()
+        with open(os.path.join(G, "Film", "ammo.fdx"), "rb") as a, \
+                open(os.path.join(film_out, "ammo.fdx"), "rb") as b:
+            same = same and a.read() == b.read()
+    results.append(report("film / byte-exact rebuild", rc == 0 and same,
+                          "AMMO4.SOF + ammo.fdx"))
     misc_dir = os.path.join(out, "misc")
     rc, text = run(["misc", G, "--rebuild", misc_dir] + FORCE)
     srcs = [os.path.join(G, p) for p in (
