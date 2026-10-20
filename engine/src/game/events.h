@@ -27,6 +27,7 @@
 //
 // See docs/EVENTS.md for the Ghidra evidence.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -140,6 +141,74 @@ private:
 /// Feed one event of the queue into a registry (`event_dispatch`, the types
 /// 4..12 branch).  Non-text events are ignored and return false.
 bool post_event(TextRegistry& registry, const Event& event, std::uint32_t now);
+
+/// One entry of the original runtime switch table `0x5a4af0` (stride 0x20),
+/// written by the level/trigger setup and consumed by `FUN_0044f960`.
+struct SwitchEffect {
+    std::uint32_t kind = 0;     ///< +0x00; >= 0x101 uses the sector centroid
+    std::uint32_t event_id = 0; ///< +0x04; 0 = inactive
+    std::int32_t x = 0;         ///< +0x0c
+    std::int32_t y = 0;         ///< +0x10
+    std::int32_t z = 0;         ///< +0x14
+    std::uint32_t sound_id = 0; ///< +0x18
+    std::int32_t sound_index = 0; ///< +0x1c; positive = play
+    std::array<double, 3> centroid{}; ///< sector centroid for kind >= 0x101
+    bool has_centroid = false;
+};
+
+/// A 3D sound request from a type-2 switch (`FUN_0046b840`).  The caller owns
+/// the audio backend; `rate`/`volume` are the literals of that call.
+struct SoundCommand {
+    std::int32_t index = 0;
+    std::uint32_t sound_id = 0;
+    std::uint32_t rate = 0x2b11;
+    std::int32_t volume = 1000;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+/// Result of `event_dispatch`: generated world events, type-2 sound requests
+/// and the number of text records handed to the registry.  Unknown/truncated
+/// queues are rejected as a whole, matching the original.
+struct EventDispatchResult {
+    bool ok = true;
+    std::vector<Event> generated;
+    std::vector<SoundCommand> sounds;
+    std::size_t text_posted = 0;
+};
+
+class EventQueue;
+
+/// `event_dispatch` (`0x4799b0`) over the runtime switch table.  Types 1/3
+/// become `generated`; type 2 looks up `switches_[index]`, emits a generate
+/// event at the switch (or its centroid) and a sound request; types 4..12 go
+/// to `TextRegistry`.  The table is deliberately caller-owned: the original
+/// fills `0x5a4af0` from the level's trigger setup, which is not a record in
+/// the `.sbt` parser yet.
+class EventDispatcher {
+public:
+    static constexpr std::size_t kMaxSwitches = 0x200;
+
+    EventDispatcher() = default;
+
+    /// Install one table entry.  False for an out-of-range index.
+    bool set_switch(std::uint32_t index, const SwitchEffect& effect);
+    /// Remove an entry (sets it to all zeroes / inactive).
+    bool clear_switch(std::uint32_t index);
+    const SwitchEffect* switch_at(std::uint32_t index) const;
+
+    /// Process already-parsed events.  When `parsed.ok` is false the whole
+    /// queue is dropped and the result has `ok=false`.
+    EventDispatchResult dispatch(const EventParseResult& parsed,
+                                 std::uint32_t now, TextRegistry& registry);
+    /// Drain and dispatch one queue.
+    EventDispatchResult dispatch(EventQueue& queue, std::uint32_t now,
+                                 TextRegistry& registry);
+
+private:
+    std::array<SwitchEffect, kMaxSwitches> switches_{};
+};
 
 /// Append-only staging queue.  `drain()` is the equivalent of `event_dispatch`.
 class EventQueue {

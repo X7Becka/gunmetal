@@ -376,6 +376,89 @@ void test_network_blob() {
     CHECK(none.events.empty());
 }
 
+
+void test_dispatch_switch() {
+    gm::EventDispatcher dispatcher;
+    gm::TextRegistry registry;
+    gm::EventQueue queue;
+
+    gm::SwitchEffect effect;
+    effect.kind = 0x100;
+    effect.event_id = 900;
+    effect.x = 1;
+    effect.y = 2;
+    effect.z = 3;
+    effect.sound_id = 700;
+    effect.sound_index = 5;
+    CHECK(dispatcher.set_switch(3, effect));
+    CHECK(queue.post_switch(3, 7));
+    const gm::EventDispatchResult direct = dispatcher.dispatch(queue, 10, registry);
+    CHECK(direct.ok);
+    CHECK_EQ(direct.generated.size(), 1U);
+    CHECK_EQ(direct.sounds.size(), 1U);
+    CHECK_EQ(direct.text_posted, 0U);
+    if (direct.generated.size() == 1) {
+        CHECK_EQ(direct.generated[0].id, 900);
+        CHECK_EQ(direct.generated[0].x, 1);
+        CHECK_EQ(direct.generated[0].y, 2);
+        CHECK_EQ(direct.generated[0].z, 3);
+        CHECK_EQ(direct.generated[0].extra,
+                 static_cast<std::uint32_t>(7 - 0x10000)); // source - 0x10000
+    }
+    if (direct.sounds.size() == 1) {
+        CHECK_EQ(direct.sounds[0].index, 5);
+        CHECK_EQ(direct.sounds[0].sound_id, 700U);
+        CHECK_EQ(direct.sounds[0].rate, 0x2b11U);
+        CHECK_EQ(direct.sounds[0].volume, 1000);
+    }
+
+    // kind >= 0x101 uses the sector centroid, not the record xyz.
+    gm::SwitchEffect centroid = effect;
+    centroid.kind = 0x101;
+    centroid.has_centroid = true;
+    centroid.centroid = {10.5, 20.5, 30.5};
+    CHECK(dispatcher.set_switch(4, centroid));
+    CHECK(queue.post_switch(4, 0));
+    const gm::EventDispatchResult centred = dispatcher.dispatch(queue, 10, registry);
+    CHECK_EQ(centred.generated.size(), 1U);
+    if (centred.generated.size() == 1) {
+        CHECK_EQ(centred.generated[0].x, 10);
+        CHECK_EQ(centred.generated[0].y, 20);
+        CHECK_EQ(centred.generated[0].z, 30);
+    }
+
+    // Inactive switch: event_id 0 does nothing.  Unknown index is skipped.
+    gm::SwitchEffect inactive = effect;
+    inactive.event_id = 0;
+    CHECK(dispatcher.set_switch(5, inactive));
+    CHECK(queue.post_switch(5, 0));
+    CHECK(queue.post_switch(99, 0));
+    const gm::EventDispatchResult off = dispatcher.dispatch(queue, 10, registry);
+    CHECK(off.ok);
+    CHECK(off.generated.empty());
+    CHECK(off.sounds.empty());
+    CHECK(!dispatcher.set_switch(gm::EventDispatcher::kMaxSwitches, effect));
+
+    // Text records go to the message registry; type 1/3 events pass through.
+    CHECK(queue.post_text(0, 2, "dispatch"));
+    CHECK(queue.post_generate(42, 7, 1.0, 2.0, 3.0));
+    const gm::EventDispatchResult text = dispatcher.dispatch(queue, 10, registry);
+    CHECK_EQ(text.text_posted, 1U);
+    CHECK_EQ(text.generated.size(), 1U);
+    CHECK_EQ(registry.size(), 1U);
+    if (registry.size() == 1) {
+        CHECK_EQ(registry.messages()[0].text, std::string("dispatch"));
+        CHECK_EQ(registry.messages()[0].kind, 0);
+    }
+
+    // A malformed queue drops everything as a whole.
+    gm::EventParseResult bad;
+    bad.ok = false;
+    const gm::EventDispatchResult dropped = dispatcher.dispatch(bad, 10, registry);
+    CHECK(!dropped.ok);
+    CHECK(dropped.generated.empty());
+}
+
 } // namespace
 
 int main() {
@@ -387,6 +470,7 @@ int main() {
     test_bad_records();
     test_text_registry();
     test_network_blob();
+    test_dispatch_switch();
     if (g_failures != 0) {
         std::fprintf(stderr, "events: %d failure(s)\n", g_failures);
         return 1;

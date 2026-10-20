@@ -384,6 +384,94 @@ bool post_event(TextRegistry& registry, const Event& event, std::uint32_t now) {
                                   static_cast<std::int32_t>(event.channel), now);
 }
 
+
+bool EventDispatcher::set_switch(std::uint32_t index, const SwitchEffect& effect) {
+    if (index >= kMaxSwitches) {
+        return false;
+    }
+    switches_[index] = effect;
+    return true;
+}
+
+bool EventDispatcher::clear_switch(std::uint32_t index) {
+    if (index >= kMaxSwitches) {
+        return false;
+    }
+    switches_[index] = SwitchEffect{};
+    return true;
+}
+
+const SwitchEffect* EventDispatcher::switch_at(std::uint32_t index) const {
+    if (index >= kMaxSwitches) {
+        return nullptr;
+    }
+    const SwitchEffect& effect = switches_[index];
+    return effect.event_id == 0 ? nullptr : &effect;
+}
+
+EventDispatchResult EventDispatcher::dispatch(const EventParseResult& parsed,
+                                              std::uint32_t now,
+                                              TextRegistry& registry) {
+    EventDispatchResult result;
+    if (!parsed.ok) {
+        result.ok = false;
+        return result;
+    }
+    for (const Event& event : parsed.events) {
+        const std::uint8_t type = static_cast<std::uint8_t>(event.type);
+        if (type == static_cast<std::uint8_t>(EventType::generate_short) ||
+            type == static_cast<std::uint8_t>(EventType::generate)) {
+            result.generated.push_back(event);
+            continue;
+        }
+        if (type == static_cast<std::uint8_t>(EventType::trigger_switch)) {
+            if (event.switch_index >= kMaxSwitches) {
+                continue;
+            }
+            const SwitchEffect& effect = switches_[event.switch_index];
+            if (effect.event_id == 0) {
+                continue; // inactive switch: 0x44f960 does nothing
+            }
+            const bool centroid = effect.kind >= 0x101 && effect.has_centroid;
+            const double x = centroid ? effect.centroid[0] : effect.x;
+            const double y = centroid ? effect.centroid[1] : effect.y;
+            const double z = centroid ? effect.centroid[2] : effect.z;
+            Event generated;
+            generated.type = EventType::generate;
+            generated.id = static_cast<std::int32_t>(effect.event_id);
+            generated.x = static_cast<std::int32_t>(x);
+            generated.y = static_cast<std::int32_t>(y);
+            generated.z = static_cast<std::int32_t>(z);
+            // 0x44f960 passes `source - 0x10000` as the last generate argument.
+            generated.extra = static_cast<std::uint32_t>(
+                static_cast<std::int32_t>(event.source) - 0x10000);
+            result.generated.push_back(generated);
+            if (effect.sound_index > 0) {
+                SoundCommand sound;
+                sound.index = effect.sound_index;
+                sound.sound_id = effect.sound_id;
+                sound.x = x;
+                sound.y = y;
+                sound.z = z;
+                result.sounds.push_back(sound);
+            }
+            continue;
+        }
+        if (is_text_type(type)) {
+            if (post_event(registry, event, now)) {
+                ++result.text_posted;
+            }
+        }
+    }
+    return result;
+}
+
+EventDispatchResult EventDispatcher::dispatch(EventQueue& queue, std::uint32_t now,
+                                              TextRegistry& registry) {
+    EventParseResult parsed = queue.drain();
+    return dispatch(parsed, now, registry);
+}
+
 EventParseResult EventQueue::parse_network_blob(std::span<const std::uint8_t> bytes) {
     EventParseResult result;
     if (bytes.size() < 4) {
