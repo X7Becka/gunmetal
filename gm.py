@@ -36,6 +36,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from gm import (  # noqa: E402
+    sou1,
     sou2,
     bigfile,
     bmp,
@@ -286,7 +287,7 @@ def cmd_sounds(opts) -> int:
     os.makedirs(opts.out, exist_ok=True)
     dat = open(bf.dat_path, "rb").read()
     codecs: dict[str, int] = {}
-    pcm = music = coded = bad = 0
+    pcm = sou1_wav = music = coded = bad = 0
     for e in bf.entries:
         try:
             snd = sou.parse(e.data(dat))
@@ -298,6 +299,16 @@ def cmd_sounds(opts) -> int:
             with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".wav"), opts) as f:
                 f.write(snd.to_wav())
             pcm += 1
+        elif snd.magic == "SOU1":
+            try:
+                wav = sou1.to_wav(e.data(dat))
+            except ValueError as exc:
+                print(f"  {e.name}: {exc}", file=sys.stderr)
+                bad += 1
+                continue
+            with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".wav"), opts) as f:
+                f.write(wav)
+            sou1_wav += 1
         elif snd.magic == "SOU2":
             # Format 4 is fully decoded (gm/sou2.py); export real PCM.
             try:
@@ -318,8 +329,8 @@ def cmd_sounds(opts) -> int:
             with _wopen(os.path.join(opts.out, name), opts) as f:
                 f.write(snd.payload)
             coded += 1
-    print(f"sounds: {pcm} PCM WAV, {music} SOU2 WAV, "
-          f"{coded} coded payloads dumped raw, {bad} failed")
+    print(f"sounds: {pcm} SOU0 WAV, {sou1_wav} SOU1 WAV, {music} SOU2 WAV, "
+          f"{coded} raw dumps, {bad} failed")
     print(f"  containers: {codecs}")
     return 0 if bad == 0 else 1
 
@@ -1792,7 +1803,7 @@ def main(argv=None) -> int:
     p.add_argument("--transparent", type=int, default=0, help="palette index to make transparent (default 0)")
     p.set_defaults(func=cmd_sprites)
 
-    p = sub.add_parser("sounds", help="sounds/SOU.DAT -> WAV (SOU0/SOU2) / raw payloads (SOU1)")
+    p = sub.add_parser("sounds", help="sounds/SOU.DAT -> WAV (SOU0/SOU1/SOU2)")
     p.add_argument("game")
     p.add_argument("out")
     p.set_defaults(func=cmd_sounds)

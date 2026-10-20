@@ -131,6 +131,12 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           rc1 == 0 and rc2 != 0 and "refusing to overwrite" in text2
                           and rc3 == 0, "needs --force"))
 
+    # Python SOU1 decoder vs the emulator-verified FNV manifest.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "parity_sou1.py"),
+                        "--fast", "--game", G], capture_output=True, text=True, cwd=HERE)
+    results.append(report("sou1 / Python decoder parity (fast)", p.returncode == 0,
+                          (p.stdout.strip().splitlines() or ["no output"])[-1]))
+
     # Python SOU2 decoder vs the C++/engine reference (six pinned records).
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "parity_sou2.py"),
                         "--fast", "--game", G], capture_output=True, text=True, cwd=HERE)
@@ -1152,7 +1158,7 @@ def main() -> int:
              ["sprites", G, os.path.join(out, "spr")], ["0 failed"]),
             ("sounds / SOU0+SOU2 -> WAV, SOU1 raw",
              ["sounds", G, os.path.join(out, "snd")],
-             ["13 PCM WAV, 3 SOU2 WAV, 983 coded payloads dumped raw, 0 failed"]),
+             ["13 SOU0 WAV, 983 SOU1 WAV, 3 SOU2 WAV, 0 raw dumps, 0 failed"]),
             ("frontend / BMP.DAT",
              ["frontend", G, os.path.join(out, "fe")], ["143 files"]),
         ]))

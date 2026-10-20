@@ -77,6 +77,9 @@ class Sou:
         if self.magic == "SOU2":
             from . import sou2
             return sou2.to_wav(self.raw)
+        if self.magic == "SOU1":
+            from . import sou1
+            return sou1.to_wav(self.raw)
         if not self.is_pcm:
             raise ValueError(
                 f"{self.magic} payload is a compressed codec, not raw PCM; "

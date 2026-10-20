@@ -83,7 +83,7 @@ python3 gm.py list "…/PICS/SBM.IDX"
 python3 gm.py textures "…/Gunmetal 3dfx" out/textures
 python3 gm.py sprites  "…/Gunmetal 3dfx" out/sprites --transparent 0
 
-# звуки: WAV для SOU0 и SOU2; SOU1 — пока raw (декодер-модель в tools/re)
+# звуки: WAV для SOU0 (сырой PCM), SOU1 (ADPCM) и SOU2 (формат 4)
 
 python3 gm.py sounds   "…/Gunmetal 3dfx" out/sounds
 
