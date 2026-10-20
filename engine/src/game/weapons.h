@@ -11,7 +11,7 @@
 //
 // Proven data (`docs/WEAPONS_CPP.md` §2):
 //   * `DEFINE_WEAPONS` record fields d0..d20 -> Weapon (fire mode, period in
-//     ms, ammo type, ammo per shot, projectile ids, range, spread tangents,
+//     ms, ammo type, ammo per shot, GENERATE/event ids, range, spread tangents,
 //     muzzle node, price, weight, flags, class, charge rate);
 //   * `player+0x3294` = selected slot, `+0x3298` = `1 << slot` mask,
 //     `+0x329c[12]` = ammo per slot (docs/SAVE_FIELDS.md §9.2);
@@ -22,9 +22,12 @@
 //
 // Hypotheses (no field exists in the shipped data, see §3 of the doc):
 //   * `magazine` / `reload_ticks` / `damage` / `hitscan` / `projectile_speed`.
-//     `load()` keeps the original behaviour: magazine 0 = direct feed, no
-//     reload, damage 1.0 (placeholder, not balance), every weapon is a
-//     projectile and the speed is `kDefaultProjectileSpeed`.
+//     `load()` keeps a conservative runtime: magazine 0 = direct feed, no
+//     reload, damage 1.0 (placeholder, not balance).  The original uses
+//     hitscan for BULLET/LASER (0x478520/0x478be0) and a real THING for
+//     THING weapons (0x45e19d -> 0x46ea40 -> 0x46d8b0); the current runtime
+//     still treats every weapon as a projectile and uses
+//     `kDefaultProjectileSpeed`.
 //   * the damage split between one shield quadrant and the hull.
 //   * spread sampling (uniform in the tangent square, deterministic seed).
 //
@@ -59,9 +62,10 @@ constexpr double kWeaponTickHz = 91.0;
 /// Seconds in one tick.
 constexpr double kWeaponTickSeconds = 1.0 / kWeaponTickHz;
 /// Placeholder projectile speed in world units/second.  `DEFINE_WEAPONS` has
-/// no speed field; the id at `+0x30` is spawned as an `.soe` object whose own
-/// record carries the real motion.  This constant only fills `ShotResult::time`
-/// and never changes the hit point (the runtime resolves a straight segment).
+/// no speed field; the real THING speed is `THING_TYPES[+0x10]` plus
+/// `charge * operand[9]` (Ghidra 0x46dd11/0x46f0f0), and the original moves
+/// it by `speed * dt`.  This constant only fills `ShotResult::time` and never
+/// changes the hit point (the runtime resolves a straight segment).
 constexpr double kDefaultProjectileSpeed = 12000.0;
 /// Placeholder damage in points.  There is no damage field in the weapon
 /// table; this value is deliberately conservative and is not game balance.
@@ -87,9 +91,9 @@ struct Weapon {
     int ammo_type = -1;     ///< d2 -> +0x3c, index into ammo_types()
     int ammo_per_shot = 1;  ///< d3 -> +0x40
 
-    std::uint32_t projectile_id = 0;     ///< d4 -> +0x30, event id posted by event_post
-    std::uint32_t projectile_alt = 0;    ///< d5 -> +0x34, second event id
-    std::uint32_t state = 0;             ///< d6 -> +0x38, player[0x331c]
+    std::uint32_t projectile_id = 0;     ///< d4 -> +0x30, GENERATE entity/event id
+    std::uint32_t projectile_alt = 0;    ///< d5 -> +0x34, loop/secondary event id
+    std::uint32_t state = 0;             ///< d6 -> +0x38, stop-loop event id
     std::uint32_t price = 0;             ///< d8 -> +0x44
     std::uint32_t weight = 0;            ///< d9 -> +0x48
     std::uint32_t flags = 0;             ///< d10 -> +0x28 (bits 1/0x40/0x80)
@@ -104,7 +108,7 @@ struct Weapon {
     double damage = 0.0;        ///< points, caller supplied; load() = 1.0
     int magazine = 0;           ///< capacity; 0 = direct feed (original)
     int reload_ticks = 0;       ///< 0 = instant (original has no reload)
-    bool hitscan = false;       ///< fire posts a GENERATE event; spawn is in the entity sub-script
+    bool hitscan = false;       ///< original: BULLET/LASER hitscan, THING spawns an entity; runtime TODO
     double projectile_speed = 0.0; ///< units/s when !hitscan; 0 = invalid
 };
 

@@ -86,6 +86,44 @@ id и запустить подскрипт сущности. Для оружи�
 `Warning: [%s] event not defined`. Это запуск скомпилированного подскрипта, а не
 фабрика объектов.
 
+## 4.1. Встроенные event id
+
+Имена лежат в `.rdata` `0x4acde8` (26 записей × `0x30`), счётчик
+`0x5e3dec`; формула `0x45fb90`: `-index` для системных, `-30000-index` для
+скриптовых. `0` (`SYSTEM_LEVEL_STARTUP`) `event_post` отбрасывает.
+
+| id | имя | что делает |
+|---:|---|---|
+| 0 | `SYSTEM_LEVEL_STARTUP` | напрямую, не через очередь |
+| -1 | `SYSTEM_LEVEL_STARTUP_RESUME` | напрямую |
+| -2 | `INTERNAL_LEVEL_STARTUP_RESUME` | напрямую |
+| -3 | `INTERNAL_LEVEL_RESUME` | напрямую |
+| -4 | `INTERNAL_LEVEL_STARTUP` | напрямую |
+| -5 | `INTERNAL_LEVEL_LOADING` | напрямую |
+| -6 | `SYSTEM_LEVEL_LOADING` | напрямую |
+| -7 | `SYSTEM_PLAYER_KILLED` | очередь |
+| -8 | `SYSTEM_LEVEL_FINISHED` | очередь; `NEW_LEVEL`/`NEXT_LEVEL` |
+| -9 | `SYSTEM_FILM_FINISHED` | очередь |
+| -10 | `SYSTEM_PLAYER_HIT_GROUND` | очередь; тряска камеры + звук |
+| -11 | `SYSTEM_PLAYER_HIT_WATER` | очередь; всплеск (бит `0x8`, порог ×0.5) |
+| -12…-15 | `SYSTEM_PLAYER_*_SHIELD_GONE` | очередь |
+| -16 | `SYSTEM_TIMER_EXPIRED` | очередь |
+| -17 | `SYSTEM_PLAYER_LIFE_HALF_GONE` | очередь |
+| -18 | `SYSTEM_PLAYER_ABOVE_HALF_LIFE` | очередь |
+| -19 | `SYSTEM_PLAYER_CREATED` | очередь |
+| -20 | `SYSTEM_LEVEL_LOADING_COMPLETE` | очередь; музыка уровня |
+| -21 | `SYSTEM_PLAYER_STUCK` | очередь; loop двигателя |
+| -22 | `SYSTEM_DOOR_CRUSH` | очередь; `HEAL -10`, `REPAIR -20`, crush-loop |
+| -23 | `SYSTEM_THING_HIT_GROUND` | очередь; звук удара |
+| -24 | `SYSTEM_THING_ENTER_WATER` | очередь |
+| -25 | `EVENT_SYSTEM_THING_EXIT_WATER` | очередь |
+
+`-22` — **не** «обновление препятствия двери»: это crush-урон, когда игрок
+упирается в движущуюся створку (`0x45065f`/`0x450787` из пути коллизии
+`0x4392de`). Объём двери обновляют `0x44f2e0`/`0x44dfc0` → `0x434887`
+независимо от события. `-11` — вода, `-10` — земля, `-21` — застревание;
+старые трактовки `-11/-21` как «удар/эффект» опровергнуты.
+
 ## 5. Что это значит для оружия
 
 В `0x445ec0…0x445f61` функция огня делает два `event_post`:
@@ -101,8 +139,8 @@ id и запустить подскрипт сущности. Для оружи�
 
 Старые формулировки «выстрел спавнит объект `0x4795b0`» и «`0x4795b0` — спавнер»
 надо читать как «выстрел ставит `GENERATE`-событие; `0x4795b0` — `event_post`».
-Для двери `0x4795b0(..., -22, box)` — это тоже событие с id `-22`; обновление
-препятствия выполняет обработчик, а не сама `event_post`.
+Для двери `0x4795b0(..., -22, box)` — это `SYSTEM_DOOR_CRUSH`: событие
+crush-урона, а не обновление препятствия.
 
 ## 6. Открытые вопросы
 

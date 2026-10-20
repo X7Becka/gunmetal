@@ -50,6 +50,9 @@ va,name,kind,subsystem,status,evidence
 0x46d000,thing_builder,code,world,код,FORMATS 12.4 — ADD_THING -> модель
 0x4795b0,event_post,code,events,код,Ghidra: очередь event type 1/3 (0x1b/0x17); не спавнер
 0x4799b0,event_dispatch,code,events,код,Ghidra: разбор очереди, type 1/3 -> generate_event
+0x4acde8,event_name_table,data,events,код,Ghidra: 26*0x30; id=-index/-30000-index
+0x5e3dec,event_name_count,data,events,код,Ghidra: 26 в этой сборке
+0x45fb90,event_id_resolver,code,events,код,Ghidra: EVENT имя/число -> id
 0x479960,generate_event,code,events,код,Ghidra: GENERATE — door_toggle_by_id + generate_runner
 0x81bd70,player_max_speed_base,data,player,код,Ghidra: double из DEFINE_PLAYER_TYPES +0x20; единицы/тик
 0x81bd78,player_speed_effective,data,player,код,Ghidra: speed * health factor в 0x443690
@@ -57,6 +60,11 @@ va,name,kind,subsystem,status,evidence
 0x81bd88,player_speed_after_weight,data,player,код,Ghidra: 0x4524d0 клампит min 0.05
 0x81bda8,player_collision_radius,data,player,код,Ghidra: obj+0x60 (f32 radius SOB) из 0x452240
 0x80f840,level_gravity_mul,data,player,код,Ghidra: op96; default 1.0; suspension -0.2*dt
+0x45e19d,fire_sourceplayer_thing,code,combat,код,Ghidra: cid=20; 0x46ea40 fire_thing
+0x46ea40,fire_thing,code,combat,код,Ghidra: THING_TYPES+0x10 speed + charge*operand9
+0x46d8b0,thing_spawn_from_type,code,combat,код,Ghidra: create thing from THING_TYPES type
+0x478520,hitscan_bullet,code,combat,код,Ghidra: bullet trace/damage L2
+0x478be0,hitscan_laser,code,combat,код,Ghidra: laser trace/damage L4
 0x47b642,shop_ammo_clamp,code,combat,код,покупка клампится по DEFINE_AMMO.L0
 0x47c990,model_index_to_pointer,code,models,код,SOBS/<имя>.sob или Sobanim/<имя>.soo
 0x44f690,door_toggle_by_id,code,world,код,FORMATS 12.4 — GENERATE

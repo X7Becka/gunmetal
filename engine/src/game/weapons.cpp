@@ -308,8 +308,10 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
                         " is past the DEFINE_AMMO table");
         }
 
-        // Hypothesis layer: the original directly feeds from ammo[slot] and
-        // spawns an .soe projectile, so keep it as close to that as possible.
+        // Hypothesis layer: the original directly feeds from ammo[slot].
+        // BULLET/LASER use hitscan (0x478520/0x478be0); THING weapons spawn
+        // an .soe entity (0x45e19d -> 0x46ea40).  This runtime still uses one
+        // projectile path for every weapon until the mode is wired per type.
         weapon.magazine = 0;
         weapon.reload_ticks = 0;
         weapon.damage = kPlaceholderDamage;
