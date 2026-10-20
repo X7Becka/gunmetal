@@ -17,7 +17,7 @@
 | | |
 |---|---|
 | Python | 3.14.4 (stdlib only, без pip) |
-| тесты | `python3 regress.py` (93 проверки) / `--full` (98) |
+| тесты | `python3 regress.py` (95 проверок) / `--full` (100) |
 | CLI | `python3 gm.py <command>` |
 
 ## Реверс
