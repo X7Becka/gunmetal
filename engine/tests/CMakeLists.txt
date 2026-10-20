@@ -165,6 +165,16 @@ gm_label(sou1_audio quick)
 add_test(NAME sou1_audio_full COMMAND gm_sou1_audio_tests --full)
 gm_label(sou1_audio_full full)
 
+add_executable(gm_mixer_tests test_mixer.cpp)
+target_link_libraries(gm_mixer_tests PRIVATE gm_engine)
+# Deterministic 32-voice software mixer (docs/AUDIO_MIXER.md): synthetic
+# impulse/ramp/DC fixtures for pan, loop, stop, resample, distance, the pool
+# limit, clipping and negative parameters; bit-identical reruns; and two real
+# SOU1 records (8 kHz mono, 32 kHz stereo) hashed over the first 4096 stereo
+# frames at 22050 Hz.
+add_test(NAME mixer COMMAND gm_mixer_tests)
+gm_label(mixer quick)
+
 add_executable(gm_sbv_video_tests test_sbv_video.cpp)
 target_link_libraries(gm_sbv_video_tests PRIVATE gm_engine)
 # `ctest` runs the full 500-frame Intro sweep; `gm_sbv_video_tests --quick`
