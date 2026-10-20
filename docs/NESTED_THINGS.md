@@ -257,3 +257,10 @@ python3 tools/re/nested_things.py --level dm1 --contexts all --random-unknown
 * API не отменяет последующие команды (`DELETE_LOCATION`, `REMOVE_*`):
   это статический/исполняемый список создания, а не итоговое состояние
   уровня после всех событий.
+
+## CLI
+
+`python3 gm.py scene LEVEL.sbt --nested` добавляет к обычной сводке строку
+`top-level / nested / static sites / executed` (opt-in; без флага counts не
+меняются). Для фактического исполнения контекста используйте
+`tools/re/nested_things.py --contexts all`.

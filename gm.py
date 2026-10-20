@@ -1931,12 +1931,14 @@ def cmd_scene(opts) -> int:
     for p in paths:
         name = os.path.splitext(os.path.basename(p))[0]
         try:
-            sc = scenemod.load(p)
+            sc = scenemod.load(p, execute=bool(opts.nested))
         except Exception as exc:  # noqa: BLE001 - keep going over a batch
             print(f"  FAIL {p}: {exc}", file=sys.stderr)
             rc = 1
             continue
         cnt = sc.counts()
+        if opts.nested:
+            cnt["nested"] = sc.nested_counts()
         if not opts.json:
             print(f"{os.path.basename(p)}: {cnt['lights']} lights, "
                   f"{cnt['locations']} locations/things, {cnt['items']} items, "
@@ -1948,6 +1950,11 @@ def cmd_scene(opts) -> int:
                   f"{cnt['lifts']} lifts, {cnt['spawns']} spawns, "
                   f"{cnt['other']} other placement commands, "
                   f"{cnt['entities']} entities")
+            if opts.nested:
+                n = cnt["nested"]
+                print(f"  nested things: {n['top_level']} top-level, "
+                      f"{n['nested']} nested, {n['total']} static sites, "
+                      f"{n['executed']} executed")
             for l in sc.lights[:opts.show]:
                 print(f"  light {l.kind:5s} pos=({l.pos[0]},{l.pos[1]},{l.pos[2]}) "
                       f"rgb={l.rgb} param={l.param}")
@@ -2054,7 +2061,7 @@ def cmd_spawn(opts) -> int:
     for p in paths:
         name = os.path.splitext(os.path.basename(p))[0]
         try:
-            sc = scenemod.load(p)
+            sc = scenemod.load(p, execute=bool(opts.nested))
         except Exception as exc:  # noqa: BLE001 - keep going over a batch
             print(f"  FAIL {p}: {exc}", file=sys.stderr)
             rc = 1
@@ -2227,6 +2234,8 @@ def main(argv=None) -> int:
     p.add_argument("--out", help="write JSON to this file")
     p.add_argument("--show", type=int, default=3,
                    help="how many entries of each kind to print (default 3)")
+    p.add_argument("--nested", action="store_true",
+                   help="add recursive/executed ADD_THING counts (opt-in)")
     p.set_defaults(func=cmd_scene)
 
     p = sub.add_parser("spawn", help="player starts (SET_PLAYER_START) and DM starts")
