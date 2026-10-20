@@ -186,29 +186,22 @@ python3 tools/re/sou_container.py --self-test
 `MIN_RATE = 10`, `MAX_RATE = 1 000 000`. Это защита от враждебного архива,
 а не ограничение формата: максимум поставки — 3 126 040 байт.
 
-## 5. Интеграция в `gm.py` (предложение, не применено)
+## 5. Интеграция в `gm.py` (сделано)
 
-`gm.py` не менялся. Минимальные строки, если контейнерные команды нужны в
-основном CLI:
+Добавлена подкоманда `gm.py sou IDX [--stats] [--json] [--rebuild DIR]`:
 
-```python
-# cmd_sounds(): после цикла по bf.entries
-st = sou.stats((e.name, e.data(dat)) for e in bf.entries)
-print(f"  container: {st['formats']} {st['channels']} "
-      f"{st['seconds']:.1f} s, bad={st['bad']}")
+```sh
+python3 gm.py sou "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX" --stats
+# sou: 999 entries (999 parsed, 0 bad), 2680.2 s, 26738998 bytes
+#   formats={'SOU0': 13, 'SOU1': 983, 'SOU2': 3} ...
+
+python3 gm.py sou "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX" --rebuild /tmp/sou --force
+# sou rebuild: 999 written, 0 failed -> /tmp/sou
 ```
 
-```python
-# новый подкомандный режим: gm.py sounds <game> <out> --rebuild [--force]
-if opts.rebuild:
-    target = os.path.join(opts.out, "containers")
-    for e in bf.entries:
-        snd = sou.parse(e.data(dat))
-        path = os.path.join(target, bigfile.safe_name(e.name) + ".sou")
-        if os.path.exists(path) and not opts.force:
-            raise SystemExit(f"refusing to overwrite {path} (use --force)")
-        # запись через temp + os.replace, как в tools/re/sou_container.py
-```
+`gm.py sounds <game> <out>` по-прежнему экспортирует WAV; контейнерный
+rebuild вынесен в `sou`, чтобы не смешивать два выходных каталога. Запись
+атомарная и требует `--force` для существующих файлов.
 
 Политика `--force`:
 
