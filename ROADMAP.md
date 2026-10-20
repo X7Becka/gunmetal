@@ -628,8 +628,8 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       `.soe`, `.sog`, `.sou` (контейнер), `.sbv`.
       > Все читатели в C++ с golden-паритетом: `.sbw` (36/36), `.sbt` (36/36),
       > `.sbc` (51/51), `.soo` (40/40), `.soa` (104/104), `.sob` (672/672), `.sog` (651/651),
-      > `.sml/.sme` (299/300; `prelevel/dm4.sml` без `</d>`), `.sbv`-контейнер + пиксельный декодер (Intro 500/500
-      > кадров = Python), `.sou`-контейнер; SOU1 — 983/983 в Python и C++ (`parity_sou1`, `sou1_full`), SOU2 — 3092/3092 в C++ и Python (`sou2_full`, `parity_sou2`).
+      > `.sml/.sme` (299/300; `prelevel/dm4.sml` без `</d>`), `.sbv`-контейнер + пиксельный декодер/энкодер (6843/6843
+      > pixel-exact; Intro 500/500 кадров = Python), `.sou`-контейнер; SOU1 — 983/983 в Python и C++ (`parity_sou1`, `sou1_full`), SOU2 — 3092/3092 в C++ и Python (`sou2_full`, `parity_sou2`).
 - ✅ `M3.2.5` Скриптовый декодер (`sbtvm`-эквивалент) и таблицы команд/условий.
       > `engine/src/res/sbtvm.*`: 192 команды + 59 условий, структурные опкоды
       > (IF/ELSE/DEFINE_*/ADD_LIFT…), канонический текст = Python; 36/36 `.sbt`,
