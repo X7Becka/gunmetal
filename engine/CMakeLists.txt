@@ -1,4 +1,5 @@
 add_library(gm_engine STATIC
+    src/camera/camera.cpp
     src/core/bytes.cpp
     src/core/log.cpp
     src/core/path.cpp
