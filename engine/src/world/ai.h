@@ -13,6 +13,7 @@
 // order; there is no random source, no clock read, and no map iteration.  The
 // only external input is the caller-provided player eye and collision world.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -25,6 +26,36 @@ namespace gm {
 /// Engine tick: the same fixed 91 Hz clock as things, doors and the player.
 inline constexpr int kAiTickHz = 91;
 inline constexpr double kAiTickSeconds = 1.0 / 91.0;
+
+/// Target position history: the original keeps `history[240][3]` in the
+/// tracked object (struct+0x30) and wraps `history_index` at 240
+/// (struct+0x3204, docs/SAVE_FIELDS.md §9.2).  The AI mirrors that shape.
+inline constexpr int kAiHistorySlots = 240;
+inline constexpr int kAiHistoryMaxLag = kAiHistorySlots - 1; // 239 = 0xef
+
+/// Effective lag from `Thing::target_history_offset` (+0x1d0): `0` keeps the
+/// live target position, positive values are clamped to 1..239 — the engine's
+/// 1..0xef clamp in `0x473eed` / `0x476523` (docs/SOE.md).  Shipped data uses
+/// 0..10.
+int ai_history_lag(int raw_offset);
+
+/// Fixed ring of world positions, one slot per accepted tick.  `next` is the
+/// next slot to overwrite (the original's `history_index`); `count` saturates
+/// at 240 so "not enough history yet" is explicit rather than zero-filled.
+struct TargetHistory {
+    std::array<Vec3d, kAiHistorySlots> slots{};
+    int next = 0;  ///< next slot to write, wraps at 240
+    int count = 0; ///< valid entries, 0..240
+
+    void reset();
+    void record(const Vec3d& position);
+    std::size_t size() const { return static_cast<std::size_t>(count); }
+    bool empty() const { return count == 0; }
+
+    /// `lag` is clamped to 0..kAiHistoryMaxLag; `0` is the newest entry, `1`
+    /// one tick older.  Returns false when fewer than `lag + 1` entries exist.
+    bool at(int lag, Vec3d& out) const;
+};
 
 enum class AiState : std::uint8_t {
     idle,
@@ -159,6 +190,21 @@ public:
     /// an agent outside its leash; real movement (navigation) is not modelled.
     bool place(int thing_id, const Vec3d& position);
 
+    /// Ring of the target's world positions.  `tick` appends the live player
+    /// eye exactly once per accepted tick; `attach` and `clear_player` reset
+    /// it.  Nothing else in the state machine consumes it yet.
+    const TargetHistory& target_history() const { return history_; }
+    void reset_target_history() { history_.reset(); }
+
+    /// Explicit append for tests/debug; NaN/inf is rejected.  The normal path
+    /// is `tick`, which records the player eye once per accepted tick.
+    bool record_target_position(const Vec3d& position);
+
+    /// Position of the target `lag` ticks back: `lag == 0` is the live player
+    /// eye (or the newest entry without a player), positive lags are clamped
+    /// to 1..239.  False when the ring is shorter than `lag + 1`.
+    bool target_position(int lag, Vec3d& out) const;
+
     const std::vector<AiAgent>& agents() const { return agents_; }
     const AiAgent* agent(int thing_id) const;
     const AiStats& stats() const { return stats_; }
@@ -177,6 +223,7 @@ private:
     std::vector<AiAgent> agents_;
     std::vector<AiEvent> events_;
     AiStats stats_;
+    TargetHistory history_;
     Vec3d player_eye_{};
     bool has_player_ = false;
 };

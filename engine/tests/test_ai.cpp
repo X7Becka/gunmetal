@@ -98,6 +98,7 @@ struct Row {
 struct TypeSpec {
     const char* name;
     std::uint32_t model_index;
+    int history_offset = 0; ///< THING_TYPES +0x1d0
 };
 
 gm::SbtLevel make_sbt_level(const std::vector<std::uint8_t>& code,
@@ -124,6 +125,8 @@ gm::SbtLevel make_sbt_level(const std::vector<std::uint8_t>& code,
         const std::size_t length = std::min<std::size_t>(std::strlen(types[i].name), 15);
         std::memcpy(types_record.payload.data() + base, types[i].name, length);
         put_u32(types_record.payload, base + 0x1A4, types[i].model_index);
+        put_u32(types_record.payload, base + 0x1D0,
+                static_cast<std::uint32_t>(types[i].history_offset));
     }
     level.records.push_back(std::move(types_record));
 
@@ -162,7 +165,7 @@ void add_thing_at_source(std::vector<std::uint8_t>& code, std::uint32_t type, in
     append_f64(code, 0.0);
 }
 
-gm::Things make_synthetic_things() {
+gm::Things make_synthetic_things(int history_offset = 0) {
     std::vector<std::uint8_t> code;
     add_thing(code, 0, 0, 0, 0);        // agent 0, home (0,0,0)
     add_thing(code, 0, 1000, 0, 0);     // agent 1, home (1000,0,0)
@@ -170,7 +173,7 @@ gm::Things make_synthetic_things() {
     code.push_back(0xFF);
 
     std::vector<Row> rows{{0x3FF, 42, 0}};
-    const std::vector<TypeSpec> types{{"TEST_THING", 0}};
+    const std::vector<TypeSpec> types{{"TEST_THING", 0, history_offset}};
     const std::vector<std::string> models{"TEST_MODEL"};
     const gm::SbtLevel level = make_sbt_level(code, rows, types, models);
     const gm::VmState vm = gm::vm_state_from_level(level);
@@ -556,6 +559,131 @@ void test_two_runs() {
     CHECK_EQ(a.stats().attacks, b.stats().attacks);
 }
 
+void test_target_history() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+
+    // Empty history: no player, no entries, no lag-1 position.
+    gm::Ai ai;
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.target_history().empty());
+    CHECK_EQ(ai.target_history().size(), 0u);
+    gm::Vec3d out{};
+    CHECK(!ai.target_position(0, out));
+    CHECK(!ai.target_position(1, out));
+
+    // A tick without a player does not invent a target position.
+    ai.tick(empty);
+    CHECK(ai.target_history().empty());
+    CHECK_EQ(ai.stats().ticks, 1u);
+
+    // Three distinct eye positions, one recorded per accepted tick.
+    const gm::Vec3d a{10.0, 20.0, 30.0};
+    const gm::Vec3d b{40.0, 50.0, 60.0};
+    const gm::Vec3d c{70.0, 80.0, 90.0};
+    CHECK(ai.set_player(a));
+    ai.tick(empty);
+    CHECK_EQ(ai.target_history().size(), 1u);
+    CHECK(ai.target_position(0, out));
+    CHECK_NEAR(out.x, a.x, 0.0);
+    CHECK(!ai.target_position(1, out)); // two entries are needed for lag 1
+
+    CHECK(ai.set_player(b));
+    ai.tick(empty);
+    CHECK(ai.set_player(c));
+    ai.tick(empty);
+    CHECK_EQ(ai.target_history().size(), 3u);
+
+    CHECK(ai.target_position(0, out)); // "current" = live player eye
+    CHECK_NEAR(out.x, c.x, 0.0);
+    CHECK_NEAR(out.y, c.y, 0.0);
+    CHECK_NEAR(out.z, c.z, 0.0);
+    CHECK(ai.target_position(1, out)); // one tick back = b
+    CHECK_NEAR(out.x, b.x, 0.0);
+    CHECK_NEAR(out.y, b.y, 0.0);
+    CHECK_NEAR(out.z, b.z, 0.0);
+    CHECK(ai.target_position(2, out)); // two ticks back = a
+    CHECK_NEAR(out.x, a.x, 0.0);
+    CHECK_NEAR(out.y, a.y, 0.0);
+    CHECK_NEAR(out.z, a.z, 0.0);
+    CHECK(!ai.target_position(3, out)); // only three entries
+
+    // Negative lag is clamped to 0, i.e. the current position.
+    CHECK(ai.target_position(-5, out));
+    CHECK_NEAR(out.x, c.x, 0.0);
+
+    // Data field clamp: 0 keeps "now"; positive values live in 1..239.
+    CHECK_EQ(gm::ai_history_lag(-5), 0);
+    CHECK_EQ(gm::ai_history_lag(0), 0);
+    CHECK_EQ(gm::ai_history_lag(1), 1);
+    CHECK_EQ(gm::ai_history_lag(10), 10);
+    CHECK_EQ(gm::ai_history_lag(239), 239);
+    CHECK_EQ(gm::ai_history_lag(240), 239);
+    CHECK_EQ(gm::ai_history_lag(1000000), 239);
+
+    // A full ring wraps: 240 positions, lag 239 reaches the oldest slot.
+    ai.reset_target_history();
+    CHECK(ai.target_history().empty());
+    for (int i = 0; i < gm::kAiHistorySlots; ++i) {
+        CHECK(ai.record_target_position({static_cast<double>(i), 0.0, 0.0}));
+    }
+    CHECK_EQ(ai.target_history().size(), 240u);
+    CHECK(ai.target_history().at(0, out));
+    CHECK_NEAR(out.x, 239.0, 0.0);
+    CHECK(ai.target_position(239, out));
+    CHECK_NEAR(out.x, 0.0, 0.0);
+    CHECK(ai.target_position(240, out)); // clamped to 239
+    CHECK_NEAR(out.x, 0.0, 0.0);
+    CHECK(!ai.record_target_position(
+        {std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0}));
+    CHECK_EQ(ai.target_history().size(), 240u); // rejected, ring unchanged
+
+    // `attach` clears the ring.
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.target_history().empty());
+
+    // Data wiring: +0x1d0 is copied through ai_history_lag; the default
+    // (use_thing_fields=false) keeps lag 0 regardless of the record.
+    gm::AiConfig typed_config;
+    typed_config.use_thing_fields = true;
+    gm::Ai typed(typed_config);
+    CHECK_EQ(typed.attach(make_synthetic_things(3)), 2u);
+    CHECK_EQ(typed.agent(0)->history_lag, 3);
+    gm::Ai clamped(typed_config);
+    CHECK_EQ(clamped.attach(make_synthetic_things(500)), 2u);
+    CHECK_EQ(clamped.agent(0)->history_lag, 239);
+    gm::Ai negative(typed_config);
+    CHECK_EQ(negative.attach(make_synthetic_things(-4)), 2u);
+    CHECK_EQ(negative.agent(0)->history_lag, 0);
+    gm::Ai plain;
+    CHECK_EQ(plain.attach(make_synthetic_things(3)), 2u);
+    CHECK_EQ(plain.agent(0)->history_lag, 0);
+
+    // Determinism: two runs record identical rings over 300 ticks.
+    gm::Ai first;
+    gm::Ai second;
+    CHECK_EQ(first.attach(things), 2u);
+    CHECK_EQ(second.attach(things), 2u);
+    for (int i = 0; i < 300; ++i) {
+        const gm::Vec3d eye{static_cast<double>(i), static_cast<double>(-i), 10.0};
+        CHECK(first.set_player(eye));
+        CHECK(second.set_player(eye));
+        first.tick(empty);
+        second.tick(empty);
+    }
+    CHECK_EQ(first.target_history().size(), 240u);
+    CHECK_EQ(second.target_history().size(), 240u);
+    for (int lag = 0; lag <= gm::kAiHistoryMaxLag; ++lag) {
+        gm::Vec3d left{};
+        gm::Vec3d right{};
+        CHECK_EQ(first.target_history().at(lag, left),
+                 second.target_history().at(lag, right));
+        CHECK_NEAR(left.x, right.x, 0.0);
+        CHECK_NEAR(left.y, right.y, 0.0);
+        CHECK_NEAR(left.z, right.z, 0.0);
+    }
+}
+
 void test_real_level(const fs::path& path, const char* name, std::size_t expect_things,
                      std::size_t expect_attached, int first_id, double x, double y,
                      double z) {
@@ -658,6 +786,21 @@ void test_real_dm1() {
         CHECK_EQ(drum->max_health, 1000.0);
         CHECK(!drum->immune);
     }
+
+    // dm1 THING_TYPES has no nonzero +0x1d0, so history_lag stays 0 for every
+    // attached agent; still pin the copy through the shared clamp helper.
+    for (const gm::Thing& thing : things.things()) {
+        if (!thing.absolute()) {
+            continue;
+        }
+        const gm::AiAgent* attached = typed.agent(thing.id);
+        CHECK(attached != nullptr);
+        if (attached != nullptr) {
+            CHECK_EQ(attached->history_lag,
+                     gm::ai_history_lag(thing.target_history_offset));
+            CHECK_EQ(attached->history_lag, 0);
+        }
+    }
 }
 
 } // namespace
@@ -669,6 +812,7 @@ int main() {
     test_death_and_negatives();
     test_dt_and_player_negatives();
     test_two_runs();
+    test_target_history();
     test_real_dm1();
     if (g_failures != 0) {
         std::fprintf(stderr, "ai: %d failure(s)\n", g_failures);

@@ -46,9 +46,44 @@ const char* ai_event_name(AiEventType type) {
     return "state";
 }
 
+int ai_history_lag(int raw_offset) {
+    if (raw_offset <= 0) {
+        return 0; // no lag: the live target position is used
+    }
+    return std::min(raw_offset, kAiHistoryMaxLag);
+}
+
+void TargetHistory::reset() {
+    slots.fill(Vec3d{});
+    next = 0;
+    count = 0;
+}
+
+void TargetHistory::record(const Vec3d& position) {
+    slots[static_cast<std::size_t>(next)] = position;
+    next = (next + 1) % kAiHistorySlots;
+    if (count < kAiHistorySlots) {
+        ++count;
+    }
+}
+
+bool TargetHistory::at(int lag, Vec3d& out) const {
+    const int clamped = std::clamp(lag, 0, kAiHistoryMaxLag);
+    if (clamped >= count) {
+        return false;
+    }
+    int index = next - 1 - clamped;
+    while (index < 0) {
+        index += kAiHistorySlots;
+    }
+    out = slots[static_cast<std::size_t>(index)];
+    return true;
+}
+
 std::size_t Ai::attach(const Things& things) {
     agents_.clear();
     events_.clear();
+    history_.reset();
     stats_ = AiStats{};
 
     for (const Thing& thing : things.things()) {
@@ -72,7 +107,7 @@ std::size_t Ai::attach(const Things& things) {
                     : 0;
             agent.search_radius = thing.search_radius;
             agent.target_zone = thing.target_zone_threshold;
-            agent.history_lag = std::clamp(thing.target_history_offset, 0, 239);
+            agent.history_lag = ai_history_lag(thing.target_history_offset);
             agent.max_health = static_cast<double>(std::max(0, thing.max_health));
             agent.immune = thing.max_health == 0;
             agent.health = thing.alive ? (agent.immune ? 0.0 : agent.max_health) : 0.0;
@@ -105,6 +140,24 @@ bool Ai::set_player(const Vec3d& eye) {
 void Ai::clear_player() {
     has_player_ = false;
     player_eye_ = Vec3d{};
+    history_.reset();
+}
+
+bool Ai::record_target_position(const Vec3d& position) {
+    if (!finite(position)) {
+        return false;
+    }
+    history_.record(position);
+    return true;
+}
+
+bool Ai::target_position(int lag, Vec3d& out) const {
+    const int clamped = std::clamp(lag, 0, kAiHistoryMaxLag);
+    if (clamped == 0 && has_player_) {
+        out = player_eye_; // lag 0 is "current": the live target position
+        return true;
+    }
+    return history_.at(clamped, out);
 }
 
 bool Ai::line_of_sight(const CollisionWorld& world, const Vec3d& from_eye,
@@ -183,6 +236,13 @@ void Ai::tick(const CollisionWorld& world, double dt) {
 
     ++stats_.ticks;
     const std::uint64_t tick = stats_.ticks;
+
+    // One target position per accepted tick, mirroring the original's write
+    // into history[240][3] every update (docs/SAVE_FIELDS.md §9.2).  Without a
+    // player there is no target position and no entry.
+    if (has_player_) {
+        history_.record(player_eye_);
+    }
     const double lose_seconds =
         config_.lose_sight_seconds > 1e-9 ? config_.lose_sight_seconds : kAiTickSeconds;
     const double attack_period =
