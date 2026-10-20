@@ -201,3 +201,9 @@ line-endings 2; images 72 (15 unique), music 56; OK
   отдельная задача; см. `docs/UI.md` §10.
 * `parse_sml` не кэширует и не мемоизирует; при массовой загрузке экранов
   документ стоит держать рядом с исходными байтами.
+
+## CLI
+
+`gunmetal --dump SML/help.sme` печатает `note`, chars/lines/tags, images/fonts/
+music/text runs и признак валидности документа. Для `prelevel/dm4.sml`
+(нет `</d>`) остаётся старый токенный вывод с диагностикой.

@@ -25,6 +25,7 @@
 #include "res/anim.h"
 #include "res/save.h"
 #include "res/soe.h"
+#include "res/sml.h"
 #include "render/render.h"
 
 #include <algorithm>
@@ -239,6 +240,21 @@ int dump_file(const gm::Options& options) {
             return 2;
         }
         const bool encoded = gm::iequals_ascii(ext, ".sme");
+        std::string sml_error;
+        const auto doc = gm::parse_sml(
+            *bytes, encoded ? gm::SmlSource::Auto : gm::SmlSource::Plain, sml_error);
+        if (doc) {
+            const auto summary = gm::describe_sml(*doc);
+            std::printf("kind: SML markup\n");
+            std::printf("note: %s\n", doc->note.c_str());
+            std::printf("chars: %zu lines: %zu tags: %zu\n", summary.chars,
+                        summary.lines, summary.tags);
+            std::printf("images: %zu fonts: %zu music: %zu text runs: %zu\n",
+                        summary.images, summary.fonts, summary.music,
+                        summary.text_runs);
+            std::printf("document: %s\n", summary.doc_ok ? "ok" : "invalid");
+            return 0;
+        }
         const auto plain = encoded ? gm::sml_decode(*bytes) : *bytes;
         const std::string_view text(reinterpret_cast<const char*>(plain.data()), plain.size());
         const auto tags = gm::sml_tags(text);
