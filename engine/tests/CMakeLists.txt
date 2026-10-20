@@ -119,6 +119,15 @@ add_test(NAME fuzz_full COMMAND gm_fuzz_tests --full)
 gm_label(fuzz_full full)
 set_tests_properties(fuzz_full PROPERTIES TIMEOUT 900)
 
+# Save container reader (docs/SAVE_CPP.md): container/block chain and the
+# player block of block 9.  save.cpp is compiled straight into the test
+# executable, so engine/CMakeLists.txt stays untouched; to use the API from
+# the engine, add `src/res/save.cpp` to gm_engine there.
+add_executable(gm_save_tests test_save.cpp ${CMAKE_SOURCE_DIR}/engine/src/res/save.cpp)
+target_link_libraries(gm_save_tests PRIVATE gm_engine)
+add_test(NAME save COMMAND gm_save_tests)
+gm_label(save quick)
+
 find_program(GM_PYTHON3 python3)
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
     add_test(NAME parity_levels
@@ -130,7 +139,7 @@ endif()
 # Fast targets for the inner loop: build the binaries, then run CTest.
 #   cmake --build build/dev --target check-quick
 #   cmake --build build/test --target check
-set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_sbv_video_tests gm_sbtvm_tests gm_fuzz_tests gunmetal)
+set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_sbv_video_tests gm_sbtvm_tests gm_fuzz_tests gm_save_tests gunmetal)
 add_custom_target(check-quick
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -L quick -j 8
             --output-on-failure
