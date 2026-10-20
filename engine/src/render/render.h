@@ -146,6 +146,7 @@ struct RenderOptions {
     float clip = 0.0f;
     // Opt-in texture sampling (defaults preserve the historical mip0/nearest).
     int mip = 0;                    // fixed level, clamped to the chain
+    bool mip_auto = false;          // screen-space LOD (gm/render.py "auto")
     bool bilinear = false;
     bool alpha_test = false;
     int transparent_index = 0;

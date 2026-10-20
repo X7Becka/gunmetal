@@ -261,9 +261,10 @@ gunmetal --level level0 --mip 1 --filter bilinear --alpha-test \
          --width 320 --height 200 --render out.png
 ```
 
-`RenderOptions::{mip,bilinear,alpha_test,transparent_index}` sample the stored
-`TextureLevel` chain (RGB + palette indices) and skip keyed texels before the
-z-write, exactly like `gm/render.py`.  The level0 frame at 320x200 is
-bit-identical to Python (FNV-1a64 of RGB = `2d456b5942c1cac5`, pinned in
-`gm_tests`); defaults keep the historical mip0/nearest output.  Auto LOD and
-trilinear blending are not implemented in C++.
+`RenderOptions::{mip,mip_auto,bilinear,alpha_test,transparent_index}` sample
+the stored `TextureLevel` chain (RGB + palette indices) and skip keyed texels
+before the z-write, exactly like `gm/render.py`.  The level0 frame at 320x200
+is bit-identical to Python for mip 1 + bilinear + alpha (`2d456b5942c1cac5`)
+and for `--mip auto` + bilinear + alpha (`6bcef1ef53276ace`), both pinned in
+`gm_tests`; defaults keep the historical mip0/nearest output.  Trilinear
+blending and Glide's dither are not implemented.

@@ -460,7 +460,7 @@ void draw_poly(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, int wi
                const Texture* tex, double shade, int cr, int cg, int cb, bool fit_enabled,
                const Fit& fit, const Blend& blend, const SbcRecord* lm_page,
                const std::vector<V2>& lmuv, double lm_base, bool cull, int mip,
-               bool bilinear, bool alpha_test, int transparent_index) {
+               bool mip_auto, bool bilinear, bool alpha_test, int transparent_index) {
     if (pts.size() < 3) {
         return;
     }
@@ -476,6 +476,37 @@ void draw_poly(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, int wi
     for (std::size_t k = 1; k + 1 < pts.size(); ++k) {
         const Projected tri[3] = {pts[0], pts[k], pts[k + 1]};
         const V2 tuv[3] = {uvs[0], uvs[k], uvs[k + 1]};
+        int level = mip;
+        if (mip_auto && tex != nullptr) {
+            // gm/render.py _triangle_lod: maximum texel/pixel derivative over
+            // the triangle edges, log2 + bias -0.75 (Glide grTexLodBiasValue).
+            const double tw = tex->width;
+            const double th = tex->height;
+            double g = 0.0;
+            for (int e = 0; e < 3; ++e) {
+                const int a = e;
+                const int b = (e + 1) % 3;
+                const double ds = std::hypot(tri[b].sx - tri[a].sx,
+                                             tri[b].sy - tri[a].sy);
+                const double ta_u = (tuv[a].u - f.u0) / f.su * tw;
+                const double ta_v = (tuv[a].v - f.v0) / f.sv * th;
+                const double tb_u = (tuv[b].u - f.u0) / f.su * tw;
+                const double tb_v = (tuv[b].v - f.v0) / f.sv * th;
+                const double dt = std::hypot(tb_u - ta_u, tb_v - ta_v);
+                if (ds > 1e-9) {
+                    g = std::max(g, dt / ds);
+                }
+            }
+            if (g > 1e-12) {
+                level = static_cast<int>(std::floor(std::log2(g) - 0.75 + 0.5));
+            } else {
+                level = 0;
+            }
+            if (!tex->levels.empty()) {
+                const int last = static_cast<int>(tex->levels.size()) - 1;
+                level = std::max(0, std::min(level, last));
+            }
+        }
         V2 tlm[3];
         const V2* lmp = nullptr;
         if (lm_page != nullptr) {
@@ -485,8 +516,8 @@ void draw_poly(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, int wi
             lmp = tlm;
         }
         draw_triangle(buf, zbuf, width, height, tri, tuv, tex, shade, cr, cg, cb, f.u0, f.v0,
-                      f.su, f.sv, blend, z_write, lm_page, lmp, lm_base, mip, bilinear,
-                      alpha_test, transparent_index);
+                      f.su, f.sv, blend, z_write, lm_page, lmp, lm_base, level,
+                      bilinear, alpha_test, transparent_index);
     }
 }
 
@@ -1016,8 +1047,9 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
             if (options.solid) {
                 draw_poly(result.rgb, zbuf, options.width, options.height, pts, uvs, tex, shade,
                           cr, cg, cb, tex != nullptr, fit, blend, page, lmuv, lm_base,
-                          options.cull, options.mip, options.bilinear,
-                          options.alpha_test, options.transparent_index);
+                          options.cull, options.mip, options.mip_auto,
+                          options.bilinear, options.alpha_test,
+                          options.transparent_index);
             }
             if (options.wire) {
                 for (std::size_t k = 0; k < pts.size(); ++k) {
@@ -1037,8 +1069,9 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
             draw_poly(result.rgb, zbuf, options.width, options.height, item.pts, item.uvs,
                       item.tex, item.shade, item.r, item.g, item.b, item.tex != nullptr,
                       item.fit, item.blend, item.lm_page, item.lmuv, item.lm_base,
-                      options.cull, options.mip, options.bilinear,
-                      options.alpha_test, options.transparent_index);
+                      options.cull, options.mip, options.mip_auto,
+                      options.bilinear, options.alpha_test,
+                      options.transparent_index);
         }
     }
     return result;

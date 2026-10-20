@@ -1410,6 +1410,15 @@ void test_render() {
             const auto sampled = gm::render_scene(meshes, options, &pool, lightmaps);
             CHECK_EQ(fnv_rgb(sampled.rgb), 0x2d456b5942c1cac5ull);
 
+            // Screen-space LOD ("auto", bias -0.75): same frame as Python.
+            options.mip_auto = true;
+            const auto lod = gm::render_scene(meshes, options, &pool, lightmaps);
+            CHECK_EQ(fnv_rgb(lod.rgb), 0x6bcef1ef53276aceull);
+            options.mip_auto = false;
+            options.mip = 0;
+            options.bilinear = false;
+            options.alpha_test = false;
+
             options.clip = 300.0f;
             const auto clipped = gm::render_scene(meshes, options, &pool, lightmaps);
             CHECK_EQ(fnv_rgb(clipped.rgb), 0xa4ccdd84a43ca565ull);

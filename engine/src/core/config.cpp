@@ -204,11 +204,15 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             if (!v) {
                 return std::nullopt;
             }
-            try {
-                options.mip = std::stoi(std::string(*v));
-            } catch (const std::exception&) {
-                error = "--mip expects an integer";
-                return std::nullopt;
+            if (*v == "auto") {
+                options.mip_auto = true;
+            } else {
+                try {
+                    options.mip = std::stoi(std::string(*v));
+                } catch (const std::exception&) {
+                    error = "--mip expects an integer or 'auto'";
+                    return std::nullopt;
+                }
             }
         } else if (arg == "--filter") {
             const auto v = value(arg);
@@ -324,7 +328,7 @@ std::string usage() {
        << "      --no-textures flat colours instead of archive textures\n"
        << "      --no-lightmaps ignore .sbc lightmaps\n"
        << "      --wire        draw polygon edges\n"
-       << "      --mip N       sample fixed mip level N (default 0)\n"
+       << "      --mip N|auto  fixed mip level (default 0) or screen-space LOD\n"
        << "      --filter M    nearest|bilinear texture filtering\n"
        << "      --alpha-test  drop texels equal to --transparent-index\n"
        << "      --transparent-index N  palette key (default 0)\n"

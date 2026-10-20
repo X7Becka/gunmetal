@@ -40,6 +40,7 @@ struct Options {
     bool lightmap_world = false;
     bool wire = false;
     int mip = 0;               // fixed mip level (0 = base)
+    bool mip_auto = false;     // --mip auto: screen-space LOD
     bool bilinear = false;     // opt-in bilinear filtering
     bool alpha_test = false;   // key out the transparent palette index
     int transparent_index = 0;

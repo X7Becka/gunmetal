@@ -569,6 +569,7 @@ int render_image(const gm::Options& options) {
     render.lightmap_world = options.lightmap_world;
     render.wire = options.wire;
     render.mip = options.mip;
+    render.mip_auto = options.mip_auto;
     render.bilinear = options.bilinear;
     render.alpha_test = options.alpha_test;
     render.transparent_index = options.transparent_index;
@@ -1285,6 +1286,7 @@ int run(const gm::Options& options) {
             render.lightmap_world = options.lightmap_world;
             render.wire = options.wire;
             render.mip = options.mip;
+            render.mip_auto = options.mip_auto;
             render.bilinear = options.bilinear;
             render.alpha_test = options.alpha_test;
             render.transparent_index = options.transparent_index;
