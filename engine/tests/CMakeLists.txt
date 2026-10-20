@@ -175,6 +175,14 @@ target_link_libraries(gm_save_writer_tests PRIVATE gm_engine)
 add_test(NAME save_writer COMMAND gm_save_writer_tests)
 gm_label(save_writer quick)
 
+# Typed save blocks (docs/SAVE_BLOCKS.md): switches 1, doors 2, things 3,
+# sprites 6 and sound sources 7 of saved0/saved1, field edits and negatives.
+add_executable(gm_save_blocks_tests test_save_blocks.cpp
+    ${CMAKE_SOURCE_DIR}/engine/src/res/save.cpp)
+target_link_libraries(gm_save_blocks_tests PRIVATE gm_engine)
+add_test(NAME save_blocks COMMAND gm_save_blocks_tests)
+gm_label(save_blocks quick)
+
 find_program(GM_PYTHON3 python3)
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
     add_test(NAME parity_levels
