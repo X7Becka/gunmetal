@@ -82,6 +82,12 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.level = std::string(*v);
+        } else if (arg == "--sou1") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.sou1 = std::string(*v);
         } else if (arg == "--sou2") {
             const auto v = value(arg);
             if (!v) {
@@ -294,6 +300,7 @@ std::string usage() {
        << "      --song NAME   list the MUSIC/NAME.sog playlist and its SOU.DAT entries\n"
        << "      --music NAME  play MUSIC/NAME.sog through the SOG playlist\n"
        << "      --scene NAME  print the level script scene (lights/doors/items...)\n"
+       << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"
        << "      --pos X,Y,Z   camera eye in world space (with --look)\n"

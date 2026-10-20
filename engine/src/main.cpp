@@ -11,6 +11,7 @@
 #include "res/sbm.h"
 #include "res/sbw.h"
 #include "res/sou.h"
+#include "res/sou1.h"
 #include "res/sou2.h"
 #include "res/sbt.h"
 #include "res/scene.h"
@@ -743,6 +744,62 @@ std::vector<std::uint8_t> make_wav(const gm::PcmClip& clip) {
     return out;
 }
 
+int export_sou1(const gm::Options& options) {
+    std::string error;
+    if (options.wav.empty()) {
+        gm::logf(gm::LogLevel::Error, "sou1", "--sou1 needs --wav OUT");
+        return 2;
+    }
+    const gm::BigEntry* found = nullptr;
+    std::optional<gm::BigFile> archive;
+    for (const char* sub : {"sounds", "MUSIC"}) {
+        const auto idx = gm::resolve_ci(options.game / sub, "SOU.IDX");
+        if (!idx) {
+            continue;
+        }
+        auto file = gm::BigFile::open(*idx, error);
+        if (!file) {
+            continue;
+        }
+        for (const auto& entry : file->entries()) {
+            if (gm::iequals_ascii(entry.name, options.sou1)) {
+                found = &entry;
+                archive = std::move(*file);
+                break;
+            }
+        }
+        if (found != nullptr) {
+            break;
+        }
+    }
+    if (found == nullptr || !archive) {
+        gm::logf(gm::LogLevel::Error, "sou1", "entry not found: " + options.sou1);
+        return 2;
+    }
+    const auto blob = archive->read(*found, error);
+    if (!blob) {
+        gm::logf(gm::LogLevel::Error, "sou1", error);
+        return 2;
+    }
+    const auto info = gm::parse_sou1_header(*blob, error);
+    const auto wav = gm::sou1_to_wav(*blob, error);
+    if (!info || !wav) {
+        gm::logf(gm::LogLevel::Error, "sou1", error);
+        return 2;
+    }
+    if (!write_file(options.wav, *wav)) {
+        gm::logf(gm::LogLevel::Error, "sou1", "cannot write " + options.wav.string());
+        return 2;
+    }
+    const double seconds = static_cast<double>(wav->size() - 44) /
+                           (2.0 * info->channels * info->sample_rate);
+    std::printf("sou1: %s\n", found->name.c_str());
+    std::printf("format: %u Hz, %d ch, %.3f s\n", info->sample_rate,
+                info->channels, seconds);
+    std::printf("wav: %s (%zu bytes)\n", options.wav.string().c_str(), wav->size());
+    return 0;
+}
+
 int export_sou2(const gm::Options& options) {
     std::string error;
     if (options.wav.empty()) {
@@ -1270,6 +1327,9 @@ int main(int argc, char** argv) {
     }
     if (!options->scene.empty()) {
         return show_scene(*options);
+    }
+    if (!options->sou1.empty()) {
+        return export_sou1(*options);
     }
     if (!options->sou2.empty()) {
         return export_sou2(*options);
