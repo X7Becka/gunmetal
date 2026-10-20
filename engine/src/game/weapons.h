@@ -541,6 +541,8 @@ ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
                                      int side = -1);
 
 struct Thing; // world/things.h
+class Things; // world/things.h
+class EventQueue; // game/events.h
 /// Bridge the runtime `Thing` fields (+0x1d4/+0x1d8/+0x1c8) to `ThingVitals`
 /// and back, so a blast can update the thing that AI/rendering read.
 ThingVitals thing_vitals(const Thing& thing);
@@ -549,6 +551,12 @@ void store_thing_vitals(Thing& thing, const ThingVitals& vitals);
 ThingDamageResult apply_thing_damage(Thing& thing, std::int32_t plate,
                                      std::int32_t hull,
                                      std::uint32_t flags = 0, int side = -1);
+/// Find `id` in the runtime, damage it in place and optionally post the
+/// `damaged`/`destroy` events through `events`.
+ThingDamageResult apply_thing_damage(Things& things, int id,
+                                     std::int32_t plate, std::int32_t hull,
+                                     std::uint32_t flags = 0, int side = -1,
+                                     EventQueue* events = nullptr);
 
 /// Build `Vitals` from the parsed save state.
 Vitals vitals_from_game(const GameState& game);

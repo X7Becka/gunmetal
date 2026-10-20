@@ -7,6 +7,7 @@
 #include <limits>
 #include <utility>
 
+#include "game/events.h"  // EventQueue, post_thing_event
 #include "game/state.h"   // GameState
 #include "res/sbt.h"      // parse_sbt, SbtLevel
 #include "res/sbtvm.h"    // decode_sbt_script, SbtValue
