@@ -404,6 +404,22 @@ int dump_file(const gm::Options& options) {
             }
             std::printf("F0/F1: %u/%u\n", save->header.fields[0],
                         save->header.fields[1]);
+            if (!options.save_out.empty()) {
+                std::string write_error;
+                const auto out = save->to_bytes(write_error);
+                if (!out) {
+                    gm::logf(gm::LogLevel::Error, "save", write_error);
+                    return 2;
+                }
+                if (!write_file(options.save_out, *out)) {
+                    gm::logf(gm::LogLevel::Error, "save",
+                             "cannot write ", options.save_out.string());
+                    return 2;
+                }
+                std::printf("save-out: %s (%zu bytes, byte-exact=%s)\n",
+                            options.save_out.string().c_str(), out->size(),
+                            *out == *bytes ? "yes" : "no");
+            }
             if (save->player) {
                 const auto& p = *save->player;
                 std::printf("player: present=%d pos=%.3f,%.3f,%.3f "

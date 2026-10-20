@@ -94,6 +94,12 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.sou2 = std::string(*v);
+        } else if (arg == "--save-out") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.save_out = std::filesystem::path(std::string(*v));
         } else if (arg == "--wav") {
             const auto v = value(arg);
             if (!v) {
@@ -421,6 +427,7 @@ std::string usage() {
        << "  -l, --level NAME  level to load (opens the viewer; with --info prints a summary)\n"
        << "  -d, --dump FILE   print size and the first bytes of FILE, then exit\n"
        << "      --png OUT     with --dump of a .sbm/.bmp: write OUT as PNG\n"
+       << "      --save-out OUT with --dump of a save: re-serialise it to OUT\n"
        << "      --render OUT  render --level or --model into OUT (PNG)\n"
        << "      --model FILE  render a .sob model instead of a level\n"
        << "      --width N     render/window width (default 640)\n"

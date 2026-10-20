@@ -191,3 +191,10 @@ python3 regress.py
 `ctest -R save` гоняет старый `save` и новый `save_writer`; `regress.py`
 остаётся без изменений и покрывает Python-эталон (`save / rebuild is
 byte-exact`, `--set`, `diff`).
+
+## CLI
+
+`gunmetal --dump SAVEGAME/saved0.sbt --save-out /tmp/rewrite.sbt` прогоняет
+C++-читатель, `Save::to_bytes`, атомарную запись и печатает
+`byte-exact=yes`; `cmp` с исходником — 0. Это ручная проверка библиотеки,
+писатель пока не подключён к игровому циклу.

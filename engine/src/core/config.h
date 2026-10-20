@@ -31,6 +31,7 @@ struct Options {
     std::string sou2;
     std::filesystem::path wav;
     std::filesystem::path dump;
+    std::filesystem::path save_out; // --dump a save: re-serialise it here
     std::filesystem::path png;
     std::filesystem::path render; // output PNG for --render
     std::filesystem::path model;  // .sob to render instead of a level
