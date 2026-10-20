@@ -554,6 +554,7 @@ def _iter_markup(paths):
 
 def cmd_soa(opts) -> int:
     n = bad = 0
+    report = []
     for p, rel in _iter_with_rel(opts.paths, ".soa"):
         try:
             a = soa.parse(open(p, "rb").read())
@@ -562,15 +563,52 @@ def cmd_soa(opts) -> int:
             print(f"  FAIL {p}: {exc}", file=sys.stderr)
             continue
         extra = "" if len(a.names) == a.frame_count else f" (+{len(a.names) - a.frame_count} extra)"
-        print(f"{os.path.basename(p):16s} mode={a.mode} period={a.period} "
-              f"loop={a.loop} frames={a.frame_count}{extra}")
+        record = {"file": os.path.basename(p), "path": p, "mode": a.mode,
+                  "period": a.period, "period_ticks": a.period_ticks,
+                  "loop": a.loop, "declared": a.frame_count,
+                  "names": len(a.names), "loadable": a.loadable,
+                  "clock_hz": soa.ENGINE_TICK_HZ,
+                  "timeline": [{"index": x.index, "name": x.name,
+                                "start_tick": x.start_tick,
+                                "end_tick": x.end_tick,
+                                "start_ms": x.start_ms, "end_ms": x.end_ms}
+                               for x in a.timeline()]}
+        if opts.at is not None:
+            try:
+                pose = a.frame_at(opts.at)
+                record["pose"] = {"at_ms": opts.at, "tick": pose.tick,
+                                  "index": pose.index, "name": pose.name,
+                                  "period_ticks": pose.period_ticks,
+                                  "loop": pose.loop, "mode": pose.mode}
+            except ValueError as exc:
+                record["pose"] = {"at_ms": opts.at, "error": str(exc)}
+        report.append(record)
+        if not opts.json:
+            print(f"{os.path.basename(p):16s} mode={a.mode} period={a.period} "
+                  f"({a.period_ticks} ticks) loop={a.loop} "
+                  f"frames={a.frame_count}{extra}")
+            if opts.timeline:
+                for x in a.timeline():
+                    end = "hold" if x.end_tick is None else str(x.end_tick)
+                    print("      [%5d..%-5s) %d %-14s"
+                          % (x.start_tick, end, x.index, x.name))
+            if opts.at is not None and "pose" in record:
+                pose = record["pose"]
+                if "error" in pose:
+                    print("    at %d ms: %s" % (opts.at, pose["error"]))
+                else:
+                    print("    at %d ms (tick %d): frame %d %s"
+                          % (opts.at, pose["tick"], pose["index"], pose["name"]))
         if opts.rebuild:
             dst = os.path.join(opts.rebuild, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             with _wopen(dst, opts) as f:
                 f.write(a.to_bytes())
         n += 1
-    print(f"soa: {n} parsed, {bad} failed")
+    if opts.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(f"soa: {n} parsed, {bad} failed")
     return 0 if bad == 0 else 1
 
 
@@ -2262,6 +2300,9 @@ def main(argv=None) -> int:
     p = sub.add_parser("soa", help="list .soa animation descriptors")
     p.add_argument("paths", nargs="+", help="one or more .soa files or directories")
     p.add_argument("--rebuild", help="write each .soa back (re-serialised) into this directory")
+    p.add_argument("--timeline", action="store_true", help="print frame intervals (91 Hz ticks)")
+    p.add_argument("--at", type=int, metavar="MS", help="frame active at MS milliseconds")
+    p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_soa)
 
     p = sub.add_parser("soe", help="parse .soe thing-type definitions (text)")

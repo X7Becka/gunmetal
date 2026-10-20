@@ -1034,6 +1034,12 @@ def main() -> int:
     level_scans = _pool_map(_scan_level, sorted(glob.glob(os.path.join(G, "*.sbt"))))
     scene_checks(G, results, out, level_scans)
     results.append(check("soa / animations", ["soa", G], ["soa: 104 parsed, 0 failed"]))
+    rc, text = run_raw(["soa", os.path.join(G, "anims", "pulsar.soa"),
+                        "--timeline", "--at", "100"])
+    results.append(report("soa / 91 Hz timeline + frame_at",
+                          rc == 0 and "period=32 (29 ticks)" in text
+                          and "at 100 ms (tick 9): frame 7 pulsar8" in text,
+                          "pulsar: 29 ticks, t=9 -> frame 7"))
     results.append(check("soo / animations", ["soo", f"{G}/Sobanim"],
                          ["soo: 40 parsed, 0 failed, 8 frame names without a .sob"]))
     rb = os.path.join(out, "soo")
