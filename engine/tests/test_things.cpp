@@ -889,6 +889,7 @@ void test_spawn_remove() {
     if (destroyed.events.size() == 1) {
         CHECK_EQ(destroyed.events[0].id, 701);
     }
+    CHECK(!things.remove(id, &queue)); // already dead
     CHECK(!things.remove(999, &queue));
 }
 

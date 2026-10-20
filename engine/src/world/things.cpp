@@ -740,7 +740,7 @@ int Things::spawn(Thing thing, EventQueue* events) {
 
 bool Things::remove(int id, EventQueue* events) {
     Thing* thing = by_id(id);
-    if (thing == nullptr) {
+    if (thing == nullptr || !thing->alive) {
         return false;
     }
     if (events != nullptr) {
