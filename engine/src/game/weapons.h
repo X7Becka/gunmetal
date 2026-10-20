@@ -94,6 +94,16 @@ struct Blast {
     bool not_deathmatch = true;///< `DEATHMATCH_GAME` false
 };
 
+/// One `SOURCEPLAYER_WEAPON_POWER_UP` branch (PLASMA CANNON): type 36 at
+/// >=0.66, type 37 at >=0.33, type 38 below.  Each variant owns its own
+/// THING_TYPES collide/expire blasts.
+struct ThingVariant {
+    double min_power_up = 0.0;
+    int thing_type = -1;
+    std::vector<Blast> impact_blasts;
+    std::vector<Blast> expire_blasts;
+};
+
 /// One `DEFINE_WEAPONS` record mapped to the runtime fields.
 ///
 /// Field provenance: `docs/FORMATS.md` §12.3 (consumer `0x450be0`) and
@@ -149,6 +159,11 @@ struct Weapon {
     /// (DISINTEGRATOR: 400.00 points at range 200).
     double secondary_damage = 0.0;
     double secondary_range = 0.0;
+    /// Power-up variants (PLASMA CANNON).  Empty for every other THING weapon;
+    /// `thing_type`/`impact_blasts`/`expire_blasts` above stay the full-power
+    /// default so existing callers keep working.
+    std::vector<ThingVariant> thing_variants;
+    const ThingVariant* variant_for_power(double power_up) const;
 
     /// Copy the blasts of one branch that apply to the current context.
     /// `expired=false` is the collision/impact event, `true` is expiry;
@@ -157,6 +172,12 @@ struct Weapon {
     std::vector<Blast> select_blasts(bool expired, bool underwater,
                                      bool from_ground = true,
                                      bool deathmatch = true) const;
+    /// Same filter, but uses the `SOURCEPLAYER_WEAPON_POWER_UP` variant when
+    /// the weapon has one (PLASMA CANNON).  Falls back to the base vectors.
+    std::vector<Blast> select_blasts_at_power(double power_up, bool expired,
+                                              bool underwater,
+                                              bool from_ground = true,
+                                              bool deathmatch = true) const;
 };
 
 /// One `DEFINE_AMMO` record (`0x450b10`, record 0x38).
@@ -493,7 +514,8 @@ BlastDamageResult apply_weapon_blast(
     bool from_ground, bool deathmatch, int source_player, int source_thing,
     std::span<const Vec3d> player_positions, std::span<Vitals> player_vitals,
     std::span<const Vec3d> thing_positions,
-    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals);
+    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals,
+    double power_up = -1.0);
 
 
 /// Exact `0x470500` intake for a THING: no plate/hull multipliers, shield

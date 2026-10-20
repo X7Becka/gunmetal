@@ -578,12 +578,20 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > урон из подскриптов (MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00);
       > `apply_damage_gauge` — точная модель `0x453b50`; `apply_thing_damage`
       > (`0x470500`) и `apply_blast` (`0x477280`, без LOS, целочисленный
-      > falloff) добавлены; `ShieldSide` исправлен на front/right/back/left.
-      > Магазина в оригинале нет. `Weapons::load` теперь разворачивает
-      > `THING_TYPES` collide/expire события (+0x1c4/+0x1ec) и один `GENERATE`
-      > в `impact_blasts`/`expire_blasts` (GRENADE 8000@500/350, ROCKET
-      > 10000@80 + 10000@512/12000@256); ветки под водой помечены. Осталось
-      > применить их в runtime и разобрать PLASMA/NUKE/EMP/`level10`.
+      > falloff); `apply_blast_damage`/`apply_weapon_blast` связывают их с
+      > collide/expire-ветками. `ShieldSide` — front/right/back/left.
+      > Магазина в оригинале нет. `Weapons::load` разворачивает
+      > `THING_TYPES` collide/expire (+0x1c4/+0x1ec) и один `GENERATE`
+      > (GRENADE 8000@500/350, ROCKET 10000@80 + 10000@512/12000@256);
+      > нейтральные blast’ы сохраняются в обеих средах, а guards
+      > (`air/water/ground/deathmatch`) дают по 3 blast’а на контекст TAC NUKE.
+      > Hitscan impact-события (CANNON 1500@200/400, FUSION 500@128/256,
+      > MICROWAVE hull 500@128, DISRUPTOR 12000@128, MESON) и EMP-кольца
+      > (`inline_blasts`, 5 шт.) загружаются; DISINT получает secondary
+      > hitscan 400.00@200; RGM — тип 32, `impact_blasts` пуст. PLASMA
+      > power-up-ветки 36/37/38 загружены в `thing_variants` и выбираются
+      > `variant_for_power`/`select_blasts_at_power`. Осталось:
+      > `projectile_speed` и точные единицы `THING_TYPES+0x10`.
 - 🟡 `M2.2.7` AI/things: состояния, path, дети, мораль, оружие, события.
       > C++ `world/things.*` (CTest `things`/`things_full`): top-level 4008,
       > recursive 7563, executed 7617, 391 старт, 2896/2896 model refs;
@@ -800,8 +808,9 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > гипотеза), FOV/focal, shake/recoil, smoothing, golden dm1/level0/level1;
       > CLI `--third-person` ставит `TICK` (LIGHT) низом на `SET_PLAYER_START`,
       > поворачивает по `spawn.yaw` и рендерит `CameraRig::Third` с окклюзией
-      > `.sbw` (CTest `cli_third_person`, кадр
-      > `out/third_person/level0_tick_third_person.png`); cutscene/cockpit и
+      > `.sbw` (CTest `cli_third_person`, кадры
+      > `out/third_person/level0_tick_third_person.png`,
+      > `level1_tick_third_person.png` и `..._front.png`); cutscene/cockpit и
       > переходы — ещё нет.
 - 🟡 `M4.3.2` Тряска, отдача, смерть/респавн.
       > `docs/SHAKE.md`: три канала `SET_CAMERA_{PITCH,ROLL,YAW}_SHAKE`

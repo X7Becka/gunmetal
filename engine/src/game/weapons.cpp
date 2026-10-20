@@ -170,10 +170,22 @@ std::uint32_t Weapons::ammo_max_for(int ammo_type) const {
     return ammo_types_[static_cast<std::size_t>(ammo_type)].max;
 }
 
-std::vector<Blast> Weapon::select_blasts(bool expired, bool underwater,
-                                        bool from_ground,
-                                        bool deathmatch) const {
-    const std::vector<Blast>& source = expired ? expire_blasts : impact_blasts;
+const ThingVariant* Weapon::variant_for_power(double power_up) const {
+    const ThingVariant* best = nullptr;
+    for (const ThingVariant& variant : thing_variants) {
+        if (variant.min_power_up <= power_up &&
+            (best == nullptr || variant.min_power_up > best->min_power_up)) {
+            best = &variant;
+        }
+    }
+    return best;
+}
+
+namespace {
+
+std::vector<Blast> filter_blasts(const std::vector<Blast>& source,
+                                 bool underwater, bool from_ground,
+                                 bool deathmatch) {
     std::vector<Blast> out;
     out.reserve(source.size());
     for (const Blast& blast : source) {
@@ -189,6 +201,28 @@ std::vector<Blast> Weapon::select_blasts(bool expired, bool underwater,
         out.push_back(blast);
     }
     return out;
+}
+
+} // namespace
+
+std::vector<Blast> Weapon::select_blasts(bool expired, bool underwater,
+                                        bool from_ground,
+                                        bool deathmatch) const {
+    return filter_blasts(expired ? expire_blasts : impact_blasts, underwater,
+                         from_ground, deathmatch);
+}
+
+std::vector<Blast> Weapon::select_blasts_at_power(double power_up, bool expired,
+                                                  bool underwater,
+                                                  bool from_ground,
+                                                  bool deathmatch) const {
+    const ThingVariant* variant = variant_for_power(power_up);
+    if (variant != nullptr) {
+        return filter_blasts(expired ? variant->expire_blasts
+                                     : variant->impact_blasts,
+                             underwater, from_ground, deathmatch);
+    }
+    return select_blasts(expired, underwater, from_ground, deathmatch);
 }
 
 Arsenal arsenal_from_game(const GameState& game) {
@@ -214,6 +248,12 @@ struct FireScriptInfo {
     std::vector<SbtInsn> inline_body; ///< body of the chosen IF FIRE_*
     double projectile_charge = 0.0;
     bool underwater = false;
+    struct PowerVariant {
+        double min_power_up = 1.0;
+        int thing_type = -1;
+    };
+    std::vector<PowerVariant> power_variants;
+    bool saw_power_up = false;
 };
 
 /// Type operand of an ADD_THING* condition (`G` in its signature).  RGM uses
@@ -232,8 +272,15 @@ int add_thing_type(const SbtInsn& insn) {
 }
 
 bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
-                      bool underwater = false) {
+                      bool underwater = false, double power_up = 1.0) {
     for (const SbtInsn& insn : insns) {
+        double child_power = power_up;
+        if (insn.condition.rfind("SOURCEPLAYER_WEAPON_POWER_UP", 0) == 0) {
+            info.saw_power_up = true;
+            if (!insn.args.empty()) {
+                child_power = std::min(power_up, as_real(insn.args[0]));
+            }
+        }
         if (!insn.condition.empty()) {
             if (!underwater) {
                 const int spawn = add_thing_type(insn);
@@ -246,6 +293,22 @@ bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
                 insn.condition == "FIRE_SOURCEPLAYER_LASER" ||
                 insn.condition == "FIRE_SOURCEPLAYER_THING";
             if (is_fire) {
+                if (insn.condition == "FIRE_SOURCEPLAYER_THING" &&
+                    insn.args.size() > 2) {
+                    const int type = static_cast<int>(as_uint(insn.args[2]));
+                    const double threshold =
+                        (info.saw_power_up && power_up >= 1.0) ? 0.0 : power_up;
+                    if (threshold < 1.0 || info.saw_power_up) {
+                        bool seen = false;
+                        for (const auto& variant : info.power_variants) {
+                            seen = seen || variant.thing_type == type;
+                        }
+                        if (!seen) {
+                            info.power_variants.push_back(
+                                {threshold, type});
+                        }
+                    }
+                }
                 // Prefer the air branch over SOURCE_UNDERWATER; this fixes the
                 // old first-leaf DFS (LASER 1.00 instead of 3.00, etc.).
                 const bool prefer = !info.found ||
@@ -280,7 +343,9 @@ bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
         }
         if (!insn.body.empty()) {
             scan_fire_script(insn.body, info,
-                             underwater || insn.condition == "SOURCE_UNDERWATER");
+                             underwater ||
+                                 insn.condition == "SOURCE_UNDERWATER",
+                             child_power);
         }
     }
     return info.found;
@@ -727,6 +792,24 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
                                          weapon.secondary_range, 0);
                 }
             }
+        }
+
+        for (const FireScriptInfo::PowerVariant& source :
+             fire.power_variants) {
+            if (source.thing_type < 0) {
+                continue;
+            }
+            ThingVariant variant;
+            variant.min_power_up = source.min_power_up;
+            variant.thing_type = source.thing_type;
+            if (const auto events =
+                    thing_type_events(*level, variant.thing_type)) {
+                collect_event_blasts(*level, events->collide_event,
+                                     variant.impact_blasts);
+                collect_event_blasts(*level, events->expire_event,
+                                     variant.expire_blasts);
+            }
+            weapon.thing_variants.push_back(std::move(variant));
         }
 
         slots.push_back(std::move(weapon));
@@ -1268,10 +1351,16 @@ BlastDamageResult apply_weapon_blast(
     bool from_ground, bool deathmatch, int source_player, int source_thing,
     std::span<const Vec3d> player_positions, std::span<Vitals> player_vitals,
     std::span<const Vec3d> thing_positions,
-    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals) {
+    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals,
+    double power_up) {
     BlastDamageResult result;
-    for (const Blast& blast :
-         weapon.select_blasts(expired, underwater, from_ground, deathmatch)) {
+    const std::vector<Blast> selected =
+        power_up >= 0.0
+            ? weapon.select_blasts_at_power(power_up, expired, underwater,
+                                            from_ground, deathmatch)
+            : weapon.select_blasts(expired, underwater, from_ground,
+                                   deathmatch);
+    for (const Blast& blast : selected) {
         BlastDamageResult one = apply_blast_damage(
             center, blast, source_player, source_thing, player_positions,
             player_vitals, thing_positions, thing_alive, thing_vitals);

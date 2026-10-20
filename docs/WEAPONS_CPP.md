@@ -55,9 +55,16 @@ struct Weapon {
     std::vector<Blast> inline_blasts; // body of IF FIRE_* (EMP rings)
     uint32_t impact_event;            // hitscan impact event id
     double secondary_damage, secondary_range; // nested hitscan (DISINT)
+    std::vector<ThingVariant> thing_variants; // PLASMA 36/37/38
     std::vector<Blast> select_blasts(bool expired, bool underwater,
                                      bool from_ground = true,
                                      bool deathmatch = true) const;
+    std::vector<Blast> select_blasts_at_power(double power, ...) const;
+};
+
+struct ThingVariant {
+    double min_power_up; int thing_type;
+    std::vector<Blast> impact_blasts, expire_blasts;
 };
 
 // CAUSE_BLAST_RADIUS_DAMAGE (op 75): целые сотые, plate < 0 — статус.
@@ -109,6 +116,7 @@ struct Arsenal {
 | `apply_weapon_blast` | выбирает `impact_blasts`/`expire_blasts` по контексту (`expired`, вода, земля, DM) и применяет их через `apply_blast_damage`; события остаются в `hits` для `event_post`. |
 | `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |
 | `Weapon::select_blasts(expired, underwater, from_ground, deathmatch)` | копия `expire_blasts` или `impact_blasts` только для выбранного контекста; нейтральные blast’ы проходят всегда. Рантайм вызывает после попадания/истечения. |
+| `Weapon::select_blasts_at_power(power, ...)` | то же для PLASMA: `variant_for_power` выбирает TT36 (>=0.66), TT37 (>=0.33) или TT38. |
 | `reload(table, arsenal, slot)` | требует `magazine > 0`, бит маски, неполный магазин и резерв. `reload_ticks == 0` — мгновенно. |
 | `tick(table, arsenal, ticks)` | уменьшает кулдауны/таймеры, завершает перезарядку. `ticks == 0` — no-op. |
 | `switch_slot(table, arsenal, slot)` | 0..11 + бит маски; текущий слот — успешный no-op. Перезарядку не отменяет. |

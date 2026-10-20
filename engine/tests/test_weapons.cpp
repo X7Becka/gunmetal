@@ -940,6 +940,49 @@ void test_real_weapon_modes() {
             CHECK_EQ(disint->impact_blasts[0].radius, 200);
         }
     }
+    const gm::Weapon* plasma = find("PLASMA CANNON");
+    if (plasma != nullptr) {
+        CHECK_EQ(plasma->thing_type, 36);
+        CHECK_EQ(plasma->thing_variants.size(), 3U);
+        if (plasma->thing_variants.size() == 3) {
+            CHECK_NEAR(plasma->thing_variants[0].min_power_up, 0.66, 1e-12);
+            CHECK_EQ(plasma->thing_variants[0].thing_type, 36);
+            CHECK_EQ(plasma->thing_variants[1].thing_type, 37);
+            CHECK_EQ(plasma->thing_variants[2].thing_type, 38);
+            CHECK_EQ(plasma->thing_variants[0].expire_blasts.size(), 2U);
+            CHECK_EQ(plasma->thing_variants[1].expire_blasts.size(), 2U);
+            CHECK_EQ(plasma->thing_variants[2].expire_blasts.size(), 2U);
+            if (plasma->thing_variants[0].expire_blasts.size() == 2) {
+                CHECK_EQ(plasma->thing_variants[0].expire_blasts[1].plate,
+                         10800);
+                CHECK_EQ(plasma->thing_variants[1].expire_blasts[1].plate,
+                         5000);
+                CHECK_EQ(plasma->thing_variants[2].expire_blasts[1].plate,
+                         2200);
+            }
+        }
+        const gm::ThingVariant* full = plasma->variant_for_power(1.0);
+        const gm::ThingVariant* mid = plasma->variant_for_power(0.5);
+        const gm::ThingVariant* low = plasma->variant_for_power(0.1);
+        CHECK(full != nullptr && full->thing_type == 36);
+        CHECK(mid != nullptr && mid->thing_type == 37);
+        CHECK(low != nullptr && low->thing_type == 38);
+        const auto full_blasts =
+            plasma->select_blasts_at_power(1.0, true, false);
+        const auto mid_blasts =
+            plasma->select_blasts_at_power(0.5, true, false);
+        const auto low_blasts =
+            plasma->select_blasts_at_power(0.1, true, false);
+        CHECK_EQ(full_blasts.size(), 2U);
+        CHECK_EQ(mid_blasts.size(), 2U);
+        CHECK_EQ(low_blasts.size(), 2U);
+        if (full_blasts.size() == 2 && mid_blasts.size() == 2 &&
+            low_blasts.size() == 2) {
+            CHECK_EQ(full_blasts[1].plate, 10800);
+            CHECK_EQ(mid_blasts[1].plate, 5000);
+            CHECK_EQ(low_blasts[1].plate, 2200);
+        }
+    }
     const gm::Weapon* nuke = find("TAC NUKE");
     if (nuke != nullptr) {
         CHECK_EQ(nuke->impact_blasts.size(), 15U); // all guarded branches kept
