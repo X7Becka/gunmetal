@@ -80,7 +80,7 @@ tune ``--scene-scale``.
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from . import sbt, sbtvm
 
@@ -170,6 +170,11 @@ class Thing:
     convention as ``ADD_LOCATION``.  The ``AT_SOURCE``/``RELATIVE`` variants take
     the position from a (moving) source, so only ``ADD_THING`` and
     ``ADD_THING_EX`` carry an absolute ``pos`` here.
+
+    The six source/path/site/depth/via/occ fields are filled by the opt-in
+    recursive/executed APIs (:func:`things` with ``recursive=True``, :func:`executed_things`); the
+    default top-level extractor leaves them at their defaults, so existing
+    callers see byte-for-byte the same objects.
     """
 
     entity: int          # id of the entity whose sub-script builds it
@@ -180,10 +185,35 @@ class Thing:
     pos: tuple | None = None   # world coordinates, None when source-relative
     angles: tuple = ()
     owner: int = 0       # the L operand in front of the type (player/source)
+    #: entity whose sub-script created it (same value as ``entity`` for the
+    #: static extractor; the *runtime* source entity for ``via="executed"``)
+    source: int = 0
+    #: chain of the enclosing ``IF`` conditions, outermost first; ``()`` for a
+    #: top-level ``EVAL``.  The false branch is emitted after the ``IF`` as
+    #: ordinary top-level code (see docs/NESTED_THINGS.md), so ``ELSE`` only
+    #: appears for a nonstandard block that carries an ELSE body.
+    path: tuple = ()
+    #: byte offset of the ``EVAL ADD_THING*`` instruction (unique per code)
+    site: int = -1
+    #: ``len(path)``: 0 = top level, >0 = inside an ``IF``/``ELSE`` body
+    depth: int = 0
+    #: ``"static"`` (decoded) or ``"executed"`` (VM result for a context)
+    via: str = "static"
+    #: per-path execution count of the site (loops can build a thing twice)
+    occ: int = 0
 
     @property
     def absolute(self) -> bool:
         return self.pos is not None
+
+    @property
+    def nested(self) -> bool:
+        """True when the thing sits inside an ``IF``/``ELSE`` body."""
+        return self.depth > 0
+
+    @property
+    def top_level(self) -> bool:
+        return self.depth == 0
 
 
 @dataclass
@@ -335,6 +365,10 @@ EYE_HEIGHTS = {"LIGHT": 10.0, "MEDIUM": 11.0, "STEALTH": 11.0,
                "HEAVY": 12.0, "57 CHEVY": 14.0}
 
 
+def _scaled_thing(t: "Thing", s) -> "Thing":
+    return replace(t, pos=None if t.pos is None else s(t.pos))
+
+
 def first_person(spawn, eye: float = 10.0, distance: float = 100.0):
     """Camera at *spawn* (feet + *eye*), using the proven engine basis.
 
@@ -380,6 +414,18 @@ class Scene:
     spawns: list[Spawn] = field(default_factory=list)
     #: commands seen whose operand layout is still opaque (name -> count)
     other: dict = field(default_factory=dict)
+    #: opt-in: *every* static ``ADD_THING*`` including nested ``IF``/``ELSE``
+    #: bodies, each tagged with ``path``/``site``/``depth`` (see
+    #: :meth:`nested_things` and :func:`load` with ``execute=True``)
+    recursive_things: list = field(default_factory=list)
+    #: opt-in: things produced by running the VM for ``executed_for``
+    executed_things: list = field(default_factory=list)
+    #: the context ``executed_things`` was produced for (a ``ThingContext``)
+    executed_for: object = field(default=None, repr=False, compare=False)
+    #: source SCRIPT record / parsed .sbt, kept so ``nested_things(context)``
+    #: can run the executor on demand
+    _script: object = field(default=None, repr=False, compare=False)
+    _sbt: object = field(default=None, repr=False, compare=False)
 
     def counts(self) -> dict:
         return {"lights": len(self.lights), "locations": len(self.locations),
@@ -389,6 +435,45 @@ class Scene:
                 "switches": len(self.switches), "lifts": len(self.lifts),
                 "spawns": len(self.spawns),
                 "other": sum(self.other.values())}
+
+    def nested_counts(self) -> dict:
+        """Totals of the opt-in lists, split top-level vs nested.
+
+        The default :meth:`counts` is deliberately unchanged; this method is
+        the explicit view of the recursive list.
+        """
+        top = sum(1 for t in self.recursive_things if t.depth == 0)
+        total = len(self.recursive_things)
+        exec_top = sum(1 for t in self.executed_things if t.depth == 0)
+        sites = len({t.site for t in self.recursive_things})
+        return {"top_level": top, "nested": total - top, "total": total,
+                "executed": len(self.executed_things),
+                "executed_top_level": exec_top,
+                "executed_nested": len(self.executed_things) - exec_top,
+                "sites": sites, "duplicates": total - sites}
+
+    def nested_things(self, context=None) -> list:
+        """``ADD_THING*`` including nested ``IF``/``ELSE`` bodies.
+
+        Without *context* this returns the static recursive list (every
+        syntactic site, including the false-branch code that follows an
+        ``IF``, tagged with ``path``/``depth``).  With a
+        :class:`ThingContext` it runs the VM executor over every entity
+        block in that context and returns the things the engine would actually
+        build; the result is cached in ``executed_things``.
+
+        Requires a scene produced by :func:`load`/:func:`from_sbt` (the source
+        record is kept there); a hand-built :class:`Scene` raises ``ValueError``.
+        """
+        if context is None:
+            return list(self.recursive_things)
+        if self._script is None:
+            raise ValueError("scene has no source script; use scene.load()")
+        if self.executed_for == context and self.executed_things:
+            return list(self.executed_things)
+        self.executed_things = executed_things(self._script, self._sbt, context)
+        self.executed_for = context
+        return list(self.executed_things)
 
     def scaled(self, factor: float = SCALE) -> Scene:
         """A copy with every position multiplied by ``factor``."""
@@ -414,6 +499,11 @@ class Scene:
             spawns=[Spawn(x.index, s(x.pos), x.angles, x.kind)
                     for x in self.spawns],
             other=dict(self.other),
+            recursive_things=[_scaled_thing(x, s) for x in self.recursive_things],
+            executed_things=[_scaled_thing(x, s) for x in self.executed_things],
+            executed_for=self.executed_for,
+            _script=self._script,
+            _sbt=self._sbt,
         )
 
     def markers(self, scale: float = SCALE):
@@ -538,7 +628,69 @@ def _thing_args(args, sig):
     return ti, ints, dbls, owner
 
 
-def things(script: sbt.Script, sbt_file=None) -> list[Thing]:
+#: maximum ``IF`` nesting the recursive walker will descend (the shipped
+#: corpus peaks at 5; the limit turns a hostile/degenerate block into a clean
+#: diagnostic instead of a Python recursion error)
+MAX_THING_DEPTH = 64
+
+
+class NestingError(ValueError):
+    """A recursive ``ADD_THING*`` walk could not be completed safely."""
+
+
+def _if_label(insn) -> str:
+    """Human-readable label of an ``IF``/``ELSE`` instruction for ``path``."""
+    if insn.name == "ELSE":
+        return "ELSE"
+    if insn.name == "IF" and insn.args:
+        return "IF %s" % insn.args[0][0]
+    return insn.name
+
+
+def _walk_things(insns, visit, path=(), depth=0):
+    """Visit ``EVAL ADD_THING*`` instructions, recursing into IF/ELSE bodies.
+
+    ``0xFF`` ends the *sub-script*, so it stops the whole walk (not just the
+    current body); this mirrors :func:`things`' top-level ``break``.  ``path``
+    grows by one label per enclosing ``IF``/``ELSE``.
+    """
+    for i in insns:
+        if i.name == "END":
+            return True                     # stop the entire sub-script
+        if i.op == 0xC9 and i.args and i.args[0][0].startswith("ADD_THING"):
+            visit(i, path, depth)
+        body = getattr(i, "body", None)
+        if isinstance(body, list):
+            if depth + 1 > MAX_THING_DEPTH:
+                raise NestingError(
+                    "ADD_THING nesting deeper than %d at 0x%x"
+                    % (MAX_THING_DEPTH, i.off))
+            if _walk_things(body, visit, path + (_if_label(i),), depth + 1):
+                return True
+    return False
+
+
+def _thing_from(insn, eid, names, models, sbt_file, path=(), depth=0,
+                via="static", source=None):
+    """Build a :class:`Thing` from an ``EVAL ADD_THING*`` instruction."""
+    cname, args = insn.args[0]
+    ti, ints, dbls, owner = _thing_args(args, _cond(cname))
+    if ti is None:
+        return None
+    name = model = ""
+    if 0 <= ti < len(names):
+        name = names[ti]
+        if sbt_file is not None:
+            model = models[_thing_model(sbt_file, ti)]
+    pos = tuple(ints[:3]) if (cname in _THINGS_ABS
+                              and len(ints) >= 3) else None
+    return Thing(eid, cname, _s32(ti), name, model, pos, tuple(dbls), owner,
+                 source=eid if source is None else source,
+                 path=tuple(path), site=insn.off, depth=depth, via=via)
+
+
+def things(script: sbt.Script, sbt_file=None, recursive: bool = False,
+           strict: bool | None = None) -> list[Thing]:
     """Every ``ADD_THING*`` built by the level's entity sub-scripts.
 
     Each entity row of the table names a sub-script (its ``offset``, run by
@@ -546,7 +698,22 @@ def things(script: sbt.Script, sbt_file=None) -> list[Thing]:
     ``ADD_THING*`` conditions that build the entity's thing.  With *sbt_file*
     (a parsed :class:`gm.sbt.Sbt`) the type name and the ``SOB`` model are
     resolved through ``THING_TYPES``/``SOB_TABLE``.
+
+    By default only the block's **top level** is inspected -- the historical
+    behaviour (4 008 things across the 36 shipped levels).  ``recursive=True``
+    is the opt-in recursive walk: it also descends into ``IF`` bodies (the
+    compiler emits the false branch as top-level code after the ``IF``, so it
+    is already covered), giving 7 563 static sites, and tags every result with
+    ``path``, ``site``, ``depth`` and ``via="static"``.  Results are
+    de-duplicated by code offset, so two entity rows naming the same block
+    cannot double-count.
+
+    ``strict`` controls a block that fails to decode or nests too deeply: with
+    ``recursive=True`` it defaults to raising :class:`NestingError`, otherwise
+    a bad block is skipped as before.
     """
+    if strict is None:
+        strict = recursive
     out: list[Thing] = []
     names: list = []
     models: list = []
@@ -554,33 +721,224 @@ def things(script: sbt.Script, sbt_file=None) -> list[Thing]:
         names = [t.name for t in sbt_file.records_of(4)[0].payload.entries]
         models = [e.name for e in sbt_file.records_of(20)[0].payload.entries]
     code = script.code
+    seen: set = set()
     for eid, _flags, off in entities(script):
         if not 0 <= off < len(code):
             continue
         try:
             ins, _end = sbtvm.decode(code, off, len(code))
-        except Exception:                       # noqa: BLE001 - skip bad block
+        except Exception as exc:                # noqa: BLE001 - bad block
+            if strict:
+                raise NestingError("cannot decode block 0x%x of entity %s: %s"
+                                   % (off, eid, exc)) from exc
             continue
-        for i in ins:
-            if i.name == "END":
-                break
-            if i.op != 0xC9 or not i.args:      # 0xC9 = EVAL <cond>
+        if not recursive:
+            for i in ins:
+                if i.name == "END":
+                    break
+                if i.op != 0xC9 or not i.args:
+                    continue
+                if not i.args[0][0].startswith("ADD_THING"):
+                    continue
+                th = _thing_from(i, eid, names, models, sbt_file)
+                if th is not None:
+                    out.append(th)
+            continue
+        local: list[Thing] = []
+
+        def visit(i, path, depth):
+            th = _thing_from(i, eid, names, models, sbt_file, path, depth)
+            if th is not None:
+                local.append(th)
+
+        try:
+            _walk_things(ins, visit)
+        except NestingError:
+            if strict:
+                raise
+            continue
+        for th in local:
+            if th.site in seen:                 # no double counting per site
                 continue
-            cname, args = i.args[0]
-            if not cname.startswith("ADD_THING"):
-                continue
-            ti, ints, dbls, owner = _thing_args(args, _cond(cname))
-            if ti is None:
-                continue
-            name = model = ""
-            if 0 <= ti < len(names):
-                name = names[ti]
-                if sbt_file is not None:
-                    model = models[_thing_model(sbt_file, ti)]
-            pos = tuple(ints[:3]) if (cname in _THINGS_ABS and len(ints) >= 3) else None
-            out.append(Thing(eid, cname, _s32(ti), name, model, pos,
-                             tuple(dbls), owner))
+            seen.add(th.site)
+            out.append(th)
     return out
+
+
+#: ``ThingContext`` defaults: campaign, difficulty 1, one player, seed used by
+#: the corpus sweep.  Frozen so it can key the per-scene execution cache.
+@dataclass(frozen=True)
+class ThingContext:
+    """Runtime context for the executed ``ADD_THING*`` view.
+
+    Every field maps to the VM state built by
+    :func:`gm.sbtvm_exec.state_from_script`.  ``objectives_complete`` fills the
+    level-objective bits (the condition needs the DEFINE list from the main
+    block, which entity blocks do not carry).  Two contexts compare equal iff
+    all fields match, so ``Scene.nested_things(context)`` can cache safely.
+    """
+
+    game_mode: int = 0          # 0 campaign, 1 dm-normal, 2 dm-classic, 5 scavenger
+    difficulty: int = 1
+    players: int = 1
+    playertype: int | None = None
+    source_player: int | None = None
+    god_mode: bool = False
+    objectives_complete: bool = False
+    seed: int = 0x12345678
+    random_unknown: bool = False
+    follow_generate: bool = False
+    max_steps: int = 200_000
+    max_time: float = 5.0
+    max_paths: int = 64
+    on_unknown: str = "both"
+
+    def label(self) -> str:
+        bits = ["mode=%d" % self.game_mode, "diff=%d" % self.difficulty,
+                "players=%d" % self.players]
+        if self.playertype is not None:
+            bits.append("type=%d" % self.playertype)
+        if self.source_player is not None:
+            bits.append("src_player=%d" % self.source_player)
+        if self.god_mode:
+            bits.append("god")
+        if self.objectives_complete:
+            bits.append("objectives")
+        return ",".join(bits)
+
+
+@dataclass
+class ExecutedThings:
+    """Result of one :func:`execute_things` run."""
+
+    things: list = field(default_factory=list)
+    context: ThingContext | None = None
+    reasons: dict = field(default_factory=dict)
+    paths: int = 0
+    blocks: int = 0
+    spawns: list = field(default_factory=list)
+
+    def counts(self) -> dict:
+        top = sum(1 for t in self.things if t.depth == 0)
+        return {"top_level": top, "nested": len(self.things) - top,
+                "total": len(self.things), "spawns": len(self.spawns)}
+
+
+def _block_offsets(script):
+    """Entity-table offsets, in table order, de-duplicated."""
+    out = []
+    seen = set()
+    for _eid, _flags, off in entities(script):
+        if off not in seen and 0 <= off < len(script.code):
+            seen.add(off)
+            out.append((_eid, off))
+    return out
+
+
+def _static_paths(script, sbt_file):
+    """``site -> (path, depth)`` from the recursive static walk."""
+    return {t.site: (t.path, t.depth)
+            for t in things(script, sbt_file, recursive=True)}
+
+
+def _objectives_from(script):
+    """The ``DEFINE_LEVEL_OBJECTIVES`` list of a script (best effort)."""
+    try:
+        ins, _end = sbtvm.decode(script.code)
+    except Exception:                       # noqa: BLE001
+        return []
+    for i in walk_all(ins):
+        if i.name == "DEFINE_LEVEL_OBJECTIVES" and isinstance(i.args, list):
+            return [s for s in i.args if isinstance(s, str)]
+    return []
+
+
+def walk_all(insns):
+    """Every instruction of a block, recursing into IF/ELSE bodies."""
+    for i in insns:
+        yield i
+        if isinstance(getattr(i, "body", None), list):
+            yield from walk_all(i.body)
+
+
+def execute_things(script: sbt.Script, sbt_file=None, context=None,
+                   executor=None, path_map=None) -> ExecutedThings:
+    """Run the VM over every entity block and collect the things it builds.
+
+    This is the runtime counterpart of :func:`things`: each entity sub-script
+    is started with ``source_entity`` set to its id, every ``IF`` the model
+    cannot decide is forked (``on_unknown="both"``) and the per-path scenes
+    are merged by ``(site, occurrence)`` -- the exact merge used by
+    ``tools/re/vm_exec.py --corpus``, so a loop that builds a thing twice keeps
+    both, while the same site in two contexts is counted once.
+
+    The returned things carry ``via="executed"``, the runtime ``source`` entity
+    and the *syntactic* ``path``/``depth`` of their site (context tells which
+    branch ran, the path tells where the site sits).  Spawns are collected in
+    ``ExecutedThings.spawns`` for the 391/391 check.
+    """
+    from . import sbtvm_exec as vm
+
+    ctx = context or ThingContext()
+    names: list = []
+    models: list = []
+    if sbt_file is not None:
+        names = [t.name for t in sbt_file.records_of(4)[0].payload.entries]
+        models = [e.name for e in sbt_file.records_of(20)[0].payload.entries]
+    paths = _static_paths(script, sbt_file) if path_map is None else path_map
+
+    st = vm.state_from_script(
+        script, game_mode=ctx.game_mode, player_count=ctx.players,
+        difficulty=ctx.difficulty, players=ctx.players, seed=ctx.seed,
+        playertype=ctx.playertype, source_player=ctx.source_player,
+        god_mode=ctx.god_mode)
+    if ctx.objectives_complete:
+        objs = _objectives_from(script)
+        st.objectives = objs
+        st.objectives_bits = (1 << len(objs)) - 1 if objs else 0
+    ex = executor or vm.Executor(
+        st, max_steps=ctx.max_steps, max_time=ctx.max_time,
+        max_paths=ctx.max_paths, on_unknown=ctx.on_unknown,
+        follow_generate=ctx.follow_generate,
+        random_unknown=ctx.random_unknown)
+    result = ExecutedThings(context=ctx)
+    seen = set()
+    for eid, off in _block_offsets(script):
+        rs = ex.run(off, source_entity=eid)
+        result.blocks += 1
+        result.paths += len(rs)
+        for r in rs:
+            result.reasons[r.reason] = result.reasons.get(r.reason, 0) + 1
+        merged = vm.merge_scenes(rs)
+        for obj in merged.spawns:
+            key = ("spawns", getattr(obj, "site", None),
+                   getattr(obj, "occ", None))
+            if key in seen:
+                continue
+            seen.add(key)
+            if len(result.spawns) < 100_000:
+                result.spawns.append(obj)
+        for t in merged.things:
+            key = ("things", t.site, getattr(t, "occ", 0))
+            if key in seen:
+                continue
+            path, depth = paths.get(t.site, ((), 0))
+            th = Thing(t.entity if t.entity is not None else eid, t.kind,
+                       t.type_index, "", "", t.pos, tuple(t.angles), t.owner,
+                       source=t.entity if t.entity is not None else eid,
+                       path=path, site=t.site, depth=depth, via="executed",
+                       occ=getattr(t, "occ", 0))
+            if 0 <= th.type_index < len(names):
+                th.type_name = names[th.type_index]
+                if sbt_file is not None:
+                    th.model = models[_thing_model(sbt_file, th.type_index)]
+            result.things.append(th)
+    return result
+
+
+def executed_things(script: sbt.Script, sbt_file=None, context=None) -> list[Thing]:
+    """The :func:`execute_things` list, without the run statistics."""
+    return execute_things(script, sbt_file, context).things
 
 
 def _thing_model(sbt_file, idx: int) -> int:
@@ -663,19 +1021,39 @@ def extract(script: sbt.Script) -> Scene:
     return scene
 
 
-def from_sbt(path_or_file) -> Scene:
-    """``Scene`` of a parsed :class:`gm.sbt.Sbt` or of an ``.sbt`` path."""
+def from_sbt(path_or_file, execute: bool = False, context=None) -> Scene:
+    """``Scene`` of a parsed :class:`gm.sbt.Sbt` or of an ``.sbt`` path.
+
+    The default result is exactly the historical scene.  With ``execute=True``
+    the opt-in ``Scene.recursive_things`` list is filled from the recursive
+    static walk (top-level *and* nested ``IF``/``ELSE`` sites); with a
+    :class:`ThingContext` the VM is run for that context and
+    ``Scene.executed_things`` is filled too.
+    """
     f = path_or_file
     if isinstance(f, str):
         f = sbt.parse_file(f)
     recs = f.records_of(11)
     if not recs:
         raise ValueError("no SCRIPT record")
-    scene = extract(recs[0].payload)
-    scene.things = things(recs[0].payload, f)
+    script = recs[0].payload
+    scene = extract(script)
+    scene.things = things(script, f)
+    scene._script = script
+    scene._sbt = f
+    if execute or context is not None:
+        scene.recursive_things = things(script, f, recursive=True)
+    if context is not None:
+        scene.nested_things(context)
     return scene
 
 
-def load(path: str) -> Scene:
-    """Scene of an ``.sbt`` file, in the engine's world coordinates."""
-    return from_sbt(sbt.parse_file(path))
+def load(path: str, execute: bool = False, context=None) -> Scene:
+    """Scene of an ``.sbt`` file, in the engine's world coordinates.
+
+    ``execute=False`` (default) is unchanged.  ``execute=True`` exposes the
+    nested things through ``scene.recursive_things`` /
+    ``scene.nested_things()``; a :class:`ThingContext` additionally runs the
+    VM (:func:`execute_things`).
+    """
+    return from_sbt(sbt.parse_file(path), execute=execute, context=context)
