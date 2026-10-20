@@ -1467,6 +1467,24 @@ ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
     return result;
 }
 
+ThingVitals thing_vitals(const Thing& thing) {
+    ThingVitals vitals;
+    vitals.hp = thing.health;
+    vitals.max_hp = thing.max_health;
+    vitals.shields = thing.shields;
+    vitals.shield_max = thing.shield_max;
+    vitals.alive = thing.alive;
+    return vitals;
+}
+
+void store_thing_vitals(Thing& thing, const ThingVitals& vitals) {
+    thing.health = vitals.hp;
+    thing.max_health = vitals.max_hp;
+    thing.shields = vitals.shields;
+    thing.shield_max = vitals.shield_max;
+    thing.alive = vitals.alive && vitals.hp > 0;
+}
+
 Vitals vitals_from_game(const GameState& game) {
     Vitals vitals;
     vitals.armor = game.armor;

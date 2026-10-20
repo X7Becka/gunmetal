@@ -16,6 +16,8 @@
 // NaN damage, and a weapon fire period of 0 (no cooldown).
 #include "game/weapons.h"
 
+#include "world/things.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -741,6 +743,21 @@ void test_blast_and_thing_damage() {
     CHECK(tr.dead);
     CHECK_EQ(thing.hp, 0);
     CHECK_EQ(thing.shields[0], 0);
+
+    // Runtime Thing bridge: the same gauges go in and out of world/things.
+    gm::Thing runtime_thing;
+    runtime_thing.health = 1000;
+    runtime_thing.max_health = 1000;
+    runtime_thing.shields = {500, 0, 0, 0};
+    runtime_thing.shield_max = runtime_thing.shields;
+    runtime_thing.alive = true;
+    gm::ThingVitals bridge = gm::thing_vitals(runtime_thing);
+    tr = gm::apply_thing_damage(bridge, 1000, 0, 0, 0);
+    gm::store_thing_vitals(runtime_thing, bridge);
+    CHECK(tr.ok);
+    CHECK_EQ(runtime_thing.health, 500);
+    CHECK_EQ(runtime_thing.shields[0], 0);
+    CHECK(runtime_thing.alive);
 }
 
 void test_runtime_blast_bridge() {
