@@ -528,6 +528,8 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                 if (agent.alertness <= 0.0) {
                     agent.alertness = 0.0;
                     agent.target = -1;
+                    agent.target_thing = -1;
+                    agent.target_is_thing = false;
                     agent.timer = 0.0;
                     set_state(agent, AiState::patrol, tick);
                     log(AiEventType::lost_sight, agent, 0.0, tick);
@@ -559,6 +561,8 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                 if (agent.alertness <= 0.0) {
                     agent.alertness = 0.0;
                     agent.target = -1;
+                    agent.target_thing = -1;
+                    agent.target_is_thing = false;
                     agent.timer = 0.0;
                     set_state(agent, AiState::patrol, tick);
                     log(AiEventType::lost_sight, agent, 0.0, tick);
