@@ -188,6 +188,11 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
     results.append(report("soe / THING_TYPES field map", ok,
                           "77 fields: 36 proven, 25 hypothesis, 16 unknown"))
 
+    # .sob writer: 672/672 semantic + raw round-trip, canonical writer.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "sob_writer.py"),
+                        "--self-test"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("sob / writer self-test", p.returncode == 0,
+                          (p.stdout.strip().splitlines() or ["no output"])[-1]))
     # SECTOR_STUFF/ITEM/LIFT field round-trip and trust edge cases.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "records.py"),
                         "--self-test"], capture_output=True, text=True, cwd=HERE)
@@ -976,7 +981,8 @@ def main() -> int:
     # --- models / animations / audio -------------------------------------
     results.append(check("sob / models", ["sob", f"{G}/SOBS", out]
                          + ([] if opts.full else ["--check"]),
-                         ["sob: 672 converted, 0 failed"]))
+                         ["sob: 672 converted, 0 failed"] if opts.full
+                         else ["sob: 672 parsed, 0 failed"]))
     render_checks(G, results, out, opts.full)
     # One shared sweep feeds "all levels decode", the 1.875 world-frame ratio
     # and the ADD_THING check below.

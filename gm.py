@@ -1965,17 +1965,22 @@ def cmd_spawn(opts) -> int:
 
 
 def cmd_sob(opts) -> int:
-    if not opts.check and not opts.out:
-        print("sob: OUT is required unless --check", file=sys.stderr)
+    if not opts.check and not opts.out and not opts.rebuild:
+        print("sob: OUT is required unless --check or --rebuild", file=sys.stderr)
         return 2
     files = sorted(
         os.path.join(opts.src, f) for f in os.listdir(opts.src) if f.lower().endswith(".sob")
     )
+    if opts.rebuild:
+        os.makedirs(opts.rebuild, exist_ok=True)
     ok = 0
     errs = 0
     for p in files:
         try:
-            if opts.check:
+            if opts.rebuild:
+                dst = os.path.join(opts.rebuild, os.path.basename(p))
+                sob.parse(p).write(dst, force=opts.force, exact=opts.exact)
+            elif opts.check:
                 sob.parse(p)
             else:
                 sob.to_obj_file(p, opts.out)
@@ -1983,8 +1988,13 @@ def cmd_sob(opts) -> int:
         except Exception as exc:  # noqa: BLE001 - report and continue
             errs += 1
             print(f"  FAIL {os.path.basename(p)}: {exc}", file=sys.stderr)
-    print(f"sob: {ok} converted, {errs} failed -> "
-          f"{'(parsed only)' if opts.check else opts.out}")
+    if opts.rebuild:
+        print(f"sob: {ok} rebuilt ({'byte-exact' if opts.exact else 'canonical'}), "
+              f"{errs} failed -> {opts.rebuild}")
+    elif opts.check:
+        print(f"sob: {ok} parsed, {errs} failed")
+    else:
+        print(f"sob: {ok} converted, {errs} failed -> {opts.out}")
     return 0 if errs == 0 else 1
 
 
@@ -2069,6 +2079,13 @@ def main(argv=None) -> int:
     p.add_argument("src")
     p.add_argument("out", nargs="?")
     p.add_argument("--check", action="store_true", help="parse only, write nothing")
+    p.add_argument("--rebuild", metavar="DIR",
+                   help="write every .sob back (lossless raw unless --canonical)")
+    p.add_argument("--exact", action="store_true", default=True,
+                   help="with --rebuild: unchanged models keep their raw bytes "
+                        "(default)")
+    p.add_argument("--canonical", dest="exact", action="store_false",
+                   help="with --rebuild: always use the canonical token layout")
     p.set_defaults(func=cmd_sob)
 
     p = sub.add_parser("scene", help="dump the scripted scene of .sbt levels")
