@@ -722,7 +722,9 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > `hud_player.*`: тайминг `.fdx` на 91 Гц (`frame=tick*fps/91+1`,
       > loop/hold), `WEAPON8`→line 8, golden AMMO4 tick 0/91/182; CTest
       > `hud_player`; `--hud/--hud-tick/--hud-x/y/scale/opacity` в `--render`
-      > и viewer. Осталась привязка к `.sml`/семействам и fade.
+      > и viewer. `hud_bind.*`: `.sml`-экран → family (WEAPON/AMMO/TANK/
+      > SHIELD/EQUIP/DEFAULT), `.sof`/`.fdx` line, `<I>`-позиции; 299/300
+      > файлов, CTest `hud_bind`. Остались fade и точный origin пагера.
 - ⬜ `M4.2.8` Эффекты экрана: fade, damage flash, invulnerability, палитра.
 
 ### M4.3. Камера и презентация
