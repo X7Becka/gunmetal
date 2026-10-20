@@ -958,8 +958,10 @@ save/load восстанавливает мир, игрока, двери, па�
 - ✅ Парсеры ядра: `tools/fuzz_formats.py` (BIGFILE/`.sbv`/`.sbw`/`.sbt`/`.sbm`/
   `.sbc`; пустые, обрезанные, мутированные и extreme-header файлы; лимит времени
   на кейс). Входит в `regress.py` быстрым прогоном.
-- ⬜ Остальные парсеры: `.soo`, `.sof`, `.sou`, `.sml`, `.soe`, `.sog`.
-- ⬜ C++-фаззер (сейчас границы проверяются golden-тестами вручную).
+- ⬜ Остальные парсеры: `.soo`, `.sou`, `.sml`, `.soe`, `.sog` (`.sof` уже
+  покрыт golden-тестом C++ и round-trip).
+- ✅ C++-фаззер: `engine/tests/test_fuzz.cpp` (`gm_fuzz_tests`, quick 3451 /
+  full 8119 кейсов; `docs/FUZZ_CPP.md`).
 - VM: случайные опкоды/операнды → нет падений/утечек.
 - Сеть: битые пакеты, таймауты, повторные пакеты.
 
@@ -1130,17 +1132,17 @@ data/                   # только тестовые векторы, без �
 
 1. ✅ `M0.2` `regress.py --full` + `docs/BASELINE.md`.
 2. ✅ `M0.3` `gm.py inventory` — карта всех расширений.
-3. 🟡 `M0.5` `docs/ADR/0001-language.md` (D0) и `0002-scope.md` (что считаем
-       «готовым»).
+3. ✅ `M0.5` `docs/ADR/0001-language.md` (D0), `0002-scope.md`,
+       `0003-saves.md`.
 4. ✅ `M1.1` `gm/soo.py` + `gm.py soo` + 40/40 round-trip.
-5. 🟡 `M1.2` research spike `.sof/.fdx`: загрузчик, кадр, палитра, FPS.
+5. ✅ `M1.2` research spike `.sof/.fdx`: загрузчик, кадр, палитра, FPS.
 6. ⛔ `M1.5.1` `LIFT` и `M1.5.4` `PLAYER_STATUS` — структуры + round-trip.
 7. ✅ `M1.7` полный diff блоков `saved0`/`saved1`.
 8. 🟡 `M2.1` Ghidra-проект + `names.csv` + `docs/ENGINE.md` (каркас).
 9. ✅ `M2.2.2` главный цикл и state machine — диаграмма.
 10. ✅ `M3.1` CMake-каркас + SDL3-окно + `--dump` заглушка.
-11. 🟡 `M1.3` research spike `SOU1`: сравнить `SILENCE` с Miles ADPCM,
-        найти таблицы; решение «декодируем / fallback».
+11. ✅ `M1.3` research spike `SOU1`: 4-битный ADPCM, таблицы
+        `0x850480/0x850500/0x850540`, 983/983; Python + C++.
 12. ✅ `M4.4.2` захват эталонного кадра оригинала (dgVoodoo/DXWnd) — проверить,
         что оракул вообще доступен.
 
