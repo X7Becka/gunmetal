@@ -1548,15 +1548,19 @@ void test_soo_anim() {
     if (!soo) {
         return;
     }
-    const auto pose = gm::soo_pose_at(*soo, 100, error);
+    // .soo durations are 91 Hz ticks: 1000 ms -> tick 91 (frame 1).
+    const auto early = gm::soo_pose_at(*soo, 100, error);
+    CHECK(early.has_value() && early->index == 0 && early->phase == 9);
+    const auto pose = gm::soo_pose_at(*soo, 1000, error);
     CHECK(pose.has_value());
     if (!pose) {
         return;
     }
+    CHECK_EQ(pose->phase, 91);
     CHECK_EQ(pose->index, 1);
     CHECK_EQ(pose->next_index, 2);
-    CHECK(std::abs(pose->alpha - 1.0 / 3.0) < 1e-12);
-    const auto wrapped = gm::soo_pose_at(*soo, 400, error);
+    CHECK(std::abs(pose->alpha - 41.0 / 150.0) < 1e-12);
+    const auto wrapped = gm::soo_pose_at_tick(*soo, 400, 0, error);
     CHECK(wrapped.has_value() && wrapped->index == 0 && wrapped->next_index == 1);
     const auto cloud = gm::parse_soo(read(game / "Sobanim/Cloud.soo"), error);
     CHECK(cloud.has_value());
@@ -1586,7 +1590,7 @@ void test_soo_anim() {
         h ^= b;
         h *= 0x100000001b3ull;
     }
-    CHECK_EQ(h, 0x882000344a825410ull);
+    CHECK_EQ(h, 0x3adbef60432bc3ddull);
 }
 
 void test_place_model() {

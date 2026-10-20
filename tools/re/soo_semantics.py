@@ -135,10 +135,10 @@ def analyse(path: str, game: str, sobs: dict[str, str],
         warnings.append("dead: %d listed frame(s) after count are ignored"
                         % len(dropped))
     if total <= 0:
-        issues.append("effective duration is not positive (%d ms)" % total)
+        issues.append("effective duration is not positive (%d ticks)" % total)
     for i, f in enumerate(eff):
         if f.duration <= 0:
-            issues.append("frame %d (%s) has duration %d ms"
+            issues.append("frame %d (%s) has duration %d ticks"
                           % (i, f.name, f.duration))
 
     dims: list[tuple[int, int] | None] = []
@@ -180,8 +180,11 @@ def analyse(path: str, game: str, sobs: dict[str, str],
         "listed": len(a.frames),
         "used": used,
         "dropped": len(dropped),
-        "total_ms": total,
-        "listed_ms": a.duration,
+        "clock_hz": soomod.ENGINE_TICK_HZ,
+        "total_ticks": total,
+        "total_ms": round(soomod.ticks_to_ms(total), 3),
+        "listed_ticks": a.duration,
+        "listed_ms": round(soomod.ticks_to_ms(a.duration), 3),
         "combined_header": a.combined,
         "frames": [{"name": f.name, "duration": f.duration,
                     "used": i < a.count,
@@ -202,8 +205,8 @@ def analyse(path: str, game: str, sobs: dict[str, str],
 # --------------------------------------------------------------------------
 
 def print_table(rows: list[dict]) -> None:
-    print("%-16s %4s %5s %5s %6s %8s  %s"
-          % ("file", "mode", "count", "used", "drop", "total_ms", "status"))
+    print("%-16s %4s %5s %5s %6s %9s  %s"
+          % ("file", "mode", "count", "used", "drop", "ticks", "status"))
     for r in rows:
         if "count" not in r:
             print("%-16s %s" % (r["file"], r["issues"][0]))
@@ -213,7 +216,7 @@ def print_table(rows: list[dict]) -> None:
             status = "warn"
         print("%-16s %4d %5d %5d %6d %8d  %s"
               % (r["file"], r["mode"], r["count"], r["used"],
-                 r["dropped"], r["total_ms"], status))
+                 r["dropped"], r["total_ticks"], status))
         for msg in r["issues"]:
             print("    ! %s" % msg)
         for msg in r["warnings"]:
@@ -230,20 +233,20 @@ def print_table(rows: list[dict]) -> None:
 
 def print_timeline(row: dict) -> None:
     a = soomod.parse_file(row["path"])
-    print("%s: mode %d (%s), count %d, used %d, total %d ms"
+    print("%s: mode %d (%s), count %d, used %d, total %d ticks"
           % (row["file"], a.mode, "loop" if a.mode == 1 else "one-shot",
              a.count, len(a.engine_frames), a.engine_duration))
     for t in a.timeline():
         mark = "" if t.index < a.count else "  DEAD"
-        print("  [%6d .. %6d) %-12s %5d ms -> next %s%s"
+        print("  [%6d .. %6d) %-12s %5d ticks -> next %s%s"
               % (t.start, t.end, t.name, t.duration,
                  a.engine_frames[t.next_index].name, mark))
     if a.dropped_frames:
         print("  dropped (never read by the engine): %s"
-              % ", ".join("%s %dms" % (f.name, f.duration)
+              % ", ".join("%s %d ticks" % (f.name, f.duration)
                           for f in a.dropped_frames))
     if a.mode == 1 and a.engine_duration:
-        print("  loop: t=%d ms is t=0 again; last pose morphs to first"
+        print("  loop: t=%d ticks is t=0 again; last pose morphs to first"
               % a.engine_duration)
 
 
@@ -495,10 +498,12 @@ def main(argv: list[str]) -> int:
         except ValueError as exc:
             print("frame_at: %s" % exc, file=sys.stderr)
             return 1
-        print("%s @ %d ms: frame %d %s, %d/%d ms, alpha=%.3f -> %s"
-              % (rows[0]["file"], opts.frame_at, pose.index, pose.name,
-                 pose.elapsed, pose.duration, pose.alpha, pose.next_name))
-        print("  phase=%d/%d, %s"
+        print("%s @ %d ms (tick %d): frame %d %s, %d/%d ticks, "
+              "alpha=%.3f -> %s"
+              % (rows[0]["file"], opts.frame_at, pose.phase, pose.index,
+                 pose.name, pose.elapsed, pose.duration, pose.alpha,
+                 pose.next_name))
+        print("  phase=%d/%d ticks, %s"
               % (pose.phase, pose.total, "loop" if pose.loop else "one-shot"))
         return 0
 

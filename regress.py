@@ -173,24 +173,25 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
 
     # .soo playback: mode 1 wraps, frame_at mirrors the engine interpolator.
     rc, text = run_raw(["soo", os.path.join(G, "Sobanim", "Cultist.soo"),
-                        "--timeline", "--at", "50"])
+                        "--timeline", "--at", "600"])
     ok = (rc == 0 and "mode=loop count=4" in text
           and "[    0..50   ) 0 cult1a       -> 1" in text
-          and "at 50 ms: frame 1 cult1a alpha=0.000 -> cult1b" in text)
+          and "total=400 ticks" in text
+          and "at 600 ms (tick 54): frame 1 cult1a alpha=0.027 -> cult1b" in text)
     results.append(report("soo / loop timeline + interpolated pose", ok,
-                          "Cultist: 4 frames / 400 ms, wrap to frame 0"))
+                          "Cultist: 4 frames / 400 ticks (4.40 s), wrap to 0"))
     a_png = os.path.join(out, "soo_at0.png")
     b_png = os.path.join(out, "soo_at100.png")
     rc1, _ = run(["view", os.path.join(G, "Sobanim", "Cultist.soo"),
                   "--game", G, "--at", "0", "--size", "160", "--out", a_png])
     rc2, text2 = run(["view", os.path.join(G, "Sobanim", "Cultist.soo"),
-                      "--game", G, "--at", "100", "--size", "160", "--out", b_png])
+                      "--game", G, "--at", "1000", "--size", "160", "--out", b_png])
     different = (rc1 == 0 and rc2 == 0 and os.path.exists(a_png)
                  and os.path.exists(b_png)
                  and open(a_png, "rb").read() != open(b_png, "rb").read())
     results.append(report("soo / morphing pose render", different
                           and "anim mode=1" in text2,
-                          "Cultist frame 0 vs 100 ms differ"))
+                          "Cultist frame 0 vs 1000 ms differ"))
 
     # .soe/THING_TYPES field map: 77 fields, 36 proven by loader/consumers.
     rc, text = run_raw(["soe", "--fields"])

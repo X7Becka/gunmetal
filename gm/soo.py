@@ -21,7 +21,10 @@ Semantics recovered from the code (see ``docs/SOO.md``):
   held (the last frame interpolates to itself).
 * ``mode == 1`` — loop: the clock is taken modulo the total duration and the
   last frame interpolates back to the first one.
-* Durations are milliseconds on the game clock.
+* Durations are **engine ticks**, not milliseconds: the clock advances once
+  per ~11 ms frame and the engine counts 91 ticks per second.  Use
+  :func:`ms_to_ticks`/:func:`ticks_to_ms` at the API boundary; see
+  ``docs/SOO.md`` §3.3.
 * Each name is a separate ``SOBS/<name>.sob`` pose.  Frames are *not* swapped
   as models: the engine interpolates vertices and per-face data between the
   current and the next pose.  All poses must therefore have the same vertex and
@@ -35,10 +38,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+#: Engine clock rate: ``0x407504`` sleeps ~11 ms and ``0x44db8d`` counts 91
+#: ticks per second (same clock as ``.soa``).
+ENGINE_TICK_HZ = 91
+
+
+def ms_to_ticks(ms: int) -> int:
+    """Convert milliseconds to engine ticks (floor, negative -> 0)."""
+    ms = int(ms)
+    return 0 if ms <= 0 else ms * ENGINE_TICK_HZ // 1000
+
+
+def ticks_to_ms(ticks: int) -> float:
+    """Convert engine ticks to milliseconds (exact float, not rounded)."""
+    return int(ticks) * 1000.0 / ENGINE_TICK_HZ
+
 
 @dataclass
 class Frame:
-    """One animation frame: a model name (``SOBS/<name>.sob``) and its time."""
+    """One animation frame: a model name (``SOBS/<name>.sob``) and its ticks."""
 
     name: str
     duration: int
@@ -48,10 +66,10 @@ class Frame:
 class Timing:
     """One effective frame interval of the engine timeline.
 
-    ``start``/``end`` are milliseconds relative to the animation start, ``end``
-    is exclusive.  ``next_index`` is the pose the engine interpolates towards
-    during this interval (itself on the last frame of a one-shot, the first
-    frame on the last frame of a loop).
+    ``start``/``end``/``duration`` are **91 Hz ticks**, ``end`` exclusive.
+    ``next_index`` is the pose the engine interpolates towards during this
+    interval (itself on the last frame of a one-shot, the first frame on the
+    last frame of a loop).
     """
 
     index: int
@@ -61,6 +79,18 @@ class Timing:
     end: int
     next_index: int
 
+    @property
+    def duration_ms(self) -> float:
+        return ticks_to_ms(self.duration)
+
+    @property
+    def start_ms(self) -> float:
+        return ticks_to_ms(self.start)
+
+    @property
+    def end_ms(self) -> float:
+        return ticks_to_ms(self.end)
+
 
 @dataclass(frozen=True)
 class Pose:
@@ -68,14 +98,30 @@ class Pose:
 
     index: int                 # current frame (0-based, engine frames only)
     name: str                  # current pose (SOBS/<name>.sob)
-    duration: int              # duration of the current frame, ms
-    elapsed: int               # ms spent inside the current frame
-    alpha: float               # elapsed / duration, 0..1 (1 at the very end)
+    duration: int              # duration of the current frame, ticks
+    elapsed: int               # ticks spent inside the current frame
+    alpha: float               # elapsed / duration, 0..1
     next_index: int            # pose interpolated towards
     next_name: str             # its model name (== name when holding)
-    phase: int                 # normalised clock (0..total-1 / 0..total)
-    total: int                 # total effective duration, ms
+    phase: int                 # normalised clock, ticks
+    total: int                 # total effective duration, ticks
     loop: bool                 # mode == 1
+
+    @property
+    def duration_ms(self) -> float:
+        return ticks_to_ms(self.duration)
+
+    @property
+    def elapsed_ms(self) -> float:
+        return ticks_to_ms(self.elapsed)
+
+    @property
+    def phase_ms(self) -> float:
+        return ticks_to_ms(self.phase)
+
+    @property
+    def total_ms(self) -> float:
+        return ticks_to_ms(self.total)
 
 
 @dataclass
@@ -92,7 +138,7 @@ class Soo:
 
     @property
     def duration(self) -> int:
-        """Sum of the durations of *all* listed frames (legacy behaviour)."""
+        """Sum of the durations of *all* listed frames, in ticks."""
         return sum(f.duration for f in self.frames)
 
     # -- engine view ------------------------------------------------------
@@ -132,15 +178,20 @@ class Soo:
 
     @property
     def engine_duration(self) -> int:
-        """Total duration of the frames the engine loads, in milliseconds."""
+        """Total duration of the frames the engine loads, in 91 Hz ticks."""
         return sum(f.duration for f in self.engine_frames)
+
+    @property
+    def engine_duration_ms(self) -> float:
+        """Total effective duration in milliseconds (converted, not rounded)."""
+        return ticks_to_ms(self.engine_duration)
 
     def timeline(self, start: int = 0) -> list[Timing]:
         """Effective engine timeline as frame intervals.
 
-        ``start`` shifts the absolute times; intervals are contiguous and their
-        sum is :attr:`engine_duration`.  A loop is not unrolled — the wrap is
-        implicit, use :meth:`frame_at` for an arbitrary instant.
+        ``start`` is in ticks and shifts the absolute times; intervals are
+        contiguous and their sum is :attr:`engine_duration`.  A loop is not
+        unrolled — the wrap is implicit, use :meth:`frame_at` for an instant.
         """
         out: list[Timing] = []
         t = int(start)
@@ -158,7 +209,9 @@ class Soo:
     def frame_at(self, ms: int, start: int = 0) -> Pose:
         """State of the animation ``ms`` milliseconds after ``start``.
 
-        Mirrors ``0x433e00`` exactly for the two shipped modes:
+        Milliseconds are converted to the engine's 91 Hz ticks before the
+        lookup, so this is the player's clock.  Mirrors ``0x433e00`` exactly
+        for the two shipped modes:
 
         * negative time is clamped to 0 (``0x433e84``);
         * mode 0: ``t >= total`` becomes ``total - 1`` (last frame held);
@@ -171,6 +224,10 @@ class Soo:
         duration, or a mode other than 0/1 (the engine would run off the frame
         array for other values, so they are not modelled).
         """
+        return self.frame_at_tick(ms_to_ticks(int(ms) - int(start)))
+
+    def frame_at_tick(self, tick: int, start_tick: int = 0) -> Pose:
+        """Engine-level lookup with raw 91 Hz ticks (``0x433e00``)."""
         frames = self.engine_frames
         if not frames:
             raise ValueError("animation has no frames")
@@ -181,7 +238,7 @@ class Soo:
         if total <= 0:
             raise ValueError("animation duration is not positive")
 
-        phase = int(ms) - int(start)
+        phase = int(tick) - int(start_tick)
         if phase < 0:
             phase = 0
         if self.mode == 0:

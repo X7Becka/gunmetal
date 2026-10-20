@@ -813,16 +813,25 @@ def cmd_soo(opts) -> int:
                   "loop": a.mode == 1, "count": a.count,
                   "frames": len(a.frames), "engine_frames": len(a.engine_frames),
                   "dropped": len(a.dropped_frames), "short": a.short,
-                  "duration": a.duration, "engine_duration": a.engine_duration,
+                  "clock_hz": soomod.ENGINE_TICK_HZ,
+                  "duration_ticks": a.duration,
+                  "engine_duration_ticks": a.engine_duration,
+                  "engine_duration_ms": round(a.engine_duration_ms, 3),
                   "timeline": [{"index": x.index, "name": x.name,
-                                "start": x.start, "end": x.end,
+                                "duration_ticks": x.duration,
+                                "start_tick": x.start, "end_tick": x.end,
+                                "start_ms": round(x.start_ms, 3),
+                                "end_ms": round(x.end_ms, 3),
                                 "next": x.next_index} for x in a.timeline()],
                   "missing": miss}
         if opts.at is not None:
             try:
                 pose = a.frame_at(opts.at)
-                record["pose"] = {"at": opts.at, "index": pose.index,
-                                  "name": pose.name, "alpha": pose.alpha,
+                record["pose"] = {"at_ms": opts.at, "tick": pose.phase,
+                                  "index": pose.index, "name": pose.name,
+                                  "alpha": pose.alpha,
+                                  "duration_ticks": pose.duration,
+                                  "duration_ms": round(pose.duration_ms, 3),
                                   "next_index": pose.next_index,
                                   "next_name": pose.next_name}
             except ValueError as exc:
@@ -830,11 +839,12 @@ def cmd_soo(opts) -> int:
         report.append(record)
         if not opts.json:
             extra = "" if gap == 0 else " (%+d vs declared)" % gap
-            print("%-16s mode=%d frames=%d%s total=%d ms"
+            print("%-16s mode=%d frames=%d%s total=%d ticks (%.2f s)"
                   % (os.path.basename(p), a.mode, len(a.frames), extra,
-                     a.duration))
+                     a.duration, a.duration / soomod.ENGINE_TICK_HZ))
             if opts.timeline:
-                print("    mode=%s count=%d engine=%d dropped=%d %s total=%d ms"
+                print("    mode=%s count=%d engine=%d dropped=%d %s "
+                      "total=%d ticks"
                       % ("loop" if a.mode == 1 else "one-shot", a.count,
                          len(a.engine_frames), len(a.dropped_frames),
                          "SHORT" if a.short else "ok", a.engine_duration))
@@ -844,15 +854,15 @@ def cmd_soo(opts) -> int:
             if opts.at is not None:
                 try:
                     pose = a.frame_at(opts.at)
-                    print("    at %d ms: frame %d %s alpha=%.3f -> %s"
-                          % (opts.at, pose.index, pose.name, pose.alpha,
-                             pose.next_name))
+                    print("    at %d ms (tick %d): frame %d %s alpha=%.3f -> %s"
+                          % (opts.at, pose.phase, pose.index, pose.name,
+                             pose.alpha, pose.next_name))
                 except ValueError as exc:
                     print("    at %d ms: %s" % (opts.at, exc))
             if opts.verbose:
                 for f in a.frames:
                     mark = "" if not sobs or f.name.lower() in sobs else "  (no .sob)"
-                    print("    %-12s %6d%s" % (f.name, f.duration, mark))
+                    print("    %-12s %6d ticks%s" % (f.name, f.duration, mark))
         if opts.rebuild:
             dst = os.path.join(opts.rebuild, rel)
             os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)

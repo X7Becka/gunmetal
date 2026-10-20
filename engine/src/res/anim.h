@@ -8,9 +8,20 @@
 
 namespace gm {
 
+/// Engine clock rate: the main loop sleeps ~11 ms and the level clock counts
+/// 91 ticks per second (0x407504 / 0x44db8d); .soa and .soo share it.
+constexpr int kEngineTickHz = 91;
+
+inline int ms_to_ticks(int ms) {
+    return ms <= 0 ? 0 : static_cast<int>(static_cast<long long>(ms) * kEngineTickHz / 1000);
+}
+inline double ticks_to_ms(int ticks) {
+    return static_cast<double>(ticks) * 1000.0 / kEngineTickHz;
+}
+
 struct SooFrame {
     std::string name;
-    int duration = 0;
+    int duration = 0; // engine ticks, not milliseconds
 };
 
 /// Model animation (``Sobanim/*.soo``) — plain text, see docs/FORMATS.md §8.1.
@@ -20,7 +31,8 @@ struct Soo {
     std::vector<SooFrame> frames;
 };
 
-/// One instant of playback, mirroring gm/soo.py's ``Pose``.
+/// One instant of playback, mirroring gm/soo.py's ``Pose``.  ``elapsed``,
+/// ``phase`` and ``total`` are 91 Hz ticks; ``alpha`` is the morph fraction.
 struct SooPose {
     int index = 0;
     int next_index = 0;
@@ -33,8 +45,12 @@ struct SooPose {
 };
 
 /// Engine timeline (player 0x433e00): mode 0 holds the last frame, mode 1
-/// wraps to frame 0; negative time clamps to 0.
+/// wraps to frame 0; negative time clamps to 0.  ``ms`` is converted to ticks.
 std::optional<SooPose> soo_pose_at(const Soo& soo, int ms, std::string& error);
+
+/// Raw-tick lookup used by the engine; ``tick``/``start_tick`` are 91 Hz.
+std::optional<SooPose> soo_pose_at_tick(const Soo& soo, int tick,
+                                        int start_tick, std::string& error);
 
 std::optional<Soo> parse_soo(std::span<const std::uint8_t> data, std::string& error);
 

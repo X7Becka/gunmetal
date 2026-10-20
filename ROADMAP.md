@@ -319,16 +319,16 @@ round-trip'ы проверены на поставке.
 - ✅ Семантика первых двух чисел: `mode 0` — one-shot (время
       прижимается к `total-1`, последняя поза держится), `mode 1` — loop
       (`t %= total`, последний кадр морфится в первый); `count` — авторитетное
-      число кадров, длительности — миллисекунды игровых часов. Загрузчик
+      число кадров, длительности — тики 91 Гц (не мс). Загрузчик
       `0x42b4e1`, плеер `0x433e00` (`docs/SOO.md`).
 - ✅ Понять, на что ссылаются имена кадров: `.sob`-файлы, кадры внутри `.sob`
       или записи `SOB_TABLE`.
-- ✅ `gm/soo.py`: `parse`, `to_bytes`, `timeline()`, `frame_at(ms)`,
+- ✅ `gm/soo.py`: `parse`, `to_bytes`, `timeline()`, `frame_at(ms)` (мс → тики),
       `engine_frames`/`dropped_frames`/`short`, контактный лист в
       `tools/re/soo_semantics.py`; `gm.py soo --timeline/--at`.
 - ✅ `gm.py view FILE.soo --at MS` и C++ `--anim NAME --at MS` морфят две
       соседние позы (вершины и плоскости, как `0x433e00`); кадр Cultist
-      240×240 побитово совпадает (FNV `882000344a825410`).
+      240×240 побитово совпадает (FNV `3adbef60432bc3dd` при t=1000 мс/тик 91).
 - ✅ `gm.py soo`, `--rebuild`; round-trip 40/40.
 - ✅ Проверить на `BigGate`, `Cloud`, `Cultist`, `Dev1`, `Fire`, `NUKEring`.
 

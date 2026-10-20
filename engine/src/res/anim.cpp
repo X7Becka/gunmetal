@@ -1,5 +1,6 @@
 #include "res/anim.h"
 
+#include <algorithm>
 #include <cctype>
 #include <sstream>
 #include <string_view>
@@ -91,6 +92,11 @@ std::optional<Soo> parse_soo(std::span<const std::uint8_t> data, std::string& er
 }
 
 std::optional<SooPose> soo_pose_at(const Soo& soo, int ms, std::string& error) {
+    return soo_pose_at_tick(soo, ms_to_ticks(ms), 0, error);
+}
+
+std::optional<SooPose> soo_pose_at_tick(const Soo& soo, int tick,
+                                        int start_tick, std::string& error) {
     const std::size_t count = soo.declared > 0
                                   ? std::min<std::size_t>(static_cast<std::size_t>(soo.declared),
                                                           soo.frames.size())
@@ -111,7 +117,7 @@ std::optional<SooPose> soo_pose_at(const Soo& soo, int ms, std::string& error) {
         error = "animation duration is not positive";
         return std::nullopt;
     }
-    int phase = std::max(0, ms);
+    int phase = std::max(0, tick - start_tick);
     if (soo.mode == 0) {
         if (phase >= total) {
             phase = total - 1;
