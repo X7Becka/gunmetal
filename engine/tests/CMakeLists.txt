@@ -151,6 +151,15 @@ target_link_libraries(gm_sml_tests PRIVATE gm_engine)
 add_test(NAME sml COMMAND gm_sml_tests)
 gm_label(sml quick)
 
+add_executable(gm_text_layout_tests test_text_layout.cpp)
+target_link_libraries(gm_text_layout_tests PRIVATE gm_engine)
+# SML text layout (docs/TEXT_LAYOUT.md): the twelve font atlases extracted from
+# FRONTEND/BMP.IDX with the arguments of 0x47fe30, synthetic wrap/centre/paragraph
+# cases, six real-file page goldens and the negative cases; skips cleanly when
+# the game is not installed.
+add_test(NAME text_layout COMMAND gm_text_layout_tests)
+gm_label(text_layout quick)
+
 add_executable(gm_sbtvm_tests test_sbtvm.cpp)
 target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
