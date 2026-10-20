@@ -224,6 +224,16 @@ target_link_libraries(gm_soo_player_tests PRIVATE gm_engine)
 add_test(NAME soo_player COMMAND gm_soo_player_tests)
 gm_label(soo_player quick)
 
+add_executable(gm_screen_tests test_screen.cpp)
+target_link_libraries(gm_screen_tests PRIVATE gm_engine)
+# One SML/SME screen runtime (docs/SCREEN_CPP.md): parse via res/sml, layout via
+# render/text_layout, <I> via render/sprite, pages/lines/selection/scroll.  The
+# synthetic cases cover every exposed tag; help/level21/weapon20/level10 pin
+# page/line counts and RGB FNV, <I> texels are checked against res/bmp.  Skips
+# cleanly when the game is not installed.
+add_test(NAME screen COMMAND gm_screen_tests)
+gm_label(screen quick)
+
 add_executable(gm_sbtvm_tests test_sbtvm.cpp)
 target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
