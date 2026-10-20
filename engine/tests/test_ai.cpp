@@ -179,7 +179,8 @@ void add_thing_at_source(std::vector<std::uint8_t>& code, std::uint32_t type, in
     append_f64(code, 0.0);
 }
 
-gm::Things make_synthetic_things(int history_offset = 0, int max_health = 0) {
+gm::Things make_synthetic_things(int history_offset = 0, int max_health = 0,
+                                 double search_radius = 6000.0) {
     std::vector<std::uint8_t> code;
     add_thing(code, 0, 0, 0, 0);        // agent 0, home (0,0,0)
     add_thing(code, 0, 1000, 0, 0);     // agent 1, home (1000,0,0)
@@ -187,7 +188,8 @@ gm::Things make_synthetic_things(int history_offset = 0, int max_health = 0) {
     code.push_back(0xFF);
 
     std::vector<Row> rows{{0x3FF, 42, 0}};
-    TypeSpec spec{"TEST_THING", 0, history_offset, max_health, {10, 20, 30, 40}, 3};
+    TypeSpec spec{"TEST_THING", 0, history_offset, max_health, {10, 20, 30, 40}, 3,
+                  search_radius};
     const std::vector<TypeSpec> types{spec};
     const std::vector<std::string> models{"TEST_MODEL"};
     const gm::SbtLevel level = make_sbt_level(code, rows, types, models);
@@ -698,7 +700,13 @@ void test_target_history() {
     }
     aimed.clear_player();
     aimed.tick(clear_world);
-    CHECK(!aimed.agent(0)->has_aim);
+    // With no player the original falls through to things 8..0x10b.
+    CHECK(aimed.agent(0)->target_is_thing);
+    CHECK_EQ(aimed.agent(0)->target_thing, 1);
+    CHECK_NEAR(aimed.agent(0)->distance, std::sqrt(1000.0 * 1000.0 + 10.0 * 10.0),
+               1e-12);
+    CHECK(aimed.agent(0)->has_aim);
+    CHECK_NEAR(aimed.agent(0)->aim_point.x, 1000.0, 0.0);
 
     // Multiple player eyes: the scan picks the nearest visible target, and
     // each slot has its own 240-slot history (original 0x473a00).
@@ -755,7 +763,7 @@ void test_vitals_sync() {
     // The AI mirrors the vitals of the owning thing.  The runtime damage
     // path (apply_thing_damage) writes the thing, the AI picks the result up
     // on the next tick; the AI never mutates `Things`.
-    gm::Things things = make_synthetic_things(0, 100);
+    gm::Things things = make_synthetic_things(0, 100, 0.0);
     gm::AiConfig config;
     config.use_thing_fields = true;
     gm::Ai ai(config);

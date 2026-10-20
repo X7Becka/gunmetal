@@ -341,8 +341,10 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         double distance = 0.0;
         bool visible = false;
         int chosen = -1;
+        int chosen_thing = -1;
         double best = std::numeric_limits<double>::infinity();
         double nearest = std::numeric_limits<double>::infinity();
+        double nearest_thing = std::numeric_limits<double>::infinity();
         for (int p = 0; p < player_count_; ++p) {
             const Vec3d& target_eye =
                 player_eyes_[static_cast<std::size_t>(p)];
@@ -361,8 +363,47 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                 chosen = p;
             }
         }
+        // `FUN_00473a00` scans the players first and only then the things
+        // (8..0x10b).  The C++ target list is the same: absolute, alive
+        // things other than the agent itself, nearest visible wins.
+        if (chosen < 0 && things_ != nullptr) {
+            for (const Thing& thing : things_->things()) {
+                if (thing.id == agent.thing_id || !thing.alive ||
+                    !thing.absolute()) {
+                    continue;
+                }
+                const auto& p = *thing.position;
+                const Vec3d target{
+                    static_cast<double>(p[0]),
+                    static_cast<double>(p[1]),
+                    static_cast<double>(p[2])};
+                const double d = length(target - eye);
+                nearest_thing = std::min(nearest_thing, d);
+                if (d >= agent.search_radius) {
+                    continue;
+                }
+                ++stats_.los_checks;
+                const bool seen =
+                    line_of_sight(world, eye, target, d, config_.los_skin);
+                if (!seen) {
+                    ++stats_.los_blocked;
+                } else if (d < best) {
+                    best = d;
+                    chosen_thing = thing.id;
+                }
+            }
+        }
+
         if (chosen >= 0) {
             agent.target = chosen;
+            agent.target_thing = -1;
+            agent.target_is_thing = false;
+            distance = best;
+            visible = true;
+        } else if (chosen_thing >= 0) {
+            agent.target = -1;
+            agent.target_thing = chosen_thing;
+            agent.target_is_thing = true;
             distance = best;
             visible = true;
         } else if (agent.target >= 0 && agent.target < player_count_) {
@@ -370,14 +411,27 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             // machine later clears it after `lose_sight_seconds`.
             distance = length(
                 player_eyes_[static_cast<std::size_t>(agent.target)] - eye);
+        } else if (agent.target_is_thing && things_ != nullptr &&
+                   things_->by_id(agent.target_thing) != nullptr) {
+            const Thing* thing = things_->by_id(agent.target_thing);
+            const auto& p = *thing->position;
+            distance = length(Vec3d{static_cast<double>(p[0]),
+                                    static_cast<double>(p[1]),
+                                    static_cast<double>(p[2])} -
+                              eye);
         } else {
             agent.target = -1;
-            distance = std::isfinite(nearest) ? nearest : 0.0;
+            agent.target_thing = -1;
+            agent.target_is_thing = false;
+            const double near =
+                std::isfinite(nearest) ? nearest : nearest_thing;
+            distance = std::isfinite(near) ? near : 0.0;
         }
 
-        // Aim at the target position the thing's +0x1d0 asks for.  `0` is the
-        // live eye; positive lags use that player's 240-slot ring and fall
-        // back to the live eye until enough history exists.
+        // Aim at the player position the thing's +0x1d0 asks for.  `0` is
+        // the live eye; positive lags use that player's 240-slot ring and
+        // fall back to the live eye until enough history exists.  Things
+        // have no history ring, so their current position is the aim point.
         if (agent.target >= 0 && agent.target < player_count_) {
             const Vec3d& target_eye =
                 player_eyes_[static_cast<std::size_t>(agent.target)];
@@ -388,6 +442,23 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             agent.aim_point = aim;
             agent.aim_distance = length(aim - eye);
             agent.has_aim = true;
+        } else if (agent.target_is_thing && things_ != nullptr) {
+            const Thing* thing = things_->by_id(agent.target_thing);
+            if (thing == nullptr || !thing->alive || !thing->absolute()) {
+                agent.target_thing = -1;
+                agent.target_is_thing = false;
+                agent.aim_point = Vec3d{};
+                agent.aim_distance = 0.0;
+                agent.has_aim = false;
+            } else {
+                const auto& p = *thing->position;
+                const Vec3d aim{static_cast<double>(p[0]),
+                                static_cast<double>(p[1]),
+                                static_cast<double>(p[2])};
+                agent.aim_point = aim;
+                agent.aim_distance = length(aim - eye);
+                agent.has_aim = true;
+            }
         } else {
             agent.aim_point = Vec3d{};
             agent.aim_distance = 0.0;
@@ -402,6 +473,8 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         if ((agent.state == AiState::alert || agent.state == AiState::attack) &&
             length(agent.position - agent.home) > agent.leash) {
             agent.target = -1;
+            agent.target_thing = -1;
+            agent.target_is_thing = false;
             agent.alertness = 0.0;
             agent.timer = 0.0;
             agent.returning = true;
@@ -414,7 +487,9 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         switch (agent.state) {
         case AiState::idle:
             if (visible) {
-                agent.target = chosen >= 0 ? chosen : 0;
+                agent.target = chosen;
+                agent.target_thing = chosen_thing;
+                agent.target_is_thing = chosen_thing >= 0;
                 agent.alertness = 1.0;
                 agent.timer = config_.alert_seconds;
                 set_state(agent, AiState::alert, tick);
@@ -429,7 +504,9 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             break;
         case AiState::patrol:
             if (visible) {
-                agent.target = chosen >= 0 ? chosen : 0;
+                agent.target = chosen;
+                agent.target_thing = chosen_thing;
+                agent.target_is_thing = chosen_thing >= 0;
                 agent.alertness = 1.0;
                 agent.timer = config_.alert_seconds;
                 set_state(agent, AiState::alert, tick);

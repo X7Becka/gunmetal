@@ -102,7 +102,9 @@ struct AiAgent {
     double max_health = 0.0;    ///< effective maximum HP
     bool immune = false;        ///< max_health == 0
     AiState state = AiState::idle;
-    int target = -1;            ///< 0 = the single player, -1 = none
+    int target = -1;            ///< player index 0..7, -1 = no player target
+    int target_thing = -1;       ///< Thing::id, -1 = no thing target
+    bool target_is_thing = false; ///< `target_thing` is the selected target
     double alertness = 0.0;     ///< 1.0 visible, decays while unseen
     double timer = 0.0;         ///< seconds left in the current state
     double leash = 0.0;         ///< copy of the effective leash radius
