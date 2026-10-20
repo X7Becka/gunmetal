@@ -117,6 +117,14 @@ target_link_libraries(gm_sbv_video_tests PRIVATE gm_engine)
 add_test(NAME sbv_video COMMAND gm_sbv_video_tests)
 gm_label(sbv_video full)
 
+# Full-corpus .sbv parity: all 6843 shipped frames (500 + 4523 + 1820) hashed
+# against the Python RGB reference, plus a reverse re-decode pass.  `full` only:
+# the sweep takes tens of seconds and needs the game installed.
+add_executable(gm_sbv_parity_tests test_sbv_parity.cpp)
+target_link_libraries(gm_sbv_parity_tests PRIVATE gm_engine)
+add_test(NAME sbv_parity COMMAND gm_sbv_parity_tests)
+gm_label(sbv_parity full)
+
 add_executable(gm_sml_tests test_sml.cpp)
 target_link_libraries(gm_sml_tests PRIVATE gm_engine)
 # Golden sweep over all 300 shipped SML/*.sml|*.sme files plus parser
