@@ -329,6 +329,9 @@ round-trip'ы проверены на поставке.
 - ✅ `gm.py view FILE.soo --at MS` и C++ `--anim NAME --at MS` морфят две
       соседние позы (вершины и плоскости, как `0x433e00`); кадр Cultist
       240×240 побитово совпадает (FNV `3adbef60432bc3dd` при t=1000 мс/тик 91).
+- ✅ C++ runtime `anim/soo_player.*` (CTest `soo_player`): кэш SOB, loop/hold,
+      альфа, вершины/нормали; 3 файла × 4 момента golden, 165 поз 33 `.soo`
+      сверены с Python. Остался общий межобъектный кэш SOB.
 - ✅ `gm.py soo`, `--rebuild`; round-trip 40/40.
 - ✅ Проверить на `BigGate`, `Cloud`, `Cultist`, `Dev1`, `Fire`, `NUKEring`.
 
