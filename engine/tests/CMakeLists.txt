@@ -110,6 +110,13 @@ target_link_libraries(gm_hud_tests PRIVATE gm_engine)
 add_test(NAME hud COMMAND gm_hud_tests)
 gm_label(hud quick)
 
+# Indexed .sbm sprite blitter (docs/SPRITE.md): nearest/bilinear, wrap, clip,
+# flips, integer scale, opacity, additive and real archive sprites.
+add_executable(gm_sprite_tests test_sprite.cpp)
+target_link_libraries(gm_sprite_tests PRIVATE gm_engine)
+add_test(NAME sprite COMMAND gm_sprite_tests)
+gm_label(sprite quick)
+
 add_executable(gm_hud_player_tests test_hud_player.cpp)
 target_link_libraries(gm_hud_player_tests PRIVATE gm_engine)
 # Playback clock (91 Hz ticks, .fdx count/fps, start_frame/loop/hold) on a
