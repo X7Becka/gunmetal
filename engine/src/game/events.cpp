@@ -1,5 +1,6 @@
 #include "game/events.h"
 
+#include "world/doors.h"
 #include "world/things.h"
 
 #include <bit>
@@ -516,6 +517,27 @@ bool EventDispatcher::deserialize(std::span<const std::uint8_t> bytes,
     switches_ = parsed;
     count_ = count;
     return true;
+}
+
+std::size_t install_switches(EventDispatcher& dispatcher,
+                             std::span<const Switch> switches) {
+    std::size_t installed = 0;
+    for (const Switch& source : switches) {
+        if (source.id < 0 ||
+            static_cast<std::size_t>(source.id) >= EventDispatcher::kMaxSwitches) {
+            continue;
+        }
+        SwitchEffect effect;
+        effect.kind = static_cast<std::uint32_t>(source.kind);
+        effect.event_id = static_cast<std::uint32_t>(source.target);
+        effect.x = source.pos[0];
+        effect.y = source.pos[1];
+        effect.z = source.pos[2];
+        if (dispatcher.set_switch(static_cast<std::uint32_t>(source.id), effect)) {
+            ++installed;
+        }
+    }
+    return installed;
 }
 
 std::vector<std::uint8_t> EventDispatcher::serialize() const {

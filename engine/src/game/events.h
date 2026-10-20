@@ -144,6 +144,7 @@ bool post_event(TextRegistry& registry, const Event& event, std::uint32_t now);
 
 class EventQueue;
 struct Thing;
+struct Switch; // world/doors.h
 /// Event fields of one THING_TYPES record (docs/THINGS_CPP.md).
 enum class ThingEventKind : std::uint8_t {
     create,  ///< +0x1f0
@@ -239,6 +240,13 @@ private:
     std::array<SwitchEffect, kMaxSwitches> switches_{};
     std::size_t count_ = 0;
 };
+
+/// Install the level's `ADD_SWITCH` records into the runtime table.  The
+/// original runtime entry {kind, target, x, y, z} comes from the record; the
+/// table index is `Switch::id` (the record index) and the GENERATE id is
+/// `Switch::target`.
+std::size_t install_switches(EventDispatcher& dispatcher,
+                             std::span<const Switch> switches);
 
 /// Append-only staging queue.  `drain()` is the equivalent of `event_dispatch`.
 class EventQueue {

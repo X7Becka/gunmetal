@@ -5,6 +5,7 @@
 // overflow rule (check before append) and truncated/unknown records.
 #include "game/events.h"
 
+#include "world/doors.h"
 #include "world/things.h"
 
 #include <array>
@@ -480,6 +481,26 @@ void test_dispatch_switch() {
     if (restored.switch_at(2) != nullptr) {
         CHECK_EQ(restored.switch_at(2)->x, 1); // serialized coords, not centroid
     }
+    // Level ADD_SWITCH records fill the same runtime table.
+    gm::Switch source;
+    source.id = 3;
+    source.target = 901;
+    source.kind = 0x100;
+    source.pos = {4, 5, 6};
+    gm::Switch out_of_range;
+    out_of_range.id = static_cast<int>(gm::EventDispatcher::kMaxSwitches);
+    out_of_range.target = 902;
+    const std::array<gm::Switch, 2> level_switches{source, out_of_range};
+    gm::EventDispatcher from_level;
+    CHECK_EQ(gm::install_switches(from_level, level_switches), 1U);
+    CHECK(from_level.switch_at(3) != nullptr);
+    if (from_level.switch_at(3) != nullptr) {
+        CHECK_EQ(from_level.switch_at(3)->event_id, 901U);
+        CHECK_EQ(from_level.switch_at(3)->x, 4);
+        CHECK_EQ(from_level.switch_at(3)->y, 5);
+        CHECK_EQ(from_level.switch_at(3)->z, 6);
+    }
+
     std::vector<std::uint8_t> too_many(4, 0);
     too_many[0] = 0x01;
     too_many[1] = 0x02; // 0x201
