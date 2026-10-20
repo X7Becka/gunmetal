@@ -213,11 +213,69 @@ def place_model(model, pos, scale: float = 1.0):
 # ---------------------------------------------------------------------------
 
 
+class Texture:
+    """A decoded ``.sbm`` together with the installation palette.
+
+    ``rgb(level)`` reproduces the old level-0 conversion byte for byte, while
+    :meth:`indices` keeps the raw 8-bit texels so the transparent palette index
+    (the game uses 0, see ``docs/MIPMAPS.md``) can be tested during rendering.
+    """
+
+    __slots__ = ("name", "width", "height", "levels", "kind", "sbm", "palette",
+                 "_rgb")
+
+    def __init__(self, name: str, tex: sbm.Sbm, palette: bytes, kind: str = "pics"):
+        self.name = name
+        self.width = tex.width
+        self.height = tex.height
+        self.levels = len(tex.levels_data)
+        self.kind = kind
+        self.sbm = tex
+        self.palette = palette
+        self._rgb: list[tuple[int, int, bytes] | None] = [None] * self.levels
+
+    @property
+    def transparent_index(self) -> int | None:
+        """Palette index the game keys out, if level 0 actually contains it."""
+        return 0 if b"\x00" in self.indices(0) else None
+
+    def size(self, level: int = 0) -> tuple[int, int]:
+        level = max(0, min(int(level), self.levels - 1))
+        return max(1, self.width >> level), max(1, self.height >> level)
+
+    def indices(self, level: int = 0) -> bytes:
+        """8-bit texels of *level*; a missing level falls back to level 0."""
+        if 0 <= level < self.levels:
+            return self.sbm.levels_data[level]
+        return self.sbm.levels_data[0]
+
+    def rgb(self, level: int = 0) -> tuple[int, int, bytes]:
+        """``(width, height, rgb bytes)`` for one mip level (cached)."""
+        level = max(0, min(int(level), self.levels - 1))
+        cached = self._rgb[level]
+        if cached is not None:
+            return cached
+        w, h = self.size(level)
+        pix = self.indices(level)
+        pal = self.palette
+        n = min(256, len(pal) // 4)
+        rows = []
+        for i in range(min(w * h, len(pix))):
+            c = pix[i] if pix[i] < n else 0
+            rows.append(pal[4 * c : 4 * c + 3])
+        if len(rows) < w * h:                    # truncated blob: pad
+            rows += [b"\x00\x00\x00"] * (w * h - len(rows))
+        cached = (w, h, b"".join(rows))
+        self._rgb[level] = cached
+        return cached
+
+
 class TexturePool:
     """Resolve texture names to ``(width, height, rgb bytes)``.
 
     The archives are read lazily and cached; ``None`` means "not found" and the
-    renderer then falls back to a flat colour.
+    renderer then falls back to a flat colour.  :meth:`get_texture` exposes the
+    full mip chain and the palette indices without changing :meth:`get`.
     """
 
     def __init__(self, game: str | None = None, pal: bytes | None = None,
@@ -225,16 +283,17 @@ class TexturePool:
         self.game = game
         self._palette = pal
         self._archives = archives
-        self._maps: list[tuple[str, dict[str, int], list[int]]] | None = None
+        self._maps: list[tuple[str, dict[str, int], list[int], str]] | None = None
         self._cache: dict[str, tuple[int, int, bytes] | None] = {}
+        self._tex_cache: dict[str, Texture | None] = {}
 
     def _pal_bytes(self) -> bytes:
         if self._palette is None:
             self._palette = palmod.installed(self.game)
         return self._palette
 
-    def _index(self) -> list[tuple[str, dict[str, int], list[int]]]:
-        """``[(dat_path, {name: offset}, sorted offsets)]`` for every archive."""
+    def _index(self) -> list[tuple[str, dict[str, int], list[int], str]]:
+        """``[(dat_path, {name: offset}, sorted offsets, kind)]``."""
         if self._maps is None:
             self._maps = []
             for sub in self._archives:
@@ -243,16 +302,18 @@ class TexturePool:
                     continue
                 bf = bigfile.BigFile(idx)
                 offs = {e.name: e.offset for e in bf.entries}
-                self._maps.append((bf.dat_path, offs, sorted(offs.values())))
+                kind = "sprites" if os.path.basename(sub).lower() == "sprites" else "pics"
+                self._maps.append((bf.dat_path, offs, sorted(offs.values()), kind))
         return self._maps
 
-    def get(self, name: str) -> tuple[int, int, bytes] | None:
+    def get_texture(self, name: str) -> Texture | None:
+        """The decoded texture with all ``.sbm`` mip levels, or ``None``."""
         if not name or name == "none":
             return None
-        if name in self._cache:
-            return self._cache[name]
-        img = None
-        for dat_path, offs, order in self._index():
+        if name in self._tex_cache:
+            return self._tex_cache[name]
+        tex = None
+        for dat_path, offs, order, kind in self._index():
             off = offs.get(name)
             if off is None:                      # case-insensitive retry
                 up = name.upper()
@@ -267,23 +328,25 @@ class TexturePool:
                 f.seek(off)
                 blob = f.read(size)
             try:
-                img = self._to_rgb(sbm.parse(blob))
+                tex = Texture(name, sbm.parse(blob), self._pal_bytes(), kind)
             except ValueError:
-                img = None
+                tex = None
             break
+        self._tex_cache[name] = tex
+        return tex
+
+    def get(self, name: str) -> tuple[int, int, bytes] | None:
+        if not name or name == "none":
+            return None
+        if name in self._cache:
+            return self._cache[name]
+        tex = self.get_texture(name)
+        img = None if tex is None else tex.rgb(0)
         self._cache[name] = img
         return img
 
     def _to_rgb(self, tex: sbm.Sbm) -> tuple[int, int, bytes]:
-        pal = self._pal_bytes()
-        n = min(256, len(pal) // 4)
-        rows = []
-        for i in range(min(tex.width * tex.height, len(tex.pixels))):
-            c = tex.pixels[i] if tex.pixels[i] < n else 0
-            rows.append(pal[4 * c : 4 * c + 3])
-        if len(rows) < tex.width * tex.height:  # truncated blob: pad
-            rows += [b"\x00\x00\x00"] * (tex.width * tex.height - len(rows))
-        return tex.width, tex.height, b"".join(rows)
+        return Texture("", tex, self._pal_bytes()).rgb(0)
 
 
 def _entry_size(dat_path: str, order: list[int], off: int) -> int:
@@ -530,7 +593,10 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
            brightness: bool = True, lightmap: bool = True,
            ambient: float = 0.0, sectors: bool = True,
            only_sector: int | None = None, markers=None, lights=None,
-           marker_depth: bool = False) -> bytes:
+           marker_depth: bool = False, mip: int | str = 0,
+           filter: str = "nearest", alpha_test: bool = False,
+           transparent_index: int | None = 0,
+           lod_bias: float = -0.75) -> bytes:
     """Render one mesh or a list of meshes into an RGB PNG.
 
     ``pos``/``look`` override the auto-fitted camera (for level interiors),
@@ -540,6 +606,13 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
     (see :class:`Lightmaps`) and ``ambient`` adds a constant light level.
     ``sectors`` skips whole meshes whose AABB cannot touch the view frustum
     (image-identical, faster); ``only_sector`` keeps a single level sector.
+
+    Texture sampling defaults to the historical viewer behaviour: mip level 0,
+    nearest texel, no alpha test.  ``mip`` may be a level number or ``"auto"``
+    (screen-space LOD with ``lod_bias``, the Glide path uses -0.75), ``filter``
+    ``"bilinear"`` selects bilinear texels, and ``alpha_test`` drops texels
+    equal to ``transparent_index`` (the game keys palette index 0).  All of
+    these are opt-in, so the old call still produces the same bytes.
 
     ``markers`` is a list of ``(pos, rgb)`` scripted scene entities (lights,
     locations, items, sound sources -- see :mod:`gm.scene`) drawn on top of the
@@ -577,6 +650,14 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
 
     zbuf = [-1.0] * (width * height)
     blended: list[tuple[float, object, object, list, object]] = []
+
+    # The old call (mip 0 / nearest / no keying) keeps the exact historical
+    # code path; the optional sampler only runs when a new mode is requested.
+    filt = ("bilinear" if filter in ("bilinear", "linear", "smooth")
+            else "nearest")
+    sampling = None
+    if mip != 0 or filt != "nearest" or alpha_test:
+        sampling = (mip, filt, bool(alpha_test), transparent_index, lod_bias)
 
     for mesh in meshes:
         lms = getattr(mesh, "lightmaps", None) if lightmap else None
@@ -623,16 +704,21 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
                 shade = 0.25 + _scene_shade(centre, _face_normal(face), lights)
             col = _face_color(face, tex := (pool.get(face.texture) if pool is not None
                                             else None), lit)
+            texobj = None
+            if sampling is not None and pool is not None and tex is not None:
+                texobj = pool.get_texture(face.texture)
             if blend is not None:
                 vs = [mesh.vertices[i] for i in idx]
                 c = tuple(sum(v[k] for v in vs) / len(vs) for k in range(3))
                 d = _sub(c, eye)
                 blended.append((_dot(d, d), face, pts, uvs,
-                                (tex, shade, col, blend, uv, cull, lm, fit)))
+                                (tex, shade, col, blend, uv, cull, lm, fit,
+                                 texobj, sampling)))
                 continue
             if solid:
                 _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col,
-                           uv=uv, cull=cull, lm=lm, fit=fit)
+                           uv=uv, cull=cull, lm=lm, fit=fit,
+                           texobj=texobj, sampling=sampling)
             if wire:
                 for k in range(len(pts)):
                     a, b = pts[k], pts[(k + 1) % len(pts)]
@@ -641,9 +727,11 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
     # second pass: blended materials, back to front, z-tested but not z-written
     if solid and blended:
         blended.sort(key=lambda t: -t[0])
-        for _d, _face, pts, uvs, (tex, sh, col, blend, uv_, cull_, lm_, fit_) in blended:
+        for _d, _face, pts, uvs, (tex, sh, col, blend, uv_, cull_, lm_, fit_,
+                                  texobj_, sampling_) in blended:
             _draw_poly(buf, zbuf, width, height, pts, uvs, tex, sh, col,
-                       uv=uv_, cull=cull_, blend=blend, lm=lm_, fit=fit_)
+                       uv=uv_, cull=cull_, blend=blend, lm=lm_, fit=fit_,
+                       texobj=texobj_, sampling=sampling_)
 
     # scene overlay: scripted lights/locations/items/sounds (gm.scene)
     if markers:
@@ -688,7 +776,8 @@ def _face_color(face, tex, lit: bool):
 
 
 def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
-               cull=False, blend=None, lm=None, fit=None):
+               cull=False, blend=None, lm=None, fit=None, texobj=None,
+               sampling=None):
     """Triangulate the (convex) face as a fan and rasterise the triangles."""
     if cull:
         area = ((pts[1][0] - pts[0][0]) * (pts[2][1] - pts[0][1])
@@ -708,11 +797,36 @@ def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
         tuv = (uvs[0], uvs[k], uvs[k + 1])
         tlm = (lm[0], (lm[1][0], lm[1][k], lm[1][k + 1]), lm[2]) if lm is not None else None
         _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col,
-                  u0, v0, su, sv, blend, z_write, tlm)
+                  u0, v0, su, sv, blend, z_write, tlm, texobj, sampling)
+
+
+def _triangle_lod(tuv, tri, texobj, u0, v0, su, sv, bias: float) -> float:
+    """Screen-space LOD estimate for one triangle (base-2 mip coordinate).
+
+    Each triangle edge gives ``texels / pixels``; the largest ratio wins, so
+    the result is conservative (never sharper than the coarsest edge).  This is
+    the CPU analogue of the Glide LOD computation; see ``docs/MIPMAPS.md``.
+    """
+    lw, lh = texobj.size(0)
+    s = []
+    for k in range(3):
+        sx, sy = tri[k][0], tri[k][1]
+        tu = (tuv[k][0] - u0) / su * lw
+        tv = (tuv[k][1] - v0) / sv * lh
+        s.append((sx, sy, tu, tv))
+    g = 0.0
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        ds = math.hypot(s[b][0] - s[a][0], s[b][1] - s[a][1])
+        dt = math.hypot(s[b][2] - s[a][2], s[b][3] - s[a][3])
+        if ds > 1e-9:
+            g = max(g, dt / ds)
+    if g <= 1e-12:
+        return 0.0
+    return math.log(g, 2.0) + bias
 
 
 def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, sv,
-              blend=None, z_write=True, lm=None):
+              blend=None, z_write=True, lm=None, texobj=None, sampling=None):
     (x0, y0, w0, z0), (x1, y1, w1, z1), (x2, y2, w2, z2) = tri
     minx = max(0, int(min(x0, x1, x2)))
     maxx = min(width - 1, int(max(x0, x1, x2)) + 1)
@@ -727,6 +841,21 @@ def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, s
     tex_w = tex[0] if tex else 1
     tex_h = tex[1] if tex else 1
     tpx = tex[2] if tex else b""
+
+    # optional sampler: explicit/auto mip level, bilinear filter, alpha key
+    sampler = None
+    if sampling is not None and tex is not None and texobj is not None:
+        mode, filt, alpha, key, bias = sampling
+        if isinstance(mode, str):
+            lod = _triangle_lod(tuv, tri, texobj, u0, v0, su, sv, bias)
+            level = int(math.floor(lod + 0.5))
+        else:
+            level = int(mode)
+        level = max(0, min(level, texobj.levels - 1))
+        lw, lh, lpx = texobj.rgb(level)
+        sampler = (lw, lh, lpx, texobj.indices(level), filt,
+                   bool(alpha) and key is not None, 0 if key is None else int(key))
+
     mode = blend[0] if blend is not None else None
     bw = blend[1] if blend is not None else 0.0
     lm_page = lm[0] if lm is not None else None
@@ -752,11 +881,10 @@ def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, s
             iz = l0 * w0 + l1 * w1 + l2 * w2
             if iz <= zbuf[i]:
                 continue
-            if z_write:
-                zbuf[i] = iz
+            transparent = False
             if tex is None:
                 r, g, b = col
-            else:
+            elif sampler is None:
                 # perspective-correct UVs
                 uu = (l0 * tuv[0][0] * w0 + l1 * tuv[1][0] * w1 + l2 * tuv[2][0] * w2) / iz
                 vv = (l0 * tuv[0][1] * w0 + l1 * tuv[1][1] * w1 + l2 * tuv[2][1] * w2) / iz
@@ -764,6 +892,54 @@ def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, s
                 ty = int((vv - v0) / sv * tex_h) % tex_h
                 o = (ty * tex_w + tx) * 3
                 r, g, b = tpx[o], tpx[o + 1], tpx[o + 2]
+            else:
+                lw, lh, lpx, lidx, filt, alpha, key = sampler
+                uu = (l0 * tuv[0][0] * w0 + l1 * tuv[1][0] * w1 + l2 * tuv[2][0] * w2) / iz
+                vv = (l0 * tuv[0][1] * w0 + l1 * tuv[1][1] * w1 + l2 * tuv[2][1] * w2) / iz
+                fu = (uu - u0) / su * lw
+                fv = (vv - v0) / sv * lh
+                if filt == "nearest":
+                    tx = int(math.floor(fu)) % lw
+                    ty = int(math.floor(fv)) % lh
+                    o = (ty * lw + tx) * 3
+                    r, g, b = lpx[o], lpx[o + 1], lpx[o + 2]
+                    if alpha and lidx[ty * lw + tx] == key:
+                        transparent = True
+                else:
+                    fu -= 0.5
+                    fv -= 0.5
+                    tx0 = int(math.floor(fu))
+                    ty0 = int(math.floor(fv))
+                    ax = fu - tx0
+                    ay = fv - ty0
+                    tx0 %= lw
+                    ty0 %= lh
+                    tx1 = (tx0 + 1) % lw
+                    ty1 = (ty0 + 1) % lh
+                    o00 = (ty0 * lw + tx0) * 3
+                    o10 = (ty0 * lw + tx1) * 3
+                    o01 = (ty1 * lw + tx0) * 3
+                    o11 = (ty1 * lw + tx1) * 3
+                    w00 = (1.0 - ax) * (1.0 - ay)
+                    w10 = ax * (1.0 - ay)
+                    w01 = (1.0 - ax) * ay
+                    w11 = ax * ay
+                    r = (lpx[o00] * w00 + lpx[o10] * w10
+                         + lpx[o01] * w01 + lpx[o11] * w11)
+                    g = (lpx[o00 + 1] * w00 + lpx[o10 + 1] * w10
+                         + lpx[o01 + 1] * w01 + lpx[o11 + 1] * w11)
+                    b = (lpx[o00 + 2] * w00 + lpx[o10 + 2] * w10
+                         + lpx[o01 + 2] * w01 + lpx[o11 + 2] * w11)
+                    if alpha:
+                        a = (w00 * (lidx[ty0 * lw + tx0] != key)
+                             + w10 * (lidx[ty0 * lw + tx1] != key)
+                             + w01 * (lidx[ty1 * lw + tx0] != key)
+                             + w11 * (lidx[ty1 * lw + tx1] != key))
+                        transparent = a <= 0.5
+            if transparent:                 # keyed texel: no colour, no depth
+                continue
+            if z_write:
+                zbuf[i] = iz
             if lm_page is not None:
                 # lightmap sample: same affine projection as the engine (0x43caxx)
                 lu = (l0 * lm_uv[0][0] * w0 + l1 * lm_uv[1][0] * w1 + l2 * lm_uv[2][0] * w2) / iz
