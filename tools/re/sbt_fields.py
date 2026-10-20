@@ -29,7 +29,7 @@ from gm import sbtvm                  # noqa: E402
 # see docs/FORMATS.md 12.3 for the evidence.
 WEAPON_MAP = {
     0: ("+0x24", "fire mode"),
-    1: ("+0x2c", "fire period"),
+    1: ("+0x2c", "fire period (ticks)"),
     2: ("+0x3c", "ammo type index"),
     3: ("+0x40", "ammo per shot"),
     4: ("+0x30", "projectile id"),

@@ -373,7 +373,7 @@ p[0x2D58] -= cos(p[0x28]) * |cos(p[0x2E60])| * D    ; 0x459fb4..0x459fc7
 | файл → память | поле |
 |---|---|
 | d0 → `+0x24` | fire mode |
-| d1 → `+0x2c` | fire period |
+| d1 → `+0x2c` | fire period (ticks, 91 = 1 s) |
 | d2 → `+0x3c` | ammo type index |
 | d3 → `+0x40` | ammo per shot |
 | d4/d5 → `+0x30/+0x34` | projectile id / alt |
