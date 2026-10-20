@@ -93,6 +93,7 @@ docs/HUD_COMPOSE.md  HUD: SML→binding→timing→blit, --hud-screen
 docs/TEXT_LAYOUT.md  C++ SML: 12 атласов, метрики, переносы, страницы
 docs/COLLIDE.md      C++ коллизии .sbw: ray/sphere, floor, AABB
 docs/PLAYER_CONTROLLER.md C++ игрок: капсула, 91 Гц, step/slide
+docs/SPRITE.md      C++ блиттер .sbm: clip, scale, bilinear, alpha
 docs/SUB.md          .sub: подстановки, класс RAM, 3/3 byte-exact
 docs/SOU1_CPP.md     C++ SOU1: source-rate, 983/983, raw FNV
 docs/SBV_PARITY.md   .sbv: 6843/6843 кадров C++ = Python
