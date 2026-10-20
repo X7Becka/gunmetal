@@ -12,6 +12,7 @@ add_library(gm_engine STATIC
     src/res/sbv_video.cpp
     src/res/cache.cpp
     src/render/render.cpp
+    src/render/hud.cpp
     src/res/bigfile.cpp
     src/res/bmp.cpp
     src/res/png.cpp

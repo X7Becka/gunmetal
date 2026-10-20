@@ -84,6 +84,14 @@ target_link_libraries(gm_sof_tests PRIVATE gm_engine)
 add_test(NAME film_sof COMMAND gm_sof_tests)
 gm_label(film_sof quick)
 
+add_executable(gm_hud_tests test_hud.cpp)
+target_link_libraries(gm_hud_tests PRIVATE gm_engine)
+# Synthetic composition rules plus AMMO4.SOF frame 0 composited at the engine's
+# HUD position; the goldens are FNV-1a64 of the whole RGB frame, produced by
+# gm/sof.py + gm/bmp.py and documented in docs/HUD_CPP.md.
+add_test(NAME hud COMMAND gm_hud_tests)
+gm_label(hud quick)
+
 add_executable(gm_sou1_tests test_sou1.cpp)
 target_link_libraries(gm_sou1_tests PRIVATE gm_engine)
 # `sou1` pins 11 records covering every sample rate, mono/stereo and the
@@ -146,7 +154,7 @@ endif()
 # Fast targets for the inner loop: build the binaries, then run CTest.
 #   cmake --build build/dev --target check-quick
 #   cmake --build build/test --target check
-set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_sbv_video_tests gm_sbtvm_tests gm_fuzz_tests gm_save_tests gunmetal)
+set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_fuzz_tests gm_save_tests gunmetal)
 add_custom_target(check-quick
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -L quick -j 8
             --output-on-failure
