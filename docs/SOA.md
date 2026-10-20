@@ -387,7 +387,7 @@ python3 tools/re/soa_semantics.py --self-test    # без установленн
 
 * `python3 gm.py soa anims spritani Sobanim/pulsnuke.SOA` → `soa: 104 parsed,
   0 failed`; `--rebuild` — 104/104 побайтово.
-* `python3 regress.py` → `103/103 checks passed`, в т.ч. `soa / animations`
+* `python3 regress.py` → `107/107 checks passed`, в т.ч. `soa / animations`
   и `soa / rebuild round-trip`.
 * `tools/re/soa_semantics.py --check` → 102/104 (падают только
   `copltBLU`/`copltRED`); `--strict` → 19 файлов (12 с пропавшими именами + 4 «чужой каталог» +

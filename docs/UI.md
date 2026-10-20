@@ -456,7 +456,7 @@ PICS, SML BMP, films). `--dump` печатает элементы по файл�
 | `0x47efe0` | загрузчик BMP (loose `SML/*.bmp`, экраны, панели) |
 | `0x49fbc0`, `0x49fd40`, `0x4958d0` | `.sof` HUD-фильмы (см. `gm/sof.py`) |
 
-Проверено: `python3 regress.py` — **103/103**; `python3 gm.py sml` —
+Проверено: `python3 regress.py` — **107/107**; `python3 gm.py sml` —
 300 файлов, 151 `.sme`, 1 ремонт, `--rebuild` 150/151 побайтово.
 
 ## 10. Гипотезы и что осталось

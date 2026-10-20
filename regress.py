@@ -224,6 +224,13 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           p.returncode == 0 and "40/40" in p.stdout,
                           "triangle wave, clamp, impulse/decay, recoil"))
 
+    # Save fields: 2 shipped saves, 83 proven / 31 hypothesis / 14 unknown.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "save_fields.py"),
+                        "--check"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("save / field map and shipped saves",
+                          p.returncode == 0 and "2/2 files clean" in p.stdout,
+                          "83 proven, 31 hypothesis, 14 unknown"))
+
     # The full hostile-input matrix lives in its own tool; run the cheap pass.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
                         "--game", G, "--quick"], capture_output=True, text=True, cwd=HERE)
