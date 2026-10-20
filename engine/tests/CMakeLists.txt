@@ -107,6 +107,16 @@ gm_label(doors quick)
 add_test(NAME doors_full COMMAND gm_doors_tests --full)
 gm_label(doors_full full)
 
+# Thing runtime (docs/THINGS_CPP.md).  Quick run pins synthetic SBT/SCRIPT
+# cases and dm1/level0; `--full` sweeps all 36 levels and the corpus totals
+# 4008/7563/7617 with 391 starts and 2896 valid thing-type model refs.
+add_executable(gm_things_tests test_things.cpp)
+target_link_libraries(gm_things_tests PRIVATE gm_engine)
+add_test(NAME things COMMAND gm_things_tests)
+gm_label(things quick)
+add_test(NAME things_full COMMAND gm_things_tests --full)
+gm_label(things_full full)
+
 add_executable(gm_sof_tests test_sof.cpp)
 target_link_libraries(gm_sof_tests PRIVATE gm_engine)
 add_test(NAME film_sof COMMAND gm_sof_tests)
