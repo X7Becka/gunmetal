@@ -116,6 +116,8 @@ struct AiAgent {
     /// the four shield gauges (hundredths) and the geometry hits left.
     std::array<int, 4> shields{};
     int hits_left = 0;
+    int burn_timer = 0;          ///< mirrored status accumulator
+    std::uint32_t status_flags = 0; ///< mirrored 0x18/0x40 status bits
     int expire_ticks = 0;        ///< THING_TYPES +0x1e8, data only
     std::uint32_t collide_event = 0; ///< +0x1c4
     std::uint32_t expire_event = 0;  ///< +0x1ec

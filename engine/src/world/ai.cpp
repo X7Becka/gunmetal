@@ -585,6 +585,8 @@ std::size_t Ai::sync_vitals() {
         // The thing's own gauges are the truth (0x470500 writes them).
         agent.shields = thing->shields;
         agent.hits_left = thing->hits_left;
+        agent.burn_timer = thing->burn_timer;
+        agent.status_flags = thing->status_flags;
         if (config_.use_thing_fields) {
             agent.health = static_cast<double>(thing->health > 0 ? thing->health : 0);
         }

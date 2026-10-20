@@ -784,6 +784,8 @@ void test_vitals_sync() {
         thing->health = 40;
         thing->shields = {1, 2, 3, 4};
         thing->hits_left = 1;
+        thing->burn_timer = 91;
+        thing->status_flags = 0x40;
     }
     const gm::CollisionWorld empty;
     ai.tick(empty);
@@ -794,6 +796,8 @@ void test_vitals_sync() {
         CHECK_EQ(first->shields[0], 1);
         CHECK_EQ(first->shields[3], 4);
         CHECK_EQ(first->hits_left, 1);
+        CHECK_EQ(first->burn_timer, 91);
+        CHECK_EQ(first->status_flags, 0x40U);
         CHECK_EQ(first->state, gm::AiState::idle);
     }
     CHECK_EQ(ai.stats().vitals_syncs, 1u);
