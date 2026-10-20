@@ -88,6 +88,7 @@ docs/HUD_CPP.md      C++ HUD: .sof блит, палитра, прозрачно�
 docs/SHAKE.md        тряска камеры, view-pitch, отдача
 docs/SAVE_FIELDS.md  сейвы: карта 128 полей (83 proven), xref
 docs/SAVE_CPP.md     C++-читатель сейвов: контейнер, блоки, player 9
+docs/SAVE_WRITER.md  C++-писатель сейвов: 2/2 byte-exact, правка полей
 docs/RECORDS.md       SECTOR_STUFF/ITEM/LIFT: поля, xref, writer
 docs/SOE.md           .soe/THING_TYPES: 77 полей, 36 proven, xref
 docs/SOO.md           .soo: mode/loop, тики 91 Гц, морфинг поз

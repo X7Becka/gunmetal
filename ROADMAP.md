@@ -473,6 +473,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
 - ✅ C++-читатель `engine/src/res/save.*`: контейнер/15 блоков, player 9,
       golden saved0/saved1 (позиция/углы/armor/shields/ammo), `find_save_level`;
       CTest `save` (19 негативных кейсов, ASan/UBSan чисто).
+- ✅ C++-писатель `Save::to_bytes`/`rebuild_save`: saved0/saved1 2/2
+      byte-exact (FNV `b994929515f53af5`/`0d038197e152cd65`), правка
+      position/armor/ammo; CTest `save_writer`; `docs/SAVE_WRITER.md`.
 - ⬜ Решить, может ли оригинал читать наши сейвы (stretch).
 
 **Выход:** сохранение читается и пишется без потерь; diff показывает только
