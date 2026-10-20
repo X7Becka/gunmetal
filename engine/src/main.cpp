@@ -26,6 +26,7 @@
 #include "res/save.h"
 #include "res/soe.h"
 #include "res/sml.h"
+#include "render/hud_player.h"
 #include "render/render.h"
 
 #include <algorithm>
@@ -537,6 +538,24 @@ int dump_file(const gm::Options& options) {
 bool start_camera(const gm::Options& options, const gm::SbtLevel& entities,
                   gm::Vec3d& eye, gm::Vec3d& target, std::string& error);
 
+/// Compose the optional `--hud` film onto an already rendered frame.
+bool overlay_hud(const gm::Options& options, gm::RenderResult& image,
+                 std::uint64_t tick, std::string& error) {
+    if (options.hud.empty()) {
+        return true;
+    }
+    const auto film = gm::load_hud_film(options.game, options.hud, error);
+    if (!film) {
+        return false;
+    }
+    const auto palette = gm::installed_palette(options.game, error);
+    if (!palette) {
+        return false;
+    }
+    return gm::draw(*film, image, *palette, options.hud_x, options.hud_y,
+                    true, options.hud_scale, options.hud_opacity, tick, error);
+}
+
 int render_image(const gm::Options& options) {
     std::string error;
     std::vector<gm::RenderMesh> meshes;
@@ -726,7 +745,13 @@ int render_image(const gm::Options& options) {
         std::printf("bounds: (%g, %g, %g) .. (%g, %g, %g)\n", lo.x, lo.y, lo.z, hi.x, hi.y,
                     hi.z);
     }
-    const auto image = gm::render_scene(meshes, render, &pool, lightmaps);
+    auto image = gm::render_scene(meshes, render, &pool, lightmaps);
+    std::string hud_error;
+    if (!overlay_hud(options, image, static_cast<std::uint64_t>(options.hud_tick),
+                     hud_error)) {
+        gm::logf(gm::LogLevel::Error, "hud", hud_error);
+        return 2;
+    }
 
     std::vector<std::uint8_t> rgba(static_cast<std::size_t>(image.width) * image.height * 4, 255);
     for (std::size_t i = 0; i < image.rgb.size() / 3; ++i) {
@@ -1436,6 +1461,22 @@ int run(const gm::Options& options) {
         }
     }
 
+    std::optional<gm::HudFilm> hud_film;
+    std::vector<std::uint8_t> hud_palette;
+    if (!options.hud.empty()) {
+        hud_film = gm::load_hud_film(options.game, options.hud, error);
+        if (!hud_film) {
+            gm::logf(gm::LogLevel::Error, "hud", error);
+            return 2;
+        }
+        const auto palette = gm::installed_palette(options.game, error);
+        if (!palette) {
+            gm::logf(gm::LogLevel::Error, "hud", error);
+            return 2;
+        }
+        hud_palette = *palette;
+    }
+
     auto window = gm::Window::open("Gunmetal", options.width, options.height, options.headless,
                                    error);
     if (!window) {
@@ -1569,7 +1610,17 @@ int run(const gm::Options& options) {
             render.camera_override = true;
             render.eye = eye;
             render.target = target;
-            const auto image = gm::render_scene(meshes, render, &pool, lightmaps);
+            auto image = gm::render_scene(meshes, render, &pool, lightmaps);
+            if (hud_film) {
+                std::string hud_error;
+                if (!gm::draw(*hud_film, image, hud_palette, options.hud_x,
+                              options.hud_y, true, options.hud_scale,
+                              options.hud_opacity,
+                              static_cast<std::uint64_t>(frame), hud_error)) {
+                    gm::logf(gm::LogLevel::Error, "hud", hud_error);
+                    hud_film.reset();
+                }
+            }
             window->blit_rgb(image.rgb.data(), image.width, image.height);
         } else {
             window->fill_gradient(frame);

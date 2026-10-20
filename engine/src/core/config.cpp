@@ -118,6 +118,48 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.anim = std::string(*v);
+        } else if (arg == "--hud") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.hud = std::string(*v);
+        } else if (arg == "--hud-tick") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.hud_tick = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--hud-tick expects an integer (91 Hz ticks)";
+                return std::nullopt;
+            }
+        } else if (arg == "--hud-x" || arg == "--hud-y" || arg == "--hud-scale") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                const int n = std::stoi(std::string(*v));
+                if (arg == "--hud-x") options.hud_x = n;
+                if (arg == "--hud-y") options.hud_y = n;
+                if (arg == "--hud-scale") options.hud_scale = n;
+            } catch (const std::exception&) {
+                error = std::string(arg) + " expects an integer";
+                return std::nullopt;
+            }
+        } else if (arg == "--hud-opacity") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.hud_opacity = std::stof(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--hud-opacity expects a number";
+                return std::nullopt;
+            }
         } else if (arg == "--at") {
             const auto v = value(arg);
             if (!v) {

@@ -18,6 +18,12 @@ struct Options {
     std::string scene;
     std::string film;
     std::string anim;
+    std::string hud;          // optional Film/*.sof overlay
+    int hud_tick = 0;         // 91 Hz tick for --render
+    int hud_x = 0;
+    int hud_y = 0;
+    int hud_scale = 1;
+    float hud_opacity = 1.0f;
     int frame = 0;
     int at = 0;
     std::string music;
