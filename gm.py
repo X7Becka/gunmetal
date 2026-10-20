@@ -1123,6 +1123,23 @@ def cmd_sbv(opts) -> int:
             print(f"  {i:4d} t={ts:6d}ms off={clip.data_start + prev:<9d} size={end - prev}")
         return 0
 
+    if opts.verify:
+        frames = _parse_frame_spec(opts.frames, clip.frame_count)
+        exact = 0
+        for i in frames:
+            planes = sbv.decode_frame_planes(clip.frame(blob, i).data,
+                                             clip.width, clip.height)
+            again = sbv.decode_frame_planes(
+                sbv.encode_frame(planes, clip.width, clip.height),
+                clip.width, clip.height)
+            if again == planes:
+                exact += 1
+            else:
+                print(f"  frame {i}: plane mismatch", file=sys.stderr)
+        print(f"sbv: pixel round-trip {exact}/{len(frames)} frames")
+        if exact != len(frames):
+            return 1
+
     if opts.png:
         frames = _parse_frame_spec(opts.frames, clip.frame_count)
         os.makedirs(opts.png, exist_ok=True)
@@ -2426,6 +2443,8 @@ def main(argv=None) -> int:
                    "'0', '1,5,9-12' or 'all' (default: 0)")
     p.add_argument("--scale", type=int, default=1, help="integer upscale for --png (default: 1)")
     p.add_argument("--no-raw", action="store_true", help="do not write raw frame blocks to OUT")
+    p.add_argument("--verify", action="store_true",
+                   help="encode/decode the --frames selection and compare planes")
     p.add_argument("--rebuild", help="write the clip back (re-serialised) into this directory")
     p.set_defaults(func=cmd_sbv)
 

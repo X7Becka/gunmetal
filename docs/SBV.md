@@ -316,16 +316,9 @@ winner 0, 606, 1819
        f.write(clip.to_png(i))          # вместо png.rgb(W, H, rgb)
    ```
 
-2. Проверка кодека без внешнего скрипта:
-
-   ```python
-   # новая подкоманда или флаг --verify
-   planes = clip.decode_planes(i)
-   again = sbv.decode_frame_planes(
-       sbv.encode_frame(planes, clip.width, clip.height),
-       clip.width, clip.height)
-   assert again == planes
-   ```
+2. Проверка кодека без внешнего скрипта — **сделано**:
+   `python3 gm.py sbv CLIP --verify [--frames SPEC]` кодирует выбранные кадры
+   и сверяет плоскости (`decode(encode(decode))`).
 
 3. Запись клипа из RGB-кадров (энкодер пикселей):
 

@@ -247,6 +247,11 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
     results.append(report("sbv / pixel codec self-test", p.returncode == 0
                           and "26/26 self-test" in p.stdout,
                           "YUV planes, entropy blocks, 26 trust cases"))
+    rc, text = run_raw(["sbv", os.path.join(G, "Vid", "Intro.sbv"),
+                        "--verify", "--frames", "0"])
+    results.append(report("sbv / frame encode/decode", rc == 0
+                          and "pixel round-trip 1/1" in text,
+                          "Intro frame 0 planes exact"))
 
     # The full hostile-input matrix lives in its own tool; run the cheap pass.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
