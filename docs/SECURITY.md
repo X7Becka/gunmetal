@@ -67,11 +67,11 @@
 
 `tools/fuzz_formats.py` — матрица «пустой/обрезанный/мутированный/extreme
 header» для BIGFILE, `.sbv` (включая декодирование кадра), `.sbw`, `.sbt`,
-`.sbm`, `.sbc`, `.sof/.fdx`, `.soo`, `.soe` и `SOU1`:
+`.sbm`, `.sbc`, `.sof/.fdx`, `.soo`, `.soe`, `.soa` и `SOU1`:
 
 ```bash
-python3 tools/fuzz_formats.py --quick      # 503 кейса, <2 с
-python3 tools/fuzz_formats.py              # 1090 кейсов, ~2 с
+python3 tools/fuzz_formats.py --quick      # 545 кейсов, <2 с
+python3 tools/fuzz_formats.py              # 1184 кейса, ~2 с
 python3 tools/fuzz_formats.py --game … --timeout 2
 ```
 
