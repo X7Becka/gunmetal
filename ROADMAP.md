@@ -568,11 +568,13 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > C++ `player/controller.*` (CTest `player_controller`): капсула,
       > гравитация, прыжок, step-up/down, slide, 91 Гц, субшаги; golden
       > `level0` — 100 тиков вперёд `x=91.671875`, глаз `z=58.546876`.
-      > Ghidra: `op4` = 1.70, но единица (кадр/мс) ещё не доказана;
-      > `SET_LEVEL_GRAVITY` — множитель `0x80f840` (default 1.0),
-      > скалярная база не найдена (`docs/PLAYER_GHIDRA.md`).
+      > Ghidra: `op4` — единицы/тик, `1.70*91 = 154.7` ед/с; тик 91 Гц
+      > доказан `0x44db80`; коэффициент `0x81bfb8` = 0.9…0.96, его трактовка
+      > ещё проверяется; `SET_LEVEL_GRAVITY` — множитель `0x80f840`
+      > (default 1.0), скалярная база не найдена (`docs/PLAYER_GHIDRA.md`).
       > `game/weapons.*` (CTest `weapons`): DEFINE_WEAPONS/AMMO, сейвовый
-      > loadout, cooldown 2/8 тиков, spread, recoil; hitscan BULLET/LASER и
+      > loadout, cooldown = сырые тики (MG 17, CANNON 80), spread, recoil;
+      > hitscan BULLET/LASER и
       > урон из подскриптов (MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00);
       > `apply_damage_gauge` — точная модель `0x453b50`. Магазин и урон
       > THING/impact — ещё нет.
