@@ -1082,6 +1082,7 @@ def inventory_check(G: str, results: list[bool]) -> None:
 
 
 def main() -> int:
+    ONLY.clear()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--game", default=DEFAULT_GAME, help="Gunmetal installation directory")
