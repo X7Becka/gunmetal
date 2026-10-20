@@ -641,8 +641,10 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > Перспективно-корректные UV и near-clipping сверены с `gm/render.py`
       > побитово (double + `-ffp-contract=off`); математика оригинала — после M2.
 - 🟡 `M4.2.3` Текстуры: wrap/clamp, mip, фильтрация, прозрачный индекс.
-      > Ближайший тексель с wrap, mip0, палитра установки, `.sbm` из BIGFILE через
-      > `AssetCache`; mip/фильтрация/прозрачный индекс не сделаны.
+      > Python: opt-in mip (fixed/auto LOD), bilinear, alpha-test по индексу 0
+      > (`docs/MIPMAPS.md`, `tools/parity_mip.py`, 50 проверок); default остаётся
+      > mip0/nearest и побитово совпадает со старыми golden. C++ — mip0/nearest,
+      > трилинейного смешивания и Glide-dither нет.
 - ⬜ `M4.2.4` Смешивание: точная математика из `M2`, а не приближение.
 - 🟡 `M4.2.5` Освещение: нормали, brightness, лайтмапы, скриптовые источники.
       > ambient + |N·L|, brightness, лайтмапы; скриптовые источники и точная

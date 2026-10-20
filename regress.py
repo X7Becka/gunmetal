@@ -153,6 +153,13 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           and open(wav, "rb").read(4) == b"RIFF",
                           "DM1A01.wav"))
 
+    # Renderer variants (mip/bilinear/alpha) keep the default golden hashes.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "parity_mip.py")],
+                       capture_output=True, text=True, cwd=HERE)
+    results.append(report("render / mip+bilinear+alpha variants",
+                          p.returncode == 0,
+                          (p.stdout.strip().splitlines() or ["no output"])[-1]))
+
     # The full hostile-input matrix lives in its own tool; run the cheap pass.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
                         "--game", G, "--quick"], capture_output=True, text=True, cwd=HERE)

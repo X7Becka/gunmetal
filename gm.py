@@ -1473,7 +1473,10 @@ def cmd_view(opts) -> int:
                      lit=not opts.flat, materials=not opts.no_materials,
                      brightness=not opts.no_brightness, clip=opts.clip,
                      lightmap=not opts.no_lightmap, ambient=opts.ambient,
-                     sectors=not opts.no_sectors, only_sector=opts.sector)
+                     sectors=not opts.no_sectors, only_sector=opts.sector,
+                     mip=opts.mip, filter=opts.filter,
+                     alpha_test=opts.alpha_test,
+                     transparent_index=opts.transparent_index)
     pos = _vec3_opt(opts.pos, "--pos")
     look = _vec3_opt(opts.look, "--look")
     if pos is None and look is not None:
@@ -1868,6 +1871,14 @@ def main(argv=None) -> int:
                    help="ignore the polygon brightness field (0x70)")
     p.add_argument("--no-lightmap", action="store_true",
                    help="do not load/sample the sibling <level>.sbc lightmaps")
+    p.add_argument("--mip", type=lambda s: s if s == "auto" else int(s), default=0,
+                   help="mip level (0=base), 'auto' for screen-space LOD")
+    p.add_argument("--filter", choices=("nearest", "bilinear"), default="nearest",
+                   help="texture filtering (default nearest)")
+    p.add_argument("--alpha-test", action="store_true",
+                   help="drop texels with the transparent palette index")
+    p.add_argument("--transparent-index", type=int, default=0,
+                   help="palette index treated as transparent (default 0)")
     p.add_argument("--ambient", type=float, default=0.0,
                    help="constant light level added to polygons (0..127)")
     p.add_argument("--sector", type=int,

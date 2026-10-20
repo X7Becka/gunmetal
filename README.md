@@ -65,10 +65,12 @@ tools/fuzz_formats.py фазз-матрица парсеров (пустые/б�
 tools/parity_sou2.py  Python↔C++ паритет SOU2 (--fast/--quick/полный архив)
 tools/gen_sou2_table.py  извлечение gain-таблицы 0x852340 из sou2.cpp
 tools/parity_config.py   round-trip GUNMETAL.CFG/CONTROLS.CFG + сверка .key
+tools/parity_mip.py      golden-хеши рендера + mip/bilinear/alpha-режимы
 docs/FORMATS.md       спецификации форматов (главный документ)
 docs/RENDER.md        конвейер рендерера C++, паритет с вьювером, FPS
 docs/SECURITY.md      границы доверия: лимиты парсеров, --force, фаззинг
 docs/CONFIG.md        GUNMETAL.CFG: карта полей, xref, CONTROLS.CFG
+docs/MIPMAPS.md       mip/bilinear/alpha в Python-рендере, доказательства Glide
 ROADMAP.md            план: от текущего тулкита до полного движка (M0…M12)
 NOTES.md              рабочие заметки, карта адресов движка, CLI-справка
 ```
