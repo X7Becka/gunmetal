@@ -489,3 +489,12 @@ python3 regress.py
 Дизассемблер: `objdump -D -M intel gundx.exe > /tmp/opencode/gundx.asm`, затем
 `python3 tools/re/disrange.py 42b4e1 42b820` и
 `python3 tools/re/disrange.py 433e00 434420`.
+
+## Viewer
+
+`gm.py view Sobanim/Cultist.soo --at 100 --size 480 --out cultist.png` parses
+the animation, calls `frame_at(100)` and linearly morphs the two pose `.sob`
+models (`gm.render.morph_models`: vertices plus face origin/u/v/normal/spare).
+The engine requires equal topology, so mismatched poses raise instead of
+guessing.  Time 0 and 100 ms of `Cultist` produce different images; the
+SMOKE/regress check pins that.

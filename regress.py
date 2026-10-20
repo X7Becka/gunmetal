@@ -168,6 +168,18 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
           and "at 50 ms: frame 1 cult1a alpha=0.000 -> cult1b" in text)
     results.append(report("soo / loop timeline + interpolated pose", ok,
                           "Cultist: 4 frames / 400 ms, wrap to frame 0"))
+    a_png = os.path.join(out, "soo_at0.png")
+    b_png = os.path.join(out, "soo_at100.png")
+    rc1, _ = run(["view", os.path.join(G, "Sobanim", "Cultist.soo"),
+                  "--game", G, "--at", "0", "--size", "160", "--out", a_png])
+    rc2, text2 = run(["view", os.path.join(G, "Sobanim", "Cultist.soo"),
+                      "--game", G, "--at", "100", "--size", "160", "--out", b_png])
+    different = (rc1 == 0 and rc2 == 0 and os.path.exists(a_png)
+                 and os.path.exists(b_png)
+                 and open(a_png, "rb").read() != open(b_png, "rb").read())
+    results.append(report("soo / morphing pose render", different
+                          and "anim mode=1" in text2,
+                          "Cultist frame 0 vs 100 ms differ"))
 
     # .soe/THING_TYPES field map: 77 fields, 36 proven by loader/consumers.
     rc, text = run_raw(["soe", "--fields"])

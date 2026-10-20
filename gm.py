@@ -1641,6 +1641,33 @@ def cmd_view(opts) -> int:
                     dropped = len(meshes) - len(keep)
                     meshes = keep
                     kind += f" -{dropped} bg"
+            elif ext == ".soo":
+                from gm import soo as soomod
+                anim = soomod.parse(open(p, "rb").read())
+                pose = anim.frame_at(opts.at)
+                if opts.at < 0:
+                    pose = anim.frame_at(0)
+                if opts.game and getattr(cmd_view, "_model_index", None) is None:
+                    root = os.path.join(opts.game, "SOBS")
+                    idx = {}
+                    if os.path.isdir(root):
+                        for n in os.listdir(root):
+                            if n.lower().endswith(".sob"):
+                                idx[os.path.splitext(n)[0].lower()] = os.path.join(root, n)
+                    cmd_view._model_index = idx
+                index = getattr(cmd_view, "_model_index", {}) or {}
+
+                def _pose(name):
+                    path = index.get(name.lower(), os.path.join(opts.game or "", "SOBS",
+                                                                name + ".sob"))
+                    return sob.parse(path)
+
+                a = _pose(pose.name)
+                b = _pose(pose.next_name)
+                m = render.morph_models(a, b, pose.alpha)
+                meshes = render.model_meshes(m)
+                kind = (f"anim mode={anim.mode} frame {pose.index}/{pose.next_index} "
+                        f"alpha={pose.alpha:.2f} at {opts.at} ms")
             else:
                 m = sob.parse(p)
                 meshes = render.model_meshes(m)
@@ -2087,6 +2114,8 @@ def main(argv=None) -> int:
                    help="place the .sbw objects in the engine world frame "
                         "(origin + basis*local from the 96-byte object header; "
                         "the default keeps the raw file frame)")
+    p.add_argument("--at", type=int, default=0, metavar="MS",
+                   help="with a .soo path: animation time in milliseconds")
     p.add_argument("--spawn", action="store_true",
                    help="camera at SET_PLAYER_START (sibling .sbt; implies --transform)")
     p.add_argument("--spawn-slot", type=int, default=0,

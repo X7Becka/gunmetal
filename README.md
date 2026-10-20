@@ -96,6 +96,9 @@ python3 gm.py spawn "…/Gunmetal 3dfx/level0.sbt" --json
 # камера первого лица из спавна (level0, slot 0)
 python3 gm.py view "…/Gunmetal 3dfx/level0.sbw" --spawn --size 640 --out spawn.png
 
+# поза .soo-анимации на 100 мс (морфинг двух кадров)
+python3 gm.py view "…/Gunmetal 3dfx/Sobanim/Cultist.soo" --at 100 --out pose.png
+
 # все текстуры и спрайты в PNG (палитра берётся из установки)
 python3 gm.py textures "…/Gunmetal 3dfx" out/textures
 python3 gm.py sprites  "…/Gunmetal 3dfx" out/sprites --transparent 0

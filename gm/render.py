@@ -23,6 +23,31 @@ import os
 
 from . import bigfile, palette as palmod, png, sbm, sob as sobmod
 
+def morph_models(a, b, alpha: float):
+    """Linear vertex/plane morph between two poses (engine 0x433e00).
+
+    The loader only creates an animation when every pose has the same topology
+    (vertex and face counts), so a mismatch is an error rather than a silent
+    guess.  ``alpha`` 0..1 blends ``a`` towards ``b``; face textures/flags and
+    indices come from ``a``.
+    """
+    if len(a.vertices) != len(b.vertices) or len(a.faces) != len(b.faces):
+        raise ValueError("animation poses have different topology: %d/%d v, %d/%d f"
+                         % (len(a.vertices), len(b.vertices),
+                            len(a.faces), len(b.faces)))
+    alpha = max(0.0, min(1.0, float(alpha)))
+    verts = [tuple(a.vertices[i][k] * (1.0 - alpha) + b.vertices[i][k] * alpha
+                   for k in range(3)) for i in range(len(a.vertices))]
+    faces = []
+    for fa, fb in zip(a.faces, b.faces):
+        mix = lambda x, y: tuple(x[k] * (1.0 - alpha) + y[k] * alpha for k in range(3))
+        faces.append(sobmod.SobFace(fa.textures, fa.flags, fa.indices,
+                                    mix(fa.origin, fb.origin), mix(fa.u, fb.u),
+                                    mix(fa.v, fb.v), mix(fa.normal, fb.normal),
+                                    mix(fa.spare, fb.spare)))
+    return sobmod.Sob(verts, faces, a.name)
+
+
 # ---------------------------------------------------------------------------
 # mesh adapters: `.sob` models and `.sbw` level geometry look the same to the
 # renderer (vertices + faces + a per-face UV function)
