@@ -156,6 +156,42 @@ void test_switch_and_text() {
     CHECK_EQ(small.size(), 4U);
     CHECK(!small.post_text(8, 0, "x"));
     CHECK(!small.post_text(0, 0x1f, "x"));
+
+    // __ftol truncates toward zero and writes signed i32 coordinates.
+    gm::EventQueue coords;
+    CHECK(coords.post_generate(1, 0, 1.9, -1.9, 0.5));
+    CHECK_EQ(coords.bytes()[7], 0x01);
+    CHECK_EQ(coords.bytes()[8], 0x00);
+    CHECK_EQ(coords.bytes()[0x0b], 0xff);
+    CHECK_EQ(coords.bytes()[0x0c], 0xff);
+    const auto parsed_coords = coords.drain();
+    CHECK(parsed_coords.ok);
+    if (parsed_coords.events.size() == 1) {
+        CHECK_EQ(parsed_coords.events[0].x, 1);
+        CHECK_EQ(parsed_coords.events[0].y, -1);
+        CHECK_EQ(parsed_coords.events[0].z, 0);
+    }
+
+    // Two text records: the second starts after NUL + the canonical gap byte.
+    gm::EventQueue texts;
+    CHECK(texts.post_text(0, 5, "HI"));
+    CHECK(texts.post_text(-1, 2, ""));
+    CHECK_EQ(texts.size(), 6U + 4U);
+    CHECK_EQ(texts.bytes()[6], 4); // system channel
+    const auto parsed_texts = texts.drain();
+    CHECK(parsed_texts.ok);
+    CHECK_EQ(parsed_texts.events.size(), 2U);
+    if (parsed_texts.events.size() == 2) {
+        CHECK_EQ(parsed_texts.events[0].text, std::string("HI"));
+        CHECK_EQ(parsed_texts.events[0].channel, 0);
+        CHECK_EQ(parsed_texts.events[1].channel, -1);
+        CHECK_EQ(parsed_texts.events[1].text, std::string());
+    }
+
+    const std::array<std::uint8_t, 2> truncated_text{5, 1};
+    CHECK(!gm::EventQueue::parse(truncated_text).ok);
+    const std::array<std::uint8_t, 7> bad_switch{2, 0x00, 0x02, 0x00, 0x00, 0, 0};
+    CHECK(!gm::EventQueue::parse(bad_switch).ok);
 }
 
 void test_bad_records() {
