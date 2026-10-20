@@ -1,5 +1,7 @@
 #include "world/things.h"
 
+#include "game/events.h"
+
 #include <algorithm>
 #include <bit>
 #include <cstring>
@@ -690,15 +692,25 @@ std::vector<int> Things::child_ids(int parent) const {
     return out;
 }
 
-void Things::tick(std::uint64_t ticks) {
+void Things::tick(std::uint64_t ticks, EventQueue* events) {
     if (ticks == 0) {
         return;
     }
     clock_ += ticks;
     stats_.ticks = clock_;
     for (Thing& thing : things_) {
-        if (thing.alive) {
-            thing.age += ticks;
+        if (!thing.alive) {
+            continue;
+        }
+        thing.age += ticks;
+        if (thing.expired || thing.expire_ticks <= 0) {
+            continue;
+        }
+        if (thing.age >= static_cast<std::uint64_t>(thing.expire_ticks)) {
+            thing.expired = true;
+            if (events != nullptr) {
+                post_thing_event(*events, thing, ThingEventKind::expire);
+            }
         }
     }
 }

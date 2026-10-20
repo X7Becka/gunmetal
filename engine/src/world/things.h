@@ -13,6 +13,8 @@
 
 namespace gm {
 
+class EventQueue;
+
 /// Thing runtime is driven by the level's fixed 91 Hz tick (same clock as the
 /// doors and the main loop).  The runtime currently has no AI; a tick only
 /// advances the per-instance age (docs/THINGS_CPP.md).
@@ -68,6 +70,7 @@ struct Thing {
     std::uint32_t status_flags = 0;  // runtime 0x18/0x40 bits
     int hits_left = 0;               // +0x1c8 geometry hits
     int expire_ticks = 0;            // +0x1e8 lifetime in 91 Hz ticks
+    bool expired = false;            // lifetime reached; event posted once
     std::uint32_t timeout_event = 0; // +0x1c0
     std::uint32_t collide_event = 0; // +0x1c4, posted by 0x4752d0 on collision
     std::uint32_t expire_event = 0;  // +0x1ec, 0x4703a0 when hits/lifetime ends
@@ -186,8 +189,10 @@ public:
     std::vector<int> child_ids(int parent) const;
 
     /// Advance the 91 Hz clock.  No AI and no movement yet: every living
-    /// instance gets ``age += ticks``; dead instances stay dead.
-    void tick(std::uint64_t ticks = 1);
+    /// instance gets ``age += ticks``; dead instances stay dead.  A living
+    /// thing whose +0x1e8 lifetime is reached is marked `expired` and, when
+    /// `events` is given, posts its +0x1ec expire event once.
+    void tick(std::uint64_t ticks = 1, EventQueue* events = nullptr);
 
     bool kill(int id);
     bool revive(int id);

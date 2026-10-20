@@ -13,6 +13,7 @@
 // `--contexts all --random-unknown` goldens from tools/re/nested_things.py.
 #include "world/things.h"
 
+#include "game/events.h"
 #include "res/sbt.h"
 #include "res/vm_exec.h"
 
@@ -109,6 +110,8 @@ struct Row {
 struct TypeSpec {
     const char* name;
     std::uint32_t model_index;
+    int expire_ticks = 0;       ///< THING_TYPES +0x1e8
+    std::uint32_t expire_event = 0; ///< THING_TYPES +0x1ec
 };
 
 gm::SbtLevel make_level(const std::vector<std::uint8_t>& code,
@@ -135,6 +138,9 @@ gm::SbtLevel make_level(const std::vector<std::uint8_t>& code,
         const std::size_t length = std::min<std::size_t>(std::strlen(types[i].name), 15);
         std::memcpy(types_record.payload.data() + base, types[i].name, length);
         put_u32(types_record.payload, base + 0x1A4, types[i].model_index);
+        put_u32(types_record.payload, base + 0x1E8,
+                static_cast<std::uint32_t>(types[i].expire_ticks));
+        put_u32(types_record.payload, base + 0x1EC, types[i].expire_event);
     }
     level.records.push_back(std::move(types_record));
 
@@ -801,11 +807,50 @@ void test_corpus() {
                 executed, spawns, types);
 }
 
+void test_expire_lifetime() {
+    std::vector<std::uint8_t> code;
+    add_thing(code, 0, 0, 0, 0, 0.0, 0.0, 0.0);
+    code.push_back(0xFF);
+    const std::vector<Row> rows{{0x3FF, 42, 0}};
+    const std::vector<TypeSpec> types{{"EXPIRING", 0, 3, 900}};
+    const gm::SbtLevel level = make_level(code, rows, types, {"M"});
+    const gm::VmState vm = gm::vm_state_from_level(level);
+    gm::ThingsOptions options;
+    options.contexts = {{0, 0}};
+    gm::Things things = gm::Things::load(level, vm, options);
+    CHECK(things.ok());
+    const gm::Thing* thing = things.things().empty() ? nullptr : &things.things()[0];
+    CHECK(thing != nullptr);
+    if (thing == nullptr) {
+        return;
+    }
+    CHECK_EQ(thing->expire_ticks, 3);
+
+    gm::EventQueue queue;
+    things.tick(2, &queue);
+    CHECK(!things.things()[0].expired);
+    CHECK(queue.empty());
+
+    things.tick(1, &queue);
+    CHECK(things.things()[0].expired);
+    CHECK(things.things()[0].alive); // +0x1e8 posts 0x4703a0, it does not kill
+    const gm::EventParseResult parsed = queue.drain();
+    CHECK_EQ(parsed.events.size(), 1U);
+    if (parsed.events.size() == 1) {
+        CHECK_EQ(parsed.events[0].id, 900);
+    }
+
+    // The expire event is posted exactly once.
+    things.tick(1, &queue);
+    CHECK(queue.empty());
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     const bool full = argc > 1 && std::string(argv[1]) == "--full";
     test_synthetic();
+    test_expire_lifetime();
     test_generate_and_cycle();
     test_negatives();
     test_real_dm1();
