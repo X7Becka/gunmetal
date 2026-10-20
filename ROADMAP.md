@@ -580,7 +580,7 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > (`0x470500`) и `apply_blast` (`0x477280`, без LOS, целочисленный
       > falloff) добавлены; `ShieldSide` исправлен на front/right/back/left.
       > Магазина в оригинале нет. `Weapons::load` теперь разворачивает
-      > `THING_TYPES` death/expire события (+0x1c4/+0x1ec) и один `GENERATE`
+      > `THING_TYPES` collide/expire события (+0x1c4/+0x1ec) и один `GENERATE`
       > в `impact_blasts`/`expire_blasts` (GRENADE 8000@500/350, ROCKET
       > 10000@80 + 10000@512/12000@256); ветки под водой помечены. Осталось
       > применить их в runtime и разобрать PLASMA/NUKE/EMP/`level10`.
@@ -798,7 +798,11 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > (FNV `4bb462b101263118`). Тряска/view-pitch разобраны (docs/SHAKE.md);
       > C++ `camera/camera.*` (CTest `camera_rig`): first/third (третье лицо —
       > гипотеза), FOV/focal, shake/recoil, smoothing, golden dm1/level0/level1;
-      > cutscene/cockpit и переходы — ещё нет.
+      > CLI `--third-person` ставит `TICK` (LIGHT) низом на `SET_PLAYER_START`,
+      > поворачивает по `spawn.yaw` и рендерит `CameraRig::Third` с окклюзией
+      > `.sbw` (CTest `cli_third_person`, кадр
+      > `out/third_person/level0_tick_third_person.png`); cutscene/cockpit и
+      > переходы — ещё нет.
 - 🟡 `M4.3.2` Тряска, отдача, смерть/респавн.
       > `docs/SHAKE.md`: три канала `SET_CAMERA_{PITCH,ROLL,YAW}_SHAKE`
       > (треугольник, пик `amplitude`, период `4·period`), view-pitch

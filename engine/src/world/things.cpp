@@ -64,7 +64,7 @@ struct TypeTable {
     std::vector<int> max_health;
     std::vector<std::array<int, 4>> shields;
     std::vector<int> hits;
-    std::vector<std::uint32_t> death_events;
+    std::vector<std::uint32_t> collide_events;
     std::vector<std::uint32_t> expire_events;
     std::vector<std::uint32_t> damaged_events;
     std::vector<std::uint32_t> destroy_events;
@@ -99,7 +99,7 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.max_health.reserve(count);
         table.shields.reserve(count);
         table.hits.reserve(count);
-        table.death_events.reserve(count);
+        table.collide_events.reserve(count);
         table.expire_events.reserve(count);
         table.damaged_events.reserve(count);
         table.destroy_events.reserve(count);
@@ -131,7 +131,7 @@ TypeTable resolve_types(const SbtLevel& level) {
             }
             table.shields.push_back(shields);
             table.hits.push_back(static_cast<std::int32_t>(rd32(entry + 0x1c8)));
-            table.death_events.push_back(rd32(entry + 0x1c4));
+            table.collide_events.push_back(rd32(entry + 0x1c4));
             table.expire_events.push_back(rd32(entry + 0x1ec));
             table.damaged_events.push_back(rd32(entry + 0x1f4));
             table.destroy_events.push_back(rd32(entry + 0x1f8));
@@ -159,7 +159,7 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.shield_max = thing.shields;
     thing.hits_left = types.hits[i];
     thing.timeout_event = types.timeout_events[i];
-    thing.death_event = types.death_events[i];
+    thing.collide_event = types.collide_events[i];
     thing.expire_event = types.expire_events[i];
     thing.create_event = types.create_events[i];
     thing.damaged_event = types.damaged_events[i];
@@ -381,7 +381,7 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     }
     ThingTypeEvents out;
     out.type = type;
-    out.death_event = types.death_events[index];
+    out.collide_event = types.collide_events[index];
     out.expire_event = types.expire_events[index];
     out.damaged_event = types.damaged_events[index];
     out.destroy_event = types.destroy_events[index];

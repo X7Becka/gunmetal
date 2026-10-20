@@ -175,7 +175,7 @@ std::vector<Blast> Weapon::select_blasts(bool expired, bool underwater) const {
     std::vector<Blast> out;
     out.reserve(source.size());
     for (const Blast& blast : source) {
-        if (blast.underwater == underwater) {
+        if (underwater ? blast.water : blast.air) {
             out.push_back(blast);
         }
     }
@@ -200,15 +200,36 @@ struct FireScriptInfo {
     bool hitscan = false;
     int damage_gauge = 0;
     int thing_type = -1;
+    int spawn_type = -1; ///< ADD_THING* G operand outside SOURCE_UNDERWATER
     double projectile_charge = 0.0;
     bool underwater = false;
 };
 
+/// Type operand of an ADD_THING* condition (`G` in its signature).  RGM uses
+/// `ADD_THING_AT_SOURCE_WEAPON_POINT ... 32` instead of FIRE_THING.
+int add_thing_type(const SbtInsn& insn) {
+    if (insn.condition.rfind("ADD_THING", 0) != 0) {
+        return -1;
+    }
+    const std::string signature = sbt_condition_signature(insn.condition);
+    for (std::size_t k = 0; k < signature.size() && k < insn.args.size(); ++k) {
+        if (signature[k] == 'G') {
+            return static_cast<int>(as_uint(insn.args[k]));
+        }
+    }
+    return -1;
+}
 
 bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
                       bool underwater = false) {
     for (const SbtInsn& insn : insns) {
         if (!insn.condition.empty()) {
+            if (!underwater) {
+                const int spawn = add_thing_type(insn);
+                if (spawn >= 0) {
+                    info.spawn_type = spawn;
+                }
+            }
             const bool is_fire =
                 insn.condition == "FIRE_SOURCEPLAYER_BULLET" ||
                 insn.condition == "FIRE_SOURCEPLAYER_LASER" ||
@@ -309,36 +330,101 @@ std::optional<Blast> blast_from_insn(const SbtInsn& insn) {
     return blast;
 }
 
+struct MediumGuard {
+    bool air = true;
+    bool water = true;
+};
+
 void scan_blasts(const std::vector<SbtInsn>& insns, std::vector<Blast>& out,
-                 bool underwater = false) {
-    for (const SbtInsn& insn : insns) {
-        if (auto blast = blast_from_insn(insn)) {
-            blast->underwater = underwater;
-            out.push_back(*blast);
+                 MediumGuard medium = {});
+
+void scan_blast_insn(const SbtInsn& insn, std::vector<Blast>& out,
+                     MediumGuard medium) {
+    if (auto blast = blast_from_insn(insn)) {
+        blast->air = medium.air;
+        blast->water = medium.water;
+        out.push_back(*blast);
+    }
+    if (!insn.body.empty()) {
+        scan_blasts(insn.body, out, medium);
+    }
+}
+
+void scan_blasts(const std::vector<SbtInsn>& insns, std::vector<Blast>& out,
+                 MediumGuard medium) {
+    for (std::size_t i = 0; i < insns.size(); ++i) {
+        const SbtInsn& insn = insns[i];
+        if (insn.name == "IF" && insn.condition == "SOURCE_UNDERWATER") {
+            // The IF body carries the water instructions and a trailing ELSE
+            // marker.  The decoder leaves the ELSE body as the following
+            // siblings up to `ELSE.target`, so scan those as air-only too.
+            std::uint32_t else_target = 0;
+            for (const SbtInsn& child : insn.body) {
+                if (child.name == "ELSE") {
+                    else_target = child.target;
+                } else {
+                    scan_blast_insn(child, out, {false, medium.water});
+                }
+            }
+            if (else_target != 0) {
+                std::size_t j = i + 1;
+                while (j < insns.size() && insns[j].offset < else_target) {
+                    scan_blast_insn(insns[j], out, {medium.air, false});
+                    ++j;
+                }
+                i = j - 1;
+            }
+            continue;
         }
-        if (!insn.body.empty()) {
-            scan_blasts(insn.body, out,
-                        underwater || insn.condition == "SOURCE_UNDERWATER");
-        }
+        scan_blast_insn(insn, out, medium);
     }
 }
 
 void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
                           std::vector<Blast>& out, int depth = 0,
-                          bool underwater = false);
+                          MediumGuard medium = {});
 
 void scan_generates(const SbtLevel& level, const std::vector<SbtInsn>& insns,
-                    std::vector<Blast>& out, int depth, bool underwater) {
-    for (const SbtInsn& insn : insns) {
-        const bool branch_water =
-            underwater || insn.condition == "SOURCE_UNDERWATER";
-        if (insn.name == "GENERATE" && !insn.args.empty()) {
-            const std::uint32_t child = as_uint(insn.args[0]);
-            collect_event_blasts(level, child, out, depth + 1, branch_water);
+                    std::vector<Blast>& out, int depth, MediumGuard medium);
+
+void scan_generate_insn(const SbtLevel& level, const SbtInsn& insn,
+                        std::vector<Blast>& out, int depth,
+                        MediumGuard medium) {
+    if (insn.name == "GENERATE" && !insn.args.empty()) {
+        collect_event_blasts(level, as_uint(insn.args[0]), out, depth + 1,
+                             medium);
+    }
+    if (!insn.body.empty()) {
+        scan_generates(level, insn.body, out, depth, medium);
+    }
+}
+
+void scan_generates(const SbtLevel& level, const std::vector<SbtInsn>& insns,
+                    std::vector<Blast>& out, int depth, MediumGuard medium) {
+    for (std::size_t i = 0; i < insns.size(); ++i) {
+        const SbtInsn& insn = insns[i];
+        if (insn.name == "IF" && insn.condition == "SOURCE_UNDERWATER") {
+            std::uint32_t else_target = 0;
+            for (const SbtInsn& child : insn.body) {
+                if (child.name == "ELSE") {
+                    else_target = child.target;
+                } else {
+                    scan_generate_insn(level, child, out, depth,
+                                       {false, medium.water});
+                }
+            }
+            if (else_target != 0) {
+                std::size_t j = i + 1;
+                while (j < insns.size() && insns[j].offset < else_target) {
+                    scan_generate_insn(level, insns[j], out, depth,
+                                       {medium.air, false});
+                    ++j;
+                }
+                i = j - 1;
+            }
+            continue;
         }
-        if (!insn.body.empty()) {
-            scan_generates(level, insn.body, out, depth, branch_water);
-        }
+        scan_generate_insn(level, insn, out, depth, medium);
     }
 }
 
@@ -347,7 +433,8 @@ void scan_generates(const SbtLevel& level, const std::vector<SbtInsn>& insns,
 /// bullet impacts already carry their own blast.  Going deeper would pull in
 /// secondary debris effects, so the limit is one child.
 void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
-                          std::vector<Blast>& out, int depth, bool underwater) {
+                          std::vector<Blast>& out, int depth,
+                          MediumGuard medium) {
     if (event_id == 0 || event_id == 0xffffffffU || depth > 1) {
         return;
     }
@@ -355,8 +442,8 @@ void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
     if (!program) {
         return;
     }
-    scan_blasts(program->insns, out, underwater);
-    scan_generates(level, program->insns, out, depth, underwater);
+    scan_blasts(program->insns, out, medium);
+    scan_generates(level, program->insns, out, depth, medium);
 }
 
 bool parse_tables(const std::filesystem::path& level_path, std::string* error,
@@ -515,11 +602,17 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
             }
             weapon.thing_type = fire.thing_type;
             weapon.projectile_charge = fire.projectile_charge;
+            if (weapon.thing_type < 0 && fire.spawn_type >= 0) {
+                // RGM: the real projectile is ADD_THING_AT_SOURCE_WEAPON_POINT
+                // type 32; the following FIRE_BULLET is only a fallback.
+                weapon.thing_type = fire.spawn_type;
+                weapon.hitscan = false;
+            }
         }
 
         if (weapon.thing_type >= 0) {
             if (const auto events = thing_type_events(*level, weapon.thing_type)) {
-                collect_event_blasts(*level, events->death_event,
+                collect_event_blasts(*level, events->collide_event,
                                      weapon.impact_blasts);
                 collect_event_blasts(*level, events->expire_event,
                                      weapon.expire_blasts);

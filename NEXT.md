@@ -5,7 +5,7 @@
 
 ## Сейчас
 
-1. **Impact/THING → runtime.** `Weapons::load` уже разворачивает death/expire
+1. **Impact/THING → runtime.** `Weapons::load` уже разворачивает collide/expire
    события `THING_TYPES` в `impact_blasts`/`expire_blasts` (GRENADE/ROCKET,
    тесты `weapons`/`things`). Осталось: применить нужную ветку в момент
    попадания/истечения, затем PLASMA/RGM/MRL/NUKE/EMP/`level10`.
@@ -30,4 +30,16 @@
   исправлен `ShieldSide`, предпочтение воздушной ветки `FIRE_*`.
 - `weapons` (1/1), `things` (1/1), `thing_ai` (1/1), полный CTest 52/52
   (до последней правки `thing_type`; targeted после неё — 1/1).
-- Следующий шаг — пункт 1.
+- Добавлен CLI `--third-person`: `TICK` (LIGHT) ставится низом на
+  `SET_PLAYER_START`, поворачивается на `spawn.yaw`, камера — `CameraRig`
+  `Third` с окклюзией `.sbw`. Флаги `--third-distance/height`,
+  `--player-model`, фото-оверрайды `--third-pos/--third-yaw`.
+  Новый тест `cli_third_person` — 1/1. Кадр:
+  `out/third_person/level0_tick_third_person.png` (1280×720).
+- ⚠️ Установка игры изменена по просьбе пользователя: содержимое `level1.*`
+  и `level2.*` переставлено. Поэтому corpus-голдены `core`, `core_full`,
+  `camera_rig`, `sbtvm`, `vm`, `vm_full`, `things_full` падают на реальных
+  данных; `controls` падает независимо (изменённые `KEYCFG/*.key`). Это не
+  регрессия кода; после обратного swap голдены снова сойдутся.
+- Следующий шаг — пункт 1 (не начинать без явного запроса: текущая
+  side-задача завершена).

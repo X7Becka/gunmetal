@@ -617,7 +617,7 @@ void test_type_events() {
     const auto rocket = gm::thing_type_events(level, 31);
     CHECK(rocket.has_value());
     if (rocket) {
-        CHECK_EQ(rocket->death_event, static_cast<std::uint32_t>(-30103));
+        CHECK_EQ(rocket->collide_event, static_cast<std::uint32_t>(-30103));
         CHECK_EQ(rocket->expire_event, static_cast<std::uint32_t>(-30103));
         CHECK_EQ(rocket->create_event, static_cast<std::uint32_t>(-30104));
         CHECK_EQ(rocket->damaged_event, 0u);
@@ -625,7 +625,7 @@ void test_type_events() {
     const auto grenade = gm::thing_type_events(level, 28);
     CHECK(grenade.has_value());
     if (grenade) {
-        CHECK_EQ(grenade->death_event, static_cast<std::uint32_t>(-30094));
+        CHECK_EQ(grenade->collide_event, static_cast<std::uint32_t>(-30094));
         CHECK_EQ(grenade->expire_event, static_cast<std::uint32_t>(-30093));
         CHECK_EQ(grenade->create_event, 0u);
     }
@@ -677,7 +677,7 @@ void test_real_dm1() {
         CHECK_EQ(first->hits_left, 0);
         CHECK_EQ(first->shields[0], 0);
         CHECK_EQ(first->timeout_event, 0u);
-        CHECK_EQ(first->death_event, 0u);
+        CHECK_EQ(first->collide_event, 0u);
         CHECK_EQ(first->create_event, 0xffff8a8bu); // -30069
         CHECK_EQ(first->expire_event, 0xffff8a89u); // -30071
         CHECK_EQ(first->damaged_event, 0);

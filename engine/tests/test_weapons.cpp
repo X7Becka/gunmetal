@@ -806,6 +806,23 @@ void test_real_weapon_modes() {
         CHECK(rail->hitscan);
         CHECK_NEAR(rail->damage, 60.0, 0.0);
     }
+    const gm::Weapon* rgm = find("RGM");
+    if (rgm != nullptr) {
+        CHECK(!rgm->hitscan);
+        CHECK_EQ(rgm->thing_type, 32);
+        CHECK_EQ(rgm->expire_blasts.size(), 3U);
+        if (rgm->expire_blasts.size() == 3) {
+            CHECK_EQ(rgm->expire_blasts[0].radius, 50);
+            CHECK_EQ(rgm->expire_blasts[0].plate, 0);
+            CHECK_EQ(rgm->expire_blasts[1].plate, 15000);
+            CHECK_EQ(rgm->expire_blasts[1].radius, 256);
+            CHECK(!rgm->expire_blasts[1].air);
+            CHECK_EQ(rgm->expire_blasts[2].plate, 15000);
+            CHECK_EQ(rgm->expire_blasts[2].radius, 256);
+            CHECK(rgm->expire_blasts[2].air);
+            CHECK(!rgm->expire_blasts[2].water);
+        }
+    }
     if (rocket != nullptr) {
         CHECK(!rocket->hitscan);
         CHECK_EQ(rocket->thing_type, 31);
@@ -815,13 +832,16 @@ void test_real_weapon_modes() {
             CHECK_EQ(direct.plate, 10000);
             CHECK_EQ(direct.radius, 80);
             CHECK_EQ(direct.event, 0xffff8a41u);
-            CHECK(!direct.underwater);
+            CHECK(direct.air); // neutral op: runs in both media
+            CHECK(direct.water);
             CHECK_EQ(rocket->impact_blasts[1].plate, 10000);
             CHECK_EQ(rocket->impact_blasts[1].radius, 512);
-            CHECK(rocket->impact_blasts[1].underwater);
+            CHECK(!rocket->impact_blasts[1].air);
+            CHECK(rocket->impact_blasts[1].water);
             CHECK_EQ(rocket->impact_blasts[2].plate, 12000);
             CHECK_EQ(rocket->impact_blasts[2].radius, 256);
-            CHECK(!rocket->impact_blasts[2].underwater);
+            CHECK(rocket->impact_blasts[2].air);
+            CHECK(!rocket->impact_blasts[2].water);
         }
         CHECK_EQ(rocket->expire_blasts.size(), rocket->impact_blasts.size());
         const auto air = rocket->select_blasts(false, false);
@@ -831,9 +851,10 @@ void test_real_weapon_modes() {
             CHECK_EQ(air[1].radius, 256);
         }
         const auto water = rocket->select_blasts(false, true);
-        CHECK_EQ(water.size(), 1U);
-        if (!water.empty()) {
-            CHECK_EQ(water[0].radius, 512);
+        CHECK_EQ(water.size(), 2U);
+        if (water.size() == 2) {
+            CHECK_EQ(water[0].radius, 80);
+            CHECK_EQ(water[1].radius, 512);
         }
     }
 }
@@ -962,10 +983,12 @@ void test_real_tables(const gm::Weapons& table) {
         if (grenade->expire_blasts.size() == 2) {
             CHECK_EQ(grenade->expire_blasts[0].plate, 8000);
             CHECK_EQ(grenade->expire_blasts[0].radius, 500);
-            CHECK(grenade->expire_blasts[0].underwater);
+            CHECK(!grenade->expire_blasts[0].air);
+            CHECK(grenade->expire_blasts[0].water);
             CHECK_EQ(grenade->expire_blasts[1].plate, 8000);
             CHECK_EQ(grenade->expire_blasts[1].radius, 350);
-            CHECK(!grenade->expire_blasts[1].underwater);
+            CHECK(grenade->expire_blasts[1].air);
+            CHECK(!grenade->expire_blasts[1].water);
         }
         CHECK(grenade->select_blasts(false, false).empty());
         const auto air = grenade->select_blasts(true, false);

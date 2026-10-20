@@ -51,7 +51,7 @@ struct Weapon {
     double damage; int magazine, reload_ticks;
     bool hitscan; double projectile_speed;
     int thing_type; double projectile_charge; // THING air branch
-    std::vector<Blast> impact_blasts, expire_blasts; // death/expire events
+    std::vector<Blast> impact_blasts, expire_blasts; // collide/expire events
     std::vector<Blast> select_blasts(bool expired, bool underwater) const;
 };
 
@@ -59,7 +59,7 @@ struct Weapon {
 struct Blast {
     int32_t plate, hull; int radius; uint32_t flags, event;
     bool no_direction;
-    bool underwater; // op лежит в IF SOURCE_UNDERWATER; выбрать одну ветку
+    bool air, water; // neutral op: both true; underwater branch: one
 };
 
 struct ThingVitals {              // runtime THING +0x7ac418..+0x7ac430
@@ -297,10 +297,12 @@ bit0/2/3, границы игроков 8 / THING 260, событие на ка�
 `chain_reaction` при `plate > 0`.
 
 > **Важно:** `Weapons::load` теперь предпочитает **воздушную** ветку при
-> `SOURCE_UNDERWATER` (LASER = 3.00, а не 1.00), но всё ещё не разворачивает
-> `SOURCEPLAYER_WEAPON_POWER_UP` (PLASMA TT36/37/38), заряд GRENADE/NUKE и
-> EMP-кольца: они лежат в теле условия `FIRE_*` и требуют полноценного дерева
-> веток. Таблица §7 отчёта Ghidra содержит точные числа для следующего шага.
+> `SOURCE_UNDERWATER` (LASER = 3.00, а не 1.00). THING-ветки дополнительно
+> разворачиваются по `THING_TYPES` collide/expire; ещё не разобраны
+> `SOURCEPLAYER_WEAPON_POWER_UP` (PLASMA TT36/37/38), inline-impact’ы
+> hitscan (EMP-кольца, CANNON/FUSION/MICROWAVE/DISRUPTOR) и
+> взаимоисключающие ground/DM-ветки TAC NUKE. Таблица §7 отчёта Ghidra
+> содержит точные числа для следующего шага.
 
 `Vitals` строится из `GameState` (`vitals_from_game`), так что сейвовые
 `armor=10000`, `shields=8000` можно использовать без пересчёта.
@@ -324,8 +326,19 @@ bit0/2/3, границы игроков 8 / THING 260, событие на ка�
 
 Это **не** единая таблица для всех уровней: 33 из 36 используют базовые
 ROCKET 8000/10000, а `level0` — 10000/12000; `level20` меняет TAC NUKE.
-Impact-события и `GENERATE` пока не склеены с `Weapon`; C++ предоставляет
-`Blast`/`apply_blast`, а загрузчик всё ещё ищет только первый `FIRE_*`.
+`Weapons::load` уже сворачивает collide/expire-блоки `THING_TYPES` и один
+`GENERATE` в `impact_blasts`/`expire_blasts`; `Blast` хранит флаги среды
+(`air`/`water`), а `select_blasts` выбирает ветку. `RGM` получает тип 32 из
+`ADD_THING_AT_SOURCE_WEAPON_POINT` (не из `FIRE_THING`), поэтому больше не
+считается hitscan с уроном 0.03.
+
+Осталось: (1) inline-impact’ы hitscan (`CANNON 1500@200`, EMP-кольца,
+FUSION/MICROWAVE/DISRUPTOR/DISINT) в `Weapon` не собираются; (2) TAC NUKE
+содержит несколько взаимоисключающих top-level IF (`SOURCE_UNDERWATER`,
+`SOURCE_FROM_GROUND`, `DEATHMATCH_GAME`) — загрузчик пока складывает все
+ветки (15 blast’ов), и `select_blasts` не различает ground/DM; это
+задокументированное ограничение, а не данные. (3) `projectile_speed=12000`
+остаётся placeholder’ом до доказательства единиц `THING_TYPES+0x10`.
 
 ---
 
@@ -379,13 +392,20 @@ Impact-события и `GENERATE` пока не склеены с `Weapon`; C+
 * реальный `level0`: LASER (slot 11) — воздушная ветка 3.00, не подводная
   1.00; `Weapons::load` предпочитает воздух при `SOURCE_UNDERWATER`;
   GRENADE (slot 4) — `thing_type=28`, `projectile_charge=16`, не водные 12.
-* impact-события из `THING_TYPES` (CTest `weapons`): GRENADE death `-30094`
+* impact-события из `THING_TYPES` (CTest `weapons`): GRENADE collide `-30094`
   содержит только звук, expire `-30093` → GENERATE `-30096` даёт два
   `CAUSE_BLAST_RADIUS_DAMAGE`: `8000@500` (под водой) и `8000@350` (воздух).
-  ROCKET death=expire `-30103`: прямой `10000@80` плюс GENERATE `-30105` с
+  ROCKET collide=expire `-30103`: прямой `10000@80` плюс GENERATE `-30105` с
   `10000@512` (под водой) и `12000@256` (воздух). Это данные
   `Weapon::impact_blasts`/`expire_blasts`; ветки `SOURCE_UNDERWATER`
-  помечены `Blast::underwater`, рантайм должен выбрать одну.
+  помечены `Blast::air`/`Blast::water`; нейтральные blast’ы имеют оба флага,
+  поэтому исполняются в обеих средах. `select_blasts(false, true)` для
+  ROCKET даёт прямой `10000@80` + `10000@512`, для воздуха — `10000@80` +
+  `12000@256` (раньше терялся нейтральный blast).
+* RGM: `projectile_id=-30032` использует
+  `ADD_THING_AT_SOURCE_WEAPON_POINT` с типом 32, а не `FIRE_THING`; после
+  исправления `hitscan=false`, `thing_type=32`, `expire_blasts` =
+  `0@50` + `15000@256` (вода/воздух), как в таблице §7.
 
 ---
 
@@ -400,7 +420,7 @@ Impact-события и `GENERATE` пока не склеены с `Weapon`; C+
 | выстрел ставит `GENERATE`-событие `event_post` (`0x445eee`, `0x445f61`) | **доказано**; фактический spawn — в подскрипте сущности, см. `docs/EVENTS.md` |
 | hitscan-путь | **доказан и подключён**: BULLET/LASER (`0x478520`/`0x478be0`), THING — объект |
 | магазин/перезарядка | **гипотеза** (в данных и коде не найдено) |
-| урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — отдельные `apply_blast`/`apply_thing_damage`; загрузчик разворачивает death/expire-блоки `THING_TYPES` (плюс один GENERATE) в `impact_blasts`/`expire_blasts`, рантайм их ещё не применяет |
+| урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — отдельные `apply_blast`/`apply_thing_damage`; загрузчик разворачивает collide/expire-блоки `THING_TYPES` (плюс один GENERATE) в `impact_blasts`/`expire_blasts`, рантайм их ещё не применяет |
 | скорость снаряда | `THING_TYPES +0x10 + charge*operand[9]`; C++ `12000` — placeholder |
 | разброс — равномерный квадрат, SplitMix64 | **гипотеза рантайма** |
 | отдача — горизонтальный импульс | **доказано** (`0x459f4d`, `docs/SHAKE.md` §6); поля в оружии нет |
@@ -420,7 +440,7 @@ Impact-события и `GENERATE` пока не склеены с `Weapon`; C+
    через `0x477f90`.
 3. **Урон и броня.** `0x453b50` (`apply_damage_gauge`), `0x470500`
    (`apply_thing_damage`) и `0x477280` (`apply_blast`) реализованы с
-   целочисленным falloff. Загрузчик уже собирает death/expire-бласты для
+   целочисленным falloff. Загрузчик уже собирает collide/expire-бласты для
    GRENADE/ROCKET; осталось применить их в runtime и разобрать
    PLASMA/NUKE/EMP/`level10.sbt`; точные числа — в отчёте Ghidra §7.
 4. **Магазин/перезарядка.** Механики в оригинале нет; слой оставлен

@@ -144,7 +144,7 @@ struct Thing {
     int movement_type; double search_radius; int target_zone_threshold;
     int target_history_offset; int max_health; int health;
     std::array<int,4> shields; std::array<int,4> shield_max;
-    int hits_left; std::uint32_t timeout_event, death_event, expire_event;
+    int hits_left; std::uint32_t timeout_event, collide_event, expire_event;
     std::uint32_t create_event, damaged_event, destroy_event;
 };
 ```
@@ -153,7 +153,7 @@ struct Thing {
 разрешённые ссылки; `position` пуст у source-relative вариантов.
 
 Новые поля — `THING_TYPES +0x1b4/+0x58/+0x1cc/+0x1d0/+0x1d4` плюс боевой
-блок `+0x1c4` (**death event**, второй string десятиполевого блока; 0x47573a),
+блок `+0x1c4` (**collide event**, второй string десятиполевого блока; 0x4752d0),
 `+0x1c8` (hits), `+0x1d8..+0x1e4` (shields), `+0x1ec` (expire),
 `+0x1f4` (damaged), `+0x1f8` (destroy), `+0x1f0` (create) и `+0x1c0`
 (time-out), копируемые в runtime (`docs/SOE.md`, отчёт impact §4.1).
@@ -161,13 +161,13 @@ struct Thing {
 `health` и `shield_max` — копии на спавне. AI пока их не использует.
 Для `dm1`/`level0` первый `bgchunk1`: `movement_type=6`,
 `search_radius=6000`, `target_zone=200`, `history=0`,
-`max_health=health=2000`, `shields=0`, `timeout_event=death_event=0`,
+`max_health=health=2000`, `shields=0`, `timeout_event=collide_event=0`,
 `create_event=-30069`, `expire_event=destroy_event=-30071` (CTest `things`).
 
 `gm::thing_type_events(level, type)` даёт те же event-id без построения
 `Things`; загрузчик оружия использует его для `THING_TYPES[type]`
-(`docs/WEAPONS_CPP.md`). Golden `level0`: type 28 GRENADE death `-30094`,
-expire `-30093`; type 31 ROCKET death=expire `-30103`, create `-30104`
+(`docs/WEAPONS_CPP.md`). Golden `level0`: type 28 GRENADE collide `-30094`,
+expire `-30093`; type 31 ROCKET collide=expire `-30103`, create `-30104`
 (CTest `things::type_events`).
 
 ### 2.2. `Things::load`

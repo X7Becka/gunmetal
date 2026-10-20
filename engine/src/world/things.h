@@ -65,8 +65,8 @@ struct Thing {
     std::array<int, 4> shield_max{}; // +0x1d8..+0x1e4 max copies
     int hits_left = 0;               // +0x1c8 geometry hits
     std::uint32_t timeout_event = 0; // +0x1c0
-    std::uint32_t death_event = 0;   // +0x1c4, fired when hits_left reaches zero
-    std::uint32_t expire_event = 0;  // +0x1ec
+    std::uint32_t collide_event = 0; // +0x1c4, posted by 0x4752d0 on collision
+    std::uint32_t expire_event = 0;  // +0x1ec, 0x4703a0 when hits/lifetime ends
     std::uint32_t create_event = 0;  // +0x1f0
     std::uint32_t damaged_event = 0; // +0x1f4
     std::uint32_t destroy_event = 0; // +0x1f8
@@ -76,12 +76,12 @@ struct Thing {
 
 /// The event block ids of one ``THING_TYPES`` record.  The ids are negative
 /// ``GENERATE``-style entity handles, or 0 when the field is unused.
-/// ``death_event`` is the second string of the ten-field block (``+0x1c4``);
-/// the loader triggers it after the per-impact hits counter is exhausted
-/// (0x47573a).  ``expire_event`` (``+0x1ec``) fires on lifetime expiry.
+/// ``collide_event`` is the second string of the ten-field block (``+0x1c4``);
+/// 0x4752d0 posts it after a collision.  ``expire_event`` (``+0x1ec``) goes
+/// through 0x4703a0 when the per-impact hits counter or lifetime is exhausted.
 struct ThingTypeEvents {
     int type = -1;
-    std::uint32_t death_event = 0;
+    std::uint32_t collide_event = 0;
     std::uint32_t expire_event = 0;
     std::uint32_t damaged_event = 0;
     std::uint32_t destroy_event = 0;
