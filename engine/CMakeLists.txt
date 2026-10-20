@@ -9,6 +9,7 @@ add_library(gm_engine STATIC
     src/platform/window.cpp
     src/platform/audio.cpp
     src/res/anim.cpp
+    src/anim/soo_player.cpp
     src/res/level.cpp
     src/res/sbv.cpp
     src/res/sbv_video.cpp
