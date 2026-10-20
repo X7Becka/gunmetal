@@ -50,6 +50,7 @@ struct Weapon {
     // слой гипотез, в DEFINE_WEAPONS полей нет:
     double damage; int magazine, reload_ticks;
     bool hitscan; double projectile_speed;
+    int thing_type; double projectile_charge; // THING air branch
 };
 
 // CAUSE_BLAST_RADIUS_DAMAGE (op 75): целые сотые, plate < 0 — статус.
@@ -372,7 +373,8 @@ Impact-события и `GENERATE` пока не склеены с `Weapon`; C+
 * THING: щит 500, HP 1000, plate 1000 → щит 0, HP 500, `broken[0]`;
   летальный blast 10000 → HP 0, `dead`;
 * реальный `level0`: LASER (slot 11) — воздушная ветка 3.00, не подводная
-  1.00; `Weapons::load` предпочитает воздух при `SOURCE_UNDERWATER`.
+  1.00; `Weapons::load` предпочитает воздух при `SOURCE_UNDERWATER`;
+  GRENADE (slot 4) — `thing_type=28`, `projectile_charge=16`, не водные 12.
 
 ---
 
