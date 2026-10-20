@@ -97,6 +97,7 @@ docs/SPRITE.md      C++ блиттер .sbm: clip, scale, bilinear, alpha
 docs/AUDIO_MIXER.md C++ микшер: 32 голоса, 3D, SOU0/1/2, golden
 docs/DOORS_CPP.md   C++ двери/переключатели/лифты: 91 Гц, группы
 docs/SOO_PLAYER.md  C++ .soo runtime: кэш SOB, loop/hold, морфинг
+docs/SCREEN_CPP.md  C++ SML-экран: страницы, строки, <I>, selection
 docs/SUB.md          .sub: подстановки, класс RAM, 3/3 byte-exact
 docs/SOU1_CPP.md     C++ SOU1: source-rate, 983/983, raw FNV
 docs/SBV_PARITY.md   .sbv: 6843/6843 кадров C++ = Python
