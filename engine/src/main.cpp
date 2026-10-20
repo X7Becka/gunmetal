@@ -24,6 +24,7 @@
 #include "res/sbv_video.h"
 #include "res/anim.h"
 #include "res/save.h"
+#include "res/soe.h"
 #include "render/render.h"
 
 #include <algorithm>
@@ -201,9 +202,24 @@ int dump_file(const gm::Options& options) {
             gm::logf(gm::LogLevel::Error, "dump", error);
             return 2;
         }
+        std::string structured_error;
+        const auto structured = gm::parse_soe(
+            *bytes, structured_error, std::filesystem::path(path).stem().string());
+        if (structured) {
+            std::printf("kind: SOE thing template\n");
+            std::printf("thing: %s id: %s version: %d\n",
+                        structured->thing().name.c_str(),
+                        structured->thing().id.c_str(),
+                        structured->thing().version);
+            std::printf("fields: %zu extra: %zu\n",
+                        structured->thing().fields.size(),
+                        structured->thing().extra);
+            std::printf("map: %zu fields\n", gm::field_map().size());
+            return 0;
+        }
         const auto soe = gm::parse_soe_text(*bytes, error);
         if (!soe) {
-            gm::logf(gm::LogLevel::Error, "soe", error);
+            gm::logf(gm::LogLevel::Error, "soe", structured_error);
             return 2;
         }
         std::printf("kind: SOE thing template\n");
