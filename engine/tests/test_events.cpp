@@ -465,6 +465,26 @@ void test_dispatch_switch() {
     const gm::EventDispatchResult dropped = dispatcher.dispatch(bad, 10, registry);
     CHECK(!dropped.ok);
     CHECK(dropped.generated.empty());
+
+    // FUN_0044f000/0x44f0a0 file: u32 count + 0x20-byte records.
+    gm::EventDispatcher original;
+    CHECK(original.set_switch(0, effect));
+    CHECK(original.set_switch(2, centroid));
+    const std::vector<std::uint8_t> table = original.serialize();
+    CHECK_EQ(table.size(), 4U + 3U * 0x20U);
+    gm::EventDispatcher restored;
+    CHECK(restored.deserialize(table));
+    CHECK(restored.switch_at(0) != nullptr);
+    CHECK(restored.switch_at(1) == nullptr);
+    CHECK(restored.switch_at(2) != nullptr);
+    if (restored.switch_at(2) != nullptr) {
+        CHECK_EQ(restored.switch_at(2)->x, 1); // serialized coords, not centroid
+    }
+    std::vector<std::uint8_t> too_many(4, 0);
+    too_many[0] = 0x01;
+    too_many[1] = 0x02; // 0x201
+    CHECK(!restored.deserialize(too_many));
+    CHECK(!restored.deserialize(std::span<const std::uint8_t>(table).first(8)));
 }
 
 

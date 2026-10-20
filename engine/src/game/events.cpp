@@ -392,6 +392,9 @@ bool EventDispatcher::set_switch(std::uint32_t index, const SwitchEffect& effect
         return false;
     }
     switches_[index] = effect;
+    if (static_cast<std::size_t>(index) + 1 > count_) {
+        count_ = static_cast<std::size_t>(index) + 1;
+    }
     return true;
 }
 
@@ -472,6 +475,64 @@ EventDispatchResult EventDispatcher::dispatch(EventQueue& queue, std::uint32_t n
                                               TextRegistry& registry) {
     EventParseResult parsed = queue.drain();
     return dispatch(parsed, now, registry);
+}
+
+bool EventDispatcher::deserialize(std::span<const std::uint8_t> bytes,
+                                  std::string* error) {
+    if (bytes.size() < 4) {
+        if (error != nullptr) {
+            *error = "switch table is shorter than its count field";
+        }
+        return false;
+    }
+    const std::uint32_t count = get_u32(bytes, 0);
+    if (count > kMaxSwitches) {
+        if (error != nullptr) {
+            *error = "switch table count exceeds 0x200";
+        }
+        return false;
+    }
+    const std::size_t record_bytes = static_cast<std::size_t>(count) * 0x20;
+    if (bytes.size() < 4 + record_bytes) {
+        if (error != nullptr) {
+            *error = "switch table is truncated";
+        }
+        return false;
+    }
+    std::array<SwitchEffect, kMaxSwitches> parsed{};
+    for (std::uint32_t i = 0; i < count; ++i) {
+        const std::size_t at = 4 + static_cast<std::size_t>(i) * 0x20;
+        SwitchEffect effect;
+        effect.kind = get_u32(bytes, at + 0x00);
+        effect.event_id = get_u32(bytes, at + 0x04);
+        effect.reserved = get_u32(bytes, at + 0x08);
+        effect.x = get_i32(bytes, at + 0x0c);
+        effect.y = get_i32(bytes, at + 0x10);
+        effect.z = get_i32(bytes, at + 0x14);
+        effect.sound_id = get_u32(bytes, at + 0x18);
+        effect.sound_index = get_i32(bytes, at + 0x1c);
+        parsed[i] = effect;
+    }
+    switches_ = parsed;
+    count_ = count;
+    return true;
+}
+
+std::vector<std::uint8_t> EventDispatcher::serialize() const {
+    std::vector<std::uint8_t> out;
+    put_u32(out, static_cast<std::uint32_t>(count_));
+    for (std::size_t i = 0; i < count_; ++i) {
+        const SwitchEffect& effect = switches_[i];
+        put_u32(out, effect.kind);
+        put_u32(out, effect.event_id);
+        put_u32(out, effect.reserved);
+        put_i32(out, effect.x);
+        put_i32(out, effect.y);
+        put_i32(out, effect.z);
+        put_u32(out, effect.sound_id);
+        put_i32(out, effect.sound_index);
+    }
+    return out;
 }
 
 

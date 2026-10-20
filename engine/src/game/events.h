@@ -169,6 +169,7 @@ bool post_thing_event(EventQueue& queue, const Thing& thing, ThingEventKind kind
 struct SwitchEffect {
     std::uint32_t kind = 0;     ///< +0x00; >= 0x101 uses the sector centroid
     std::uint32_t event_id = 0; ///< +0x04; 0 = inactive
+    std::uint32_t reserved = 0; ///< +0x08, written by FUN_0044e5f0
     std::int32_t x = 0;         ///< +0x0c
     std::int32_t y = 0;         ///< +0x10
     std::int32_t z = 0;         ///< +0x14
@@ -228,8 +229,15 @@ public:
     EventDispatchResult dispatch(EventQueue& queue, std::uint32_t now,
                                  TextRegistry& registry);
 
+    /// File format of `FUN_0044f000` / `FUN_0044f0a0`: little-endian
+    /// `u32 count` (0..0x200) followed by `count` records of 0x20 bytes
+    /// (`kind, event_id, reserved, x, y, z, sound_id, sound_index`).
+    bool deserialize(std::span<const std::uint8_t> bytes, std::string* error = nullptr);
+    std::vector<std::uint8_t> serialize() const;
+
 private:
     std::array<SwitchEffect, kMaxSwitches> switches_{};
+    std::size_t count_ = 0;
 };
 
 /// Append-only staging queue.  `drain()` is the equivalent of `event_dispatch`.
