@@ -13,6 +13,7 @@ add_library(gm_engine STATIC
     src/res/cache.cpp
     src/render/render.cpp
     src/render/hud.cpp
+    src/render/hud_player.cpp
     src/res/bigfile.cpp
     src/res/bmp.cpp
     src/res/png.cpp
