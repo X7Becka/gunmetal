@@ -23,6 +23,13 @@ std::optional<Sbm> parse_sbm(std::span<const std::uint8_t> data, std::string& er
         error = "implausible mip count " + std::to_string(lvlm1 + 1);
         return std::nullopt;
     }
+    // Level k is `1 << (log2 - k)`; a chain longer than the smaller dimension
+    // would shift by a negative amount (UB, and a hard crash in a checked
+    // build).  gm/sbm.py rejects the same files through expected_size().
+    if (lvlm1 > log2w || lvlm1 > log2h) {
+        error = "mip count exceeds texture dimensions";
+        return std::nullopt;
+    }
 
     Sbm sbm;
     sbm.width = 1 << log2w;

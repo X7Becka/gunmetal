@@ -50,6 +50,13 @@ std::optional<SbwHeader> parse_sbw_header(std::span<const std::uint8_t> data, st
         error = "truncated .sbw (texture count)";
         return std::nullopt;
     }
+    // Smallest possible entry: one NUL name byte + flag + value.  Bound the
+    // counter by the remaining input *before* reserving: a 4-byte blob with
+    // count 0xFFFFFFFF must not ask the allocator for gigabytes.
+    if (static_cast<std::size_t>(count) > (data.size() - offset) / 7) {
+        error = "implausible texture count " + std::to_string(count);
+        return std::nullopt;
+    }
     header.textures.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
         SbwTexRef tex;
@@ -65,6 +72,11 @@ std::optional<SbwHeader> parse_sbw_header(std::span<const std::uint8_t> data, st
 
     if (!read_u32(data, offset, count)) {
         error = "truncated .sbw (effect count)";
+        return std::nullopt;
+    }
+    // Smallest entry: one NUL name byte + kind + start + zero ids.
+    if (static_cast<std::size_t>(count) > (data.size() - offset) / 13) {
+        error = "implausible effect count " + std::to_string(count);
         return std::nullopt;
     }
     header.effects.reserve(count);
@@ -92,6 +104,11 @@ std::optional<SbwHeader> parse_sbw_header(std::span<const std::uint8_t> data, st
 
     if (!read_u32(data, offset, count)) {
         error = "truncated .sbw (sector count)";
+        return std::nullopt;
+    }
+    // Smallest sector: object count + kind + sub, no objects.
+    if (static_cast<std::size_t>(count) > (data.size() - offset) / 7) {
+        error = "implausible sector count " + std::to_string(count);
         return std::nullopt;
     }
     header.sectors.reserve(count);
@@ -170,6 +187,14 @@ std::optional<SbwLevel> parse_sbw(std::span<const std::uint8_t> data, std::strin
                         geometry.reserved.size());
             offset += 50;
 
+            // Smallest polygon: 12-byte header + 0 indices + 112-byte tail.
+            // Bound the counter before reserve so a 16-bit count cannot
+            // transiently allocate ~20 MiB from a few input bytes.
+            if (static_cast<std::size_t>(geometry.n_polys) > (data.size() - offset) / 124) {
+                error = "implausible polygon count in sector " + std::to_string(s) +
+                        " object " + std::to_string(o);
+                return std::nullopt;
+            }
             geometry.polys.reserve(geometry.n_polys);
             for (std::uint16_t k = 0; k < geometry.n_polys; ++k) {
                 if (offset + 12 > data.size()) {
