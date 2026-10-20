@@ -1557,6 +1557,14 @@ void test_soo_anim() {
     CHECK_EQ(pose->index, 1);
     CHECK_EQ(pose->next_index, 2);
     CHECK(std::abs(pose->alpha - 1.0 / 3.0) < 1e-12);
+    const auto wrapped = gm::soo_pose_at(*soo, 400, error);
+    CHECK(wrapped.has_value() && wrapped->index == 0 && wrapped->next_index == 1);
+    const auto cloud = gm::parse_soo(read(game / "Sobanim/Cloud.soo"), error);
+    CHECK(cloud.has_value());
+    if (cloud) {
+        const auto held = gm::soo_pose_at(*cloud, 10000, error);
+        CHECK(held.has_value() && held->next_index == held->index);
+    }
     const auto first = gm::parse_sob(read(game / "SOBS/cult1a.sob"), error);
     const auto second = gm::parse_sob(read(game / "SOBS/cult1b.sob"), error);
     CHECK(first.has_value() && second.has_value());
