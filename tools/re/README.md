@@ -56,6 +56,9 @@ objdump -D -M intel "/mnt/d/games/Gunmetal 3dfx/gundx.exe" > /tmp/opencode/gundx
 | `table_layout.py` | восстановление раскладки памяти записи таблицы по её store-функции: `table_layout.py 0x47a170 0x7995e0 --end 0x47a730 --stride 0x1cc` |
 | `copy_trace.py` | трассировка блока «копирование записи A в запись B» (напр. шасси → игрок): `copy_trace.py 0x47ac1a 0x47af3e --src 0x7995e0 --stride 0x1cc --dst 0x81bd00 --map "0x47a170 0x7995e0 0x47a730 0x1cc"` |
 | `emu.py` | минимальный интерпретатор x86 (по тексту objdump) — оракул для кодека `.sbv`; требует `objdump` |
+| `x86mini.py` | мини-интерпретатор x86 по **реальным байтам** exe — исполняет самомодифицирующиеся декодеры `SOU1`/`SOU2` |
+| `sou_decode.py` | декод `SOU1` через `x86mini` (эталон): `sou_decode.py INTRO out.wav`, `--list` |
+| `sou1_model.py` | независимая модель `SOU1` (`0x852b40/0x852c00/0x852cc0`), WAV и сверка: `--verify` (983/983, ~7 мин), `--check docs/manifests/sou1-fnv.json` (быстро), `--list` |
 | `campaign.py` | карта переходов кампании/DM из скриптов всех `*.sbt`: `campaign.py [--game DIR] [--json]` (имя, секреты, лучшее время, выходы с условиями) |
 | `chassis_models.py` | как уровень выбирает модель игрока: `SOB_TABLE` уровня (восемь моделей шасси по индексам 15–18/21–24), записи `DEFINE_PLAYER_TYPES` (`op5`, звук `op11`) и проверка, что `CHEVY` не встречается нигде |
 | `thing_models.py` | модель каждой сущности: `THING_TYPES` (`.sbt`, запись 4) → `+0x1a4` = индекс в `SOB_TABLE`; печать «тип → модель» по уровням и проверка `2896/2896` валидных индексов (`--level`, `--json`) |
