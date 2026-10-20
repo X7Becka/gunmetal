@@ -92,7 +92,7 @@ cmake --build build/sandbox -j
 ctest --test-dir build/sandbox -R fuzz --output-on-failure
 ```
 
-`regress.py` содержит шесть проверок границ доверия плюс паритет SOU2, конфиги и экспорт музыки (90/90 в быстром прогоне):
+`regress.py` содержит шесть проверок границ доверия плюс паритет SOU1/SOU2, конфиги и экспорт музыки (91/91 в быстром прогоне):
 смещение за EOF в `.idx`, обрезанный `.sbw`, невозможная высота `.sbv`,
 отказ от перезаписи при повторном `extract`, быстрый фазз-прогон.
 
@@ -126,7 +126,7 @@ ctest --test-dir build/sandbox -R fuzz --output-on-failure
 ```bash
 export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
 python3 tools/fuzz_formats.py
-python3 regress.py                 # 90/90, включая trust-проверки
+python3 regress.py                 # 91/91, включая trust-проверки
 ctest --test-dir build/release -L quick
 ctest --test-dir build/release -R fuzz
 ```
