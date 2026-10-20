@@ -375,6 +375,10 @@ void test_network_blob() {
     std::vector<std::uint8_t> truncated = blob;
     truncated[0] = static_cast<std::uint8_t>(length + 1U);
     CHECK(!gm::EventQueue::parse_network_blob(truncated).ok);
+    gm::EventQueue untouched;
+    CHECK(untouched.post_generate(1, 0, 0.0, 0.0, 0.0));
+    CHECK(!untouched.accept_network_blob(truncated).ok);
+    CHECK(!untouched.empty()); // a rejected blob leaves the queue intact
     // ... and so is a blob without the length field.
     const std::array<std::uint8_t, 3> short_blob{1, 0, 0};
     CHECK(!gm::EventQueue::parse_network_blob(short_blob).ok);
