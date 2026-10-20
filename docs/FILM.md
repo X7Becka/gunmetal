@@ -471,6 +471,8 @@ gunmetal --film AMMO4 --frame 0
 # bytes: 1081344 tiles: 132 tail: 0
 # frame 0: 8192 bytes fnv1a64=06531011db474c67
 # fdx: ammo.fdx entries: 16 line 4: count=131 fps=24
+
+gunmetal --film AMMO4 --frame 0 --png out.png   # 128x64 RGBA
 ```
 
 `gm_sof_tests` (CTest `film_sof`) checks all 48 films / 11 637 frames against

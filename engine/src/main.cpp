@@ -693,13 +693,45 @@ int show_film(const gm::Options& options) {
     std::printf("bytes: %zu tiles: %zu tail: %zu\n", bytes->size(), film->tiles(),
                 film->tail());
     std::uint64_t h = 0xcbf29ce484222325ull;
-    if (const auto frame = film->frame(static_cast<std::size_t>(std::max(0, options.frame)))) {
+    const auto frame =
+        film->frame(static_cast<std::size_t>(std::max(0, options.frame)));
+    if (frame) {
         for (std::uint8_t b : *frame) {
             h ^= b;
             h *= 0x100000001b3ull;
         }
         std::printf("frame %d: %zu bytes fnv1a64=%016llx\n", options.frame, frame->size(),
                     static_cast<unsigned long long>(h));
+        if (!options.png.empty()) {
+            // Every film is indexed by the shared VGA table resolved in
+            // Film/Kflm0000.bmp (docs/FILM.md proves 30/30 frames equal it).
+            const auto pal_path = gm::resolve_ci(path->parent_path(), "Kflm0000.bmp");
+            const auto pal_bytes = pal_path ? read_file(*pal_path, error) : std::nullopt;
+            const auto pal = pal_bytes ? gm::parse_bmp(*pal_bytes, error)
+                                       : std::optional<gm::BmpImage>{};
+            if (!pal || pal->palette.size() < 256 * 4) {
+                gm::logf(gm::LogLevel::Error, "film", "palette not found: ",
+                         pal_path ? pal_path->string() : "Kflm0000.bmp");
+                return 2;
+            }
+            std::vector<std::uint8_t> rgba(frame->size() * 4);
+            for (std::size_t i = 0; i < frame->size(); ++i) {
+                const std::uint8_t idx = (*frame)[i];
+                rgba[i * 4 + 0] = pal->palette[idx * 4 + 0];
+                rgba[i * 4 + 1] = pal->palette[idx * 4 + 1];
+                rgba[i * 4 + 2] = pal->palette[idx * 4 + 2];
+                rgba[i * 4 + 3] = 255;
+            }
+            const auto png = gm::encode_png_rgba(gm::kSofTileWidth, gm::kSofTileHeight,
+                                                 rgba);
+            if (!write_file(options.png, png)) {
+                gm::logf(gm::LogLevel::Error, "film", "cannot write ",
+                         options.png.string());
+                return 2;
+            }
+            std::printf("png: %s (%dx%d)\n", options.png.string().c_str(),
+                        gm::kSofTileWidth, gm::kSofTileHeight);
+        }
     } else {
         std::printf("frame %d: out of range\n", options.frame);
     }
