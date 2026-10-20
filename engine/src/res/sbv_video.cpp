@@ -392,7 +392,7 @@ bool base_grid(PlaneMemory& m, std::span<const std::uint8_t> frame, DecoderState
     const std::int32_t lo = load_i32(static_cast<std::size_t>(st.pos));
     const std::int32_t hi = load_i32(static_cast<std::size_t>(st.pos) + 4);
     st.pos += 8;
-    const double scale = static_cast<double>(hi - lo) / 256.0;
+    const double scale = (static_cast<double>(hi) - static_cast<double>(lo)) / 256.0;
     int p = st.pos;
     int index = 0;
     while (index < bh * bw) {
@@ -511,8 +511,13 @@ std::optional<VideoFrame> decode_sbv_frame(std::span<const std::uint8_t> block, 
                 std::to_string(height);
         return std::nullopt;
     }
-    // The pyramid halves the plane four times; every level must stay even.
-    if (width % 2 != 0 || height % 16 != 0 || width < 8) {
+    // The pyramid halves the plane four times; every level must stay even and
+    // the smallest stage (width/8 x height/8) must be at least 2x4 so the
+    // 2x2 lifting kernel has a stride divisible by four and a non-empty last
+    // row.  A width of 8..15 or a height of 16 (all accepted by the old
+    // `width >= 8` check) makes lift_2d's decrement-by-four loop spin forever
+    // on stride 2.
+    if (width % 16 != 0 || height % 16 != 0 || height < 32) {
         error = "unsupported SBV frame geometry " + std::to_string(width) + "x" +
                 std::to_string(height);
         return std::nullopt;

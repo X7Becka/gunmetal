@@ -90,6 +90,19 @@ target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
 gm_label(sbtvm quick)
 
+add_executable(gm_fuzz_tests test_fuzz.cpp)
+target_link_libraries(gm_fuzz_tests PRIVATE gm_engine)
+# Quick by default; `gm_fuzz_tests --full` widens the mutation budgets.
+# The TIMEOUT is the watchdog for an in-process infinite loop (the harness can
+# only measure a case after the call returns).
+add_test(NAME fuzz COMMAND gm_fuzz_tests --quick)
+gm_label(fuzz quick)
+set_tests_properties(fuzz PROPERTIES TIMEOUT 300)
+
+add_test(NAME fuzz_full COMMAND gm_fuzz_tests --full)
+gm_label(fuzz_full full)
+set_tests_properties(fuzz_full PROPERTIES TIMEOUT 900)
+
 find_program(GM_PYTHON3 python3)
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
     add_test(NAME parity_levels
@@ -101,7 +114,7 @@ endif()
 # Fast targets for the inner loop: build the binaries, then run CTest.
 #   cmake --build build/dev --target check-quick
 #   cmake --build build/test --target check
-set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sbv_video_tests gm_sbtvm_tests gunmetal)
+set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sbv_video_tests gm_sbtvm_tests gm_fuzz_tests gunmetal)
 add_custom_target(check-quick
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -L quick -j 8
             --output-on-failure
