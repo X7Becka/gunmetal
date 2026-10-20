@@ -28,6 +28,7 @@ add_library(gm_engine STATIC
     src/res/sou2.cpp
     src/res/sof.cpp
     src/res/text.cpp
+    src/res/sml.cpp
 )
 
 target_include_directories(gm_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)

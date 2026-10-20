@@ -101,6 +101,13 @@ target_link_libraries(gm_sbv_video_tests PRIVATE gm_engine)
 add_test(NAME sbv_video COMMAND gm_sbv_video_tests)
 gm_label(sbv_video full)
 
+add_executable(gm_sml_tests test_sml.cpp)
+target_link_libraries(gm_sml_tests PRIVATE gm_engine)
+# Golden sweep over all 300 shipped SML/*.sml|*.sme files plus parser
+# negatives; skips cleanly when the game is not installed.
+add_test(NAME sml COMMAND gm_sml_tests)
+gm_label(sml quick)
+
 add_executable(gm_sbtvm_tests test_sbtvm.cpp)
 target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
