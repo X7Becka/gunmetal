@@ -106,6 +106,11 @@ target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
 gm_label(sbtvm quick)
 
+add_executable(gm_soe_tests test_soe.cpp)
+target_link_libraries(gm_soe_tests PRIVATE gm_engine)
+add_test(NAME soe COMMAND gm_soe_tests)
+gm_label(soe quick)
+
 add_executable(gm_fuzz_tests test_fuzz.cpp)
 target_link_libraries(gm_fuzz_tests PRIVATE gm_engine)
 # Quick by default; `gm_fuzz_tests --full` widens the mutation budgets.
