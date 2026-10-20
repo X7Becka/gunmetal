@@ -231,6 +231,23 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           p.returncode == 0 and "2/2 files clean" in p.stdout,
                           "83 proven, 31 hypothesis, 14 unknown"))
 
+    # SCRIPT VM executor and structural .sbt record writers.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "vm_exec.py"),
+                        "--selftest"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("vm / executor self-test", p.returncode == 0
+                          and "17 tests, 0 failed" in p.stdout,
+                          "17 tests: IF/ELSE, GENERATE, limits, unknown opcode"))
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "records.py"),
+                        "--check"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("sbt / all record writers", p.returncode == 0
+                          and "38/38 file(s) byte-exact" in p.stdout,
+                          "38 files, 289 records byte-exact"))
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "sbv_codec.py"),
+                        "--self-test"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("sbv / pixel codec self-test", p.returncode == 0
+                          and "26/26 self-test" in p.stdout,
+                          "YUV planes, entropy blocks, 26 trust cases"))
+
     # The full hostile-input matrix lives in its own tool; run the cheap pass.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
                         "--game", G, "--quick"], capture_output=True, text=True, cwd=HERE)
@@ -1028,6 +1045,12 @@ def main() -> int:
         results.append(report("sou / 4091-entry rebuild", p.returncode == 0
                               and "4091/4091" in p.stdout,
                               (p.stdout.strip().splitlines() or ["no output"])[-1]))
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "vm_exec.py"), "--corpus",
+                            "--compare"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("vm / 36-level execution vs scene", p.returncode == 0
+                              and "spawns" in p.stdout,
+                              "all main scripts reach END; 391 spawns match"))
     render_checks(G, results, out, opts.full)
     # One shared sweep feeds "all levels decode", the 1.875 world-frame ratio
     # and the ADD_THING check below.
