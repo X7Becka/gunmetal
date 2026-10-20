@@ -743,6 +743,62 @@ void test_blast_and_thing_damage() {
     CHECK_EQ(thing.shields[0], 0);
 }
 
+void test_runtime_blast_bridge() {
+    std::string error;
+    const auto table = gm::Weapons::load(kGame / "level0.sbt", &error);
+    CHECK(table.has_value());
+    if (!table) {
+        return;
+    }
+    const gm::Weapon* rocket = nullptr;
+    for (const gm::Weapon& weapon : table->table()) {
+        if (weapon.name == "ROCKET") {
+            rocket = &weapon;
+        }
+    }
+    CHECK(rocket != nullptr);
+    if (rocket == nullptr) {
+        return;
+    }
+
+    const std::array<gm::Vec3d, 1> things{{{50.0, 0.0, 0.0}}};
+    const std::array<bool, 1> alive{true};
+    std::array<gm::ThingVitals, 1> vitals{};
+    vitals[0].hp = 1000;
+    vitals[0].max_hp = 1000;
+    vitals[0].alive = true;
+    std::span<const gm::Vec3d> no_players;
+    std::span<gm::Vitals> no_player_vitals;
+
+    // Air impact: direct 10000@80 plus the air child 12000@256.
+    const gm::BlastDamageResult air = gm::apply_weapon_blast(
+        *rocket, false, {0.0, 0.0, 0.0}, false, true, true, -1, -1,
+        no_players, no_player_vitals, things, alive, vitals);
+    CHECK_EQ(air.hits.size(), 2U);
+    CHECK(vitals[0].hp <= 0);
+    CHECK(!vitals[0].alive || vitals[0].hp == 0);
+
+    // Water impact: direct neutral blast + 10000@512, not the 256 air child.
+    vitals[0].hp = 20000;
+    vitals[0].alive = true;
+    const gm::BlastDamageResult water = gm::apply_weapon_blast(
+        *rocket, false, {0.0, 0.0, 0.0}, true, true, true, -1, -1,
+        no_players, no_player_vitals, things, alive, vitals);
+    CHECK_EQ(water.hits.size(), 2U);
+    if (water.hits.size() == 2) {
+        CHECK_EQ(water.hits[0].hit.plate, 3750); // 10000 * (80-50)/80
+        CHECK_EQ(water.hits[1].hit.plate, 9023); // 10000 * (512-50)/512
+    }
+
+    // The expire vector uses the same bridge (collide == expire for ROCKET).
+    vitals[0].hp = 20000;
+    vitals[0].alive = true;
+    const gm::BlastDamageResult expire = gm::apply_weapon_blast(
+        *rocket, true, {0.0, 0.0, 0.0}, false, true, true, -1, -1,
+        no_players, no_player_vitals, things, alive, vitals);
+    CHECK_EQ(expire.hits.size(), 2U);
+}
+
 void test_negatives_synthetic() {
     gm::Weapons table({make_weapon(0, 1, false)});
     gm::CollisionWorld world;
@@ -1256,6 +1312,7 @@ int main() {
         fs::exists(kGame / "SAVEGAME" / "saved1.sbt") &&
         fs::exists(kGame / "level0.sbt")) {
         test_real_weapon_modes();
+        test_runtime_blast_bridge();
         for (const GoldenSave& golden : kSaves) {
             test_real_save(golden);
         }

@@ -463,6 +463,39 @@ struct ThingDamageResult {
     bool low_health_event = false; ///< crossed half with `flags2 & 0x1000`
 };
 
+/// One hit plus the damage intake it produced.  Exactly one of
+/// `player_damage` / `thing_damage` is filled.
+struct AppliedBlastHit {
+    BlastHit hit;
+    GaugeDamageResult player_damage;
+    ThingDamageResult thing_damage;
+};
+
+struct BlastDamageResult {
+    std::vector<AppliedBlastHit> hits;
+    bool chain_reaction = false;
+};
+
+/// Apply one `CAUSE_BLAST_RADIUS_DAMAGE` to both target arrays.  The spatial
+/// query is `apply_blast`; player hits go through `apply_damage_gauge`
+/// (`0x453b50`), THING hits through `apply_thing_damage` (`0x470500`).
+BlastDamageResult apply_blast_damage(
+    const Vec3d& center, const Blast& blast, int source_player,
+    int source_thing, std::span<const Vec3d> player_positions,
+    std::span<Vitals> player_vitals, std::span<const Vec3d> thing_positions,
+    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals);
+
+/// Select `weapon` impact/expire blasts for the context and apply each one.
+/// This is the runtime bridge for a hit (`expired=false`) or lifetime expiry
+/// (`expired=true`); events are returned in the hits for the caller to post.
+BlastDamageResult apply_weapon_blast(
+    const Weapon& weapon, bool expired, const Vec3d& center, bool underwater,
+    bool from_ground, bool deathmatch, int source_player, int source_thing,
+    std::span<const Vec3d> player_positions, std::span<Vitals> player_vitals,
+    std::span<const Vec3d> thing_positions,
+    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals);
+
+
 /// Exact `0x470500` intake for a THING: no plate/hull multipliers, shield
 /// deficits spill into HP, and negative plate is a no-op status here.
 ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,

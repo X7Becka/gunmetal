@@ -105,6 +105,8 @@ struct Arsenal {
 | `fire(table, arsenal, origin, dir, world)` | один выстрел. Сначала валидация (ничего не тратится при ошибке), затем списание, кулдаун, разброс, `raycast`, `ShotResult`. |
 | `blast_damage` / `blast_hull_damage` | целочисленный falloff `value*(radius-d)/radius`; `plate < 0` не масштабируется; `radius <= 0` → 0. |
 | `apply_blast` | сферический запрос `0x477280` без LOS; цели-игроки/THING, флаги bit0/2/3, событие на попадание. |
+| `apply_blast_damage` | `apply_blast` + `apply_damage_gauge` для игроков и `apply_thing_damage` для THING; возвращает hits с результатами. |
+| `apply_weapon_blast` | выбирает `impact_blasts`/`expire_blasts` по контексту (`expired`, вода, земля, DM) и применяет их через `apply_blast_damage`; события остаются в `hits` для `event_post`. |
 | `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |
 | `Weapon::select_blasts(expired, underwater, from_ground, deathmatch)` | копия `expire_blasts` или `impact_blasts` только для выбранного контекста; нейтральные blast’ы проходят всегда. Рантайм вызывает после попадания/истечения. |
 | `reload(table, arsenal, slot)` | требует `magazine > 0`, бит маски, неполный магазин и резерв. `reload_ticks == 0` — мгновенно. |
@@ -358,10 +360,10 @@ TAC NUKE содержит несколько взаимоисключающих 
 земля/не-земля × DM/не-DM). Вложенный `IF DEATHMATCH_GAME` даёт 2
 DM-only blast’а плюс общий статус, поэтому DM и non-DM дают по 3, а не 5.
 
-Осталось: (1) применить `impact_blasts`/`inline_blasts` в runtime (позиция,
-цели, `apply_blast`/`apply_thing_damage`); сейчас они только загружаются;
-(2) `projectile_speed=12000` остаётся placeholder’ом до доказательства
-единиц `THING_TYPES+0x10`.
+`apply_weapon_blast` — runtime-мост: на попадание берёт collide-ветку
+(`expired=false`), на истечение — expire (`expired=true`), фильтрует контекст
+и применяет каждый blast к игрокам/THING. Осталось: `projectile_speed=12000`
+пока placeholder до доказательства единиц `THING_TYPES+0x10`.
 
 ---
 
@@ -443,7 +445,7 @@ DM-only blast’а плюс общий статус, поэтому DM и non-DM
 | выстрел ставит `GENERATE`-событие `event_post` (`0x445eee`, `0x445f61`) | **доказано**; фактический spawn — в подскрипте сущности, см. `docs/EVENTS.md` |
 | hitscan-путь | **доказан и подключён**: BULLET/LASER (`0x478520`/`0x478be0`), THING — объект |
 | магазин/перезарядка | **гипотеза** (в данных и коде не найдено) |
-| урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — отдельные `apply_blast`/`apply_thing_damage`; загрузчик разворачивает collide/expire-блоки `THING_TYPES` (плюс один GENERATE) в `impact_blasts`/`expire_blasts`, рантайм их ещё не применяет |
+| урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — отдельные `apply_blast`/`apply_thing_damage`; загрузчик разворачивает collide/expire-блоки `THING_TYPES` (плюс один GENERATE) в `impact_blasts`/`expire_blasts`, `apply_weapon_blast` применяет выбранную ветку |
 | скорость снаряда | `THING_TYPES +0x10 + charge*operand[9]`; C++ `12000` — placeholder |
 | разброс — равномерный квадрат, SplitMix64 | **гипотеза рантайма** |
 | отдача — горизонтальный импульс | **доказано** (`0x459f4d`, `docs/SHAKE.md` §6); поля в оружии нет |

@@ -1231,6 +1231,56 @@ BlastResult apply_blast(const Vec3d& center, const Blast& blast,
     return result;
 }
 
+BlastDamageResult apply_blast_damage(
+    const Vec3d& center, const Blast& blast, int source_player,
+    int source_thing, std::span<const Vec3d> player_positions,
+    std::span<Vitals> player_vitals, std::span<const Vec3d> thing_positions,
+    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals) {
+    BlastDamageResult result;
+    const BlastResult spatial = apply_blast(
+        center, blast, source_player, source_thing, player_positions,
+        thing_positions, thing_alive);
+    result.chain_reaction = spatial.chain_reaction;
+    result.hits.reserve(spatial.hits.size());
+    for (const BlastHit& hit : spatial.hits) {
+        AppliedBlastHit applied;
+        applied.hit = hit;
+        if (hit.is_player) {
+            const std::size_t index = static_cast<std::size_t>(hit.index);
+            if (index < player_vitals.size()) {
+                applied.player_damage = apply_damage_gauge(
+                    player_vitals[index], hit.plate, hit.hull, blast.flags, -1);
+            }
+        } else {
+            const std::size_t index = static_cast<std::size_t>(hit.index);
+            if (index < thing_vitals.size()) {
+                applied.thing_damage = apply_thing_damage(
+                    thing_vitals[index], hit.plate, hit.hull, blast.flags, -1);
+            }
+        }
+        result.hits.push_back(applied);
+    }
+    return result;
+}
+
+BlastDamageResult apply_weapon_blast(
+    const Weapon& weapon, bool expired, const Vec3d& center, bool underwater,
+    bool from_ground, bool deathmatch, int source_player, int source_thing,
+    std::span<const Vec3d> player_positions, std::span<Vitals> player_vitals,
+    std::span<const Vec3d> thing_positions,
+    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals) {
+    BlastDamageResult result;
+    for (const Blast& blast :
+         weapon.select_blasts(expired, underwater, from_ground, deathmatch)) {
+        BlastDamageResult one = apply_blast_damage(
+            center, blast, source_player, source_thing, player_positions,
+            player_vitals, thing_positions, thing_alive, thing_vitals);
+        result.chain_reaction = result.chain_reaction | one.chain_reaction;
+        result.hits.insert(result.hits.end(), one.hits.begin(), one.hits.end());
+    }
+    return result;
+}
+
 ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
                                      std::int32_t hull, std::uint32_t flags,
                                      int side) {
