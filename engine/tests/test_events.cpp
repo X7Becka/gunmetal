@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 namespace {
@@ -55,9 +56,9 @@ void test_type3() {
         CHECK_EQ(event.param, 0xabcd);
         CHECK_EQ(event.a, 0);
         CHECK_EQ(event.b, 0);
-        CHECK_EQ(event.x, 1.5F);
-        CHECK_EQ(event.y, -2.25F);
-        CHECK_EQ(event.z, 3.75F);
+        CHECK_EQ(event.x, 1);
+        CHECK_EQ(event.y, -2);
+        CHECK_EQ(event.z, 3);
         CHECK_EQ(event.extra, 0xdeadbeefU);
     }
 }
@@ -116,22 +117,67 @@ void test_overflow_rule() {
     CHECK_EQ(queue.size(), gm::EventQueue::kType3Size);
 }
 
+void test_switch_and_text() {
+    gm::EventQueue queue;
+    CHECK(queue.post_switch(0x123, -7));
+    CHECK_EQ(queue.size(), gm::EventQueue::kType2Size);
+    CHECK_EQ(queue.bytes()[0], 2);
+    CHECK_EQ(queue.bytes()[1], 0x23);
+    CHECK_EQ(queue.bytes()[2], 0x01);
+    CHECK_EQ(queue.bytes()[5], 0xf9); // -7
+    CHECK_EQ(queue.bytes()[6], 0xff);
+
+    CHECK(queue.post_text(3, 7, "hello"));
+    // type + font + 5 chars + NUL + one gap byte.
+    CHECK_EQ(queue.size(), gm::EventQueue::kType2Size + 4 + 5);
+    const std::size_t text_at = gm::EventQueue::kType2Size;
+    CHECK_EQ(queue.bytes()[text_at], 8); // channel 3 + 5
+    CHECK_EQ(queue.bytes()[text_at + 1], 7);
+    CHECK_EQ(queue.bytes()[text_at + 2], 'h');
+    CHECK_EQ(queue.bytes()[text_at + 7], 0);
+    CHECK_EQ(queue.bytes()[text_at + 8], 0); // gap
+
+    const auto parsed = queue.drain();
+    CHECK(parsed.ok);
+    CHECK_EQ(parsed.events.size(), 2U);
+    CHECK(queue.empty());
+    if (parsed.events.size() == 2) {
+        CHECK(parsed.events[0].type == gm::EventType::trigger_switch);
+        CHECK_EQ(parsed.events[0].switch_index, 0x123U);
+        CHECK_EQ(parsed.events[0].source, -7);
+        CHECK(parsed.events[1].type == gm::EventType::text_channel3);
+        CHECK_EQ(parsed.events[1].channel, 3);
+        CHECK_EQ(parsed.events[1].font, 7);
+        CHECK_EQ(parsed.events[1].text, std::string("hello"));
+    }
+
+    gm::EventQueue small(0x74de);
+    CHECK(small.post_text(-1, 0, ""));
+    CHECK_EQ(small.size(), 4U);
+    CHECK(!small.post_text(8, 0, "x"));
+    CHECK(!small.post_text(0, 0x1f, "x"));
+}
+
 void test_bad_records() {
     const std::array<std::uint8_t, 4> truncated{3, 1, 0, 0};
     const auto bad = gm::EventQueue::parse(truncated);
     CHECK(!bad.ok);
     CHECK(bad.events.empty());
 
-    const std::array<std::uint8_t, 1> unknown{2};
+    const std::array<std::uint8_t, 1> unknown{13};
     const auto unknown_result = gm::EventQueue::parse(unknown);
     CHECK(!unknown_result.ok);
     CHECK(unknown_result.events.empty());
 
     gm::Event event;
-    event.type = static_cast<gm::EventType>(9);
+    event.type = static_cast<gm::EventType>(13);
     gm::EventQueue queue;
     CHECK(!queue.post(event));
     CHECK(queue.empty());
+
+    const std::array<std::uint8_t, 4> truncated_type3{3, 1, 0, 0};
+    const auto bad_drain = gm::EventQueue::parse(truncated_type3);
+    CHECK(!bad_drain.ok);
 }
 
 } // namespace
@@ -140,6 +186,7 @@ int main() {
     test_type3();
     test_type1();
     test_multiple_and_order();
+    test_switch_and_text();
     test_overflow_rule();
     test_bad_records();
     if (g_failures != 0) {

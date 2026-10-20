@@ -49,7 +49,11 @@ va,name,kind,subsystem,status,evidence
 0x434463,resolve_poly,code,world,код,NOTES — sector/object/poly
 0x46d000,thing_builder,code,world,код,FORMATS 12.4 — ADD_THING -> модель
 0x4795b0,event_post,code,events,код,Ghidra: очередь event type 1/3 (0x1b/0x17); не спавнер
-0x4799b0,event_dispatch,code,events,код,Ghidra: разбор очереди, type 1/3 -> generate_event
+0x4799b0,event_dispatch,code,events,код,Ghidra: очередь type 1/2/3/4..12; FIFO, buffer 0x7530
+0x479810,event_post_switch,code,events,код,Ghidra: type 2, 7 байт, порог 0x7526
+0x4798b0,event_post_text,code,events,код,Ghidra: type 4..12, len+4, порог 0x74de
+0x5a4af0,switch_table,data,events,код,Ghidra: stride 0x20, <=512
+0x619860,message_registry,data,events,код,Ghidra: 10 записей text/chat
 0x4acde8,event_name_table,data,events,код,Ghidra: 26*0x30; id=-index/-30000-index
 0x5e3dec,event_name_count,data,events,код,Ghidra: 26 в этой сборке
 0x45fb90,event_id_resolver,code,events,код,Ghidra: EVENT имя/число -> id

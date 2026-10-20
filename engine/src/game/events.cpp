@@ -1,6 +1,7 @@
 #include "game/events.h"
 
 #include <bit>
+#include <cmath>
 #include <limits>
 
 namespace gm {
@@ -26,8 +27,21 @@ void put_u32(std::vector<std::uint8_t>& out, std::uint32_t value) {
     out.push_back(static_cast<std::uint8_t>((value >> 24U) & 0xffU));
 }
 
-void put_f32(std::vector<std::uint8_t>& out, float value) {
-    put_u32(out, std::bit_cast<std::uint32_t>(value));
+void put_i32(std::vector<std::uint8_t>& out, std::int32_t value) {
+    put_u32(out, static_cast<std::uint32_t>(value));
+}
+
+std::int32_t trunc_i32(double value) {
+    if (!std::isfinite(value)) {
+        return 0;
+    }
+    if (value <= static_cast<double>(std::numeric_limits<std::int32_t>::min())) {
+        return std::numeric_limits<std::int32_t>::min();
+    }
+    if (value >= static_cast<double>(std::numeric_limits<std::int32_t>::max())) {
+        return std::numeric_limits<std::int32_t>::max();
+    }
+    return static_cast<std::int32_t>(value); // truncation toward zero
 }
 
 std::uint8_t get_u8(std::span<const std::uint8_t> bytes, std::size_t at) {
@@ -50,24 +64,34 @@ std::uint32_t get_u32(std::span<const std::uint8_t> bytes, std::size_t at) {
            (static_cast<std::uint32_t>(bytes[at + 3]) << 24U);
 }
 
-float get_f32(std::span<const std::uint8_t> bytes, std::size_t at) {
-    return std::bit_cast<float>(get_u32(bytes, at));
-}
-
-std::size_t record_size(EventType type) {
-    return type == EventType::generate_short ? EventQueue::kType1Size : EventQueue::kType3Size;
+std::int32_t get_i32(std::span<const std::uint8_t> bytes, std::size_t at) {
+    return static_cast<std::int32_t>(get_u32(bytes, at));
 }
 
 } // namespace
 
 EventQueue::EventQueue(std::size_t overflow_check) : overflow_check_(overflow_check) {}
 
-bool EventQueue::can_append(std::size_t size) const {
-    // Original: `if (0x750e < count) overflow;` then write the record.
-    if (bytes_.size() > overflow_check_) {
+bool EventQueue::can_append(std::size_t size, std::size_t overflow) const {
+    // Original writers check `threshold < count` before appending; the shared
+    // buffer itself is exactly 0x7530 bytes.
+    if (bytes_.size() > overflow) {
         return false;
     }
-    return bytes_.size() + size <= overflow_check_ + kMaxRecordSize;
+    return bytes_.size() + size <= kBufferSize;
+}
+
+std::size_t EventQueue::threshold_for(EventType type) const {
+    if (overflow_check_ != 0) {
+        return overflow_check_;
+    }
+    if (type == EventType::trigger_switch) {
+        return kOverflowSwitch;
+    }
+    if (is_text_type(static_cast<std::uint8_t>(type))) {
+        return kOverflowText;
+    }
+    return kOverflowGenerate;
 }
 
 void EventQueue::append(const Event& event) {
@@ -77,48 +101,70 @@ void EventQueue::append(const Event& event) {
         put_u16(bytes_, event.param);
         put_i16(bytes_, event.a);
         put_i16(bytes_, event.b);
-        put_f32(bytes_, event.x);
-        put_f32(bytes_, event.y);
-        put_f32(bytes_, event.z);
+        put_i32(bytes_, event.x);
+        put_i32(bytes_, event.y);
+        put_i32(bytes_, event.z);
         put_u32(bytes_, event.extra);
+    } else if (event.type == EventType::trigger_switch) {
+        put_u8(bytes_, static_cast<std::uint8_t>(EventType::trigger_switch));
+        put_u32(bytes_, event.switch_index);
+        put_i16(bytes_, event.source);
+    } else if (is_text_type(static_cast<std::uint8_t>(event.type))) {
+        put_u8(bytes_, static_cast<std::uint8_t>(event.type));
+        put_u8(bytes_, event.font);
+        for (char ch : event.text) {
+            put_u8(bytes_, static_cast<std::uint8_t>(ch));
+        }
+        put_u8(bytes_, 0);
+        // The writer advances by len+4 but does not write this byte.
+        put_u8(bytes_, 0);
     } else {
         put_u8(bytes_, static_cast<std::uint8_t>(EventType::generate));
         put_u32(bytes_, static_cast<std::uint32_t>(event.id));
         put_u16(bytes_, event.param);
-        put_f32(bytes_, event.x);
-        put_f32(bytes_, event.y);
-        put_f32(bytes_, event.z);
+        put_i32(bytes_, event.x);
+        put_i32(bytes_, event.y);
+        put_i32(bytes_, event.z);
         put_u32(bytes_, event.extra);
     }
 }
 
 bool EventQueue::post(const Event& event) {
-    if (event.type != EventType::generate && event.type != EventType::generate_short) {
+    const auto raw_type = static_cast<std::uint8_t>(event.type);
+    std::size_t size = 0;
+    if (event.type == EventType::generate_short) {
+        size = kType1Size;
+    } else if (event.type == EventType::trigger_switch) {
+        size = kType2Size;
+    } else if (is_text_type(raw_type)) {
+        size = event.text.size() + 4;
+    } else if (event.type == EventType::generate) {
+        size = kType3Size;
+    } else {
         return false;
     }
-    const std::size_t size = record_size(event.type);
-    if (!can_append(size)) {
+    if (!can_append(size, threshold_for(event.type))) {
         return false;
     }
     append(event);
     return true;
 }
 
-bool EventQueue::post_generate(std::int32_t id, std::uint16_t param, float x, float y, float z,
+bool EventQueue::post_generate(std::int32_t id, std::uint16_t param, double x, double y, double z,
                                std::uint32_t extra) {
     Event event;
     event.type = EventType::generate;
     event.id = id;
     event.param = param;
-    event.x = x;
-    event.y = y;
-    event.z = z;
+    event.x = trunc_i32(x);
+    event.y = trunc_i32(y);
+    event.z = trunc_i32(z);
     event.extra = extra;
     return post(event);
 }
 
 bool EventQueue::post_generate_short(std::int32_t id, std::uint16_t param, std::int16_t a,
-                                     std::int16_t b, float x, float y, float z,
+                                     std::int16_t b, double x, double y, double z,
                                      std::uint32_t extra) {
     Event event;
     event.type = EventType::generate_short;
@@ -126,18 +172,41 @@ bool EventQueue::post_generate_short(std::int32_t id, std::uint16_t param, std::
     event.param = param;
     event.a = a;
     event.b = b;
-    event.x = x;
-    event.y = y;
-    event.z = z;
+    event.x = trunc_i32(x);
+    event.y = trunc_i32(y);
+    event.z = trunc_i32(z);
     event.extra = extra;
+    return post(event);
+}
+
+bool EventQueue::post_switch(std::uint32_t switch_index, std::int16_t source) {
+    if (switch_index >= kMaxSwitches) {
+        return false;
+    }
+    Event event;
+    event.type = EventType::trigger_switch;
+    event.switch_index = switch_index;
+    event.source = source;
+    return post(event);
+}
+
+bool EventQueue::post_text(std::int8_t channel, std::uint8_t font, std::string_view text) {
+    if (channel < -1 || channel > 7 || font > 0x1e ||
+        text.find('\0') != std::string_view::npos) {
+        return false;
+    }
+    Event event;
+    event.type = static_cast<EventType>(static_cast<std::uint8_t>(channel + 5));
+    event.channel = channel;
+    event.font = font;
+    event.text = std::string(text);
     return post(event);
 }
 
 EventParseResult EventQueue::drain() {
     EventParseResult result = parse(bytes_);
-    if (result.ok) {
-        bytes_.clear();
-    }
+    // The original sets count = 0 on both normal end and error.
+    bytes_.clear();
     return result;
 }
 
@@ -159,12 +228,31 @@ EventParseResult EventQueue::parse(std::span<const std::uint8_t> bytes) {
             event.param = get_u16(bytes, at + 5);
             event.a = get_i16(bytes, at + 7);
             event.b = get_i16(bytes, at + 9);
-            event.x = get_f32(bytes, at + 0x0b);
-            event.y = get_f32(bytes, at + 0x0f);
-            event.z = get_f32(bytes, at + 0x13);
+            event.x = get_i32(bytes, at + 0x0b);
+            event.y = get_i32(bytes, at + 0x0f);
+            event.z = get_i32(bytes, at + 0x13);
             event.extra = get_u32(bytes, at + 0x17);
             result.events.push_back(event);
             at += kType1Size;
+        } else if (raw_type == static_cast<std::uint8_t>(EventType::trigger_switch)) {
+            if (bytes.size() - at < kType2Size) {
+                result.ok = false;
+                result.error = "truncated type 2 event at offset " + std::to_string(at);
+                result.events.clear();
+                return result;
+            }
+            Event event;
+            event.type = EventType::trigger_switch;
+            event.switch_index = get_u32(bytes, at + 1);
+            event.source = get_i16(bytes, at + 5);
+            if (event.switch_index >= kMaxSwitches) {
+                result.ok = false;
+                result.error = "switch index out of range at offset " + std::to_string(at);
+                result.events.clear();
+                return result;
+            }
+            result.events.push_back(event);
+            at += kType2Size;
         } else if (raw_type == static_cast<std::uint8_t>(EventType::generate)) {
             if (bytes.size() - at < kType3Size) {
                 result.ok = false;
@@ -176,12 +264,32 @@ EventParseResult EventQueue::parse(std::span<const std::uint8_t> bytes) {
             event.type = EventType::generate;
             event.id = static_cast<std::int32_t>(get_u32(bytes, at + 1));
             event.param = get_u16(bytes, at + 5);
-            event.x = get_f32(bytes, at + 7);
-            event.y = get_f32(bytes, at + 0x0b);
-            event.z = get_f32(bytes, at + 0x0f);
+            event.x = get_i32(bytes, at + 7);
+            event.y = get_i32(bytes, at + 0x0b);
+            event.z = get_i32(bytes, at + 0x0f);
             event.extra = get_u32(bytes, at + 0x13);
             result.events.push_back(event);
             at += kType3Size;
+        } else if (is_text_type(raw_type)) {
+            const std::size_t text_start = at + 2;
+            std::size_t end = text_start;
+            while (end < bytes.size() && bytes[end] != 0) {
+                ++end;
+            }
+            if (end >= bytes.size() || end + 1 >= bytes.size()) {
+                result.ok = false;
+                result.error = "unterminated text event at offset " + std::to_string(at);
+                result.events.clear();
+                return result;
+            }
+            Event event;
+            event.type = static_cast<EventType>(raw_type);
+            event.channel = static_cast<std::int8_t>(text_channel(raw_type));
+            event.font = get_u8(bytes, at + 1);
+            event.text.assign(reinterpret_cast<const char*>(bytes.data() + text_start),
+                              end - text_start);
+            result.events.push_back(event);
+            at = end + 2; // NUL + uninitialized gap byte
         } else {
             result.ok = false;
             result.error = "unknown event type " + std::to_string(raw_type) +
