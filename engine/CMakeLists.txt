@@ -35,6 +35,7 @@ add_library(gm_engine STATIC
     src/res/sbtvm.cpp
     src/res/vm_exec.cpp
     src/res/save.cpp
+    src/game/state.cpp
     src/res/scene.cpp
     src/res/sou.cpp
     src/res/sou1.cpp
