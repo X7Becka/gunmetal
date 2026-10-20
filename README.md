@@ -81,6 +81,7 @@ docs/SOU_CONTAINER.md .sou: статистика, 4091/4091 rebuild, анома�
 docs/UI.md           SML/SME: 300 файлов, теги, экраны, HUD-ассеты
 docs/SHAKE.md        тряска камеры, view-pitch, отдача
 docs/SAVE_FIELDS.md  сейвы: карта 128 полей (83 proven), xref
+docs/SAVE_CPP.md     C++-читатель сейвов: контейнер, блоки, player 9
 docs/RECORDS.md       SECTOR_STUFF/ITEM/LIFT: поля, xref, writer
 docs/SOE.md           .soe/THING_TYPES: 77 полей, 36 proven, xref
 docs/SOO.md           .soo: mode/loop, тики 91 Гц, морфинг поз
