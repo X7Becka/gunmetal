@@ -1620,6 +1620,31 @@ void test_thing_runtime_damage() {
     CHECK(queue.empty());
 }
 
+
+void test_weapon_impact_event() {
+    gm::Weapon weapon = make_weapon(0, 1, true);
+    weapon.impact_event = 1234;
+    gm::ShotResult shot;
+    shot.ok = true;
+    shot.point = {1.0, 2.0, 3.0};
+    gm::EventQueue queue;
+    CHECK(gm::post_weapon_impact(queue, weapon, shot, 0x11));
+    const gm::EventParseResult parsed = queue.drain();
+    CHECK_EQ(parsed.events.size(), 1U);
+    if (parsed.events.size() == 1) {
+        CHECK_EQ(parsed.events[0].id, 1234);
+        CHECK_EQ(parsed.events[0].x, 1);
+        CHECK_EQ(parsed.events[0].y, 2);
+        CHECK_EQ(parsed.events[0].z, 3);
+        CHECK_EQ(parsed.events[0].extra, 0x11U);
+    }
+    weapon.impact_event = 0;
+    CHECK(!gm::post_weapon_impact(queue, weapon, shot));
+    shot.ok = false;
+    weapon.impact_event = 1234;
+    CHECK(!gm::post_weapon_impact(queue, weapon, shot));
+}
+
 int main() {
     test_fire_rate_quantisation();
     test_single_and_auto();
@@ -1633,6 +1658,7 @@ int main() {
     test_damage_and_armor();
     test_damage_gauge();
     test_negatives_synthetic();
+    test_weapon_impact_event();
 
     if (fs::exists(kGame / "SAVEGAME" / "saved0.sbt") &&
         fs::exists(kGame / "SAVEGAME" / "saved1.sbt") &&

@@ -996,6 +996,15 @@ ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
     return result;
 }
 
+bool post_weapon_impact(EventQueue& queue, const Weapon& weapon,
+                        const ShotResult& shot, std::uint32_t source) {
+    if (!shot.ok || weapon.impact_event == 0) {
+        return false;
+    }
+    return queue.post_generate(static_cast<std::int32_t>(weapon.impact_event), 0,
+                               shot.point.x, shot.point.y, shot.point.z, source);
+}
+
 bool reload(const Weapons& table, Arsenal& arsenal, int slot, FireError* why) {
     auto fail = [why](FireError error) {
         if (why != nullptr) {

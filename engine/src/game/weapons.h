@@ -49,6 +49,8 @@
 
 namespace gm {
 
+class EventQueue;
+
 struct GameState; // game/state.h; only load()/arsenal_from_game() need it
 
 /// The save stores 12 ammo counters and documents `weapon_slot` as 0..11
@@ -342,6 +344,12 @@ bool can_fire(const Weapons& table, const Arsenal& arsenal, int slot,
 /// default one (all surfaces, backfaces accepted), matching `CollisionWorld`.
 ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
                 const CollisionWorld& world, double charge = 0.0);
+
+/// Post the hitscan impact event (`weapon.impact_event`) at `shot.point`.
+/// Returns false when the weapon has no event or the shot failed.  The caller
+/// owns the queue and the source id semantics.
+bool post_weapon_impact(EventQueue& queue, const Weapon& weapon,
+                        const ShotResult& shot, std::uint32_t source = 0);
 
 /// Start reloading `slot`.  Requires a magazine capacity > 0, a mask bit, a
 /// non-full magazine and a non-empty reserve.  With `reload_ticks == 0` the

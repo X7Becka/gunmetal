@@ -115,6 +115,7 @@ struct Arsenal {
 | `apply_blast_damage` | `apply_blast` + `apply_damage_gauge` для игроков и `apply_thing_damage` для THING; возвращает hits с результатами. |
 | `apply_weapon_blast` | выбирает `impact_blasts`/`expire_blasts` по контексту (`expired`, вода, земля, DM) и применяет их через `apply_blast_damage`; события остаются в `hits` для `event_post`. |
 | `apply_weapon_inline` | применяет `inline_blasts` (EMP-кольца) в точке выстрела; интервалы `SLEEP 22` остаются вызывающему слою. |
+| `post_weapon_impact` | постит hitscan `impact_event` в `ShotResult.point` (`event_post`); для оружия без события — `false`. |
 | `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |
 | `thing_vitals` / `store_thing_vitals` | мост между runtime `Thing` (`+0x1d4/+0x1d8/+0x1c8`) и `ThingVitals`; позволяет blast’у обновить ту же вещь, которую читает AI/рендер. |
 | `apply_thing_damage(Thing&, ...)` | та же ветка `0x470500`, сразу пишет HP/щиты/статусы обратно в runtime `Thing`; AI видит результат на следующем `sync_vitals`. |
