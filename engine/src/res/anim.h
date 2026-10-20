@@ -65,4 +65,20 @@ struct Soa {
 /// Sprite/texture animation descriptor (``anims/*.SOA``), text.
 std::optional<Soa> parse_soa(std::span<const std::uint8_t> data, std::string& error);
 
+/// One instant of a .soa animation (player 0x41de7d).
+struct SoaPose {
+    int index = 0;
+    std::string name;
+    int tick = 0;
+    int period_ticks = 0; // 0 for the special clock/film modes
+    bool loop = false;    // mode == 1
+    int mode = 0;
+};
+
+/// Frame active ``ms`` milliseconds after the animation started.  ``period``
+/// is centiseconds and becomes ``period*91/100`` ticks; modes 100/101/102
+/// always select frame 0.  Negative time and a non-positive period are
+/// rejected (the engine has no clamp and divides by the period).
+std::optional<SoaPose> soa_frame_at(const Soa& soa, int ms, std::string& error);
+
 } // namespace gm

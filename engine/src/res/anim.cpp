@@ -176,4 +176,43 @@ std::optional<Soa> parse_soa(std::span<const std::uint8_t> data, std::string& er
     return soa;
 }
 
+
+std::optional<SoaPose> soa_frame_at(const Soa& soa, int ms, std::string& error) {
+    if (soa.declared <= 0 || soa.declared > 0x20 ||
+        soa.names.size() < static_cast<std::size_t>(soa.declared)) {
+        error = "engine would refuse this .soa (declared " +
+                std::to_string(soa.declared) + ", " +
+                std::to_string(soa.names.size()) + " names)";
+        return std::nullopt;
+    }
+    if (ms < 0) {
+        error = "negative time is not modelled (engine has no clamp)";
+        return std::nullopt;
+    }
+    SoaPose pose;
+    pose.mode = soa.mode;
+    pose.tick = ms_to_ticks(ms);
+    pose.loop = soa.mode == 1;
+    pose.name = soa.names.front();
+    if (soa.mode != 0 && soa.mode != 1) {
+        return pose; // 0x44dc50: special modes always use frame 0
+    }
+    pose.period_ticks = soa.period * kEngineTickHz / 100;
+    if (pose.period_ticks <= 0) {
+        error = "period " + std::to_string(soa.period) +
+                " is zero after conversion to engine ticks";
+        return std::nullopt;
+    }
+    const int n = soa.declared;
+    int index = 0;
+    if (soa.mode == 0 && pose.tick >= pose.period_ticks) {
+        index = n - 1;
+    } else {
+        index = (pose.tick % pose.period_ticks) * n / pose.period_ticks;
+    }
+    pose.index = index;
+    pose.name = soa.names[static_cast<std::size_t>(index)];
+    return pose;
+}
+
 } // namespace gm

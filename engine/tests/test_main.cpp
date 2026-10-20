@@ -834,6 +834,40 @@ void test_anim() {
             CHECK_EQ(a->names.size(), std::size_t{2});
         }
     }
+    const fs::path pulsar = dir / "anims" / "pulsar.soa";
+    if (fs::is_regular_file(pulsar, ec)) {
+        std::ifstream in(pulsar, std::ios::binary);
+        std::vector<std::uint8_t> raw((std::istreambuf_iterator<char>(in)),
+                                      std::istreambuf_iterator<char>());
+        const auto a = gm::parse_soa(raw, error);
+        CHECK(a.has_value());
+        if (a) {
+            CHECK_EQ(a->period, 32);
+            CHECK_EQ(a->declared, 24);
+            const auto pose = gm::soa_frame_at(*a, 100, error);
+            CHECK(pose.has_value());
+            if (pose) {
+                CHECK_EQ(pose->tick, 9);
+                CHECK_EQ(pose->period_ticks, 29);
+                CHECK_EQ(pose->index, 7);
+                CHECK_EQ(pose->name, std::string("pulsar8"));
+            }
+            error.clear();
+            CHECK(!gm::soa_frame_at(*a, -1, error).has_value());
+        }
+    }
+    {
+        const std::string text = "100 1 1 0\nPULSE";
+        const auto raw = std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
+        const auto a = gm::parse_soa(raw, error);
+        CHECK(a.has_value());
+        if (a) {
+            const auto pose = gm::soa_frame_at(*a, 1234, error);
+            CHECK(pose.has_value() && pose->index == 0 &&
+                  pose->name == std::string("PULSE") && pose->period_ticks == 0);
+        }
+    }
 
     std::size_t soo_count = 0;
     const fs::path soo_dir = dir / "Sobanim";
