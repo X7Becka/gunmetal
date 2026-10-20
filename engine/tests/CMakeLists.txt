@@ -206,6 +206,14 @@ target_link_libraries(gm_text_layout_tests PRIVATE gm_engine)
 add_test(NAME text_layout COMMAND gm_text_layout_tests)
 gm_label(text_layout quick)
 
+add_executable(gm_soo_player_tests test_soo_player.cpp)
+target_link_libraries(gm_soo_player_tests PRIVATE gm_engine)
+# Runtime .soo player (docs/SOO_PLAYER.md): synthetic hold/loop timelines,
+# vertex/normal morph, SOB name cache, clean failures, and four golden moments
+# of Cultist.soo, Cloud.soo and kingbody.soo (vertex/normal FNV-1a64).
+add_test(NAME soo_player COMMAND gm_soo_player_tests)
+gm_label(soo_player quick)
+
 add_executable(gm_sbtvm_tests test_sbtvm.cpp)
 target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
