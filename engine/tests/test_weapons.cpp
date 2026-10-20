@@ -1645,6 +1645,42 @@ void test_weapon_impact_event() {
     CHECK(!gm::post_weapon_impact(queue, weapon, shot));
 }
 
+
+void test_spawned_thing_damage() {
+    gm::Things things;
+    gm::Thing prototype;
+    prototype.id = -1;
+    prototype.type = 7;
+    prototype.position = std::array<int, 3>{4, 5, 6};
+    prototype.health = 1000;
+    prototype.max_health = 1000;
+    prototype.alive = true;
+    prototype.damaged_event = 880;
+    prototype.destroy_event = 881;
+    const int id = things.spawn(prototype);
+    CHECK_EQ(id, 0);
+    gm::EventQueue queue;
+    const gm::ThingDamageResult hurt =
+        gm::apply_thing_damage(things, id, 0, 250, 0, -1, &queue);
+    CHECK(hurt.ok);
+    CHECK_EQ(things.by_id(id)->health, 750);
+    const gm::EventParseResult damaged = queue.drain();
+    CHECK_EQ(damaged.events.size(), 1U);
+    if (damaged.events.size() == 1) {
+        CHECK_EQ(damaged.events[0].id, 880);
+        CHECK_EQ(damaged.events[0].x, 4);
+    }
+    const gm::ThingDamageResult killed =
+        gm::apply_thing_damage(things, id, 0, 2000, 0, -1, &queue);
+    CHECK(killed.dead);
+    CHECK(!things.by_id(id)->alive);
+    const gm::EventParseResult destroyed = queue.drain();
+    CHECK_EQ(destroyed.events.size(), 1U);
+    if (destroyed.events.size() == 1) {
+        CHECK_EQ(destroyed.events[0].id, 881);
+    }
+}
+
 int main() {
     test_fire_rate_quantisation();
     test_single_and_auto();
@@ -1659,6 +1695,7 @@ int main() {
     test_damage_gauge();
     test_negatives_synthetic();
     test_weapon_impact_event();
+    test_spawned_thing_damage();
 
     if (fs::exists(kGame / "SAVEGAME" / "saved0.sbt") &&
         fs::exists(kGame / "SAVEGAME" / "saved1.sbt") &&
