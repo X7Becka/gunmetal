@@ -97,6 +97,16 @@ gm_label(sou2 quick)
 add_test(NAME sou2_full COMMAND gm_sou2_tests --full)
 gm_label(sou2_full full)
 
+# Doors/switches/lifts state machine (docs/DOORS_CPP.md).  Quick run pins
+# dm1.sbt+dm1.sbw (61 doors, 129 switches); `--full` sweeps all 36 levels and
+# the corpus totals 1779/3964/45 with 1779/1779 object bindings.
+add_executable(gm_doors_tests test_doors.cpp)
+target_link_libraries(gm_doors_tests PRIVATE gm_engine)
+add_test(NAME doors COMMAND gm_doors_tests)
+gm_label(doors quick)
+add_test(NAME doors_full COMMAND gm_doors_tests --full)
+gm_label(doors_full full)
+
 add_executable(gm_sof_tests test_sof.cpp)
 target_link_libraries(gm_sof_tests PRIVATE gm_engine)
 add_test(NAME film_sof COMMAND gm_sof_tests)
@@ -276,7 +286,7 @@ endif()
 # Fast targets for the inner loop: build the binaries, then run CTest.
 #   cmake --build build/dev --target check-quick
 #   cmake --build build/test --target check
-set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_vm_tests gm_fuzz_tests gm_save_tests gunmetal)
+set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_vm_tests gm_fuzz_tests gm_save_tests gm_doors_tests gunmetal)
 add_custom_target(check-quick
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -L quick -j 8
             --output-on-failure
