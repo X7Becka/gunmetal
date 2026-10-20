@@ -210,6 +210,18 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
     results.append(report("records / SECTOR_STUFF+ITEM+LIFT fields",
                           p.returncode == 0,
                           (p.stdout.strip().splitlines() or ["no output"])[-1]))
+    # SML/SME semantics: 300 files, 147 pairs, screen/asset tables.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "ui_semantics.py"),
+                        "--check"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("sml / UI semantics (300 files)",
+                          p.returncode == 0 and "check: OK" in p.stdout,
+                          "131 identical pairs, 14 revisions, 2 line-ending cases"))
+    # Shake/recoil formulas are pure math; the self-test needs no game data.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "shake.py"),
+                        "--selftest"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("shake / view-pitch and recoil model",
+                          p.returncode == 0 and "40/40" in p.stdout,
+                          "triangle wave, clamp, impulse/decay, recoil"))
 
     # The full hostile-input matrix lives in its own tool; run the cheap pass.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
