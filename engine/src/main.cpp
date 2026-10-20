@@ -23,6 +23,7 @@
 #include "res/sbv.h"
 #include "res/sbv_video.h"
 #include "res/anim.h"
+#include "res/save.h"
 #include "render/render.h"
 
 #include <algorithm>
@@ -352,6 +353,36 @@ int dump_file(const gm::Options& options) {
         if (!bytes) {
             gm::logf(gm::LogLevel::Error, "dump", error);
             return 2;
+        }
+        // A save is a .sbt-shaped container with a printable 12-byte title;
+        // a level script starts with binary SBT records.  Try the save reader
+        // first; on failure fall through to the level parser.
+        std::string save_error;
+        if (const auto save = gm::parse_save(*bytes, save_error)) {
+            std::printf("kind: SAVE\n");
+            std::printf("title: %s\n", save->header.title.c_str());
+            std::printf("version word: 0x%x\n", save->header.version);
+            std::printf("level: %s\n", save->header.level_name.c_str());
+            std::printf("blocks: %zu\n", save->blocks.size());
+            for (const auto& block : save->blocks) {
+                std::printf("  id %2u count %u size %zu @0x%zx\n", block.id,
+                            block.count, block.size, block.offset);
+            }
+            std::printf("F0/F1: %u/%u\n", save->header.fields[0],
+                        save->header.fields[1]);
+            if (save->player) {
+                const auto& p = *save->player;
+                std::printf("player: present=%d pos=%.3f,%.3f,%.3f "
+                            "angles=%.6f,%.6f,%.6f armor=%.2f/%.2f "
+                            "shields=%.2f/%.2f/%.2f/%.2f ammo=%u,%u\n",
+                            p.has_slot ? 1 : 0, p.position[0], p.position[1],
+                            p.position[2], p.angles[0], p.angles[1], p.angles[2],
+                            p.armor_points(), p.armor_max_points(),
+                            p.shield_points(0), p.shield_points(1),
+                            p.shield_points(2), p.shield_points(3), p.ammo[0],
+                            p.ammo[1]);
+            }
+            return 0;
         }
         const auto level = gm::parse_sbt(*bytes, error);
         if (!level) {

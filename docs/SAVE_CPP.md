@@ -268,3 +268,19 @@ Golden-значения сняты Python-инструментами:
 python3 tools/re/savefile.py "/mnt/d/games/Gunmetal 3dfx/SAVEGAME/saved0.sbt" --json
 python3 tools/re/save_fields.py --json
 ```
+
+## CLI
+
+`gunmetal --dump SAVEGAME/saved0.sbt` распознаёт сейв по printable-заголовку
+(level-скрипты начинаются с `BINARY SAVE...` и уходят в обычный SBT-парсер) и
+печатает title/version/level, цепочку блоков, `F0/F1` и игрока:
+
+```text
+kind: SAVE
+title: A SAVED GAME
+level: LEVEL0
+blocks: 15
+F0/F1: 1/4288
+player: present=1 pos=1116.174,798.208,48.000 angles=0,0,5.073615
+        armor=100.00/100.00 shields=80.00/80.00/80.00/80.00 ammo=2000,90
+```
