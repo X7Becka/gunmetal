@@ -1,6 +1,6 @@
 # CURRENT_STATE: фактический срез и переоценка
 
-**Снимок:** 2026-10-20, ~15:10. Код — HEAD `ba73e9b`; этот файл и правки
+**Снимок:** 2026-10-20. Код — HEAD `e5c231b`; этот файл и правки
 ROADMAP закоммичены следующим docs-коммитом.  
 **Установка:** `/mnt/d/games/Gunmetal 3dfx` (v1.36, 3dfx).  
 **План:** [`ROADMAP.md`](ROADMAP.md); спецификации — [`docs/FORMATS.md`](docs/FORMATS.md),
@@ -19,7 +19,7 @@ ROADMAP закоммичены следующим docs-коммитом.
 | База сессий OpenCode | 25 проектных сессий, активное время, пик параллельности |
 | `ROADMAP.md` | 54 ✅ / 29 🟡 / 125 ⬜ / 1 ⛔ в этапах `M0…M12` |
 | `python3 regress.py` | 113/113 проверок за ~85 с |
-| `ctest --test-dir build/release` | 32/32 теста, ~5 мин (с full) |
+| `ctest --test-dir build/release` | 36/36 тестов, ~5 мин (с full; 27 quick за ~38 с) |
 
 Активное время считалось по сообщениям ассистента: интервалы с разрывом до
 2 минут склеивались. Это занижает «думание» и завышает ожидание инструментов,
@@ -102,8 +102,8 @@ ROADMAP появился 19.10 в 23:30. После разметки стату�
 ### Проверки
 
 * `regress.py`: **113/113** за ~85 с.
-* CTest: **32/32**, включая `sou1_full`, `sou2_full`, `parity_levels`,
-  `sbtvm`, `fuzz`, `save`, `save_writer`, `sml`, `soe`, `hud`, `hud_player`, `vm`, `vm_full`, `save_blocks`, `hud_bind`, `hud_compose`, `sbv_parity`.
+* CTest: **36/36**, включая `sou1_full`, `sou1_audio`, `sou2_full`, `parity_levels`,
+  `sbtvm`, `fuzz`, `save`, `save_writer`, `sml`, `soe`, `hud`, `hud_player`, `vm`, `vm_full`, `save_blocks`, `hud_bind`, `hud_compose`, `sbv_parity`, `text_layout`, `collide`.
 * Release-рендер: `level0` ~250 FPS, `LEVEL10` ~125 FPS в 640×400 (headless).
 
 ---
