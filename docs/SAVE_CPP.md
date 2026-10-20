@@ -246,7 +246,7 @@ cmake --build build/sandbox --target gm_save_tests gm_tests -j 32
 ./build/sandbox/engine/tests/gm_save_tests      # save: ok
 ./build/sandbox/engine/tests/gm_tests           # gm_tests: all checks passed
 ctest --test-dir build/sandbox -R '^save$' --output-on-failure
-python3 regress.py                              # 111/111
+python3 regress.py                              # 113/113
 ```
 
 Результаты прогона (2026-10-20):
@@ -255,7 +255,7 @@ python3 regress.py                              # 111/111
 save: ok
 gm_tests: all checks passed
 ctest save: 1/1 passed (5.14 s)
-regress: 111/111 checks passed in ~85s
+regress: 113/113 checks passed in ~85s
 ```
 
 Тот же тест под ASan+UBSan (`-fsanitize=address,undefined`, Debug) проходит:

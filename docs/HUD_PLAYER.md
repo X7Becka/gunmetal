@@ -170,7 +170,7 @@ prime `0x100000001b3`) по всему буферу `320*200*3`:
 export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
 cmake --build build/sandbox --target gm_hud_player_tests -j 32
 ctest --test-dir build/sandbox -R hud_player --output-on-failure
-python3 regress.py          # 112/112, игра только читается
+python3 regress.py          # 113/113, игра только читается
 ```
 
 CTest `hud_player` (`quick`, ~0.2 с) пропускает поставку, если игра не
