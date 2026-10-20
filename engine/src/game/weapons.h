@@ -545,6 +545,10 @@ struct Thing; // world/things.h
 /// and back, so a blast can update the thing that AI/rendering read.
 ThingVitals thing_vitals(const Thing& thing);
 void store_thing_vitals(Thing& thing, const ThingVitals& vitals);
+/// Convenience overload that updates the runtime `Thing` in place.
+ThingDamageResult apply_thing_damage(Thing& thing, std::int32_t plate,
+                                     std::int32_t hull,
+                                     std::uint32_t flags = 0, int side = -1);
 
 /// Build `Vitals` from the parsed save state.
 Vitals vitals_from_game(const GameState& game);

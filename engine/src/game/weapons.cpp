@@ -1507,6 +1507,15 @@ void store_thing_vitals(Thing& thing, const ThingVitals& vitals) {
     thing.alive = vitals.alive && vitals.hp > 0;
 }
 
+ThingDamageResult apply_thing_damage(Thing& thing, std::int32_t plate,
+                                     std::int32_t hull, std::uint32_t flags,
+                                     int side) {
+    ThingVitals vitals = thing_vitals(thing);
+    ThingDamageResult result = apply_thing_damage(vitals, plate, hull, flags, side);
+    store_thing_vitals(thing, vitals);
+    return result;
+}
+
 Vitals vitals_from_game(const GameState& game) {
     Vitals vitals;
     vitals.armor = game.armor;

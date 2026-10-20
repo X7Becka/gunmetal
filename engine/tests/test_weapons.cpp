@@ -771,9 +771,8 @@ void test_blast_and_thing_damage() {
     runtime_thing.shields = {500, 0, 0, 0};
     runtime_thing.shield_max = runtime_thing.shields;
     runtime_thing.alive = true;
-    gm::ThingVitals bridge = gm::thing_vitals(runtime_thing);
-    tr = gm::apply_thing_damage(bridge, 1000, 0, 0, 0);
-    gm::store_thing_vitals(runtime_thing, bridge);
+    CHECK_EQ(gm::thing_vitals(runtime_thing).hp, 1000);
+    tr = gm::apply_thing_damage(runtime_thing, 1000, 0, 0, 0);
     CHECK(tr.ok);
     CHECK_EQ(runtime_thing.health, 500);
     CHECK_EQ(runtime_thing.shields[0], 0);
