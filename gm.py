@@ -772,15 +772,25 @@ def cmd_soo(opts) -> int:
         gap = len(a.frames) - a.count
         miss = [f.name for f in a.frames if sobs and f.name.lower() not in sobs]
         missing += len(miss)
-        report.append({"file": os.path.basename(p), "path": p, "mode": a.mode,
-                       "loop": a.mode == 1, "count": a.count,
-                       "frames": len(a.frames), "engine_frames": len(a.engine_frames),
-                       "dropped": len(a.dropped_frames), "short": a.short,
-                       "duration": a.duration, "engine_duration": a.engine_duration,
-                       "timeline": [{"index": x.index, "name": x.name,
-                                     "start": x.start, "end": x.end,
-                                     "next": x.next_index} for x in a.timeline()],
-                       "missing": miss})
+        record = {"file": os.path.basename(p), "path": p, "mode": a.mode,
+                  "loop": a.mode == 1, "count": a.count,
+                  "frames": len(a.frames), "engine_frames": len(a.engine_frames),
+                  "dropped": len(a.dropped_frames), "short": a.short,
+                  "duration": a.duration, "engine_duration": a.engine_duration,
+                  "timeline": [{"index": x.index, "name": x.name,
+                                "start": x.start, "end": x.end,
+                                "next": x.next_index} for x in a.timeline()],
+                  "missing": miss}
+        if opts.at is not None:
+            try:
+                pose = a.frame_at(opts.at)
+                record["pose"] = {"at": opts.at, "index": pose.index,
+                                  "name": pose.name, "alpha": pose.alpha,
+                                  "next_index": pose.next_index,
+                                  "next_name": pose.next_name}
+            except ValueError as exc:
+                record["pose"] = {"at": opts.at, "error": str(exc)}
+        report.append(record)
         if not opts.json:
             extra = "" if gap == 0 else " (%+d vs declared)" % gap
             print("%-16s mode=%d frames=%d%s total=%d ms"
