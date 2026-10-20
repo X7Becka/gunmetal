@@ -60,6 +60,14 @@ struct Thing {
     int target_zone_threshold = 200; // +0x1cc, default 200
     int target_history_offset = 0;   // +0x1d0, target position-history lag
     int max_health = 0;              // +0x1d4, 0 = damage-immune
+    int health = 0;                  // +0x1d4 current copy at spawn
+    std::array<int, 4> shields{};    // +0x1d8..+0x1e4
+    std::array<int, 4> shield_max{}; // +0x1d8..+0x1e4 max copies
+    int hits_left = 0;               // +0x1c8 geometry hits
+    std::uint32_t collide_event = 0; // +0x1c4
+    std::uint32_t expire_event = 0;  // +0x1ec
+    std::uint32_t damaged_event = 0; // +0x1f4
+    std::uint32_t destroy_event = 0; // +0x1f8
 
     bool absolute() const { return position.has_value(); }
 };

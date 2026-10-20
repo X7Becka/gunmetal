@@ -62,6 +62,12 @@ struct TypeTable {
     std::vector<int> target_zone_thresholds;
     std::vector<int> target_history_offsets;
     std::vector<int> max_health;
+    std::vector<std::array<int, 4>> shields;
+    std::vector<int> hits;
+    std::vector<std::uint32_t> collide_events;
+    std::vector<std::uint32_t> expire_events;
+    std::vector<std::uint32_t> damaged_events;
+    std::vector<std::uint32_t> destroy_events;
     std::size_t valid_models = 0;
     std::size_t missing_models = 0;
 };
@@ -89,6 +95,12 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.target_zone_thresholds.reserve(count);
         table.target_history_offsets.reserve(count);
         table.max_health.reserve(count);
+        table.shields.reserve(count);
+        table.hits.reserve(count);
+        table.collide_events.reserve(count);
+        table.expire_events.reserve(count);
+        table.damaged_events.reserve(count);
+        table.destroy_events.reserve(count);
         for (std::uint32_t i = 0; i < count; ++i) {
             const std::uint8_t* entry =
                 record.payload.data() + kThingTypeHeader +
@@ -109,6 +121,16 @@ TypeTable resolve_types(const SbtLevel& level) {
             table.target_history_offsets.push_back(
                 static_cast<std::int32_t>(rd32(entry + 0x1d0)));
             table.max_health.push_back(static_cast<std::int32_t>(rd32(entry + 0x1d4)));
+            std::array<int, 4> shields{};
+            for (std::size_t s = 0; s < shields.size(); ++s) {
+                shields[s] = static_cast<std::int32_t>(rd32(entry + 0x1d8 + s * 4));
+            }
+            table.shields.push_back(shields);
+            table.hits.push_back(static_cast<std::int32_t>(rd32(entry + 0x1c8)));
+            table.collide_events.push_back(rd32(entry + 0x1c4));
+            table.expire_events.push_back(rd32(entry + 0x1ec));
+            table.damaged_events.push_back(rd32(entry + 0x1f4));
+            table.destroy_events.push_back(rd32(entry + 0x1f8));
         }
         return table;
     }
@@ -126,6 +148,14 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.target_zone_threshold = types.target_zone_thresholds[i];
     thing.target_history_offset = types.target_history_offsets[i];
     thing.max_health = types.max_health[i];
+    thing.health = thing.max_health;
+    thing.shields = types.shields[i];
+    thing.shield_max = thing.shields;
+    thing.hits_left = types.hits[i];
+    thing.collide_event = types.collide_events[i];
+    thing.expire_event = types.expire_events[i];
+    thing.damaged_event = types.damaged_events[i];
+    thing.destroy_event = types.destroy_events[i];
 }
 
 /// Split an ADD_THING* operand list exactly like gm/scene.py's _thing_args:

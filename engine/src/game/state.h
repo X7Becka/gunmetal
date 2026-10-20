@@ -68,7 +68,7 @@ struct GameState {
     std::int32_t armor_max = 0;       ///< hundredths of a point
     std::int32_t armor = 0;           ///< hundredths of a point
     std::int32_t shield_max = 0;      ///< hundredths of a point
-    std::array<std::int32_t, 4> shields{}; ///< front/back/left/right, hundredths
+    std::array<std::int32_t, 4> shields{}; ///< front/right/back/left, hundredths
     std::int32_t weapon_slot = 0;     ///< 0..11
     std::uint32_t weapon_mask = 0;    ///< `1 << slot` per available slot
     std::array<std::uint32_t, 12> ammo{}; ///< struct+0x329c

@@ -225,7 +225,7 @@ if (eax > 0) { eax -= dt; [player+0x81c358] = eax; if (eax < 0) = 0; }
 |---|---|---|
 | `magazine` | `0` | 0 = «прямая подача»: оригинал вычитает `ammo[slot]` напрямую (`0x445e98`), магазина в сейве нет. Магазин включается только вручную/синтетикой. |
 | `reload_ticks` | `0` | механики перезарядки в оригинале не найдено; 0 = мгновенно, но `reload()` для `magazine == 0` возвращает `no_magazine`. |
-| `damage` | резолвится для BULLET/LASER, иначе `1.0` | `load()` ищет `projectile_id` в entity-таблице, декодирует подскрипт и берёт `L2` у BULLET / `L4` у LASER: MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00. Для THING/impact остаётся placeholder 1.0. |
+| `damage` | резолвится для BULLET/LASER, иначе `1.0` | `load()` ищет `projectile_id` в entity-таблице, декодирует подскрипт и берёт `L2` у BULLET / `L4` у LASER: MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00. Для THING остаётся placeholder 1.0, но урон снаряда теперь считается через `apply_blast`/`apply_thing_damage` по таблице §7 Ghidra, а не по этому полю. |
 | `hitscan` | резолвится | первый `FIRE_SOURCEPLAYER_BULLET`/`_LASER` → true, `_THING` → false (`0x478520`/`0x478be0`/`0x45e19d`). |
 | `projectile_speed` | `12000` ед/с | поля скорости нет; оригинал: `THING_TYPES[type].+0x10 + charge*operand[9]` (`0x46f0f0`). 12000 — placeholder, влияет только на `ShotResult::time`. |
 
@@ -255,7 +255,9 @@ dv.z = 0
 Урон/броня: точная модель `0x453b50` реализована в
 `apply_damage_gauge(Vitals&, plate, hull, flags, side)`. Значения — целые
 **сотые** (`400 = 4.00`), как в скриптах; `plate` идёт в выбранную плиту
-(`side` 0..3), `hull` — сразу в корпус. Если плита уже 0, в корпус уходит
+(`side` 0..3), `hull` — сразу в корпус. Квадранты: `0=+Y front`, `1=+X right`,
+`2=-Y back`, `3=-X left` (`ShieldSide` исправлен; прежний порядок
+front/back/left/right был неверен). Если плита уже 0, в корпус уходит
 `plate + hull`; при `flags & 1` бьются все четыре плиты, при `flags & 2` —
 без деления на 4, при `flags & 4` множители `mult_plate/mult_hull` не
 применяются. Переполнение плиты добавляется к корпусу; ровно 0 не считается
@@ -263,6 +265,22 @@ dv.z = 0
 `-2` заморозка/электро. `apply_damage(points, side)` оставлен как
 синтетическая обёртка старого API (очки → сотые, один щит → броня); это **не**
 оригинальная модель.
+
+Для THING реализован отдельный `apply_thing_damage(ThingVitals&, plate, hull,
+flags, side)` — точная ветка `0x470500` без множителей: недостача щита уходит
+в HP, есть `damaged_event`, отрицательный `plate` пока no-op (точная
+статусная ветка THING не восстановлена). `blast_damage`/`blast_hull_damage`
+считают `value*(radius-d)/radius` целочисленно; `plate < 0` не масштабируется;
+`radius <= 0` возвращает 0 (в оригинале деление на ноль).
+`apply_blast` повторяет сферическую проверку `0x477280` **без LOS**: флаги
+bit0/2/3, границы игроков 8 / THING 260, событие на каждую цель и
+`chain_reaction` при `plate > 0`.
+
+> **Важно:** `Weapons::load` всё ещё берёт первую ветку `FIRE_*` в DFS.
+> Поэтому LASER сейчас может получить подводный урон 1.00 вместо 3.00,
+> PLASMA — не тот THING, GRENADE/NUKE — подводные параметры, а EMP-кольца
+> лежат в теле условия и ещё не извлекаются. Это следующий шаг; таблица
+> §7 отчёта Ghidra содержит точные ветки.
 
 `Vitals` строится из `GameState` (`vitals_from_game`), так что сейвовые
 `armor=10000`, `shields=8000` можно использовать без пересчёта.
@@ -311,6 +329,11 @@ dv.z = 0
 * gauge (`apply_damage_gauge`): 400 в плиту 8000 → 7600, ровно 0 не broken;
   следующий 400 → hull 9600; 400 в плиту 300 → broken[0], hull 9900;
   flags 1/3 и перелив; `-1,150` → `burn_timer=136`, урона нет.
+* blast: `10000@100`, d=0/50/99/100 → 10000/5000/100/0; `radius=0` → 0;
+  `plate=-1,hull=150` не масштабируется; сферический запрос без LOS,
+  bit0 исключает источник, bit2/3 — игроков/THING.
+* THING: щит 500, HP 1000, plate 1000 → щит 0, HP 500, `broken[0]`;
+  летальный blast 10000 → HP 0, `dead`.
 
 ---
 
@@ -325,7 +348,7 @@ dv.z = 0
 | выстрел ставит `GENERATE`-событие `event_post` (`0x445eee`, `0x445f61`) | **доказано**; фактический spawn — в подскрипте сущности, см. `docs/EVENTS.md` |
 | hitscan-путь | **доказан и подключён**: BULLET/LASER (`0x478520`/`0x478be0`), THING — объект |
 | магазин/перезарядка | **гипотеза** (в данных и коде не найдено) |
-| урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — placeholder |
+| урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — отдельные `apply_blast`/`apply_thing_damage`, но загрузчик ещё не разворачивает ветки impact |
 | скорость снаряда | `THING_TYPES +0x10 + charge*operand[9]`; C++ `12000` — placeholder |
 | разброс — равномерный квадрат, SplitMix64 | **гипотеза рантайма** |
 | отдача — горизонтальный импульс | **доказано** (`0x459f4d`, `docs/SHAKE.md` §6); поля в оружии нет |
@@ -343,10 +366,11 @@ dv.z = 0
    BULLET/LASER → hitscan, THING → объект. Для BULLET/LASER найдены
    `0x478520`/`0x478be0`, дистанция, impact event, урон `L2`/`L4` и конус
    через `0x477f90`.
-3. **Урон и броня.** Формула `0x453b50` реализована
-   (`apply_damage_gauge`); hitscan-числа резолвятся из подскрипта: MG 4.00,
-   CANNON/AUTOCANNON 15.00, RAILGUN 60.00. Осталось разобрать урон
-   THING/impact (GRENADE/ROCKET/…), `level10.sbt` и blast-ветки.
+3. **Урон и броня.** `0x453b50` (`apply_damage_gauge`), `0x470500`
+   (`apply_thing_damage`) и `0x477280` (`apply_blast`) реализованы с
+   целочисленным falloff. Осталось подключить ветки impact из `.sbt`
+   (GRENADE/ROCKET/PLASMA/NUKE/EMP), исправить DFS-выбор `FIRE_*` и
+   `level10.sbt`; точные числа — в отчёте Ghidra §7.
 4. **Магазин/перезарядка.** Механики в оригинале нет; слой оставлен
    выключенным (`magazine=0`, `reload_ticks=0`). Включать только если
    появится доказательство из другой версии/режима.

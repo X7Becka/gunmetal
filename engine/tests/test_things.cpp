@@ -649,6 +649,12 @@ void test_real_dm1() {
         CHECK_EQ(first->target_zone_threshold, 200);
         CHECK_EQ(first->target_history_offset, 0);
         CHECK_EQ(first->max_health, 2000);
+        CHECK_EQ(first->health, 2000);
+        CHECK_EQ(first->hits_left, 0);
+        CHECK_EQ(first->shields[0], 0);
+        CHECK_EQ(first->expire_event, 0xffff8a89u); // -30071
+        CHECK_EQ(first->damaged_event, 0);
+        CHECK_EQ(first->destroy_event, 0xffff8a89u);
     }
     // Golden last runtime instance (Python: dm1 executed[-1]).
     const gm::Thing* last = things.by_id(static_cast<int>(things.things().size()) - 1);

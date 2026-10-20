@@ -74,7 +74,7 @@ if (save->player) {
     const gm::SavePlayer& p = *save->player;
     p.position;            // world X/Y/Z (double)
     p.armor / 100.0;       // сотые доли, kSaveGaugeScale
-    p.shields;             // front/back/left/right, сотые
+    p.shields;             // front/right/back/left, сотые
     p.weapon_slot; p.weapon_mask; p.ammo; // 12 слотов u32
 }
 

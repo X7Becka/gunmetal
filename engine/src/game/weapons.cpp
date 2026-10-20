@@ -192,32 +192,33 @@ bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info) {
     for (const SbtInsn& insn : insns) {
         if (!insn.condition.empty()) {
             if (insn.condition == "FIRE_SOURCEPLAYER_BULLET") {
-                info.found = true;
-                info.hitscan = true;
-                if (insn.args.size() > 2) {
-                    info.damage_gauge = static_cast<int>(as_uint(insn.args[2]));
+                if (!info.found) {
+                    info.hitscan = true;
+                    if (insn.args.size() > 2) {
+                        info.damage_gauge = static_cast<int>(as_uint(insn.args[2]));
+                    }
                 }
-                return true;
-            }
-            if (insn.condition == "FIRE_SOURCEPLAYER_LASER") {
                 info.found = true;
-                info.hitscan = true;
-                if (insn.args.size() > 4) {
-                    info.damage_gauge = static_cast<int>(as_uint(insn.args[4]));
+            } else if (insn.condition == "FIRE_SOURCEPLAYER_LASER") {
+                if (!info.found) {
+                    info.hitscan = true;
+                    if (insn.args.size() > 4) {
+                        info.damage_gauge = static_cast<int>(as_uint(insn.args[4]));
+                    }
                 }
-                return true;
-            }
-            if (insn.condition == "FIRE_SOURCEPLAYER_THING") {
                 info.found = true;
-                info.hitscan = false;
-                return true;
+            } else if (insn.condition == "FIRE_SOURCEPLAYER_THING") {
+                if (!info.found) {
+                    info.hitscan = false;
+                }
+                info.found = true;
             }
         }
-        if (!insn.body.empty() && scan_fire_script(insn.body, info)) {
-            return true;
+        if (!insn.body.empty()) {
+            scan_fire_script(insn.body, info);
         }
     }
-    return false;
+    return info.found;
 }
 
 bool resolve_fire_script(const SbtLevel& level, std::uint32_t entity_id,
@@ -667,6 +668,18 @@ void apply_recoil(PlayerState& player, double view_pitch, double impulse) {
 
 namespace {
 
+std::int32_t blast_damage_impl(std::int32_t value, int radius, int distance) {
+    if (radius <= 0) {
+        return 0; // original divides by zero; the runtime guard drops damage
+    }
+    if (distance < 0 || distance > radius) {
+        return 0;
+    }
+    const std::int64_t scaled =
+        static_cast<std::int64_t>(value) * (radius - distance) / radius;
+    return static_cast<std::int32_t>(scaled);
+}
+
 std::int32_t gauge_trunc(double value) {
     if (!std::isfinite(value)) {
         return value < 0.0 ? std::numeric_limits<std::int32_t>::min()
@@ -819,6 +832,138 @@ GaugeDamageResult apply_damage_gauge(Vitals& vitals, std::int32_t plate,
         result.low_health = old_armor >= half && vitals.armor < half;
         result.recovered = old_armor < half && vitals.armor >= half;
     }
+    result.ok = true;
+    return result;
+}
+
+std::int32_t blast_damage(const Blast& blast, int distance) {
+    if (blast.plate < 0) {
+        return blast.plate;
+    }
+    return blast_damage_impl(blast.plate, blast.radius, distance);
+}
+
+std::int32_t blast_hull_damage(const Blast& blast, int distance) {
+    if (blast.plate < 0) {
+        return blast.hull;
+    }
+    return blast_damage_impl(blast.hull, blast.radius, distance);
+}
+
+BlastResult apply_blast(const Vec3d& center, const Blast& blast,
+                        int source_player, int source_thing,
+                        std::span<const Vec3d> player_positions,
+                        std::span<const Vec3d> thing_positions,
+                        std::span<const bool> thing_alive) {
+    BlastResult result;
+    result.chain_reaction = blast.plate > 0;
+    const bool skip_players = (blast.flags & 4U) != 0U;
+    const bool skip_things = (blast.flags & 8U) != 0U;
+    const auto distance_to = [&center](const Vec3d& target) {
+        const double dx = center.x - target.x;
+        const double dy = center.y - target.y;
+        const double dz = center.z - target.z;
+        return static_cast<int>(std::sqrt(dx * dx + dy * dy + dz * dz));
+    };
+    const auto add_hit = [&](bool is_player, int index, int distance) {
+        BlastHit hit;
+        hit.is_player = is_player;
+        hit.index = index;
+        hit.distance = distance;
+        hit.plate = blast_damage(blast, distance);
+        hit.hull = blast_hull_damage(blast, distance);
+        hit.event = blast.event;
+        result.hits.push_back(hit);
+    };
+
+    if (!skip_players) {
+        for (std::size_t i = 0; i < player_positions.size() && i < 8; ++i) {
+            if (blast.flags & 1U) {
+                if (source_player >= 0 && static_cast<int>(i) == source_player) {
+                    continue;
+                }
+            }
+            const int distance = distance_to(player_positions[i]);
+            if (distance <= blast.radius) {
+                add_hit(true, static_cast<int>(i), distance);
+            }
+        }
+    }
+    if (!skip_things) {
+        for (std::size_t i = 0; i < thing_positions.size(); ++i) {
+            if (i < thing_alive.size() && !thing_alive[i]) {
+                continue;
+            }
+            if ((blast.flags & 1U) != 0U && source_thing >= 0 &&
+                static_cast<int>(i) == source_thing) {
+                continue;
+            }
+            const int distance = distance_to(thing_positions[i]);
+            if (distance <= blast.radius) {
+                add_hit(false, static_cast<int>(i), distance);
+            }
+        }
+    }
+    return result;
+}
+
+ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
+                                     std::int32_t hull, std::uint32_t flags,
+                                     int side) {
+    ThingDamageResult result;
+    if (side < -1 || side > 3) {
+        result.error = "shield side outside -1..3";
+        return result;
+    }
+    if (plate < 0) {
+        // The original reaches 0x470500 for status plates -1/-2; the exact
+        // THING status path is not reconstructed, so it is a safe no-op.
+        result.ok = true;
+        return result;
+    }
+    if ((flags & 1U) != 0U) {
+        side = -1;
+    }
+
+    std::int64_t spill = hull;
+    if (side >= 0) {
+        auto& shield = vitals.shields[static_cast<std::size_t>(side)];
+        const std::int32_t old = shield;
+        shield = static_cast<std::int32_t>(
+            static_cast<std::int64_t>(shield) - plate);
+        result.shield_absorbed = std::min<std::int32_t>(old, plate);
+        if (shield < 0) {
+            spill -= shield; // deficit, not the whole plate, reaches HP
+            shield = 0;
+            result.broken[static_cast<std::size_t>(side)] = true;
+        }
+    } else {
+        if ((flags & 2U) == 0U) {
+            plate >>= 2;
+        }
+        for (std::size_t i = 0; i < vitals.shields.size(); ++i) {
+            auto& shield = vitals.shields[i];
+            const std::int32_t old = shield;
+            shield = static_cast<std::int32_t>(
+                static_cast<std::int64_t>(shield) - plate);
+            result.shield_absorbed += std::min<std::int32_t>(old, plate);
+            if (shield < 0) {
+                spill -= shield;
+                shield = 0;
+                result.broken[i] = true;
+            }
+        }
+    }
+
+    vitals.hp = static_cast<std::int32_t>(
+        static_cast<std::int64_t>(vitals.hp) - spill);
+    if (vitals.hp < 0) {
+        result.overflow = -vitals.hp;
+        vitals.hp = 0;
+    }
+    result.hull_absorbed = static_cast<std::int32_t>(spill);
+    result.dead = vitals.hp <= 0;
+    result.damaged_event = !result.dead;
     result.ok = true;
     return result;
 }

@@ -142,18 +142,25 @@ struct Thing {
     std::string kind; int owner; std::uint32_t site; int occ; int depth;
     std::vector<std::string> path; bool executed; std::uint64_t age;
     int movement_type; double search_radius; int target_zone_threshold;
-    int target_history_offset; int max_health;
+    int target_history_offset; int max_health; int health;
+    std::array<int,4> shields; std::array<int,4> shield_max;
+    int hits_left; std::uint32_t collide_event, expire_event;
+    std::uint32_t damaged_event, destroy_event;
 };
 ```
 
 `absolute()` — `position.has_value()`. Поля `type_name/model/model_index` —
 разрешённые ссылки; `position` пуст у source-relative вариантов.
 
-Новые поля — `THING_TYPES +0x1b4/+0x58/+0x1cc/+0x1d0/+0x1d4`, копируемые в
-runtime (`docs/SOE.md`). `Things::load` заполняет их для статических и
-executed-экземпляров; AI пока их не использует. Для `dm1`/`level0` первый
-`bgchunk1`: `movement_type=6`, `search_radius=6000`, `target_zone=200`,
-`history=0`, `max_health=2000` (CTest `things`).
+Новые поля — `THING_TYPES +0x1b4/+0x58/+0x1cc/+0x1d0/+0x1d4` плюс боевой
+блок `+0x1c4` (collide event), `+0x1c8` (hits), `+0x1d8..+0x1e4` (shields),
+`+0x1ec` (expire), `+0x1f4` (damaged) и `+0x1f8` (destroy), копируемые в
+runtime (`docs/SOE.md`, отчёт impact §4.1). `Things::load` заполняет их для
+статических и executed-экземпляров; `health` и `shield_max` — копии на спавне.
+AI пока их не использует. Для `dm1`/`level0` первый `bgchunk1`:
+`movement_type=6`, `search_radius=6000`, `target_zone=200`, `history=0`,
+`max_health=health=2000`, `shields=0`, `expire_event=destroy_event=-30071`
+(CTest `things`).
 
 ### 2.2. `Things::load`
 

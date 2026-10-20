@@ -101,7 +101,7 @@ struct SavePlayer {
     std::int32_t armor_max = 0;       ///< struct+0x3244, hundredths
     std::int32_t armor = 0;           ///< struct+0x3248, hundredths
     std::int32_t shield_max = 0;      ///< struct+0x324c, hundredths
-    std::array<std::int32_t, 4> shields{}; ///< struct+0x3250, front/back/left/right, hundredths
+    std::array<std::int32_t, 4> shields{}; ///< struct+0x3250, front/right/back/left, hundredths
     std::int32_t weapon_slot = 0;     ///< struct+0x3294, 0..11
     std::uint32_t weapon_mask = 0;    ///< struct+0x3298, ``1 << slot`` per available slot
     std::array<std::uint32_t, 12> ammo{}; ///< struct+0x329c

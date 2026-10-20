@@ -38,6 +38,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -70,6 +71,17 @@ constexpr double kDefaultProjectileSpeed = 12000.0;
 constexpr double kPlaceholderDamage = 1.0;
 /// Default deterministic spread seed (SplitMix64); any value works.
 constexpr std::uint64_t kWeaponSeed = 0x243f6a8885a308d3ULL;
+
+/// One `CAUSE_BLAST_RADIUS_DAMAGE` (VM op 75).  `plate`/`hull` are integer
+/// hundredths; `plate < 0` is a status and is not scaled by falloff.
+struct Blast {
+    std::int32_t plate = 0;
+    std::int32_t hull = 0;
+    int radius = 0;
+    std::uint32_t flags = 0;       ///< bit0 source, bit1 full, bit2 players, bit3 things
+    bool no_direction = false;     ///< operand 1
+    std::uint32_t event = 0;       ///< event posted to each target
+};
 
 /// One `DEFINE_WEAPONS` record mapped to the runtime fields.
 ///
@@ -304,14 +316,16 @@ void apply_recoil(PlayerState& player, double view_pitch, double impulse);
 /// Save gauges are integer hundredths (`10000 = 100.00`, docs/SAVE_FIELDS.md).
 constexpr double kGaugeScale = 100.0;
 
-enum class ShieldSide : std::uint8_t { front = 0, back = 1, left = 2, right = 3 };
+/// Original quadrant order (`0x453b50`): 0 = +Y (front), 1 = +X (right),
+/// 2 = -Y (back), 3 = -X (left).  This is not front/back/left/right.
+enum class ShieldSide : std::uint8_t { front = 0, right = 1, back = 2, left = 3 };
 
 /// Player gauges in the same units as the save (`+0x3244..+0x3260`).
 struct Vitals {
     std::int32_t armor = 0;
     std::int32_t armor_max = 0;
     std::int32_t shield_max = 0;
-    std::array<std::int32_t, 4> shields{}; ///< front/back/left/right
+    std::array<std::int32_t, 4> shields{}; ///< front/right/back/left (see ShieldSide)
     double mult_plate = 1.0;               ///< 0x81bff0, skipped with damage flag 4
     double mult_hull = 1.0;                ///< 0x81bff8, skipped with damage flag 4
     std::int32_t burn_timer = 0;            ///< status -1 accumulator
@@ -350,11 +364,70 @@ struct GaugeDamageResult {
 };
 
 /// Exact player damage intake from `0x453b50`: `plate` is the selected shield
-/// quadrant (front/back/left/right); `hull` is the armor.  Values are integer
+/// quadrant (front/right/back/left); `hull` is the armor.  Values are integer
 /// hundredths (400 = 4.00).  `side` is -1 for the non-directional path; flags:
 /// 1 = no direction, 2 = full damage per plate, 4 = already scaled.
 /// Negative `plate` is a status: -1 burn, -2 freeze/electro.
 GaugeDamageResult apply_damage_gauge(Vitals& vitals, std::int32_t plate,
+                                     std::int32_t hull, std::uint32_t flags = 0,
+                                     int side = -1);
+
+/// One affected target from `0x477280`.
+struct BlastHit {
+    bool is_player = false;
+    int index = 0;                 ///< player 0..7 or THING slot
+    int distance = 0;              ///< integer distance used by the original
+    std::int32_t plate = 0;
+    std::int32_t hull = 0;
+    std::uint32_t event = 0;
+};
+
+struct BlastResult {
+    std::vector<BlastHit> hits;
+    bool chain_reaction = false;   ///< plate > 0: op 75 also detonates type -4
+};
+
+/// Integer falloff used by `0x477280`: `plate * (radius-d) / radius`.
+/// `plate < 0` is returned unchanged (status); `radius <= 0` returns 0 for
+/// every distance except the centre, avoiding the original divide-by-zero.
+std::int32_t blast_damage(const Blast& blast, int distance);
+std::int32_t blast_hull_damage(const Blast& blast, int distance);
+
+/// Pure spherical query from `0x477280`: no line-of-sight/geometry check.
+/// `thing_alive` is indexed like `thing_positions`; its bit 0 is the original
+/// target's "active" bit.  Damage is not applied here; callers use the hits.
+BlastResult apply_blast(const Vec3d& center, const Blast& blast,
+                        int source_player, int source_thing,
+                        std::span<const Vec3d> player_positions,
+                        std::span<const Vec3d> thing_positions,
+                        std::span<const bool> thing_alive);
+
+/// THING HP/shield block (`0x7ac418..+0x7ac430`), integer hundredths.
+struct ThingVitals {
+    std::int32_t hp = 0;
+    std::int32_t max_hp = 0;
+    std::array<std::int32_t, 4> shields{};
+    std::array<std::int32_t, 4> shield_max{};
+    bool alive = false;
+    std::uint32_t flags = 0;
+    std::uint32_t flags2 = 0;
+    std::uint32_t flags3 = 0;
+};
+
+struct ThingDamageResult {
+    bool ok = false;
+    const char* error = "";
+    std::int32_t shield_absorbed = 0;
+    std::int32_t hull_absorbed = 0;
+    std::int32_t overflow = 0;
+    std::array<bool, 4> broken{};
+    bool dead = false;
+    bool damaged_event = false; ///< target survived; caller posts +0x1f4
+};
+
+/// Exact `0x470500` intake for a THING: no plate/hull multipliers, shield
+/// deficits spill into HP, and negative plate is a no-op status here.
+ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
                                      std::int32_t hull, std::uint32_t flags = 0,
                                      int side = -1);
 

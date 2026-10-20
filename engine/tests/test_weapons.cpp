@@ -546,7 +546,7 @@ void test_damage_and_armor() {
     CHECK(result.ok);
     CHECK_EQ(result.shield_absorbed, 8000);
     CHECK_EQ(result.armor_absorbed, 2000);
-    CHECK_EQ(vitals.shields[1], 0);
+    CHECK_EQ(vitals.shields[2], 0); // back = -Y = index 2
     CHECK_EQ(vitals.armor, 8000);
     CHECK_EQ(vitals.shields[0], 7000); // other quadrants are untouched
 
@@ -556,7 +556,7 @@ void test_damage_and_armor() {
     CHECK_EQ(result.shield_absorbed, 8000);
     CHECK_EQ(result.armor_absorbed, 8000);
     CHECK_EQ(result.overflow, 84000);
-    CHECK_EQ(vitals.shields[2], 0);
+    CHECK_EQ(vitals.shields[3], 0); // left = -X = index 3
     CHECK_EQ(vitals.armor, 0);
     CHECK(result.dead);
 
@@ -667,6 +667,70 @@ void test_damage_gauge() {
 
     gm::Vitals bad = light();
     CHECK(!gm::apply_damage_gauge(bad, 400, 0, 0, 9).ok);
+}
+
+void test_blast_and_thing_damage() {
+    gm::Blast blast;
+    blast.plate = 10000;
+    blast.hull = 0;
+    blast.radius = 100;
+    blast.event = 42;
+    CHECK_EQ(gm::blast_damage(blast, 0), 10000);
+    CHECK_EQ(gm::blast_damage(blast, 50), 5000);
+    CHECK_EQ(gm::blast_damage(blast, 99), 100);
+    CHECK_EQ(gm::blast_damage(blast, 100), 0);
+    CHECK_EQ(gm::blast_damage(blast, 101), 0);
+
+    blast.radius = 0;
+    CHECK_EQ(gm::blast_damage(blast, 0), 0); // divide-by-zero guard
+    blast.radius = 1000;
+    blast.plate = -1;
+    blast.hull = 150;
+    CHECK_EQ(gm::blast_damage(blast, 999), -1); // status is not scaled
+    CHECK_EQ(gm::blast_hull_damage(blast, 999), 150);
+
+    // Spherical query: no geometry/LOS; source exclusion is bit 0.
+    blast.plate = 1000;
+    blast.radius = 100;
+    const std::array<gm::Vec3d, 2> players{{{0.0, 0.0, 0.0}, {200.0, 0.0, 0.0}}};
+    const std::array<gm::Vec3d, 2> things{{{50.0, 0.0, 0.0}, {0.0, 0.0, 0.0}}};
+    const std::array<bool, 2> alive{true, false};
+    const gm::BlastResult hit_all =
+        gm::apply_blast({0.0, 0.0, 0.0}, blast, -1, -1, players, things, alive);
+    CHECK_EQ(hit_all.hits.size(), 2U); // player 0 + active thing 0
+    CHECK(hit_all.chain_reaction);
+    if (hit_all.hits.size() == 2) {
+        CHECK(hit_all.hits[0].is_player);
+        CHECK_EQ(hit_all.hits[0].plate, 1000);
+        CHECK_EQ(hit_all.hits[1].distance, 50);
+        CHECK_EQ(hit_all.hits[1].plate, 500);
+    }
+    blast.flags = 1;
+    const gm::BlastResult hit_source =
+        gm::apply_blast({0.0, 0.0, 0.0}, blast, 0, 0, players, things, alive);
+    CHECK_EQ(hit_source.hits.size(), 0U); // both sources excluded
+
+    // THING damage: a 1000 plate against a 500 shield spills only 500 to HP.
+    gm::ThingVitals thing;
+    thing.hp = 1000;
+    thing.max_hp = 1000;
+    thing.shields = {500, 0, 0, 0};
+    thing.alive = true;
+    gm::ThingDamageResult tr = gm::apply_thing_damage(thing, 1000, 0, 0, 0);
+    CHECK(tr.ok);
+    CHECK_EQ(thing.shields[0], 0);
+    CHECK_EQ(thing.hp, 500);
+    CHECK(tr.broken[0]);
+    CHECK(!tr.dead);
+    CHECK(tr.damaged_event);
+
+    // Lethal blast through the front quadrant.
+    thing.hp = 800;
+    thing.shields = {0, 500, 0, 500};
+    tr = gm::apply_thing_damage(thing, 10000, 0, 0, 0);
+    CHECK(tr.dead);
+    CHECK_EQ(thing.hp, 0);
+    CHECK_EQ(thing.shields[0], 0);
 }
 
 void test_negatives_synthetic() {
