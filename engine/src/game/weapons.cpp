@@ -1517,6 +1517,29 @@ ThingDamageResult apply_thing_damage(Thing& thing, std::int32_t plate,
     return result;
 }
 
+ThingDamageResult apply_thing_damage(Things& things, int id,
+                                     std::int32_t plate, std::int32_t hull,
+                                     std::uint32_t flags, int side,
+                                     EventQueue* events) {
+    Thing* thing = things.by_id(id);
+    if (thing == nullptr) {
+        ThingDamageResult missing;
+        missing.ok = false;
+        return missing;
+    }
+    const ThingDamageResult result =
+        apply_thing_damage(*thing, plate, hull, flags, side);
+    if (events != nullptr) {
+        if (result.damaged_event) {
+            post_thing_event(*events, *thing, ThingEventKind::damaged);
+        }
+        if (result.dead) {
+            post_thing_event(*events, *thing, ThingEventKind::destroy);
+        }
+    }
+    return result;
+}
+
 Vitals vitals_from_game(const GameState& game) {
     Vitals vitals;
     vitals.armor = game.armor;

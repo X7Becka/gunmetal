@@ -32,10 +32,13 @@
 #include <utility>
 #include <vector>
 
+#include "game/events.h"
 #include "game/state.h"
 #include "player/controller.h"
 #include "render/collide.h"
 #include "res/save.h"
+#include "res/sbt.h"
+#include "res/sbtvm.h"
 #include "res/sbw.h"
 
 namespace {
@@ -1532,6 +1535,71 @@ void test_real_negatives() {
 
 } // namespace
 
+
+void test_thing_runtime_damage() {
+    std::ifstream in(kGame / "level0.sbt", std::ios::binary);
+    const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                          std::istreambuf_iterator<char>());
+    std::string error;
+    const auto level = gm::parse_sbt(bytes, error);
+    CHECK(level.has_value());
+    if (!level) {
+        return;
+    }
+    const gm::VmState vm = gm::vm_state_from_level(*level);
+    gm::ThingsOptions options;
+    options.contexts = {{0, 0}};
+    gm::Things things = gm::Things::load(*level, vm, options);
+    CHECK(things.ok());
+    const gm::Thing* first = things.things().empty() ? nullptr : &things.things()[0];
+    CHECK(first != nullptr);
+    if (first == nullptr) {
+        return;
+    }
+    const int id = first->id;
+    gm::Thing* thing = things.by_id(id);
+    CHECK(thing != nullptr);
+    if (thing == nullptr) {
+        return;
+    }
+    thing->health = 1000;
+    thing->max_health = 1000;
+    thing->shields.fill(0);
+    thing->shield_max.fill(0);
+    thing->alive = true;
+    thing->damaged_event = 777;
+    thing->destroy_event = 778;
+
+    gm::EventQueue queue;
+    const gm::ThingDamageResult hurt = gm::apply_thing_damage(
+        things, id, 0, 500, 0, -1, &queue);
+    CHECK(hurt.ok);
+    CHECK_EQ(thing->health, 500);
+    const gm::EventParseResult damaged = queue.drain();
+    CHECK_EQ(damaged.events.size(), 1U);
+    if (damaged.events.size() == 1) {
+        CHECK_EQ(damaged.events[0].id, 777);
+    }
+
+    thing->health = 100;
+    const gm::ThingDamageResult killed = gm::apply_thing_damage(
+        things, id, 0, 2000, 0, -1, &queue);
+    CHECK(killed.ok);
+    CHECK(killed.dead);
+    CHECK(!thing->alive);
+    const gm::EventParseResult destroyed = queue.drain();
+    CHECK_EQ(destroyed.events.size(), 1U);
+    if (destroyed.events.size() == 1) {
+        CHECK_EQ(destroyed.events[0].id, 778);
+    }
+
+    // Unknown id is rejected without touching the queue.
+    const gm::ThingDamageResult missing =
+        gm::apply_thing_damage(things, 0x7fffffff, 0, 1, 0, -1, &queue);
+    CHECK(!missing.ok);
+    CHECK(queue.empty());
+}
+
 int main() {
     test_fire_rate_quantisation();
     test_single_and_auto();
@@ -1552,6 +1620,7 @@ int main() {
         test_real_weapon_modes();
         test_weapon_corpus();
         test_runtime_blast_bridge();
+        test_thing_runtime_damage();
         for (const GoldenSave& golden : kSaves) {
             test_real_save(golden);
         }
