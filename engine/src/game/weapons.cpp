@@ -210,6 +210,8 @@ struct FireScriptInfo {
     int damage_gauge = 0;
     int thing_type = -1;
     int spawn_type = -1; ///< ADD_THING* G operand outside SOURCE_UNDERWATER
+    std::uint32_t impact_event = 0; ///< BULLET args[1] / LASER args[3]
+    std::vector<SbtInsn> inline_body; ///< body of the chosen IF FIRE_*
     double projectile_charge = 0.0;
     bool underwater = false;
 };
@@ -251,13 +253,21 @@ bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
                 if (prefer) {
                     info.hitscan = insn.condition != "FIRE_SOURCEPLAYER_THING";
                     info.damage_gauge = 0;
+                    info.impact_event = 0;
+                    info.inline_body.clear();
                     if (info.hitscan) {
-                        const std::size_t arg =
+                        const std::size_t damage_arg =
                             insn.condition == "FIRE_SOURCEPLAYER_LASER" ? 4 : 2;
-                        if (insn.args.size() > arg) {
-                            info.damage_gauge =
-                                static_cast<int>(as_uint(insn.args[arg]));
+                        if (insn.args.size() > damage_arg) {
+                            info.damage_gauge = static_cast<int>(
+                                as_uint(insn.args[damage_arg]));
                         }
+                        const std::size_t event_arg =
+                            insn.condition == "FIRE_SOURCEPLAYER_LASER" ? 3 : 1;
+                        if (insn.args.size() > event_arg) {
+                            info.impact_event = as_uint(insn.args[event_arg]);
+                        }
+                        info.inline_body = insn.body; // EMP rings
                     } else if (insn.args.size() > 9) {
                         info.thing_type =
                             static_cast<int>(as_uint(insn.args[2]));
@@ -499,6 +509,35 @@ void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
     scan_generates(level, program->insns, out, depth, guard);
 }
 
+/// Follow a hitscan event to its nested `EVAL FIRE_SOURCEPLAYER_BULLET`
+/// (DISINTEGRATOR 900013 -> GENERATE -30112).  The value is a real hitscan
+/// range in world units, unlike the THING `+0x10` speed.
+void scan_secondary_insns(const SbtLevel& level,
+                          const std::vector<SbtInsn>& insns, double& damage,
+                          double& range, int depth) {
+    for (const SbtInsn& insn : insns) {
+        if (insn.condition == "FIRE_SOURCEPLAYER_BULLET" &&
+            insn.args.size() > 2) {
+            const double value =
+                static_cast<double>(as_uint(insn.args[2])) / kGaugeScale;
+            if (value > damage) {
+                damage = value;
+                range = as_real(insn.args[0]);
+            }
+        }
+        if (insn.name == "GENERATE" && !insn.args.empty() && depth < 2) {
+            const auto child = entity_block(level, as_uint(insn.args[0]));
+            if (child) {
+                scan_secondary_insns(level, child->insns, damage, range,
+                                     depth + 1);
+            }
+        }
+        if (!insn.body.empty()) {
+            scan_secondary_insns(level, insn.body, damage, range, depth);
+        }
+    }
+}
+
 bool parse_tables(const std::filesystem::path& level_path, std::string* error,
                   Weapons* out) {
     auto fail = [error](std::string message) {
@@ -650,8 +689,15 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
         FireScriptInfo fire;
         if (resolve_fire_script(*level, weapon.projectile_id, fire) && fire.found) {
             weapon.hitscan = fire.hitscan;
-            if (fire.hitscan && fire.damage_gauge > 0) {
-                weapon.damage = static_cast<double>(fire.damage_gauge) / kGaugeScale;
+            if (fire.hitscan) {
+                // A real zero gauge is zero damage (EMP/DISRUPTOR/MICROWAVE);
+                // the old fallback to 1.00 was a loader shortcut.
+                weapon.damage =
+                    static_cast<double>(fire.damage_gauge) / kGaugeScale;
+                weapon.impact_event = fire.impact_event;
+                collect_event_blasts(*level, fire.impact_event,
+                                     weapon.impact_blasts);
+                scan_blasts(fire.inline_body, weapon.inline_blasts);
             }
             weapon.thing_type = fire.thing_type;
             weapon.projectile_charge = fire.projectile_charge;
@@ -660,6 +706,11 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
                 // type 32; the following FIRE_BULLET is only a fallback.
                 weapon.thing_type = fire.spawn_type;
                 weapon.hitscan = false;
+                // The 400-unit FIRE_BULLET is only an obstruction fallback;
+                // the projectile's own collide/expire events own the damage.
+                weapon.impact_event = 0;
+                weapon.impact_blasts.clear();
+                weapon.inline_blasts.clear();
             }
         }
 
@@ -669,6 +720,12 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
                                      weapon.impact_blasts);
                 collect_event_blasts(*level, events->expire_event,
                                      weapon.expire_blasts);
+                if (const auto impact =
+                        entity_block(*level, events->collide_event)) {
+                    scan_secondary_insns(*level, impact->insns,
+                                         weapon.secondary_damage,
+                                         weapon.secondary_range, 0);
+                }
             }
         }
 

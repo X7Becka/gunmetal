@@ -51,7 +51,10 @@ struct Weapon {
     double damage; int magazine, reload_ticks;
     bool hitscan; double projectile_speed;
     int thing_type; double projectile_charge; // THING air branch
-    std::vector<Blast> impact_blasts, expire_blasts; // collide/expire events
+    std::vector<Blast> impact_blasts, expire_blasts; // impact/expire
+    std::vector<Blast> inline_blasts; // body of IF FIRE_* (EMP rings)
+    uint32_t impact_event;            // hitscan impact event id
+    double secondary_damage, secondary_range; // nested hitscan (DISINT)
     std::vector<Blast> select_blasts(bool expired, bool underwater,
                                      bool from_ground = true,
                                      bool deathmatch = true) const;
@@ -332,11 +335,21 @@ bit0/2/3, границы игроков 8 / THING 260, событие на ка�
 
 Это **не** единая таблица для всех уровней: 33 из 36 используют базовые
 ROCKET 8000/10000, а `level0` — 10000/12000; `level20` меняет TAC NUKE.
-`Weapons::load` уже сворачивает collide/expire-блоки `THING_TYPES` и один
+`Weapons::load` сворачивает collide/expire-блоки `THING_TYPES` и один
 `GENERATE` в `impact_blasts`/`expire_blasts`; `Blast` хранит флаги среды
-(`air`/`water`), а `select_blasts` выбирает ветку. `RGM` получает тип 32 из
+(`air`/`water`), а `select_blasts` выбирает ветку. Для hitscan загрузчик
+читает impact-событие из операнда `FIRE` (BULLET `args[1]`, LASER `args[3]`)
+и кладёт его blast’ы в `impact_blasts`: CANNON `1500@200`/вода `1500@400`,
+FUSION `500@128`, MICROWAVE `hull 500@128`, DISRUPTOR `12000@128`
+(`nonpos=1`), MESON `0@512 + 0@4500`. `inline_blasts` — тело выбранного
+`IF FIRE_*`; у EMP это 5 колец (`0@4500`, `hull 1500@76`, `2000@256`,
+`2000@512`, `1500@720`). `damage=0` теперь настоящий ноль, а не fallback
+1.00. DISINTEGRATOR дополнительно получает `secondary_damage=400.00`,
+`secondary_range=200` из `EVAL FIRE_SOURCEPLAYER_BULLET` в событии
+`900013 → -30112`. `RGM` получает тип 32 из
 `ADD_THING_AT_SOURCE_WEAPON_POINT` (не из `FIRE_THING`), поэтому больше не
-считается hitscan с уроном 0.03.
+считается hitscan с уроном 0.03; его fallback-событие `-30105` не попадает
+в `impact_blasts`.
 
 TAC NUKE содержит несколько взаимоисключающих top-level IF
 (`SOURCE_UNDERWATER`, `SOURCE_FROM_GROUND`, `DEATHMATCH_GAME`). Загрузчик
@@ -345,8 +358,8 @@ TAC NUKE содержит несколько взаимоисключающих 
 земля/не-земля × DM/не-DM). Вложенный `IF DEATHMATCH_GAME` даёт 2
 DM-only blast’а плюс общий статус, поэтому DM и non-DM дают по 3, а не 5.
 
-Осталось: (1) inline-impact’ы hitscan (`CANNON 1500@200`, EMP-кольца,
-FUSION/MICROWAVE/DISRUPTOR/DISINT) в `Weapon` не собираются;
+Осталось: (1) применить `impact_blasts`/`inline_blasts` в runtime (позиция,
+цели, `apply_blast`/`apply_thing_damage`); сейчас они только загружаются;
 (2) `projectile_speed=12000` остаётся placeholder’ом до доказательства
 единиц `THING_TYPES+0x10`.
 

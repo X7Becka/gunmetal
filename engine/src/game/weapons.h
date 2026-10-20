@@ -134,12 +134,21 @@ struct Weapon {
     double projectile_speed = 0.0; ///< units/s when !hitscan; 0 = invalid
     int thing_type = -1;        ///< FIRE_SOURCEPLAYER_THING operand 2
     double projectile_charge = 0.0; ///< operand 9, air branch
-    /// `CAUSE_BLAST_RADIUS_DAMAGE` ops reached from THING_TYPES[thing_type]
-    /// event blocks.  `impact_blasts` follows the collide event (+0x1c4),
-    /// `expire_blasts` the expire event (+0x1ec).  Each vector also follows
-    /// one `GENERATE` child because grenade/plasma damage lives there.
+    /// `CAUSE_BLAST_RADIUS_DAMAGE` ops reached from the impact source.
+    /// For THING weapons this is THING_TYPES collide (+0x1c4); for hitscan it
+    /// is the event in the FIRE operand (BULLET args[1], LASER args[3]).
+    /// `expire_blasts` is the THING_TYPES expire event (+0x1ec).  Each vector
+    /// follows one `GENERATE` child because grenade/plasma damage lives there.
     std::vector<Blast> impact_blasts;
     std::vector<Blast> expire_blasts;
+    /// Blasts in the body of the chosen `IF FIRE_*` (EMP rings).  They run at
+    /// the shot, centered on the shooter, not at the hit point.
+    std::vector<Blast> inline_blasts;
+    std::uint32_t impact_event = 0; ///< hitscan impact event id, 0 = none
+    /// Nested `EVAL FIRE_SOURCEPLAYER_BULLET` in the impact event
+    /// (DISINTEGRATOR: 400.00 points at range 200).
+    double secondary_damage = 0.0;
+    double secondary_range = 0.0;
 
     /// Copy the blasts of one branch that apply to the current context.
     /// `expired=false` is the collision/impact event, `true` is expiry;

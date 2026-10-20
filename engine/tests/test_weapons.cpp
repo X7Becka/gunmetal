@@ -806,6 +806,84 @@ void test_real_weapon_modes() {
         CHECK(rail->hitscan);
         CHECK_NEAR(rail->damage, 60.0, 0.0);
     }
+    const gm::Weapon* fusion = find("FUSIONBEAM");
+    const gm::Weapon* microwave = find("MICROWAVE GUN");
+    const gm::Weapon* emp = find("EMP GUN");
+    const gm::Weapon* disruptor = find("DISRUPTORFIELD");
+    const gm::Weapon* meson = find("MESON GUN");
+    const gm::Weapon* disint = find("DISINTEGRATOR");
+    if (cannon != nullptr) {
+        const auto air = cannon->select_blasts(false, false);
+        const auto water = cannon->select_blasts(false, true);
+        CHECK_EQ(air.size(), 2U);
+        CHECK_EQ(water.size(), 2U);
+        if (air.size() == 2) {
+            CHECK_EQ(air[0].radius, 50);
+            CHECK_EQ(air[1].plate, 1500);
+            CHECK_EQ(air[1].radius, 200);
+        }
+        if (water.size() == 2) {
+            CHECK_EQ(water[1].radius, 400);
+        }
+    }
+    if (fusion != nullptr) {
+        CHECK(fusion->hitscan);
+        CHECK_NEAR(fusion->damage, 3.0, 0.0);
+        CHECK_EQ(fusion->select_blasts(false, false).size(), 2U);
+        CHECK_EQ(fusion->select_blasts(false, true).size(), 2U);
+    }
+    if (microwave != nullptr) {
+        CHECK(microwave->hitscan);
+        CHECK_NEAR(microwave->damage, 0.0, 0.0);
+        CHECK_EQ(microwave->impact_blasts.size(), 2U);
+        if (microwave->impact_blasts.size() == 2) {
+            CHECK_EQ(microwave->impact_blasts[1].plate, 0);
+            CHECK_EQ(microwave->impact_blasts[1].hull, 500);
+            CHECK_EQ(microwave->impact_blasts[1].radius, 128);
+        }
+    }
+    if (emp != nullptr) {
+        CHECK(emp->hitscan);
+        CHECK_NEAR(emp->damage, 0.0, 0.0);
+        CHECK_EQ(emp->impact_blasts.size(), 0U);
+        CHECK_EQ(emp->inline_blasts.size(), 5U);
+        if (emp->inline_blasts.size() == 5) {
+            CHECK_EQ(emp->inline_blasts[0].hull, 0);
+            CHECK_EQ(emp->inline_blasts[0].radius, 4500);
+            CHECK_EQ(emp->inline_blasts[1].hull, 1500);
+            CHECK_EQ(emp->inline_blasts[1].radius, 76);
+            CHECK_EQ(emp->inline_blasts[2].hull, 2000);
+            CHECK_EQ(emp->inline_blasts[2].radius, 256);
+            CHECK_EQ(emp->inline_blasts[3].radius, 512);
+            CHECK_EQ(emp->inline_blasts[4].hull, 1500);
+            CHECK_EQ(emp->inline_blasts[4].radius, 720);
+        }
+    }
+    if (disruptor != nullptr) {
+        CHECK(disruptor->hitscan);
+        CHECK_NEAR(disruptor->damage, 0.0, 0.0);
+        CHECK_EQ(disruptor->impact_blasts.size(), 1U);
+        if (!disruptor->impact_blasts.empty()) {
+            CHECK_EQ(disruptor->impact_blasts[0].plate, 12000);
+            CHECK_EQ(disruptor->impact_blasts[0].radius, 128);
+            CHECK(disruptor->impact_blasts[0].no_direction);
+        }
+    }
+    if (meson != nullptr) {
+        CHECK(meson->hitscan);
+        CHECK_NEAR(meson->damage, 0.0, 0.0);
+        CHECK_EQ(meson->impact_blasts.size(), 2U);
+    }
+    if (disint != nullptr) {
+        CHECK(!disint->hitscan);
+        CHECK_EQ(disint->thing_type, 34);
+        CHECK_NEAR(disint->secondary_damage, 400.0, 0.0);
+        CHECK_NEAR(disint->secondary_range, 200.0, 0.0);
+        CHECK_EQ(disint->impact_blasts.size(), 1U);
+        if (!disint->impact_blasts.empty()) {
+            CHECK_EQ(disint->impact_blasts[0].radius, 200);
+        }
+    }
     const gm::Weapon* nuke = find("TAC NUKE");
     if (nuke != nullptr) {
         CHECK_EQ(nuke->impact_blasts.size(), 15U); // all guarded branches kept
@@ -816,6 +894,8 @@ void test_real_weapon_modes() {
     if (rgm != nullptr) {
         CHECK(!rgm->hitscan);
         CHECK_EQ(rgm->thing_type, 32);
+        CHECK_EQ(rgm->impact_event, 0U);
+        CHECK_EQ(rgm->impact_blasts.size(), 0U);
         CHECK_EQ(rgm->expire_blasts.size(), 3U);
         if (rgm->expire_blasts.size() == 3) {
             CHECK_EQ(rgm->expire_blasts[0].radius, 50);
