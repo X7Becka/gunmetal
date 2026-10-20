@@ -385,6 +385,8 @@ python3 tools/re/soa_semantics.py --self-test    # без установленн
 
 ## 12. Проверки
 
+* `python3 gm.py soa <path> --timeline --at 100` — интервалы и кадр
+  (91 Гц; `--json` для машинного вывода).
 * `python3 gm.py soa anims spritani Sobanim/pulsnuke.SOA` → `soa: 104 parsed,
   0 failed`; `--rebuild` — 104/104 побайтово.
 * `python3 regress.py` → `108/108 checks passed`, в т.ч. `soa / animations`
