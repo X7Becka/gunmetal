@@ -92,6 +92,14 @@ target_link_libraries(gm_hud_tests PRIVATE gm_engine)
 add_test(NAME hud COMMAND gm_hud_tests)
 gm_label(hud quick)
 
+add_executable(gm_hud_player_tests test_hud_player.cpp)
+target_link_libraries(gm_hud_player_tests PRIVATE gm_engine)
+# Playback clock (91 Hz ticks, .fdx count/fps, start_frame/loop/hold) on a
+# synthetic 2-frame film plus AMMO4.SOF at ticks 0/91/182 and the WEAPON8 ->
+# line 8 suffix binding.  Goldens and limits: docs/HUD_PLAYER.md.
+add_test(NAME hud_player COMMAND gm_hud_player_tests)
+gm_label(hud_player quick)
+
 add_executable(gm_sou1_tests test_sou1.cpp)
 target_link_libraries(gm_sou1_tests PRIVATE gm_engine)
 # `sou1` pins 11 records covering every sample rate, mono/stereo and the
