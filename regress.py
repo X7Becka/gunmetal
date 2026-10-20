@@ -231,6 +231,12 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           p.returncode == 0 and "2/2 files clean" in p.stdout,
                           "83 proven, 31 hypothesis, 14 unknown"))
 
+    # Recursive/executed scene things (opt-in; default counts unchanged).
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "nested_things.py"),
+                        "--self-test"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("scene / nested things model", p.returncode == 0
+                          and "15 tests, 0 failed" in p.stdout,
+                          "4008 top-level / 7563 recursive / 7617 executed"))
     # SCRIPT VM executor and structural .sbt record writers.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "vm_exec.py"),
                         "--selftest"], capture_output=True, text=True, cwd=HERE)
