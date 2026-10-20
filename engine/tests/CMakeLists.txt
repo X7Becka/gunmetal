@@ -109,6 +109,16 @@ target_link_libraries(gm_hud_bind_tests PRIVATE gm_engine)
 add_test(NAME hud_bind COMMAND gm_hud_bind_tests)
 gm_label(hud_bind quick)
 
+add_executable(gm_hud_compose_tests test_hud_compose.cpp)
+target_link_libraries(gm_hud_compose_tests PRIVATE gm_engine)
+# One-call composition of a .sml screen: binding + film + 91 Hz tick + blit.
+# Shipped DESIGN/ammo4.sml reproduces hud_player's AMMO4 FNV goldens at
+# (14,125) for ticks 0/91/182; synthetic fixtures pin <I> slots, clipping,
+# missing EQUIP film, overflow ticks, malformed markup and short palettes.
+# Pipeline and errors: docs/HUD_COMPOSE.md.
+add_test(NAME hud_compose COMMAND gm_hud_compose_tests)
+gm_label(hud_compose quick)
+
 add_executable(gm_sou1_tests test_sou1.cpp)
 target_link_libraries(gm_sou1_tests PRIVATE gm_engine)
 # `sou1` pins 11 records covering every sample rate, mono/stereo and the
