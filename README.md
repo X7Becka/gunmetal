@@ -101,6 +101,7 @@ docs/GAME_STATE.md  C++ save→player/doors/things: mapping, golden
 docs/THINGS_CPP.md  C++ things: 4008/7563/7617, recursive script
 docs/WEAPONS_CPP.md C++ оружие: слоты, ammo, cooldown, hitscan
 docs/EVENTS.md      очередь событий, event_post, GENERATE (Ghidra)
+docs/PLAYER_GHIDRA.md скорость/гравитация игрока по Ghidra
 docs/CAMERA_CPP.md  C++ камера: first/third, FOV, shake/recoil
 docs/AI_CPP.md      C++ AI: idle/patrol/alert/attack/dead, LOS
 docs/GHIDRA.md      Ghidra 12.1.4 headless + pyghidra-mcp: выбор, запуск

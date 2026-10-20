@@ -568,6 +568,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > C++ `player/controller.*` (CTest `player_controller`): капсула,
       > гравитация, прыжок, step-up/down, slide, 91 Гц, субшаги; golden
       > `level0` — 100 тиков вперёд `x=91.671875`, глаз `z=58.546876`.
+      > Ghidra: `op4` — 1.70 ед./тик, `SET_LEVEL_GRAVITY` — множитель
+      > `0x80f840` (default 1.0), скалярная база не найдена
+      > (`docs/PLAYER_GHIDRA.md`).
       > `game/weapons.*` (CTest `weapons`): DEFINE_WEAPONS/AMMO, сейвовый
       > loadout, cooldown 2/8 тиков, spread, recoil, hitscan; урон/магазин
       > и оригинальные скорости снарядов — ещё нет.
