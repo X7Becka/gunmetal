@@ -895,8 +895,9 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       `0x2b11` в точке переключателя) и **сетевой блоб** (`u32` длины плюс
       записи, C++ `parse_network_blob`/`accept_network_blob`). Runtime-таблица
       `0x5a4af0` реализована как `gm::EventDispatcher` (`SwitchEffect[0x200]`,
-      `dispatch` типов 1/2/3/4…12, centroid и `SoundCommand`). Осталось:
-      заполнение таблицы из уровня и подключение приёма пакета к игровому
+      `dispatch` типов 1/2/3/4…12, centroid и `SoundCommand`;
+      `serialize`/`deserialize` файла `0x5a4af0`, `install_switches` из
+      `ADD_SWITCH`). Осталось: подключение приёма пакета и таблицы к игровому
       циклу.
 - ⬜ `M5.1.6` Все `DEFINE_*` (оружие, патроны, оборудование, шасси, цели,
       лифты, path) — раскладка и применение.
