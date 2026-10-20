@@ -317,6 +317,21 @@ class Lift:
 
 
 @dataclass
+class Spawn:
+    """``SET_PLAYER_START`` (169) / ``SET_DEATHMATCH_START`` (168).
+
+    ``index`` is the player slot (0..7), ``pos`` the feet position and
+    ``angles`` the three doubles copied into player ``+0x18/+0x20/+0x28``;
+    ``angles[2]`` drives the camera yaw.  See ``docs/PLAYER.md``.
+    """
+
+    index: int
+    pos: tuple
+    angles: tuple = (0.0, 0.0, 0.0)
+    kind: str = "campaign"          # "campaign" | "deathmatch"
+
+
+@dataclass
 class Scene:
     lights: list[Light] = field(default_factory=list)
     locations: list[Location] = field(default_factory=list)
@@ -331,6 +346,8 @@ class Scene:
     doors: list = field(default_factory=list)
     switches: list = field(default_factory=list)
     lifts: list = field(default_factory=list)
+    #: player starts (``SET_PLAYER_START`` / ``SET_DEATHMATCH_START``)
+    spawns: list[Spawn] = field(default_factory=list)
     #: commands seen whose operand layout is still opaque (name -> count)
     other: dict = field(default_factory=dict)
 
@@ -340,6 +357,7 @@ class Scene:
                 "sprites": len(self.sprites), "entities": len(self.entities),
                 "things": len(self.things), "doors": len(self.doors),
                 "switches": len(self.switches), "lifts": len(self.lifts),
+                "spawns": len(self.spawns),
                 "other": sum(self.other.values())}
 
     def scaled(self, factor: float = SCALE) -> Scene:
@@ -349,13 +367,23 @@ class Scene:
             return tuple(v * factor for v in p)
 
         return Scene(
-            [Light(s(l.pos), l.rgb, l.kind, l.param, l.extra) for l in self.lights],
-            [Location(x.thing_id, s(x.pos), x.orientation) for x in self.locations],
-            [Item(x.item_id, s(x.pos), x.fixed, x.extra) for x in self.items],
-            [SoundSource(s(x.pos), x.sample, x.volume, x.pitch) for x in self.sounds],
-            [Sprite(s(x.pos), x.jitter, x.id, x.extra) for x in self.sprites],
-            list(self.entities),
-            dict(self.other),
+            lights=[Light(s(l.pos), l.rgb, l.kind, l.param, l.extra)
+                    for l in self.lights],
+            locations=[Location(x.thing_id, s(x.pos), x.orientation)
+                       for x in self.locations],
+            items=[Item(x.item_id, s(x.pos), x.fixed, x.extra) for x in self.items],
+            sounds=[SoundSource(s(x.pos), x.sample, x.volume, x.pitch)
+                    for x in self.sounds],
+            sprites=[Sprite(s(x.pos), x.jitter, x.id, x.extra)
+                     for x in self.sprites],
+            entities=list(self.entities),
+            things=list(self.things),
+            doors=list(self.doors),
+            switches=list(self.switches),
+            lifts=list(self.lifts),
+            spawns=[Spawn(x.index, s(x.pos), x.angles, x.kind)
+                    for x in self.spawns],
+            other=dict(self.other),
         )
 
     def markers(self, scale: float = SCALE):
@@ -402,6 +430,8 @@ _SPRITE = _op("ADD_SPRITE")
 _DOOR = _op("ADD_DOOR")
 _SWITCH = _op("ADD_SWITCH")
 _LIFT = 188                       # structural keyword, decoded by gm.sbtvm
+_SPAWN = _op("SET_PLAYER_START")        # 169  (player slot starts)
+_DM_SPAWN = _op("SET_DEATHMATCH_START")  # 168  (deathmatch respawn table)
 
 #: placement commands that are seen but not decoded (opaque operand layout)
 _SEEN = ("ADD_NAMED_ITEM", "ADD_NAMED_ITEM_EX",
@@ -536,12 +566,20 @@ def extract(script: sbt.Script) -> Scene:
     scene = Scene(entities=entities(script))
     for i in _walk(ins):
         op = getattr(i, "op", None)
+        a = i.args
+        if op in (_SPAWN, _DM_SPAWN) and len(a) >= 7:
+            # LLLLAAA: u32 slot, s32 x/y/z, then three f64 angles.
+            scene.spawns.append(Spawn(
+                _s32(a[0]),
+                tuple(_s32(a[k]) for k in (1, 2, 3)),
+                tuple(float(a[k]) for k in (4, 5, 6)),
+                "campaign" if op == _SPAWN else "deathmatch"))
+            continue
         if op not in (_SKY, _LOCAL, _LOCATION, _ITEM, _ITEM_FIXED, _SOUND,
                       _SPRITE, _DOOR, _SWITCH, _LIFT):
             if isinstance(i.name, str) and i.name in _SEEN:
                 scene.other[i.name] = scene.other.get(i.name, 0) + 1
             continue
-        a = i.args
         if op == _SKY and len(a) >= 7:
             x, y, z = (_s32(a[k]) for k in range(3))
             scene.lights.append(Light((x, y, z),

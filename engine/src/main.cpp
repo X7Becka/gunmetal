@@ -706,6 +706,23 @@ int show_scene(const gm::Options& options) {
     }
     std::printf("things: %zu (absolute %zu, models %zu)\n", scene->things.size(),
                 placed, modelled);
+    std::size_t campaign = 0;
+    std::size_t deathmatch = 0;
+    for (const auto& spawn : scene->spawns) {
+        if (spawn.deathmatch) {
+            ++deathmatch;
+        } else {
+            ++campaign;
+        }
+    }
+    std::printf("spawns: %zu (campaign %zu, deathmatch %zu)\n", scene->spawns.size(),
+                campaign, deathmatch);
+    for (const auto& spawn : scene->spawns) {
+        if (!spawn.deathmatch && spawn.slot == 0) {
+            std::printf("start: slot 0 at %d,%d,%d yaw=%.3f eye=+10 (LIGHT)\n", spawn.x,
+                        spawn.y, spawn.z, spawn.angles[2]);
+        }
+    }
     for (const auto& [name, count] : scene->other) {
         std::printf("other: %s %d\n", name.c_str(), count);
     }

@@ -1661,7 +1661,7 @@ def cmd_scene(opts) -> int:
                   f"({sum(1 for t in sc.things if t.absolute)} placed, "
                   f"{len({t.model for t in sc.things if t.model})} models), "
                   f"{cnt['doors']} doors, {cnt['switches']} switches, "
-                  f"{cnt['lifts']} lifts, "
+                  f"{cnt['lifts']} lifts, {cnt['spawns']} spawns, "
                   f"{cnt['other']} other placement commands, "
                   f"{cnt['entities']} entities")
             for l in sc.lights[:opts.show]:
@@ -1691,6 +1691,9 @@ def cmd_scene(opts) -> int:
                       f"radius={x.radius}")
             for x in sc.lifts[:opts.show]:
                 print(f"  lift stops={len(x.stops)} head={len(x.head)}B")
+            for s in sc.spawns[:opts.show]:
+                print(f"  spawn {s.kind:10s} slot={s.index} pos={s.pos} "
+                      f"yaw={s.angles[2]:.3f}")
             if sc.other:
                 top = sorted(sc.other.items(), key=lambda kv: -kv[1])[:4]
                 print(f"  other: {', '.join(f'{k}x{v}' for k, v in top)}")
@@ -1722,6 +1725,9 @@ def cmd_scene(opts) -> int:
                          for s in sc.switches],
             "lifts": [{"stops": [list(x) for x in l.stops],
                        "head": len(l.head)} for l in sc.lifts],
+            "spawns": [{"slot": s.index, "pos": list(s.pos),
+                        "angles": list(s.angles), "kind": s.kind}
+                       for s in sc.spawns],
             "entities": [{"id": i, "flags": f, "offset": o}
                          for i, f, o in sc.entities],
             "other": sc.other,
@@ -1733,6 +1739,66 @@ def cmd_scene(opts) -> int:
         with open(opts.out, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=1, sort_keys=True)
         print(f"scene: {len(out)} levels -> {opts.out}")
+    return rc
+
+
+EYE_HEIGHTS = {"LIGHT": 10.0, "MEDIUM": 11.0, "STEALTH": 11.0,
+               "HEAVY": 12.0, "57 CHEVY": 14.0}
+
+
+def cmd_spawn(opts) -> int:
+    """Player starts (SET_PLAYER_START) and DM respawn points of .sbt levels."""
+    import json
+
+    from gm import scene as scenemod
+
+    paths: list[str] = []
+    for p in opts.paths:
+        if os.path.isdir(p):
+            paths += [os.path.join(p, f) for f in sorted(os.listdir(p))
+                      if f.lower().endswith(".sbt")]
+        else:
+            paths.append(p)
+    if not paths:
+        print("nothing to read", file=sys.stderr)
+        return 2
+    eye = opts.eye
+    if eye is None:
+        eye = EYE_HEIGHTS.get((opts.chassis or "LIGHT").upper(), 16.0)
+    out = {}
+    rc = 0
+    for p in paths:
+        name = os.path.splitext(os.path.basename(p))[0]
+        try:
+            sc = scenemod.load(p)
+        except Exception as exc:  # noqa: BLE001 - keep going over a batch
+            print(f"  FAIL {p}: {exc}", file=sys.stderr)
+            rc = 1
+            continue
+        campaign = [s for s in sc.spawns
+                    if s.kind == "campaign" and s.index == opts.slot]
+        deathmatch = [s for s in sc.spawns if s.kind == "deathmatch"]
+        out[name] = {
+            "eye_height": eye,
+            "campaign": [{"slot": s.index, "pos": list(s.pos),
+                          "angles": list(s.angles),
+                          "camera": [s.pos[0], s.pos[1], s.pos[2] + eye]}
+                         for s in campaign],
+            "deathmatch": [{"slot": s.index, "pos": list(s.pos),
+                            "angles": list(s.angles)} for s in deathmatch],
+        }
+        if not opts.json:
+            print(f"{os.path.basename(p)}: {len(campaign)} campaign start(s), "
+                  f"{len(deathmatch)} DM start(s), eye +{eye:g}")
+            for s in campaign[:opts.show]:
+                print(f"  campaign slot={s.index} pos={s.pos} "
+                      f"yaw={s.angles[2]:.3f} camera_z={s.pos[2] + eye:g}")
+            for s in deathmatch[:opts.show]:
+                print(f"  deathmatch slot={s.index} pos={s.pos} "
+                      f"yaw={s.angles[2]:.3f}")
+    if opts.json:
+        json.dump(out, sys.stdout, indent=1, sort_keys=True)
+        sys.stdout.write("\n")
     return rc
 
 
@@ -1850,6 +1916,18 @@ def main(argv=None) -> int:
     p.add_argument("--show", type=int, default=3,
                    help="how many entries of each kind to print (default 3)")
     p.set_defaults(func=cmd_scene)
+
+    p = sub.add_parser("spawn", help="player starts (SET_PLAYER_START) and DM starts")
+    p.add_argument("paths", nargs="+", help=".sbt files or directories")
+    p.add_argument("--json", action="store_true", help="print JSON to stdout")
+    p.add_argument("--slot", type=int, default=0, help="player slot (default 0)")
+    p.add_argument("--eye", type=float, default=None,
+                   help="camera height above the spawn (overrides --chassis)")
+    p.add_argument("--chassis", default="LIGHT",
+                   help="LIGHT/MEDIUM/STEALTH/HEAVY/57 CHEVY (default LIGHT)")
+    p.add_argument("--show", type=int, default=3,
+                   help="how many starts to print (default 3)")
+    p.set_defaults(func=cmd_spawn)
 
     p = sub.add_parser("view", help="render .sob models / .sbw levels to PNG")
     p.add_argument("paths", nargs="+", help=".sob/.sbw files or directories")

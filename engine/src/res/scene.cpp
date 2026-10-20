@@ -152,6 +152,20 @@ void walk(const std::vector<SbtInsn>& insns, Scene& scene) {
                     as_i32(insn.args[static_cast<std::size_t>(6 + k)]);
             }
             scene.switches.push_back(std::move(sw));
+        } else if ((insn.name == "SET_PLAYER_START" ||
+                    insn.name == "SET_DEATHMATCH_START") &&
+                   insn.args.size() >= 7) {
+            SceneSpawn spawn;
+            spawn.slot = as_i32(insn.args[0]);
+            spawn.x = as_i32(insn.args[1]);
+            spawn.y = as_i32(insn.args[2]);
+            spawn.z = as_i32(insn.args[3]);
+            for (int k = 0; k < 3; ++k) {
+                spawn.angles[static_cast<std::size_t>(k)] =
+                    as_f64(insn.args[static_cast<std::size_t>(4 + k)]);
+            }
+            spawn.deathmatch = insn.name == "SET_DEATHMATCH_START";
+            scene.spawns.push_back(std::move(spawn));
         } else if (insn.name == "ADD_NAMED_ITEM" || insn.name == "ADD_NAMED_ITEM_EX" ||
                    insn.name == "ADD_SPRITE_AT_SOURCE" ||
                    insn.name == "ADD_SPRITE_MOVING" ||

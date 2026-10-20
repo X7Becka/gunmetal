@@ -41,7 +41,8 @@ gm_label(cli_headless quick)
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt")
     add_test(NAME cli_scene COMMAND gunmetal --scene level0)
-    set_tests_properties(cli_scene PROPERTIES PASS_REGULAR_EXPRESSION "lights: 29")
+    set_tests_properties(cli_scene PROPERTIES PASS_REGULAR_EXPRESSION
+        "lights: 29;spawns: 8 \\(campaign 8, deathmatch 0\\)")
     gm_label(cli_scene quick)
 endif()
 

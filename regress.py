@@ -453,6 +453,22 @@ def scene_checks(G: str, results: list[bool], out: str,
     got = (cnt["lights"], cnt["locations"], cnt["items"], cnt["sounds"])
     results.append(report("scene / dm1 extraction", got == (60, 8, 1, 21),
                           "dm1: %d lights, %d locations, %d items, %d sounds" % got))
+    # Player starts: SET_PLAYER_START (169) / SET_DEATHMATCH_START (168), laid
+    # out as slot,x,y,z + three f64 angles (docs/PLAYER.md).
+    s0 = scene.load(os.path.join(G, "level0.sbt"))
+    starts0 = [s for s in s0.spawns if s.kind == "campaign" and s.index == 0]
+    ok_start = (len(s0.spawns) == 8 and len(starts0) == 1
+                and starts0[0].pos == (24, -208, 48)
+                and starts0[0].angles == (0.0, 0.0, 0.0))
+    results.append(report("scene / player start (level0)", ok_start,
+                          "8 campaign starts, slot 0 at (24,-208,48), yaw 0"))
+    dm = scene.load(os.path.join(G, "dm1.sbt"))
+    campaign = sum(1 for s in dm.spawns if s.kind == "campaign")
+    deathmatch = sum(1 for s in dm.spawns if s.kind == "deathmatch")
+    results.append(report("scene / deathmatch starts (dm1)",
+                          campaign == 5 and deathmatch == 8,
+                          "dm1: %d campaign %d deathmatch" % (campaign, deathmatch)))
+
     # ADD_SKY_LIGHT_SOURCE is stored as (x, y, z, param, r, g, b) by 0x47e130
     sky = [l for l in sc.lights if l.kind == "sky"]
     results.append(report(

@@ -1553,6 +1553,7 @@ void test_scene() {
     };
 
     std::size_t levels = 0;
+    std::size_t spawn_count = 0;
     std::string error;
     for (const auto& path : paths) {
         std::ifstream in(path, std::ios::binary);
@@ -1579,6 +1580,7 @@ void test_scene() {
         mix_count(scene->doors.size());
         mix_count(scene->switches.size());
         mix_count(scene->entities.size());
+        spawn_count += scene->spawns.size();
         for (const auto& [name, count] : scene->other) {
             mix(name.data(), name.size());
             mix_count(static_cast<std::size_t>(count));
@@ -1586,6 +1588,7 @@ void test_scene() {
     }
     CHECK(levels == 0 || levels == 36);
     CHECK_EQ(hash, 0x9bcf08aeb6ef0ba0ull);
+    CHECK(spawn_count == 0 || spawn_count == 391); // 143 campaign + 248 DM
 
     // Things built by the entity sub-scripts (ADD_THING* conditions).  The full
     // 36-level sweep lives behind --full (CTest test `core_full`): it decodes
@@ -1686,6 +1689,14 @@ void test_scene() {
                 CHECK_EQ(scene->doors.size(), std::size_t{25});
                 CHECK_EQ(scene->switches.size(), std::size_t{24});
                 CHECK_EQ(scene->entities.size(), std::size_t{350});
+                CHECK_EQ(scene->spawns.size(), std::size_t{8});
+                const auto& start = scene->spawns[0];
+                CHECK_EQ(start.slot, 0);
+                CHECK_EQ(start.x, 24);
+                CHECK_EQ(start.y, -208);
+                CHECK_EQ(start.z, 48);
+                CHECK(!start.deathmatch);
+                CHECK(std::abs(start.angles[2]) < 1e-12);
             }
         }
     }

@@ -83,6 +83,17 @@ struct SceneSwitch {
     bool absolute() const { return true; }
 };
 
+/// ``SET_PLAYER_START`` (169) / ``SET_DEATHMATCH_START`` (168):
+/// u32 slot, s32 x/y/z, three f64 angles (``angles[2]`` is camera yaw).
+struct SceneSpawn {
+    int slot = 0;
+    int x = 0;
+    int y = 0;
+    int z = 0;
+    std::array<double, 3> angles{};
+    bool deathmatch = false;
+};
+
 /// A thing built by an ``ADD_THING*`` condition inside an entity sub-script
 /// (gm/scene.py's ``Thing``; names/models need THING_TYPES/SOB_TABLE).
 struct SceneThing {
@@ -117,6 +128,7 @@ struct Scene {
     std::vector<SceneSwitch> switches;
     std::vector<SceneEntity> entities;
     std::vector<SceneThing> things;
+    std::vector<SceneSpawn> spawns;
     std::map<std::string, int> other; // placement commands not decoded yet
 };
 
