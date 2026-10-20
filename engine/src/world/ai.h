@@ -53,7 +53,7 @@ struct AiConfig {
     double return_speed = 200.0;       ///< world units / second while returning
     double health = 100.0;             ///< per-agent hit points; original max is +0x1d4 (0 = immune)
     bool use_thing_fields = false;     ///< opt-in: use Thing's THING_TYPES copy
-    double max_dt = 0.25;              ///< larger tick arguments are clamped
+    double max_dt = 181.0 / 91.0;      ///< 0x470b20 clamps dt to 181 ticks (~1.99 s)
     double los_skin = 1e-3;            ///< "still visible" tolerance at the target
 };
 

@@ -336,8 +336,12 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
         weapon.id = as_uint(v[7]);
 
         weapon.fire_mode = static_cast<int>(as_uint(v[0]));
-        weapon.fire_period_ms = static_cast<int>(as_uint(v[1]));
-        weapon.fire_ticks = fire_ticks_from_ms(weapon.fire_period_ms);
+        // d1 -> weapon[+0x2c] is already a cooldown in fixed ticks: 0x445f02
+        // stores it into player[0x3318] and 0x4453d0 subtracts dt directly.
+        weapon.fire_ticks = static_cast<int>(as_uint(v[1]));
+        weapon.fire_period_ms = weapon.fire_ticks > 0
+                                    ? (weapon.fire_ticks * 1000 + 45) / 91
+                                    : 0;
         weapon.ammo_type = static_cast<int>(as_uint(v[2]));
         weapon.ammo_per_shot = static_cast<int>(as_uint(v[3]));
 
@@ -358,7 +362,7 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
             return fail(weapon.name + ": fire mode " +
                         std::to_string(weapon.fire_mode) + " is outside 0..5");
         }
-        if (weapon.fire_period_ms < 0) {
+        if (weapon.fire_ticks < 0) {
             return fail(weapon.name + ": negative fire period");
         }
         if (weapon.ammo_per_shot <= 0) {

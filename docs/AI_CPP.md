@@ -141,7 +141,7 @@ LOS: луч из `position + (0,0,eye_height)` в eye игрока, `max_t = dis
 `visible = false`.
 
 Валидация: `dt` ≤ 0 / NaN / inf игнорируется (`ignored_ticks`); `dt >
-max_dt` зажимается (`clamped_ticks`); `set_player`/`place` с NaN/inf
+max_dt` зажимается (`clamped_ticks`; оригинал — 1..181 тик, ~1.99 с); `set_player`/`place` с NaN/inf
 возвращают `false`; `damage` с NaN/0/отрицательным числом отклоняется. В
 состоянии нет OOB-индексов: `agent(id)` — линейный поиск, массивы не
 адресуются чужими id.
@@ -167,7 +167,7 @@ state machine — следующий шаг. Все числа ниже — **г
 | `attack_period` | 0.75 | hypothesis | период события атаки; `+0x1d0` — не период, а лаг истории цели, поэтому он не подходит |
 | `return_speed` | 200 | hypothesis | скорость возврата, не ориентация движения `+0x1b4` |
 | `health` | 100 | hypothesis | fallback; при `use_thing_fields=true` берётся `Thing::max_health` (`+0x1d4`), 0 = иммунитет |
-| `max_dt` | 0.25 | hypothesis | защита от «огромного dt» |
+| `max_dt` | `181/91 ≈ 1.989` | **proven** | `0x470bfd..0x470c0f` зажимает dt к 1..181 **тикам** (`0x44db80`: 91 тик = 1 с); C++-тик в секундах |
 | `los_skin` | 1e-3 | hypothesis | допуск на конечную точку луча |
 
 `AiConfig::use_thing_fields` (по умолчанию `false`) включает реальные поля:

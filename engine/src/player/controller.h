@@ -61,7 +61,7 @@ struct ControllerConfig {
     double gravity = 700.0;       ///< synthetic; the original uses a 0x80f840-scaled suspension, not a scalar g
     double accel = 10.0;          ///< ground acceleration, 1/s
     double friction = 8.0;        ///< ground friction, 1/s
-    double max_speed = 1.70 * 91.0; ///< 154.7: LIGHT op4 * 91, unit conversion is still a hypothesis
+    double max_speed = 1.70 * 91.0; ///< 154.7: LIGHT op4 (units/tick) * 91 ticks/s
     double step_height = 3.0;     ///< max step-up and step-down snap
     double dt = 1.0 / 91.0;       ///< fixed tick length (seconds)
     double jump_speed = 200.0;    ///< take-off vertical speed

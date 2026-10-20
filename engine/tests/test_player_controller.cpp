@@ -476,6 +476,29 @@ void test_speed_limit() {
     CHECK_NEAR(clamped_speed, config.max_speed, 1e-9);
 }
 
+void test_speed_unit_is_per_tick() {
+    gm::ControllerConfig config;
+    CHECK(config.dt == 1.0 / 91.0);
+    CHECK_NEAR(config.max_speed, 1.70 * 91.0, 1e-12);
+    CHECK_NEAR(config.max_speed * config.dt, 1.70, 1e-12);
+
+    // 91 ticks = one second (0x44db80: 0x5b ticks -> +1 s).  With no friction
+    // and instant acceleration the path is op4 * 91 = 154.7 world units.
+    const gm::CollisionWorld world = build_world(floor_quad(0.0));
+    gm::PlayerState state = gm::make_state({0.0, 0.0, 0.0}, 0.0, config);
+    gm::Input input;
+    input.forward = 1.0;
+    config.accel = 1e9;
+    config.friction = 0.0;
+    const double y0 = state.pos.y;
+    for (int i = 0; i < 91; ++i) {
+        const gm::StepResult result = gm::step(state, input, world, config);
+        CHECK(result.ok);
+        state = result.state;
+    }
+    CHECK_NEAR(state.pos.y - y0, 154.7, 1.8);
+}
+
 void test_no_tunnelling() {
     std::vector<TriSpec> specs = floor_quad(0.0);
     const std::vector<TriSpec> wall = wall_x(0.0, -10.0, 10.0);
@@ -709,6 +732,7 @@ int main() {
     test_crouch_ceiling();
     test_ceiling();
     test_speed_limit();
+    test_speed_unit_is_per_tick();
     test_no_tunnelling();
     test_determinism();
     test_negatives();

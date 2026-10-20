@@ -753,9 +753,9 @@ struct GoldenSave {
 };
 
 constexpr std::array<GoldenSave, 2> kSaves = {{
-    {"saved0.sbt", 0, {{2000, 90}}, 2, 7000.0, 1999, -0.2421790113617004,
+    {"saved0.sbt", 0, {{2000, 90}}, 17, 7000.0, 1999, -0.2421790113617004,
      -0.646618239477736, 4.0, true},
-    {"saved1.sbt", 1, {{1975, 87}}, 8, 8000.0, 86, 0.26468357609715865,
+    {"saved1.sbt", 1, {{1975, 87}}, 80, 8000.0, 86, 0.26468357609715865,
      0.61488239516758347, 15.0, true},
 }};
 
@@ -805,8 +805,8 @@ void test_real_tables(const gm::Weapons& table) {
         CHECK_EQ(mg->icon, std::string("WICON1"));
         CHECK_EQ(mg->id, std::uint32_t(0xffff8ab5u));
         CHECK_EQ(mg->fire_mode, 1);
-        CHECK_EQ(mg->fire_period_ms, 17);
-        CHECK_EQ(mg->fire_ticks, 2);
+        CHECK_EQ(mg->fire_period_ms, 187);
+        CHECK_EQ(mg->fire_ticks, 17);
         CHECK_EQ(mg->ammo_type, 0);
         CHECK_EQ(mg->ammo_per_shot, 1);
         CHECK_EQ(mg->projectile_id, std::uint32_t(1000000));
@@ -833,8 +833,8 @@ void test_real_tables(const gm::Weapons& table) {
         CHECK_EQ(cannon->name, std::string("CANNON"));
         CHECK_EQ(cannon->icon, std::string("WICON3"));
         CHECK_EQ(cannon->fire_mode, 1);
-        CHECK_EQ(cannon->fire_period_ms, 80);
-        CHECK_EQ(cannon->fire_ticks, 8);
+        CHECK_EQ(cannon->fire_period_ms, 879);
+        CHECK_EQ(cannon->fire_ticks, 80);
         CHECK_EQ(cannon->ammo_type, 1);
         CHECK_EQ(cannon->price, std::uint32_t(50000));
         CHECK_EQ(cannon->weight, std::uint32_t(600));

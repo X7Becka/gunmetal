@@ -11,14 +11,13 @@
 //
 // Proven data (`docs/WEAPONS_CPP.md` §2):
 //   * `DEFINE_WEAPONS` record fields d0..d20 -> Weapon (fire mode, period in
-//     ms, ammo type, ammo per shot, GENERATE/event ids, range, spread tangents,
-//     muzzle node, price, weight, flags, class, charge rate);
+//     ticks, ammo type, ammo per shot, GENERATE/event ids, range, spread
+//     tangents, muzzle node, price, weight, flags, class, charge rate);
 //   * `player+0x3294` = selected slot, `+0x3298` = `1 << slot` mask,
 //     `+0x329c[12]` = ammo per slot (docs/SAVE_FIELDS.md §9.2);
 //   * the original fire path sets `player[0x3318] = weapon[+0x2c]` and
-//     decrements it by `dt` in milliseconds (`0x4453f8`..`0x44540c`), so the
-//     table period is milliseconds, not ticks.  `fire_ticks` is the fixed-tick
-//     quantisation of that period.
+//     subtracts the fixed tick `dt` (`0x4453f8`..`0x44540c`); `+0x2c` is
+//     already in ticks.  MG `17` = 17 ticks (~187 ms), not 17 ms.
 //
 // Hypotheses (no field exists in the shipped data, see §3 of the doc):
 //   * `magazine` / `reload_ticks` / `damage` / `hitscan` / `projectile_speed`.
@@ -75,9 +74,10 @@ constexpr std::uint64_t kWeaponSeed = 0x243f6a8885a308d3ULL;
 /// One `DEFINE_WEAPONS` record mapped to the runtime fields.
 ///
 /// Field provenance: `docs/FORMATS.md` §12.3 (consumer `0x450be0`) and
-/// `docs/SHAKE.md` §7.1.  `fire_period_ms` is the raw file value; `fire_ticks`
-/// is derived.  `magazine`, `reload_ticks`, `damage`, `hitscan` and
-/// `projectile_speed` have no shipped-data source and are marked in the doc.
+/// `docs/SHAKE.md` §7.1.  `fire_ticks` is the raw `+0x2c` value (fixed
+/// ticks); `fire_period_ms` is its display conversion, `round(ticks*1000/91)`.
+/// `magazine`, `reload_ticks`, `damage`, `hitscan` and `projectile_speed` have
+/// no shipped-data source and are marked in the doc.
 struct Weapon {
     std::string name;       ///< strings[0], e.g. "MACHINE GUN"
     std::string icon;       ///< strings[2], e.g. "WICON1"
@@ -85,8 +85,8 @@ struct Weapon {
     std::uint32_t id = 0;   ///< d7 -> +0x4c (0xffff8ab5 in the shipped data)
 
     int fire_mode = 0;      ///< d0 -> +0x24, switch at 0x445ac0 (0/1/4/5)
-    int fire_period_ms = 0; ///< d1 -> +0x2c, cooldown in milliseconds
-    int fire_ticks = 0;     ///< ceil(fire_period_ms * 91 / 1000), fixed tick
+    int fire_period_ms = 0; ///< display ms, round(fire_ticks*1000/91)
+    int fire_ticks = 0;     ///< d1 -> +0x2c, cooldown in fixed ticks
     int ammo_type = -1;     ///< d2 -> +0x3c, index into ammo_types()
     int ammo_per_shot = 1;  ///< d3 -> +0x40
 
