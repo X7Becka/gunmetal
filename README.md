@@ -227,10 +227,18 @@ python3 gm.py sbv      out/intro_raw out/intro.sbv                     # соб�
 ## Регрессия
 
 ```bash
-python3 regress.py            # быстрые проверки (парсинг всех уровней и т.д.)
-python3 regress.py --full     # плюс распаковка текстур/спрайтов/звуков/frontend
+python3 regress.py            # все быстрые проверки (113)
+python3 regress.py --full     # плюс распаковка и тяжёлые проверки (121)
+python3 regress.py --list-categories
+python3 regress.py --category save          # только сохранения
+python3 regress.py --category render,scene  # несколько категорий
+python3 regress.py --category film --full   # тяжёлые проверки категории
 python3 regress.py --game "…/Gunmetal 3dfx" --out /tmp/opencode/regress
 ```
+
+Категории разбивают быстрый набор без пересечений: сумма их счётчиков равна
+113 (полный — 121). `--category` можно повторять или перечислять через запятую;
+`all` снимает фильтр, `extract` автоматически включает `--full`.
 
 Скрипт прогоняет `gm.py` по всем семействам данных и сверяет итоговые строки
 (количества и «0 failed»). Ненулевой код возврата — регрессия. Всё пишется в

@@ -23,6 +23,42 @@
 скриптовая ВМ и сцена, сохранения (игрок, оружие/патроны, цепочка блоков,
 `--set`), `.sml/.sme`, кампания, шасси, вещи, мелкие форматы, инвентарь.
 
+### Категории регрессии
+
+`python3 regress.py --category CAT` запускает только выбранную группу; фильтр
+повторяемый и принимает список через запятую. Быстрые категории не пересекаются
+и в сумме дают 113; полный набор — 121. `--full` включает тяжёлые проверки
+внутри выбранных категорий, `extract` включает его автоматически, `all` снимает
+фильтр (поведение по умолчанию).
+
+| категория | quick | full | что проверяет |
+|---|---:|---:|---|
+| `archives` | 6 | 6 | BIGFILE-листинги и инвентарь установки |
+| `trust` | 6 | 6 | битые входы, fuzz, защита выходного каталога |
+| `config` | 2 | 2 | `GUNMETAL.CFG`, opaque `CONTROLS.CFG` |
+| `repack` | 2 | 2 | extract/pack/set на поставочном BIGFILE |
+| `write` | 2 | 2 | SBM: blob и PNG→SBM |
+| `render` | 11 | 11 | рендер, culling, near-plane, lightmaps |
+| `level` | 12 | 12 | `.sbw/.sbt/.sbc`, rebuild, остаточные поля |
+| `audio` | 6 | 7 | SOU/SOU1/SOU2, музыка, SOG |
+| `models` | 7 | 8 | SOB/SOE, thing types, шасси |
+| `anim` | 7 | 7 | SOO/SOA, таймлайн 91 Гц |
+| `scene` | 15 | 15 | things, старты, двери, переключатели, лифты |
+| `video` | 7 | 7 | SBV-контейнер и пиксельный кодек |
+| `look` | 2 | 2 | `LOOK16`/`LOOK162` |
+| `save` | 9 | 9 | SAVE, `--set`, savegame-раскладка |
+| `ui` | 6 | 6 | SML/SME, теги, экраны |
+| `film` | 5 | 6 | SOF/FDX, тайлы, APNG, parity |
+| `vm` | 4 | 5 | SCRIPT-VM, record writers, corpus |
+| `campaign` | 1 | 1 | карта переходов |
+| `entities` | 1 | 1 | entity table / ADD_THING |
+| `names` | 1 | 1 | карта адресов движка |
+| `misc` | 1 | 1 | мелкие форматы и CFG |
+| `extract` | 0 | 4 | текстуры/спрайты/звуки/frontend |
+
+Примеры: `--category save` (~10 с), `--category render,scene` (~20 с),
+`--category film --full` (~21 с), `--category extract` (~28 с).
+
 ## Манифест установки (`gm.py manifest`)
 
 `docs/manifests/gunmetal-3dfx-136.sha256` — 2161 игровой файл (373.7 MiB),

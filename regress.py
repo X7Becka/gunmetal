@@ -5,12 +5,19 @@ Runs the ``gm.py`` CLI against an installation and checks the summary lines
 (counts and "0 failed").  Every shipped level/asset family is exercised, so a
 format module that stops parsing (or a byte-offset regression) is caught here.
 
-    python3 regress.py                       # fast checks
-    python3 regress.py --full                # also extract textures/sounds/sprites
+    python3 regress.py                       # all fast checks
+    python3 regress.py --full                # all checks, including extraction
+    python3 regress.py --list-categories     # category names
+    python3 regress.py --category save       # only the save checks
+    python3 regress.py --category render,scene
+    python3 regress.py --category film --full
     python3 regress.py --game "D:/games/Gunmetal 3dfx" --out /tmp/opencode/regress
 
-Exit code is 0 only when every check passes.  Nothing in the game directory is
-written; all output goes to ``--out``.
+Categories partition the quick suite exactly: every check belongs to one
+category, so the category runs add up to the same 113/121 total.  ``--full``
+enables the heavy checks inside the selected categories; the ``extract``
+category implies it.  Exit code is 0 only when every selected check passes.
+Nothing in the game directory is written; all output goes to ``--out``.
 """
 
 from __future__ import annotations
@@ -32,6 +39,39 @@ GM = os.path.join(HERE, "gm.py")
 DEFAULT_GAME = "/mnt/d/games/Gunmetal 3dfx"
 FORCE = ["--force"]
 T0 = time.time()
+
+# A category groups checks with the same inputs and failure mode.  ``--category``
+# runs only the selected groups; the default (empty set) still runs everything.
+CATEGORIES = {
+    "archives": "BIGFILE listings and the installation inventory",
+    "trust": "malformed input, fuzz matrix and output guards",
+    "config": "GUNMETAL.CFG and the opaque CONTROLS.CFG",
+    "repack": "extract/pack/set on a shipped BIGFILE",
+    "write": "in-process SBM writer round-trips",
+    "render": "software renderer, culling and golden PNGs",
+    "level": "SBW/SBT/SBC readers, rebuilds and residual fields",
+    "audio": "SOU/SOU1/SOU2 decoders, music and SOG",
+    "models": "SOB/SOE models, thing types and chassis",
+    "anim": "SOO/SOA playback and 91 Hz timelines",
+    "scene": "scripted things, starts, doors, switches and lifts",
+    "video": "SBV container and pixel codec",
+    "look": "LOOK16/LOOK162 tables",
+    "save": "SAVE fields, writer, patching and savegame layout",
+    "ui": "SML/SME markup, tags and screens",
+    "film": "SOF/FDX films, tiles and APNG",
+    "vm": "SBT SCRIPT VM and record writers",
+    "campaign": "campaign/deathmatch transition map",
+    "entities": "entity table and ADD_THING operands",
+    "names": "engine address map",
+    "misc": "small formats and CFG containers",
+    "extract": "full texture/sprite/sound/frontend extraction (implies --full)",
+}
+ONLY: set[str] = set()
+
+
+def want(*categories: str) -> bool:
+    """True when *any* of the categories is in the selected scope."""
+    return not ONLY or bool(ONLY.intersection(categories))
 
 
 def stamp() -> str:
@@ -55,6 +95,8 @@ def run(args: list[str]) -> tuple[int, str]:
 
 def config_checks(G: str, results: list[bool]) -> None:
     """GUNMETAL.CFG field map and the opaque CONTROLS.CFG container."""
+    if not want("config"):
+        return
     rc, text = run_raw(["misc", os.path.join(G, "GUNMETAL.CFG"), "--json"])
     rows = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
     row = rows[0] if rows else {}
@@ -74,8 +116,10 @@ def config_checks(G: str, results: list[bool]) -> None:
                           "av1.91, unread by gundx.exe"))
 
 
-def security_checks(G: str, results: list[bool], out: str) -> None:
+def trust_checks(G: str, results: list[bool], out: str) -> None:
     """Trust-boundary checks: malformed input fails cleanly, outputs are guarded."""
+    if not want("trust"):
+        return
     audit = os.path.join(out, "audit")
     shutil.rmtree(audit, ignore_errors=True)
     os.makedirs(audit)
@@ -131,6 +175,19 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           rc1 == 0 and rc2 != 0 and "refusing to overwrite" in text2
                           and rc3 == 0, "needs --force"))
 
+    # The full hostile-input matrix lives in its own tool; run the cheap pass.
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
+                        "--game", G, "--quick"], capture_output=True, text=True, cwd=HERE)
+    results.append(report("trust / malformed-input fuzz matrix",
+                          p.returncode == 0, p.stdout.strip().splitlines()[0]
+                          if p.stdout.strip() else "no output"))
+
+
+def audio_checks(G: str, results: list[bool], out: str) -> None:
+    """SOU container, SOU1/SOU2 parity and one end-to-end music export."""
+    if not want("audio"):
+        return
+
     # .sou container stats and rebuild.
     rc, text = run_raw(["sou", os.path.join(G, "sounds", "SOU.IDX"), "--json"])
     try:
@@ -164,12 +221,22 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           and open(wav, "rb").read(4) == b"RIFF",
                           "DM1A01.wav"))
 
-    # Renderer variants (mip/bilinear/alpha) keep the default golden hashes.
+
+def render_variant_checks(results: list[bool]) -> None:
+    """Renderer mip/bilinear/alpha variants keep the default golden hashes."""
+    if not want("render"):
+        return
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "parity_mip.py")],
                        capture_output=True, text=True, cwd=HERE)
     results.append(report("render / mip+bilinear+alpha variants",
                           p.returncode == 0,
                           (p.stdout.strip().splitlines() or ["no output"])[-1]))
+
+
+def anim_smoke_checks(G: str, results: list[bool], out: str) -> None:
+    """SOO playback/morphing; the SOA timeline lives in main()."""
+    if not want("anim"):
+        return
 
     # .soo playback: mode 1 wraps, frame_at mirrors the engine interpolator.
     rc, text = run_raw(["soo", os.path.join(G, "Sobanim", "Cultist.soo"),
@@ -193,78 +260,87 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           and "anim mode=1" in text2,
                           "Cultist frame 0 vs 1000 ms differ"))
 
-    # .soe/THING_TYPES field map: 77 fields, 36 proven by loader/consumers.
-    rc, text = run_raw(["soe", "--fields"])
-    ok = (rc == 0 and "soe fields: 77" in text
-          and "proven 36" in text and "0x1a4" in text)
-    results.append(report("soe / THING_TYPES field map", ok,
-                          "77 fields: 36 proven, 25 hypothesis, 16 unknown"))
 
-    # .sob writer: 672/672 semantic + raw round-trip, canonical writer.
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "sob_writer.py"),
-                        "--self-test"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("sob / writer self-test", p.returncode == 0,
-                          (p.stdout.strip().splitlines() or ["no output"])[-1]))
-    # SECTOR_STUFF/ITEM/LIFT field round-trip and trust edge cases.
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "records.py"),
-                        "--self-test"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("records / SECTOR_STUFF+ITEM+LIFT fields",
-                          p.returncode == 0,
-                          (p.stdout.strip().splitlines() or ["no output"])[-1]))
-    # SML/SME semantics: 300 files, 147 pairs, screen/asset tables.
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "ui_semantics.py"),
-                        "--check"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("sml / UI semantics (300 files)",
-                          p.returncode == 0 and "check: OK" in p.stdout,
-                          "131 identical pairs, 14 revisions, 2 line-ending cases"))
-    # Shake/recoil formulas are pure math; the self-test needs no game data.
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "shake.py"),
-                        "--selftest"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("shake / view-pitch and recoil model",
-                          p.returncode == 0 and "40/40" in p.stdout,
-                          "triangle wave, clamp, impulse/decay, recoil"))
+def asset_self_checks(G: str, results: list[bool]) -> None:
+    """Small self-tests grouped by the asset family they cover."""
+    if want("models"):
+        # .soe/THING_TYPES field map: 77 fields, 36 proven by loader/consumers.
+        rc, text = run_raw(["soe", "--fields"])
+        ok = (rc == 0 and "soe fields: 77" in text
+              and "proven 36" in text and "0x1a4" in text)
+        results.append(report("soe / THING_TYPES field map", ok,
+                              "77 fields: 36 proven, 25 hypothesis, 16 unknown"))
 
-    # Save fields: 2 shipped saves, 83 proven / 31 hypothesis / 14 unknown.
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "save_fields.py"),
-                        "--check"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("save / field map and shipped saves",
-                          p.returncode == 0 and "2/2 files clean" in p.stdout,
-                          "83 proven, 31 hypothesis, 14 unknown"))
+        # .sob writer: 672/672 semantic + raw round-trip, canonical writer.
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "sob_writer.py"),
+                            "--self-test"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("sob / writer self-test", p.returncode == 0,
+                              (p.stdout.strip().splitlines() or ["no output"])[-1]))
 
-    # Recursive/executed scene things (opt-in; default counts unchanged).
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "nested_things.py"),
-                        "--self-test"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("scene / nested things model", p.returncode == 0
-                          and "15 tests, 0 failed" in p.stdout,
-                          "4008 top-level / 7563 recursive / 7617 executed"))
-    # SCRIPT VM executor and structural .sbt record writers.
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "vm_exec.py"),
-                        "--selftest"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("vm / executor self-test", p.returncode == 0
-                          and "17 tests, 0 failed" in p.stdout,
-                          "17 tests: IF/ELSE, GENERATE, limits, unknown opcode"))
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "records.py"),
-                        "--check"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("sbt / all record writers", p.returncode == 0
-                          and "38/38 file(s) byte-exact" in p.stdout,
-                          "38 files, 289 records byte-exact"))
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "sbv_codec.py"),
-                        "--self-test"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("sbv / pixel codec self-test", p.returncode == 0
-                          and "26/26 self-test" in p.stdout,
-                          "YUV planes, entropy blocks, 26 trust cases"))
-    rc, text = run_raw(["sbv", os.path.join(G, "Vid", "Intro.sbv"),
-                        "--verify", "--frames", "0"])
-    results.append(report("sbv / frame encode/decode", rc == 0
-                          and "pixel round-trip 1/1" in text,
-                          "Intro frame 0 planes exact"))
+    if want("ui"):
+        # SML/SME semantics: 300 files, 147 pairs, screen/asset tables.
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "ui_semantics.py"),
+                            "--check"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("sml / UI semantics (300 files)",
+                              p.returncode == 0 and "check: OK" in p.stdout,
+                              "131 identical pairs, 14 revisions, 2 line-ending cases"))
 
-    # The full hostile-input matrix lives in its own tool; run the cheap pass.
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fuzz_formats.py"),
-                        "--game", G, "--quick"], capture_output=True, text=True, cwd=HERE)
-    results.append(report("trust / malformed-input fuzz matrix",
-                          p.returncode == 0, p.stdout.strip().splitlines()[0]
-                          if p.stdout.strip() else "no output"))
+    if want("scene"):
+        # Shake/recoil formulas are pure math; the self-test needs no game data.
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "shake.py"),
+                            "--selftest"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("shake / view-pitch and recoil model",
+                              p.returncode == 0 and "40/40" in p.stdout,
+                              "triangle wave, clamp, impulse/decay, recoil"))
+
+        # Recursive/executed scene things (opt-in; default counts unchanged).
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "nested_things.py"),
+                            "--self-test"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("scene / nested things model", p.returncode == 0
+                              and "15 tests, 0 failed" in p.stdout,
+                              "4008 top-level / 7563 recursive / 7617 executed"))
+
+    if want("save"):
+        # Save fields: 2 shipped saves, 83 proven / 31 hypothesis / 14 unknown.
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "save_fields.py"),
+                            "--check"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("save / field map and shipped saves",
+                              p.returncode == 0 and "2/2 files clean" in p.stdout,
+                              "83 proven, 31 hypothesis, 14 unknown"))
+
+    if want("vm"):
+        # SCRIPT VM executor and structural .sbt record writers.
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "vm_exec.py"),
+                            "--selftest"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("vm / executor self-test", p.returncode == 0
+                              and "17 tests, 0 failed" in p.stdout,
+                              "17 tests: IF/ELSE, GENERATE, limits, unknown opcode"))
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "records.py"),
+                            "--check"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("sbt / all record writers", p.returncode == 0
+                              and "38/38 file(s) byte-exact" in p.stdout,
+                              "38 files, 289 records byte-exact"))
+        # SECTOR_STUFF/ITEM/LIFT field round-trip and trust edge cases.
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "records.py"),
+                            "--self-test"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("records / SECTOR_STUFF+ITEM+LIFT fields",
+                              p.returncode == 0,
+                              (p.stdout.strip().splitlines() or ["no output"])[-1]))
+
+    if want("video"):
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "sbv_codec.py"),
+                            "--self-test"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("sbv / pixel codec self-test", p.returncode == 0
+                              and "26/26 self-test" in p.stdout,
+                              "YUV planes, entropy blocks, 26 trust cases"))
+        rc, text = run_raw(["sbv", os.path.join(G, "Vid", "Intro.sbv"),
+                            "--verify", "--frames", "0"])
+        results.append(report("sbv / frame encode/decode", rc == 0
+                              and "pixel round-trip 1/1" in text,
+                              "Intro frame 0 planes exact"))
 
 
 # --- process-pool worker for the 36-level sweeps ---------------------------
@@ -381,6 +457,8 @@ def report(name: str, ok: bool, detail: str = "") -> bool:
 
 def render_checks(G: str, results: list[bool], out: str, full: bool = False) -> None:
     """Model/level rendering: deterministic PNGs with a sane coverage."""
+    if not want("render"):
+        return
     sys.path.insert(0, HERE)
     from gm import png, render, sbw, sob
 
@@ -496,6 +574,8 @@ def sbv_checks(G: str, results: list[bool], out: str) -> None:
     table can be regenerated from the block sizes and the file comes back byte
     for byte.  Both the in-process writer and the CLI raw-block path are pinned.
     """
+    if not want("video"):
+        return
     sys.path.insert(0, HERE)
     from gm import sbv
 
@@ -531,6 +611,8 @@ def scene_checks(G: str, results: list[bool], out: str,
     ``main`` already needed for the ADD_THING check; it is computed here when
     the caller has none.
     """
+    if not want("scene"):
+        return
     sys.path.insert(0, HERE)
     from gm import render, sbt, sbtvm, sbw, scene
 
@@ -650,87 +732,99 @@ def scene_checks(G: str, results: list[bool], out: str,
 
 
 def write_path_checks(G: str, results: list[bool], out: str) -> None:
-    """In-process round-trip checks for the writers (sbm blobs, png->sbm)."""
+    """In-process round-trip checks for the writers (sbm blobs, level records)."""
+    if not want("write", "level", "vm", "models", "anim", "audio"):
+        return
     sys.path.insert(0, HERE)
-    from gm import bigfile, sbm, png, palette
 
-    pal = palette.installed(G)
-    bad = n = 0
-    for rel in ("PICS/SBM.IDX", "sprites/SBM.IDX"):
-        bf = bigfile.BigFile(os.path.join(G, rel))
-        dat = open(bf.dat_path, "rb").read()
-        for e in bf.entries:
-            blob = e.data(dat)
-            s = sbm.parse(blob)
-            n += 1
-            if s.to_bytes() != blob:
-                bad += 1
-    results.append(report("sbm / blob round-trip", bad == 0, f"{n} blobs byte-identical"))
-
-    bf = bigfile.BigFile(os.path.join(G, "sprites/SBM.IDX"))
-    dat = open(bf.dat_path, "rb").read()
-    bad = 0
-    sample = bf.entries[:48]
-    for e in sample:
-        blob = e.data(dat)
-        s = sbm.parse(blob)
-        img = png.decode(s.to_png(pal))          # indexed PNG preserves indices
-        re = sbm.encode(s.width, s.height, img.pixels, levels=s.levels, flags=s.flags)
-        if re != blob:
-            bad += 1
-    results.append(report("sbm / png->sbm round-trip", bad == 0,
-                          f"{len(sample)} sprites byte-identical"))
-
-    # sbw: re-serialise every level and compare byte-for-byte
-    rb = os.path.join(out, "sbw_rebuild")
-    run(["sbw", *sorted(glob.glob(os.path.join(G, "*.sbw"))), "--rebuild", rb])
-    same = True
-    for p in sorted(glob.glob(os.path.join(G, "*.sbw"))):
-        rp = os.path.join(rb, os.path.basename(p))
-        if not os.path.exists(rp) or open(rp, "rb").read() != open(p, "rb").read():
-            same = False
-            break
-    results.append(report("sbw / rebuild round-trip", same, "36 files byte-identical"))
-
-    # sbt: re-serialise + structured re-encode of the modelled records
     from gm import sbt as sbtmod
     sbt_paths = sorted(glob.glob(os.path.join(G, "*.sbt")))
-    rb = os.path.join(out, "sbt_rebuild")
-    run(["sbt", G, "--rebuild", rb])
-    same = True
-    for p in sbt_paths:
-        rp = os.path.join(rb, os.path.basename(p))
-        if not os.path.exists(rp) or open(rp, "rb").read() != open(p, "rb").read():
-            same = False
-            break
-    results.append(report("sbt / rebuild round-trip", same, f"{len(sbt_paths)} files byte-identical"))
 
-    enc_ok = enc_tot = 0
-    for p in sbt_paths:
-        s = sbtmod.parse(open(p, "rb").read())
-        for rec in s.records:
-            if rec.type in (4, 5, 15, 16, 17, 20):
-                enc_tot += 1
-                if sbtmod.encode_payload(rec.type, rec.payload) == rec.raw:
-                    enc_ok += 1
-    results.append(report("sbt / structured re-encode", enc_ok == enc_tot and enc_tot > 0,
-                          f"{enc_ok}/{enc_tot} records exact"))
+    if want("write"):
+        from gm import bigfile, sbm, png, palette
 
-    # sbt: SCRIPT (type 11) bytecode must decode to the exact end of every block
-    from gm import sbtvm
-    dec_ok = dec_tot = 0
-    for p in sbt_paths:
-        s = sbtmod.parse(open(p, "rb").read())
-        for rec in s.records_of(11):
-            dec_tot += 1
-            try:
-                _ins, end = sbtvm.decode(rec.payload.code)
-            except ValueError:
-                end = -1
-            if end == len(rec.payload.code):
-                dec_ok += 1
-    results.append(report("sbt / SCRIPT VM decode", dec_ok == dec_tot and dec_tot > 0,
-                          f"{dec_ok}/{dec_tot} code blocks decode to exact end"))
+        pal = palette.installed(G)
+        bad = n = 0
+        for rel in ("PICS/SBM.IDX", "sprites/SBM.IDX"):
+            bf = bigfile.BigFile(os.path.join(G, rel))
+            dat = open(bf.dat_path, "rb").read()
+            for e in bf.entries:
+                blob = e.data(dat)
+                s = sbm.parse(blob)
+                n += 1
+                if s.to_bytes() != blob:
+                    bad += 1
+        results.append(report("sbm / blob round-trip", bad == 0,
+                              f"{n} blobs byte-identical"))
+
+        bf = bigfile.BigFile(os.path.join(G, "sprites/SBM.IDX"))
+        dat = open(bf.dat_path, "rb").read()
+        bad = 0
+        sample = bf.entries[:48]
+        for e in sample:
+            blob = e.data(dat)
+            s = sbm.parse(blob)
+            img = png.decode(s.to_png(pal))      # indexed PNG preserves indices
+            re = sbm.encode(s.width, s.height, img.pixels, levels=s.levels, flags=s.flags)
+            if re != blob:
+                bad += 1
+        results.append(report("sbm / png->sbm round-trip", bad == 0,
+                              f"{len(sample)} sprites byte-identical"))
+
+    if want("level"):
+        # sbw: re-serialise every level and compare byte-for-byte
+        rb = os.path.join(out, "sbw_rebuild")
+        run(["sbw", *sorted(glob.glob(os.path.join(G, "*.sbw"))), "--rebuild", rb])
+        same = True
+        for p in sorted(glob.glob(os.path.join(G, "*.sbw"))):
+            rp = os.path.join(rb, os.path.basename(p))
+            if not os.path.exists(rp) or open(rp, "rb").read() != open(p, "rb").read():
+                same = False
+                break
+        results.append(report("sbw / rebuild round-trip", same,
+                              "36 files byte-identical"))
+
+        # sbt: re-serialise + structured re-encode of the modelled records
+        rb = os.path.join(out, "sbt_rebuild")
+        run(["sbt", G, "--rebuild", rb])
+        same = True
+        for p in sbt_paths:
+            rp = os.path.join(rb, os.path.basename(p))
+            if not os.path.exists(rp) or open(rp, "rb").read() != open(p, "rb").read():
+                same = False
+                break
+        results.append(report("sbt / rebuild round-trip", same,
+                              f"{len(sbt_paths)} files byte-identical"))
+
+        enc_ok = enc_tot = 0
+        for p in sbt_paths:
+            s = sbtmod.parse(open(p, "rb").read())
+            for rec in s.records:
+                if rec.type in (4, 5, 15, 16, 17, 20):
+                    enc_tot += 1
+                    if sbtmod.encode_payload(rec.type, rec.payload) == rec.raw:
+                        enc_ok += 1
+        results.append(report("sbt / structured re-encode",
+                              enc_ok == enc_tot and enc_tot > 0,
+                              f"{enc_ok}/{enc_tot} records exact"))
+
+    if want("vm"):
+        # sbt: SCRIPT (type 11) bytecode must decode to the exact end of every block
+        from gm import sbtvm
+        dec_ok = dec_tot = 0
+        for p in sbt_paths:
+            s = sbtmod.parse(open(p, "rb").read())
+            for rec in s.records_of(11):
+                dec_tot += 1
+                try:
+                    _ins, end = sbtvm.decode(rec.payload.code)
+                except ValueError:
+                    end = -1
+                if end == len(rec.payload.code):
+                    dec_ok += 1
+        results.append(report("sbt / SCRIPT VM decode",
+                              dec_ok == dec_tot and dec_tot > 0,
+                              f"{dec_ok}/{dec_tot} code blocks decode to exact end"))
 
     # text/binary descriptor writers: rebuild every shipped file
     from gm import sbc as sbcmod, soa as soamod, sog as sogmod, soe as soemod
@@ -742,12 +836,14 @@ def write_path_checks(G: str, results: list[bool], out: str) -> None:
         return sorted(found)
 
     cases = [
-        ("sbc", ".sbc", sbcmod.parse),
-        ("soa", ".soa", soamod.parse),
-        ("sog", ".sog", sogmod.parse),
-        ("soe", ".soe", lambda d: soemod.parse_text(d.decode("latin1"))),
+        ("sbc", ".sbc", sbcmod.parse, "level"),
+        ("soa", ".soa", soamod.parse, "anim"),
+        ("sog", ".sog", sogmod.parse, "audio"),
+        ("soe", ".soe", lambda d: soemod.parse_text(d.decode("latin1")), "models"),
     ]
-    for label, ext, parsefn in cases:
+    for label, ext, parsefn, category in cases:
+        if not want(category):
+            continue
         bad = n = 0
         for p in all_ext(G, ext):
             raw = open(p, "rb").read()
@@ -760,6 +856,8 @@ def write_path_checks(G: str, results: list[bool], out: str) -> None:
 
 def sml_checks(G: str, results: list[bool]) -> None:
     """The ``.sme`` cipher: decode matches the ``.sml`` twins and round-trips."""
+    if not want("ui"):
+        return
     sys.path.insert(0, HERE)
     from gm import sml
 
@@ -826,6 +924,8 @@ def sml_checks(G: str, results: list[bool]) -> None:
 
 def sbw_field_checks(G: str, results: list[bool]) -> None:
     """Scan all levels for the invariants behind the residual ``.sbw`` fields."""
+    if not want("level"):
+        return
     sys.path.insert(0, HERE)
     import math
     import struct
@@ -875,6 +975,8 @@ def _s32(v: int) -> int:
 
 def save_checks(G: str, results: list[bool]) -> None:
     """Every installed save must yield its player gauges and its record counts."""
+    if not want("save"):
+        return
     tool = os.path.join(HERE, "tools", "re", "savefile.py")
     saves = sorted(glob.glob(os.path.join(G, "SAVEGAME", "*.sbt")))
     if not saves:
@@ -960,6 +1062,10 @@ def save_checks(G: str, results: list[bool]) -> None:
                               and "9 player" in p.stdout
                               and "2 doors" in p.stdout,
                               "per-block byte counts"))
+
+
+def inventory_check(G: str, results: list[bool]) -> None:
+    """The installation inventory sees every format and BIGFILE container."""
     inv = subprocess.run([sys.executable, GM, "inventory", "--game", G, "--json"],
                          capture_output=True, text=True, cwd=HERE)
     try:
@@ -982,67 +1088,104 @@ def main() -> int:
     ap.add_argument("--out", help="output directory for extraction checks")
     ap.add_argument("--full", action="store_true",
                     help="also extract textures/sounds/sprites/frontend (slow, writes many files)")
+    ap.add_argument("--category", "--only", action="append", default=[],
+                    metavar="CAT",
+                    help="run only these categories (repeatable or comma-separated); "
+                         "see --list-categories")
+    ap.add_argument("--list-categories", action="store_true",
+                    help="print the category names and exit")
     opts = ap.parse_args()
+
+    if opts.list_categories:
+        width = max(len(name) for name in CATEGORIES)
+        for name, description in CATEGORIES.items():
+            print(f"  {name:<{width}}  {description}")
+        return 0
+
+    selected: list[str] = []
+    for item in opts.category:
+        selected.extend(part.strip() for part in item.split(",") if part.strip())
+    unknown = [name for name in selected if name != "all" and name not in CATEGORIES]
+    if unknown:
+        ap.error("unknown category: " + ", ".join(unknown)
+                 + " (use --list-categories)")
+    if "all" not in selected:
+        ONLY.update(selected)
+    if "extract" in ONLY:
+        opts.full = True
 
     G = opts.game
     out = opts.out or os.path.join(tempfile.gettempdir(), "opencode", "regress")
     os.makedirs(out, exist_ok=True)
     results: list[bool] = []
+    if ONLY:
+        print("regress: categories " + ", ".join(sorted(ONLY))
+              + (" (--full)" if opts.full else ""))
 
     def sbw_files() -> list[str]:
         return sorted(glob.glob(os.path.join(G, "*.sbw")))
 
     # --- archives ---------------------------------------------------------
-    results.append(check("archives / PICS",     ["list", f"{G}/PICS/SBM.IDX"],     ["1648 entries"]))
-    results.append(check("archives / sprites",  ["list", f"{G}/sprites/SBM.IDX"],  ["179 entries"]))
-    results.append(check("archives / sounds",   ["list", f"{G}/sounds/SOU.IDX"],   ["999 entries"]))
-    results.append(check("archives / frontend", ["list", f"{G}/FRONTEND/BMP.IDX"], ["143 entries"]))
-    results.append(check("archives / music",    ["list", f"{G}/MUSIC/SOU.IDX"],    ["3092 entries"]))
+    if want("archives"):
+        results.append(check("archives / PICS",     ["list", f"{G}/PICS/SBM.IDX"],     ["1648 entries"]))
+        results.append(check("archives / sprites",  ["list", f"{G}/sprites/SBM.IDX"],  ["179 entries"]))
+        results.append(check("archives / sounds",   ["list", f"{G}/sounds/SOU.IDX"],   ["999 entries"]))
+        results.append(check("archives / frontend", ["list", f"{G}/FRONTEND/BMP.IDX"], ["143 entries"]))
+        results.append(check("archives / music",    ["list", f"{G}/MUSIC/SOU.IDX"],    ["3092 entries"]))
+        inventory_check(G, results)
 
-    security_checks(G, results, out)
+    trust_checks(G, results, out)
+    audio_checks(G, results, out)
+    anim_smoke_checks(G, results, out)
+    render_variant_checks(results)
+    asset_self_checks(G, results)
     config_checks(G, results)
 
     # --- BIGFILE write path: extract -> pack must reproduce the archive ----
-    raw = os.path.join(out, "raw_spr")
-    rep = os.path.join(out, "repack.IDX")
-    run(["extract", f"{G}/sprites/SBM.IDX", raw])
-    run(["pack", rep, raw, "--ext", ".bin"])
-    idx_same = (os.path.exists(rep)
-                and open(rep, "rb").read() == open(f"{G}/sprites/SBM.IDX", "rb").read())
-    dat_same = (os.path.exists(os.path.join(out, "repack.DAT"))
-                and open(os.path.join(out, "repack.DAT"), "rb").read()
-                == open(f"{G}/sprites/SBM.DAT", "rb").read())
-    results.append(report("repack / sprites round-trip", idx_same and dat_same,
-                          "IDX+DAT byte-identical"))
-    mod = os.path.join(out, "mod.IDX")
-    blob = os.path.join(out, "regress_blob.bin")
-    with open(blob, "wb") as f:
-        f.write(b"REGRESS!")
-    rc, _ = run(["set", f"{G}/sprites/SBM.IDX", "REGTEST", blob, mod])
-    ok = rc == 0
-    if ok:
-        rc2, out2 = run(["list", mod])
-        ok = rc2 == 0 and "REGTEST" in out2
-    results.append(report("repack / set adds an entry", ok, "REGTEST present"))
+    if want("repack"):
+        raw = os.path.join(out, "raw_spr")
+        rep = os.path.join(out, "repack.IDX")
+        run(["extract", f"{G}/sprites/SBM.IDX", raw])
+        run(["pack", rep, raw, "--ext", ".bin"])
+        idx_same = (os.path.exists(rep)
+                    and open(rep, "rb").read() == open(f"{G}/sprites/SBM.IDX", "rb").read())
+        dat_same = (os.path.exists(os.path.join(out, "repack.DAT"))
+                    and open(os.path.join(out, "repack.DAT"), "rb").read()
+                    == open(f"{G}/sprites/SBM.DAT", "rb").read())
+        results.append(report("repack / sprites round-trip", idx_same and dat_same,
+                              "IDX+DAT byte-identical"))
+        mod = os.path.join(out, "mod.IDX")
+        blob = os.path.join(out, "regress_blob.bin")
+        with open(blob, "wb") as f:
+            f.write(b"REGRESS!")
+        rc, _ = run(["set", f"{G}/sprites/SBM.IDX", "REGTEST", blob, mod])
+        ok = rc == 0
+        if ok:
+            rc2, out2 = run(["list", mod])
+            ok = rc2 == 0 and "REGTEST" in out2
+        results.append(report("repack / set adds an entry", ok, "REGTEST present"))
 
     # --- in-process writer round-trips -----------------------------------
     write_path_checks(G, results, out)
 
     # --- level formats ----------------------------------------------------
-    results.append(check("sbw / all levels", ["sbw", *sbw_files()], ["sbw: 36 parsed, 0 failed"]))
-    results.append(check("sbt / all levels + resolve", ["sbt", G, "--resolve"],
-                         ["sbt: 36 parsed, 0 failed"]))
-    results.append(check("sbc / all levels",
-                         ["sbc", *sorted(glob.glob(os.path.join(G, "*.sbc"))), out]
-                         + ([] if opts.full else ["--check"]),
-                         ["sbc: 36 files, 0 failed"]))
+    if want("level"):
+        results.append(check("sbw / all levels", ["sbw", *sbw_files()],
+                             ["sbw: 36 parsed, 0 failed"]))
+        results.append(check("sbt / all levels + resolve", ["sbt", G, "--resolve"],
+                             ["sbt: 36 parsed, 0 failed"]))
+        results.append(check("sbc / all levels",
+                             ["sbc", *sorted(glob.glob(os.path.join(G, "*.sbc"))), out]
+                             + ([] if opts.full else ["--check"]),
+                             ["sbc: 36 files, 0 failed"]))
 
     # --- models / animations / audio -------------------------------------
-    results.append(check("sob / models", ["sob", f"{G}/SOBS", out]
-                         + ([] if opts.full else ["--check"]),
-                         ["sob: 672 converted, 0 failed"] if opts.full
-                         else ["sob: 672 parsed, 0 failed"]))
-    if opts.full:
+    if want("models"):
+        results.append(check("sob / models", ["sob", f"{G}/SOBS", out]
+                             + ([] if opts.full else ["--check"]),
+                             ["sob: 672 converted, 0 failed"] if opts.full
+                             else ["sob: 672 parsed, 0 failed"]))
+    if opts.full and want("models"):
         p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
                                                          "sob_writer.py"), "--check"],
                            capture_output=True, text=True, cwd=HERE)
@@ -1050,12 +1193,14 @@ def main() -> int:
                               p.returncode == 0 and "672/672 identical" in p.stdout
                               and "byte-exact via raw        : 672/672" in p.stdout,
                               "semantic + raw byte-exact"))
+    if opts.full and want("audio"):
         p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
                                                          "sou_container.py"), "--check"],
                            capture_output=True, text=True, cwd=HERE)
         results.append(report("sou / 4091-entry rebuild", p.returncode == 0
                               and "4091/4091" in p.stdout,
                               (p.stdout.strip().splitlines() or ["no output"])[-1]))
+    if opts.full and want("vm"):
         p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
                                                          "vm_exec.py"), "--corpus",
                             "--compare"], capture_output=True, text=True, cwd=HERE)
@@ -1065,279 +1210,312 @@ def main() -> int:
     render_checks(G, results, out, opts.full)
     # One shared sweep feeds "all levels decode", the 1.875 world-frame ratio
     # and the ADD_THING check below.
-    level_scans = _pool_map(_scan_level, sorted(glob.glob(os.path.join(G, "*.sbt"))))
+    level_scans = None
+    if want("scene"):
+        level_scans = _pool_map(_scan_level,
+                                sorted(glob.glob(os.path.join(G, "*.sbt"))))
     scene_checks(G, results, out, level_scans)
-    results.append(check("soa / animations", ["soa", G], ["soa: 104 parsed, 0 failed"]))
-    rc, text = run_raw(["soa", os.path.join(G, "anims", "pulsar.soa"),
-                        "--timeline", "--at", "100"])
-    results.append(report("soa / 91 Hz timeline + frame_at",
-                          rc == 0 and "period=32 (29 ticks)" in text
-                          and "at 100 ms (tick 9): frame 7 pulsar8" in text,
-                          "pulsar: 29 ticks, t=9 -> frame 7"))
-    results.append(check("soo / animations", ["soo", f"{G}/Sobanim"],
-                         ["soo: 40 parsed, 0 failed, 8 frame names without a .sob"]))
-    rb = os.path.join(out, "soo")
-    run(["soo", f"{G}/Sobanim", "--rebuild", rb])
-    src = sorted(glob.glob(os.path.join(G, "Sobanim", "*.[sS][oO][oO]")))
-    same = bool(src) and all(
-        os.path.exists(os.path.join(rb, os.path.basename(p)))
-        and open(os.path.join(rb, os.path.basename(p)), "rb").read()
-        == open(p, "rb").read() for p in src)
-    results.append(report("soo / 40 byte-exact round-trips", same,
-                          "Sobanim -> DIR"))
-    p = subprocess.run([sys.executable, GM, "film", f"{G}/Film", "--json"],
-                       capture_output=True, text=True, cwd=HERE)
-    rows = [json.loads(line) for line in p.stdout.splitlines()
-            if line.startswith("{")]
-    ok = (p.returncode == 0 and len(rows) == 48
-          and all(r["bytes"] % 8192 == 0 and r["tiles"] > 0 for r in rows))
-    results.append(report("film / 48 .sof are 8 KB tile-aligned", ok,
-                          "%d films, %d tiles" % (len(rows),
-                                                  sum(r["tiles"] for r in rows))))
-    film_png = os.path.join(out, "film.png")
-    run(["film", f"{G}/Film/AMMO4.SOF", "--frame", "0", "--png", film_png] + FORCE)
-    results.append(report("film / tile export", os.path.exists(film_png)
-                          and os.path.getsize(film_png) > 0, film_png))
-    rc, text = run_raw(["film", os.path.join(G, "Film", "AMMO4.SOF"), "--json"])
-    rows = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
-    body = (rows[0].get("binding") or {}) if rows else {}
-    ok = (rc == 0 and rows and rows[0].get("tiles") == 132
-          and body.get("family") == "AMMO" and body.get("id") == 4
-          and body.get("count") == 131 and body.get("fps") == 24
-          and body.get("extra_tiles") == 1)
-    results.append(report("film / family/index binding", ok,
-                          "AMMO id=4, 131@24, one trailing tile"))
-    film_src = os.path.join(G, "Film", "AMMO4.SOF")
-    film_out = os.path.join(out, "film_rebuild")
-    rc, text = run(["film", film_src, "--rebuild", film_out])
-    same = (os.path.exists(os.path.join(film_out, "AMMO4.SOF"))
-            and os.path.exists(os.path.join(film_out, "ammo.fdx")))
-    if same:
-        with open(film_src, "rb") as a, open(os.path.join(film_out, "AMMO4.SOF"), "rb") as b:
-            same = a.read() == b.read()
-        with open(os.path.join(G, "Film", "ammo.fdx"), "rb") as a, \
-                open(os.path.join(film_out, "ammo.fdx"), "rb") as b:
-            same = same and a.read() == b.read()
-    results.append(report("film / byte-exact rebuild", rc == 0 and same,
-                          "AMMO4.SOF + ammo.fdx"))
-    apng = os.path.join(out, "ammo4.apng")
-    rc, text = run(["film", film_src, "--apng", apng, "--limit-frames", "4"])
-    ok = False
-    if rc == 0 and os.path.exists(apng):
-        blob = open(apng, "rb").read()
-        ok = blob[:8] == b"\x89PNG\r\n\x1a\n" and blob.count(b"fcTL") == 4 \
-            and b"acTL" in blob
-    results.append(report("film / APNG export", ok, "AMMO4: 4 frames"))
-    misc_dir = os.path.join(out, "misc")
-    rc, text = run(["misc", G, "--rebuild", misc_dir] + FORCE)
-    srcs = [os.path.join(G, p) for p in (
-        "PICS/textures.sub", "sprites/sprites.sub", "sounds/sounds.sub",
-        "FRONTEND/KILLED.skk", "FRONTEND/KILLED.skb", "path.sni",
-        "KEYCFG/PERFECT.key", "KEYCFG/SPLIT1.KEY", "KEYCFG/SPLIT2.KEY",
-        "gunmetal.hi", "GUNMETAL.CFG", "CONTROLS.CFG")]
-    same = all(os.path.exists(os.path.join(misc_dir, os.path.basename(p)))
-               and open(os.path.join(misc_dir, os.path.basename(p)), "rb").read()
-               == open(p, "rb").read() for p in srcs)
-    results.append(report("misc / 10 small formats round-trip", rc == 0 and same,
-                          "sub/kk/kb/sni/key/hi"))
-    results.append(check("soe / thing types", ["soe", G], ["soe: 1 parsed, 0 failed"]))
-    results.append(check("sog / songs", ["sog", f"{G}/MUSIC", "--music", f"{G}/MUSIC/SOU.IDX"],
-                         ["sog: 651 songs"]))
+    if want("anim"):
+        results.append(check("soa / animations", ["soa", G],
+                             ["soa: 104 parsed, 0 failed"]))
+        rc, text = run_raw(["soa", os.path.join(G, "anims", "pulsar.soa"),
+                            "--timeline", "--at", "100"])
+        results.append(report("soa / 91 Hz timeline + frame_at",
+                              rc == 0 and "period=32 (29 ticks)" in text
+                              and "at 100 ms (tick 9): frame 7 pulsar8" in text,
+                              "pulsar: 29 ticks, t=9 -> frame 7"))
+        results.append(check("soo / animations", ["soo", f"{G}/Sobanim"],
+                             ["soo: 40 parsed, 0 failed, 8 frame names without a .sob"]))
+        rb = os.path.join(out, "soo")
+        run(["soo", f"{G}/Sobanim", "--rebuild", rb])
+        src = sorted(glob.glob(os.path.join(G, "Sobanim", "*.[sS][oO][oO]")))
+        same = bool(src) and all(
+            os.path.exists(os.path.join(rb, os.path.basename(p)))
+            and open(os.path.join(rb, os.path.basename(p)), "rb").read()
+            == open(p, "rb").read() for p in src)
+        results.append(report("soo / 40 byte-exact round-trips", same,
+                              "Sobanim -> DIR"))
+    if want("film"):
+        p = subprocess.run([sys.executable, GM, "film", f"{G}/Film", "--json"],
+                           capture_output=True, text=True, cwd=HERE)
+        rows = [json.loads(line) for line in p.stdout.splitlines()
+                if line.startswith("{")]
+        ok = (p.returncode == 0 and len(rows) == 48
+              and all(r["bytes"] % 8192 == 0 and r["tiles"] > 0 for r in rows))
+        results.append(report("film / 48 .sof are 8 KB tile-aligned", ok,
+                              "%d films, %d tiles" % (len(rows),
+                                                      sum(r["tiles"] for r in rows))))
+        film_png = os.path.join(out, "film.png")
+        run(["film", f"{G}/Film/AMMO4.SOF", "--frame", "0", "--png", film_png] + FORCE)
+        results.append(report("film / tile export", os.path.exists(film_png)
+                              and os.path.getsize(film_png) > 0, film_png))
+        rc, text = run_raw(["film", os.path.join(G, "Film", "AMMO4.SOF"), "--json"])
+        rows = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
+        body = (rows[0].get("binding") or {}) if rows else {}
+        ok = (rc == 0 and rows and rows[0].get("tiles") == 132
+              and body.get("family") == "AMMO" and body.get("id") == 4
+              and body.get("count") == 131 and body.get("fps") == 24
+              and body.get("extra_tiles") == 1)
+        results.append(report("film / family/index binding", ok,
+                              "AMMO id=4, 131@24, one trailing tile"))
+        film_src = os.path.join(G, "Film", "AMMO4.SOF")
+        film_out = os.path.join(out, "film_rebuild")
+        rc, text = run(["film", film_src, "--rebuild", film_out])
+        same = (os.path.exists(os.path.join(film_out, "AMMO4.SOF"))
+                and os.path.exists(os.path.join(film_out, "ammo.fdx")))
+        if same:
+            with open(film_src, "rb") as a, \
+                    open(os.path.join(film_out, "AMMO4.SOF"), "rb") as b:
+                same = a.read() == b.read()
+            with open(os.path.join(G, "Film", "ammo.fdx"), "rb") as a, \
+                    open(os.path.join(film_out, "ammo.fdx"), "rb") as b:
+                same = same and a.read() == b.read()
+        results.append(report("film / byte-exact rebuild", rc == 0 and same,
+                              "AMMO4.SOF + ammo.fdx"))
+        apng = os.path.join(out, "ammo4.apng")
+        rc, text = run(["film", film_src, "--apng", apng, "--limit-frames", "4"])
+        ok = False
+        if rc == 0 and os.path.exists(apng):
+            blob = open(apng, "rb").read()
+            ok = blob[:8] == b"\x89PNG\r\n\x1a\n" and blob.count(b"fcTL") == 4 \
+                and b"acTL" in blob
+        results.append(report("film / APNG export", ok, "AMMO4: 4 frames"))
+    if want("misc"):
+        misc_dir = os.path.join(out, "misc")
+        rc, text = run(["misc", G, "--rebuild", misc_dir] + FORCE)
+        srcs = [os.path.join(G, p) for p in (
+            "PICS/textures.sub", "sprites/sprites.sub", "sounds/sounds.sub",
+            "FRONTEND/KILLED.skk", "FRONTEND/KILLED.skb", "path.sni",
+            "KEYCFG/PERFECT.key", "KEYCFG/SPLIT1.KEY", "KEYCFG/SPLIT2.KEY",
+            "gunmetal.hi", "GUNMETAL.CFG", "CONTROLS.CFG")]
+        same = all(os.path.exists(os.path.join(misc_dir, os.path.basename(p)))
+                   and open(os.path.join(misc_dir, os.path.basename(p)), "rb").read()
+                   == open(p, "rb").read() for p in srcs)
+        results.append(report("misc / 10 small formats round-trip", rc == 0 and same,
+                              "sub/kk/kb/sni/key/hi"))
+    if want("models"):
+        results.append(check("soe / thing types", ["soe", G],
+                             ["soe: 1 parsed, 0 failed"]))
+    if want("audio"):
+        results.append(check("sog / songs",
+                             ["sog", f"{G}/MUSIC", "--music", f"{G}/MUSIC/SOU.IDX"],
+                             ["sog: 651 songs"]))
 
     # --- video / lookup tables -------------------------------------------
-    results.append(check("sbv / Intro header", ["sbv", f"{G}/Vid/Intro.sbv", "--list-only"]))
-    results.append(check("sbv / orient header", ["sbv", f"{G}/Vid/orient.sbv", "--list-only"]))
-    results.append(check("sbv / winner header", ["sbv", f"{G}/Vid/winner.sbv", "--list-only"]))
+    if want("video"):
+        results.append(check("sbv / Intro header",
+                             ["sbv", f"{G}/Vid/Intro.sbv", "--list-only"]))
+        results.append(check("sbv / orient header",
+                             ["sbv", f"{G}/Vid/orient.sbv", "--list-only"]))
+        results.append(check("sbv / winner header",
+                             ["sbv", f"{G}/Vid/winner.sbv", "--list-only"]))
     sbv_checks(G, results, out)
-    results.append(check("look / LOOK16", ["look", f"{G}/LOOK16.TAB"], ["234 distinct"]))
-    results.append(check("look / LOOK162 vs NEONS.PIN",
-                         ["look", f"{G}/LOOK162.TAB", "--neons", f"{G}/NEONS.PIN"],
-                         ["20 distinct", "value-set match: True"]))
-
+    if want("look"):
+        results.append(check("look / LOOK16", ["look", f"{G}/LOOK16.TAB"],
+                             ["234 distinct"]))
+        results.append(check("look / LOOK162 vs NEONS.PIN",
+                             ["look", f"{G}/LOOK162.TAB", "--neons", f"{G}/NEONS.PIN"],
+                             ["20 distinct", "value-set match: True"]))
     # --- residual .sbw fields (fast: parses all 36 levels in ~2 s) --------
     sbw_field_checks(G, results)
     save_checks(G, results)
 
     # --- .sml/.sme markup -------------------------------------------------
     sml_checks(G, results)
-    results.append(check("sml / extract markup + text",
-                         ["sml", f"{G}/SML", os.path.join(out, "sml")],
-                         ["sml: 300 files (151 decoded from .sme, 1 repaired)"]))
+    if want("ui"):
+        results.append(check("sml / extract markup + text",
+                             ["sml", f"{G}/SML", os.path.join(out, "sml")],
+                             ["sml: 300 files (151 decoded from .sme, 1 repaired)"]))
 
     # --- campaign / deathmatch transition map (tools/re/campaign.py) ------
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "campaign.py"),
-                        "--game", G], capture_output=True, text=True, cwd=HERE)
-    rows = [l for l in p.stdout.splitlines()[1:] if l[:1].isalpha()]
-    ok = (p.returncode == 0 and len(rows) == 36
-          and "DM5 - TEMPLE" in p.stdout and "secrt1" in p.stdout)
-    results.append(report("campaign / transition map", ok,
-                          f"{len(rows)} levels, secrt1+temple present"))
+    if want("campaign"):
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "campaign.py"),
+                            "--game", G], capture_output=True, text=True, cwd=HERE)
+        rows = [l for l in p.stdout.splitlines()[1:] if l[:1].isalpha()]
+        ok = (p.returncode == 0 and len(rows) == 36
+              and "DM5 - TEMPLE" in p.stdout and "secrt1" in p.stdout)
+        results.append(report("campaign / transition map", ok,
+                              f"{len(rows)} levels, secrt1+temple present"))
 
     # --- chassis -> craft model (tools/re/chassis_models.py) --------------
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
-                                                     "chassis_models.py"),
-                        "--game", G], capture_output=True, text=True, cwd=HERE)
-    last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
-    ok = p.returncode == 0 and "8 names in SOB_TABLE: 36/36" in last \
-        and "CHEVY: 0/36" in last
-    results.append(report("chassis / craft model resolution", ok, last or "no output"))
+    if want("models"):
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "chassis_models.py"),
+                            "--game", G], capture_output=True, text=True, cwd=HERE)
+        last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
+        ok = p.returncode == 0 and "8 names in SOB_TABLE: 36/36" in last \
+            and "CHEVY: 0/36" in last
+        results.append(report("chassis / craft model resolution", ok,
+                              last or "no output"))
 
     # --- thing type -> model (tools/re/thing_models.py) -------------------
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
-                                                     "thing_models.py"),
-                        "--game", G], capture_output=True, text=True, cwd=HERE)
-    last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
-    ok = p.returncode == 0 and "valid SOB index 2896/2896" in last
-    results.append(report("things / type -> model (+0x1a4)", ok, last or "no output"))
+    if want("models"):
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "thing_models.py"),
+                            "--game", G], capture_output=True, text=True, cwd=HERE)
+        last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
+        ok = p.returncode == 0 and "valid SOB index 2896/2896" in last
+        results.append(report("things / type -> model (+0x1a4)", ok,
+                              last or "no output"))
 
     # --- entity table -> sub-script -> thing type (tools/re/entities.py) -----
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
-                                                     "entities.py"),
-                        "--game", G], capture_output=True, text=True, cwd=HERE)
-    tail = [l.strip() for l in p.stdout.strip().splitlines()[-3:]]
-    ok = (p.returncode == 0 and len(tail) == 3
-          and "blocks ending on the next row 15025/15061" in tail[0]
-          and "ADD_THING type operands: 4005 valid, 3 null (0xffffffff), 0 invalid" in tail[1]
-          and "GENERATE ids in the entity table: 7923/8957" in tail[2])
-    results.append(report("entities / id -> sub-script -> thing type", ok,
-                          "; ".join(tail) or "no output"))
+    if want("entities"):
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "entities.py"),
+                            "--game", G], capture_output=True, text=True, cwd=HERE)
+        tail = [l.strip() for l in p.stdout.strip().splitlines()[-3:]]
+        ok = (p.returncode == 0 and len(tail) == 3
+              and "blocks ending on the next row 15025/15061" in tail[0]
+              and "ADD_THING type operands: 4005 valid, 3 null (0xffffffff), 0 invalid" in tail[1]
+              and "GENERATE ids in the entity table: 7923/8957" in tail[2])
+        results.append(report("entities / id -> sub-script -> thing type", ok,
+                              "; ".join(tail) or "no output"))
     # --- engine address map (tools/re/names.csv) ---------------------------
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
-                                                     "names.py")],
-                       capture_output=True, text=True, cwd=HERE)
-    ok = (p.returncode == 0 and "entries in" in p.stdout
-          and "FAIL" not in p.stderr)
-    results.append(report("names / engine address map validated", ok,
-                          p.stdout.strip().splitlines()[0] if p.stdout else "no output"))
+    if want("names"):
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "names.py")],
+                           capture_output=True, text=True, cwd=HERE)
+        ok = (p.returncode == 0 and "entries in" in p.stdout
+              and "FAIL" not in p.stderr)
+        results.append(report("names / engine address map validated", ok,
+                              p.stdout.strip().splitlines()[0]
+                              if p.stdout else "no output"))
 
     # --- things built by the entity sub-scripts (gm/scene.py) --------------
-    from gm import scene as scenemod
-    n_things = n_abs = n_models = 0
-    models: set = set()
-    for _p, _c, _r, (n, n_a, names) in level_scans:
-        n_things += n
-        n_abs += n_a
-        models.update(names)
-        n_models += len(names)
-    results.append(report("scene / things (ADD_THING* in sub-scripts)",
-                          n_things == 4008 and n_abs == 2844
-                          and n_models == 4005 and len(models) == 138,
-                          "%d things (%d placed, %d models, %d with a model)"
-                          % (n_things, n_abs, len(models), n_models)))
+    if want("scene"):
+        n_things = n_abs = n_models = 0
+        models: set = set()
+        for _p, _c, _r, (n, n_a, names) in level_scans or []:
+            n_things += n
+            n_abs += n_a
+            models.update(names)
+            n_models += len(names)
+        results.append(report("scene / things (ADD_THING* in sub-scripts)",
+                              n_things == 4008 and n_abs == 2844
+                              and n_models == 4005 and len(models) == 138,
+                              "%d things (%d placed, %d models, %d with a model)"
+                              % (n_things, n_abs, len(models), n_models)))
 
     # --- .sbw object header transform (gm/sbw.py, gm/render.py) -----------
-    from gm import render as rendermod
-    from gm import sbw as sbwmod
-    lvl = sbwmod.parse_file(os.path.join(G, "dm1.sbw"))
-    ok_tf = 0
-    offs = []
-    for sec in lvl.sectors:
-        for o in sec.objects:
-            if not o.vertices:
-                continue
-            wv = o.world_vertices()
-            B = o.points
-            ok_tf += 1 if all(
-                abs(wv[i][k] - (B[0][k] + B[1][k] * o.vertices[i][0] +
-                                B[2][k] * o.vertices[i][1] +
-                                B[3][k] * o.vertices[i][2])) < 1e-3
-                for i in range(min(len(wv), 20)) for k in range(3)) else 0
-            offs.append(max(abs(c) for c in o.points[0]))
+    lvl = None
+    if want("level", "scene"):
+        from gm import sbw as sbwmod
+        lvl = sbwmod.parse_file(os.path.join(G, "dm1.sbw"))
+    if want("level"):
+        from gm import render as rendermod
+        ok_tf = 0
+        offs = []
+        for sec in lvl.sectors:
+            for o in sec.objects:
+                if not o.vertices:
+                    continue
+                wv = o.world_vertices()
+                B = o.points
+                ok_tf += 1 if all(
+                    abs(wv[i][k] - (B[0][k] + B[1][k] * o.vertices[i][0] +
+                                    B[2][k] * o.vertices[i][1] +
+                                    B[3][k] * o.vertices[i][2])) < 1e-3
+                    for i in range(min(len(wv), 20)) for k in range(3)) else 0
+                offs.append(max(abs(c) for c in o.points[0]))
+                if len(offs) >= 50:
+                    break
             if len(offs) >= 50:
                 break
-        if len(offs) >= 50:
-            break
-    # the transform must not change the texture mapping
-    obj = lvl.sectors[0].objects[0]
-    lm = rendermod.LevelMesh(obj, [t.name for t in lvl.tex], None, 0)
-    pm = rendermod.PlacedMesh(obj, [t.name for t in lvl.tex], None, 0)
-    uv_ok = True
-    if lm.faces and pm.faces:
-        f = lm.faces[0]
-        v = f.indices[0]
-        uv_a = lm.uv(f, lm.vertices[v])
-        uv_b = pm.uv(pm.faces[0], pm.vertices[v])
-        uv_ok = (abs(uv_a[0] - uv_b[0]) < 0.5 and abs(uv_a[1] - uv_b[1]) < 0.5)
-    results.append(report(
-        "sbw / object header transform",
-        ok_tf == len(offs) and uv_ok and max(offs) < 16,
-        "%d objects: world = origin + basis*local, max |origin| %.1f, UV kept: %s"
-        % (len(offs), max(offs), uv_ok)))
+        # the transform must not change the texture mapping
+        obj = lvl.sectors[0].objects[0]
+        lm = rendermod.LevelMesh(obj, [t.name for t in lvl.tex], None, 0)
+        pm = rendermod.PlacedMesh(obj, [t.name for t in lvl.tex], None, 0)
+        uv_ok = True
+        if lm.faces and pm.faces:
+            f = lm.faces[0]
+            v = f.indices[0]
+            uv_a = lm.uv(f, lm.vertices[v])
+            uv_b = pm.uv(pm.faces[0], pm.vertices[v])
+            uv_ok = (abs(uv_a[0] - uv_b[0]) < 0.5
+                     and abs(uv_a[1] - uv_b[1]) < 0.5)
+        results.append(report(
+            "sbw / object header transform",
+            ok_tf == len(offs) and uv_ok and max(offs) < 16,
+            "%d objects: world = origin + basis*local, max |origin| %.1f, "
+            "UV kept: %s" % (len(offs), max(offs), uv_ok)))
 
     # --- savegame layout (tools/re/savegame.py) ---------------------------
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
-                                                     "savegame.py")],
-                       capture_output=True, text=True, cwd=HERE)
-    sg_out = p.stdout          # NB: not ``out`` — that is the output directory
-    results.append(report(
-        "savegame / level pair + state dispatcher",
-        p.returncode == 0
-        and "save is a level pair: savegame\\saved%d.sbt + savegame\\saved%d.sbw" in sg_out
-        and "20 ids, 18 distinct handlers" in sg_out
-        and "id   1  switches       0x44f000" in sg_out
-        and "id   2  doors          0x44e540" in sg_out
-        and "id  18  lifts          0x44ec20" in sg_out,
-        "20 system ids, doors/switches/lifts/sprites mapped, "
-        "save = .sbt + .sbw pair"))
+    if want("save"):
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "savegame.py")],
+                           capture_output=True, text=True, cwd=HERE)
+        sg_out = p.stdout      # NB: not ``out`` — that is the output directory
+        results.append(report(
+            "savegame / level pair + state dispatcher",
+            p.returncode == 0
+            and "save is a level pair: savegame\\saved%d.sbt + savegame\\saved%d.sbw" in sg_out
+            and "20 ids, 18 distinct handlers" in sg_out
+            and "id   1  switches       0x44f000" in sg_out
+            and "id   2  doors          0x44e540" in sg_out
+            and "id  18  lifts          0x44ec20" in sg_out,
+            "20 system ids, doors/switches/lifts/sprites mapped, "
+            "save = .sbt + .sbw pair"))
 
-    # --- script positions vs the level mesh (gm/scene.py) -----------------
-    from gm import scene as scenemod
-    sc_dm1 = scenemod.load(os.path.join(G, "dm1.sbt"))
-    core = []
-    for sec in lvl.sectors:
-        for o in sec.objects:
-            if not o.vertices:
-                continue
-            vs = o.vertices
-            if max(max(v[i] for v in vs) - min(v[i] for v in vs)
-                   for i in range(3)) <= 4000:
-                core.extend(vs)
-    CELL = 150.0
-    grid = {}
-    for v in core:
-        grid.setdefault((int(v[0] // CELL), int(v[1] // CELL),
-                         int(v[2] // CELL)), []).append(v)
+    if want("scene"):
+        # --- script positions vs the level mesh (gm/scene.py) -----------------
+        from gm import scene as scenemod
+        sc_dm1 = scenemod.load(os.path.join(G, "dm1.sbt"))
+        core = []
+        for sec in lvl.sectors:
+            for o in sec.objects:
+                if not o.vertices:
+                    continue
+                vs = o.vertices
+                if max(max(v[i] for v in vs) - min(v[i] for v in vs)
+                       for i in range(3)) <= 4000:
+                    core.extend(vs)
+        CELL = 150.0
+        grid = {}
+        for v in core:
+            grid.setdefault((int(v[0] // CELL), int(v[1] // CELL),
+                             int(v[2] // CELL)), []).append(v)
 
-    def _nearest(p):
-        k = (int(p[0] // CELL), int(p[1] // CELL), int(p[2] // CELL))
-        best = 1e18
-        for dx in range(-4, 5):
-            for dy in range(-4, 5):
-                for dz in range(-4, 5):
-                    for v in grid.get((k[0] + dx, k[1] + dy, k[2] + dz), ()):
-                        d = ((v[0] - p[0]) ** 2 + (v[1] - p[1]) ** 2
-                             + (v[2] - p[2]) ** 2)
-                        if d < best:
-                            best = d
-        return best ** 0.5
+        def _nearest(p):
+            k = (int(p[0] // CELL), int(p[1] // CELL), int(p[2] // CELL))
+            best = 1e18
+            for dx in range(-4, 5):
+                for dy in range(-4, 5):
+                    for dz in range(-4, 5):
+                        for v in grid.get((k[0] + dx, k[1] + dy, k[2] + dz), ()):
+                            d = ((v[0] - p[0]) ** 2 + (v[1] - p[1]) ** 2
+                                 + (v[2] - p[2]) ** 2)
+                            if d < best:
+                                best = d
+            return best ** 0.5
 
-    sc_scale = scenemod.SCALE
-    sw = sorted(_nearest(tuple(c * sc_scale for c in x.pos))
-                for x in sc_dm1.switches)
-    dr = sorted(min(math.dist(tuple(c * sc_scale for c in d.corner), v)
-                    for v in core) for d in sc_dm1.doors)
-    med_sw = sw[len(sw) // 2]
-    med_dr = dr[len(dr) // 2]
-    results.append(report(
-        "scene / switch positions land on the mesh",
-        med_sw <= 20 and med_dr > 300 and len(sw) == 129 and len(dr) == 61,
-        "dm1: switches median %.1f units from a vertex, door corners %.1f "
-        "(doors are not in the world frame)" % (med_sw, med_dr)))
+        sc_scale = scenemod.SCALE
+        sw = sorted(_nearest(tuple(c * sc_scale for c in x.pos))
+                    for x in sc_dm1.switches)
+        dr = sorted(min(math.dist(tuple(c * sc_scale for c in d.corner), v)
+                        for v in core) for d in sc_dm1.doors)
+        med_sw = sw[len(sw) // 2]
+        med_dr = dr[len(dr) // 2]
+        results.append(report(
+            "scene / switch positions land on the mesh",
+            med_sw <= 20 and med_dr > 300 and len(sw) == 129 and len(dr) == 61,
+            "dm1: switches median %.1f units from a vertex, door corners %.1f "
+            "(doors are not in the world frame)" % (med_sw, med_dr)))
 
-    # --- doors / switches / lifts (tools/re/doors.py) ---------------------
-    p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
-                                                     "doors.py"),
-                        "--game", G], capture_output=True, text=True, cwd=HERE)
-    tail = [l.strip() for l in p.stdout.strip().splitlines()[-3:]]
-    ok = (p.returncode == 0 and len(tail) == 3
-          and "1779 doors (1534 sliding, 200 linked), 3964 switches, 45 lifts" in tail[0]
-          and "doors -> level objects: 1779/1779 valid (sector, object), 1779 distinct" in tail[1]
-          and "switch ids in the level's entity table: 3281/3964" in tail[2])
-    results.append(report("scene / doors, switches, lifts", ok,
-                          "; ".join(tail) or "no output"))
+        # --- doors / switches / lifts (tools/re/doors.py) ---------------------
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "doors.py"),
+                            "--game", G], capture_output=True, text=True, cwd=HERE)
+        tail = [l.strip() for l in p.stdout.strip().splitlines()[-3:]]
+        ok = (p.returncode == 0 and len(tail) == 3
+              and "1779 doors (1534 sliding, 200 linked), 3964 switches, 45 lifts" in tail[0]
+              and "doors -> level objects: 1779/1779 valid (sector, object), 1779 distinct" in tail[1]
+              and "switch ids in the level's entity table: 3281/3964" in tail[2])
+        results.append(report("scene / doors, switches, lifts", ok,
+                              "; ".join(tail) or "no output"))
 
     # --- optional heavy extraction ---------------------------------------
-    if opts.full:
+    if opts.full and want("extract"):
         results.extend(check_many([
             ("textures / PICS -> PNG",
              ["textures", G, os.path.join(out, "tex")], ["0 failed"]),
@@ -1349,6 +1527,7 @@ def main() -> int:
             ("frontend / BMP.DAT",
              ["frontend", G, os.path.join(out, "fe")], ["143 files"]),
         ]))
+    if opts.full and want("film"):
         p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "parity_film.py"),
                             "--quick"], capture_output=True, text=True, cwd=HERE)
         results.append(report("film / .sof/.fdx parity",
@@ -1356,9 +1535,14 @@ def main() -> int:
                               (p.stdout.strip().splitlines() or ["no output"])[-1]))
 
     passed = sum(results)
+    scope = ("  [" + ",".join(sorted(ONLY)) + "]") if ONLY else ""
+    hint = ""
+    if not opts.full and not ONLY:
+        hint = "  (use --full for extraction checks)"
+    elif not opts.full:
+        hint = "  (add --full for heavy checks in these categories)"
     print(f"\nregress: {passed}/{len(results)} checks passed in "
-          f"{time.time() - T0:.1f}s"
-          + ("" if opts.full else "  (use --full for extraction checks)"))
+          f"{time.time() - T0:.1f}s" + scope + hint)
     return 0 if passed == len(results) else 1
 
 
