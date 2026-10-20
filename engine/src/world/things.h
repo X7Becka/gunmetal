@@ -64,13 +64,33 @@ struct Thing {
     std::array<int, 4> shields{};    // +0x1d8..+0x1e4
     std::array<int, 4> shield_max{}; // +0x1d8..+0x1e4 max copies
     int hits_left = 0;               // +0x1c8 geometry hits
-    std::uint32_t collide_event = 0; // +0x1c4
+    std::uint32_t death_event = 0;   // +0x1c4, fired when hits_left reaches zero
     std::uint32_t expire_event = 0;  // +0x1ec
     std::uint32_t damaged_event = 0; // +0x1f4
     std::uint32_t destroy_event = 0; // +0x1f8
 
     bool absolute() const { return position.has_value(); }
 };
+
+/// The event block ids of one ``THING_TYPES`` record.  The ids are negative
+/// ``GENERATE``-style entity handles, or 0 when the field is unused.
+/// ``death_event`` is the second string of the ten-field block (``+0x1c4``);
+/// the loader triggers it after the per-impact hits counter is exhausted
+/// (0x47573a).  ``expire_event`` (``+0x1ec``) fires on lifetime expiry.
+struct ThingTypeEvents {
+    int type = -1;
+    std::uint32_t death_event = 0;
+    std::uint32_t expire_event = 0;
+    std::uint32_t damaged_event = 0;
+    std::uint32_t destroy_event = 0;
+    std::uint32_t create_event = 0;
+    std::uint32_t timeout_event = 0;
+};
+
+/// Look up one type without building the full ``Things`` runtime.  Returns an
+/// empty optional for an invalid type or a level without a THING_TYPES record.
+std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
+                                                int type);
 
 /// A VM context used by the executed view.  The default matrix is
 /// ``game_mode 0/1 × playertype 0..3`` with ``RANDOM`` forked, which is the

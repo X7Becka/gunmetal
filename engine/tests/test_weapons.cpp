@@ -798,6 +798,33 @@ void test_real_weapon_modes() {
     }
     if (rocket != nullptr) {
         CHECK(!rocket->hitscan);
+        CHECK_EQ(rocket->thing_type, 31);
+        CHECK_EQ(rocket->impact_blasts.size(), 3U);
+        if (rocket->impact_blasts.size() == 3) {
+            const auto& direct = rocket->impact_blasts[0];
+            CHECK_EQ(direct.plate, 10000);
+            CHECK_EQ(direct.radius, 80);
+            CHECK_EQ(direct.event, 0xffff8a41u);
+            CHECK(!direct.underwater);
+            CHECK_EQ(rocket->impact_blasts[1].plate, 10000);
+            CHECK_EQ(rocket->impact_blasts[1].radius, 512);
+            CHECK(rocket->impact_blasts[1].underwater);
+            CHECK_EQ(rocket->impact_blasts[2].plate, 12000);
+            CHECK_EQ(rocket->impact_blasts[2].radius, 256);
+            CHECK(!rocket->impact_blasts[2].underwater);
+        }
+        CHECK_EQ(rocket->expire_blasts.size(), rocket->impact_blasts.size());
+        const auto air = rocket->select_blasts(false, false);
+        CHECK_EQ(air.size(), 2U);
+        if (air.size() == 2) {
+            CHECK_EQ(air[0].radius, 80);
+            CHECK_EQ(air[1].radius, 256);
+        }
+        const auto water = rocket->select_blasts(false, true);
+        CHECK_EQ(water.size(), 1U);
+        if (!water.empty()) {
+            CHECK_EQ(water[0].radius, 512);
+        }
     }
 }
 
@@ -920,6 +947,27 @@ void test_real_tables(const gm::Weapons& table) {
         CHECK(!grenade->hitscan);
         CHECK_EQ(grenade->thing_type, 28);
         CHECK_NEAR(grenade->projectile_charge, 16.0, 0.0); // air, not water 12
+        CHECK(grenade->impact_blasts.empty());
+        CHECK_EQ(grenade->expire_blasts.size(), 2U);
+        if (grenade->expire_blasts.size() == 2) {
+            CHECK_EQ(grenade->expire_blasts[0].plate, 8000);
+            CHECK_EQ(grenade->expire_blasts[0].radius, 500);
+            CHECK(grenade->expire_blasts[0].underwater);
+            CHECK_EQ(grenade->expire_blasts[1].plate, 8000);
+            CHECK_EQ(grenade->expire_blasts[1].radius, 350);
+            CHECK(!grenade->expire_blasts[1].underwater);
+        }
+        CHECK(grenade->select_blasts(false, false).empty());
+        const auto air = grenade->select_blasts(true, false);
+        CHECK_EQ(air.size(), 1U);
+        if (!air.empty()) {
+            CHECK_EQ(air[0].radius, 350);
+        }
+        const auto water = grenade->select_blasts(true, true);
+        CHECK_EQ(water.size(), 1U);
+        if (!water.empty()) {
+            CHECK_EQ(water[0].radius, 500);
+        }
     }
 
     CHECK_EQ(table.ammo_types()[0].name, std::string("BULLETS"));

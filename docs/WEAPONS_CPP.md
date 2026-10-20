@@ -375,6 +375,13 @@ Impact-события и `GENERATE` пока не склеены с `Weapon`; C+
 * реальный `level0`: LASER (slot 11) — воздушная ветка 3.00, не подводная
   1.00; `Weapons::load` предпочитает воздух при `SOURCE_UNDERWATER`;
   GRENADE (slot 4) — `thing_type=28`, `projectile_charge=16`, не водные 12.
+* impact-события из `THING_TYPES` (CTest `weapons`): GRENADE death `-30094`
+  содержит только звук, expire `-30093` → GENERATE `-30096` даёт два
+  `CAUSE_BLAST_RADIUS_DAMAGE`: `8000@500` (под водой) и `8000@350` (воздух).
+  ROCKET death=expire `-30103`: прямой `10000@80` плюс GENERATE `-30105` с
+  `10000@512` (под водой) и `12000@256` (воздух). Это данные
+  `Weapon::impact_blasts`/`expire_blasts`; ветки `SOURCE_UNDERWATER`
+  помечены `Blast::underwater`, рантайм должен выбрать одну.
 
 ---
 
@@ -389,7 +396,7 @@ Impact-события и `GENERATE` пока не склеены с `Weapon`; C+
 | выстрел ставит `GENERATE`-событие `event_post` (`0x445eee`, `0x445f61`) | **доказано**; фактический spawn — в подскрипте сущности, см. `docs/EVENTS.md` |
 | hitscan-путь | **доказан и подключён**: BULLET/LASER (`0x478520`/`0x478be0`), THING — объект |
 | магазин/перезарядка | **гипотеза** (в данных и коде не найдено) |
-| урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — отдельные `apply_blast`/`apply_thing_damage`, но загрузчик ещё не разворачивает ветки impact |
+| урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — отдельные `apply_blast`/`apply_thing_damage`; загрузчик разворачивает death/expire-блоки `THING_TYPES` (плюс один GENERATE) в `impact_blasts`/`expire_blasts`, рантайм их ещё не применяет |
 | скорость снаряда | `THING_TYPES +0x10 + charge*operand[9]`; C++ `12000` — placeholder |
 | разброс — равномерный квадрат, SplitMix64 | **гипотеза рантайма** |
 | отдача — горизонтальный импульс | **доказано** (`0x459f4d`, `docs/SHAKE.md` §6); поля в оружии нет |
@@ -409,9 +416,9 @@ Impact-события и `GENERATE` пока не склеены с `Weapon`; C+
    через `0x477f90`.
 3. **Урон и броня.** `0x453b50` (`apply_damage_gauge`), `0x470500`
    (`apply_thing_damage`) и `0x477280` (`apply_blast`) реализованы с
-   целочисленным falloff. Осталось подключить ветки impact из `.sbt`
-   (GRENADE/ROCKET/PLASMA/NUKE/EMP), исправить DFS-выбор `FIRE_*` и
-   `level10.sbt`; точные числа — в отчёте Ghidra §7.
+   целочисленным falloff. Загрузчик уже собирает death/expire-бласты для
+   GRENADE/ROCKET; осталось применить их в runtime и разобрать
+   PLASMA/NUKE/EMP/`level10.sbt`; точные числа — в отчёте Ghidra §7.
 4. **Магазин/перезарядка.** Механики в оригинале нет; слой оставлен
    выключенным (`magazine=0`, `reload_ticks=0`). Включать только если
    появится доказательство из другой версии/режима.

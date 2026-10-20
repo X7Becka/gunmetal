@@ -579,8 +579,11 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > `apply_damage_gauge` — точная модель `0x453b50`; `apply_thing_damage`
       > (`0x470500`) и `apply_blast` (`0x477280`, без LOS, целочисленный
       > falloff) добавлены; `ShieldSide` исправлен на front/right/back/left.
-      > Магазина в оригинале нет; осталось подключить event/impact-ветки
-      > `.sbt` (GRENADE/ROCKET/PLASMA/NUKE/EMP) и `level10`.
+      > Магазина в оригинале нет. `Weapons::load` теперь разворачивает
+      > `THING_TYPES` death/expire события (+0x1c4/+0x1ec) и один `GENERATE`
+      > в `impact_blasts`/`expire_blasts` (GRENADE 8000@500/350, ROCKET
+      > 10000@80 + 10000@512/12000@256); ветки под водой помечены. Осталось
+      > применить их в runtime и разобрать PLASMA/NUKE/EMP/`level10`.
 - 🟡 `M2.2.7` AI/things: состояния, path, дети, мораль, оружие, события.
       > C++ `world/things.*` (CTest `things`/`things_full`): top-level 4008,
       > recursive 7563, executed 7617, 391 старт, 2896/2896 model refs;

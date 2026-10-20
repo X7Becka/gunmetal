@@ -5,10 +5,11 @@
 
 ## Сейчас
 
-1. **Impact/THING → `.sbt`.** Подключить event/impact-ветки к `Weapons::load`:
-   `GRENADE`, `ROCKET`, `RGM`, `MRL`, `TAC NUKE`, `PLASMA`, `EMP`,
-   `DISINTEGRATOR`; убрать остатки `kDefaultProjectileSpeed` из реального пути.
-   Проверка: `weapons` + новые golden’ы по `level0.sbt`/`level10.sbt`.
+1. **Impact/THING → runtime.** `Weapons::load` уже разворачивает death/expire
+   события `THING_TYPES` в `impact_blasts`/`expire_blasts` (GRENADE/ROCKET,
+   тесты `weapons`/`things`). Осталось: применить нужную ветку в момент
+   попадания/истечения, затем PLASMA/RGM/MRL/NUKE/EMP/`level10`.
+   Проверка: `weapons` + новые golden’ы из `/tmp/opencode/gm-impact-matrix.md`.
 2. **AI wiring.** Навигация/240-кадровая история цели по `target_history_offset`;
    использовать `Thing::health/shields/hits/events` в runtime.
 3. **Event effects.** Реестр текста `0x619860`, побочные эффекты switch,

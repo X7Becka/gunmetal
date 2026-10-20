@@ -23,10 +23,10 @@
 //   * `magazine` / `reload_ticks` / `damage` / `hitscan` / `projectile_speed`.
 //     `load()` keeps magazine 0 = direct feed and no reload.  It resolves
 //     BULLET/LASER hitscan and their direct damage from the entity sub-script;
-//     THING weapons spawn an entity (0x45e19d -> 0x46ea40 -> 0x46d8b0);
-//     projectile impact/blast uses the separate `Blast`/`apply_blast` and
-//     `apply_thing_damage` model, while `projectile_speed` stays a placeholder
-//     until the THING_TYPES speed table is wired into `Weapon`.
+//     THING weapons spawn an entity (0x45e19d -> 0x46ea40 -> 0x46d8b0) and
+//     resolve THING_TYPES death/expire events into impact/expire blasts;
+//     `projectile_speed` stays a placeholder until the THING_TYPES speed table
+//     and its unit are proven.
 //   * `apply_damage_gauge` is the exact 0x453b50 plate/hull model (hundredths,
 //     flags, spill, statuses); `apply_damage` keeps the old synthetic API.
 //   * spread sampling (uniform in the tangent square, deterministic seed).
@@ -83,6 +83,9 @@ struct Blast {
     std::uint32_t flags = 0;       ///< bit0 source, bit1 full, bit2 players, bit3 things
     bool no_direction = false;     ///< operand 1
     std::uint32_t event = 0;       ///< event posted to each target
+    /// True for an op inside an `IF SOURCE_UNDERWATER` body.  The original
+    /// executes one branch; the loader keeps both so the caller can choose.
+    bool underwater = false;
 };
 
 /// One `DEFINE_WEAPONS` record mapped to the runtime fields.
@@ -125,6 +128,16 @@ struct Weapon {
     double projectile_speed = 0.0; ///< units/s when !hitscan; 0 = invalid
     int thing_type = -1;        ///< FIRE_SOURCEPLAYER_THING operand 2
     double projectile_charge = 0.0; ///< operand 9, air branch
+    /// `CAUSE_BLAST_RADIUS_DAMAGE` ops reached from THING_TYPES[thing_type]
+    /// event blocks.  `impact_blasts` follows the death event (+0x1c4),
+    /// `expire_blasts` the lifetime-expiry event (+0x1ec).  Each vector also
+    /// follows one `GENERATE` child because grenade/plasma damage lives there.
+    std::vector<Blast> impact_blasts;
+    std::vector<Blast> expire_blasts;
+
+    /// Copy the blasts of one branch that apply to the current medium.
+    /// `expired=false` is the death/impact event, `true` is lifetime expiry.
+    std::vector<Blast> select_blasts(bool expired, bool underwater) const;
 };
 
 /// One `DEFINE_AMMO` record (`0x450b10`, record 0x38).
@@ -231,8 +244,9 @@ public:
     ///
     /// BULLET/LASER weapon records are additionally resolved through the
     /// entity sub-script (`projectile_id`): `hitscan=true` and `damage` is the
-    /// direct-hit gauge / 100.  THING records keep `hitscan=false` and the
-    /// conservative damage/speed placeholders.
+    /// direct-hit gauge / 100.  THING records keep `hitscan=false`; their
+    /// `thing_type` selects `THING_TYPES` death/expire event blocks, whose
+    /// blasts are collected into `impact_blasts`/`expire_blasts`.
     static std::optional<Weapons> load(const GameState& game,
                                        const std::filesystem::path& level_path,
                                        std::string* error = nullptr);

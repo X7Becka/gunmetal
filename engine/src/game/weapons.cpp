@@ -10,6 +10,7 @@
 #include "game/state.h"   // GameState
 #include "res/sbt.h"      // parse_sbt, SbtLevel
 #include "res/sbtvm.h"    // decode_sbt_script, SbtValue
+#include "world/things.h" // thing_type_events
 
 namespace gm {
 namespace {
@@ -169,6 +170,18 @@ std::uint32_t Weapons::ammo_max_for(int ammo_type) const {
     return ammo_types_[static_cast<std::size_t>(ammo_type)].max;
 }
 
+std::vector<Blast> Weapon::select_blasts(bool expired, bool underwater) const {
+    const std::vector<Blast>& source = expired ? expire_blasts : impact_blasts;
+    std::vector<Blast> out;
+    out.reserve(source.size());
+    for (const Blast& blast : source) {
+        if (blast.underwater == underwater) {
+            out.push_back(blast);
+        }
+    }
+    return out;
+}
+
 Arsenal arsenal_from_game(const GameState& game) {
     Arsenal arsenal;
     arsenal.mask = game.weapon_mask;
@@ -190,6 +203,7 @@ struct FireScriptInfo {
     double projectile_charge = 0.0;
     bool underwater = false;
 };
+
 
 bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
                       bool underwater = false) {
@@ -232,32 +246,106 @@ bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
     return info.found;
 }
 
-bool resolve_fire_script(const SbtLevel& level, std::uint32_t entity_id,
-                         FireScriptInfo& info) {
+/// Decode exactly the entity block at ``entity_id``.  A handle offset points at
+/// one block; decoding to EOF would walk every following entity and mix its
+/// FIRE/blast instructions into this one.
+std::optional<SbtProgram> entity_block(const SbtLevel& level,
+                                       std::uint32_t entity_id) {
     const std::size_t n = level.script.handles;
     if (n == 0 || level.script_handles_data.size() < n * 12) {
-        return false;
+        return std::nullopt;
     }
+    const auto* data = level.script_handles_data.data();
     for (std::size_t i = 0; i < n; ++i) {
-        const auto* data = level.script_handles_data.data();
         const auto id = static_cast<std::int32_t>(read_u32(data + (n + i) * 4));
         if (id != static_cast<std::int32_t>(entity_id)) {
             continue;
         }
         const std::uint32_t offset = read_u32(data + (2 * n + i) * 4);
         if (offset >= level.script_code.size()) {
-            return false;
+            return std::nullopt;
+        }
+        std::uint32_t block_end =
+            static_cast<std::uint32_t>(level.script_code.size());
+        for (std::size_t j = 0; j < n; ++j) {
+            const std::uint32_t other = read_u32(data + (2 * n + j) * 4);
+            if (other > offset && other < block_end) {
+                block_end = other;
+            }
         }
         std::string error;
         const std::span<const std::uint8_t> sub(level.script_code.data() + offset,
-                                                level.script_code.size() - offset);
-        const auto program = decode_sbt_script(sub, error);
+                                                block_end - offset);
+        auto program = decode_sbt_script(sub, error);
         if (!program) {
-            return false;
+            return std::nullopt;
         }
-        return scan_fire_script(program->insns, info);
+        return program;
     }
-    return false;
+    return std::nullopt;
+}
+
+bool resolve_fire_script(const SbtLevel& level, std::uint32_t entity_id,
+                         FireScriptInfo& info) {
+    const auto program = entity_block(level, entity_id);
+    if (!program) {
+        return false;
+    }
+    return scan_fire_script(program->insns, info);
+}
+
+/// VM op 75 operands: flags, no_direction, plate, hull, radius, event.
+std::optional<Blast> blast_from_insn(const SbtInsn& insn) {
+    if (insn.name != "CAUSE_BLAST_RADIUS_DAMAGE" || insn.args.size() < 6) {
+        return std::nullopt;
+    }
+    Blast blast;
+    blast.flags = as_uint(insn.args[0]);
+    blast.no_direction = as_uint(insn.args[1]) != 0;
+    blast.plate = static_cast<std::int32_t>(as_uint(insn.args[2]));
+    blast.hull = static_cast<std::int32_t>(as_uint(insn.args[3]));
+    blast.radius = static_cast<int>(as_uint(insn.args[4]));
+    blast.event = as_uint(insn.args[5]);
+    return blast;
+}
+
+void scan_blasts(const std::vector<SbtInsn>& insns, std::vector<Blast>& out,
+                 bool underwater = false) {
+    for (const SbtInsn& insn : insns) {
+        if (auto blast = blast_from_insn(insn)) {
+            blast->underwater = underwater;
+            out.push_back(*blast);
+        }
+        if (!insn.body.empty()) {
+            scan_blasts(insn.body, out,
+                        underwater || insn.condition == "SOURCE_UNDERWATER");
+        }
+    }
+}
+
+/// Follow ``GENERATE`` once.  Grenade and plasma damage live in the generated
+/// child block (-30093 -> -30096, -30116 -> -30118, ...), while rocket and
+/// bullet impacts already carry their own blast.  Going deeper would pull in
+/// secondary debris effects, so the limit is one child.
+void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
+                          std::vector<Blast>& out, int depth = 0) {
+    if (event_id == 0 || event_id == 0xffffffffU || depth > 1) {
+        return;
+    }
+    const auto program = entity_block(level, event_id);
+    if (!program) {
+        return;
+    }
+    scan_blasts(program->insns, out);
+    for (const SbtInsn& insn : program->insns) {
+        if (insn.name != "GENERATE" || insn.args.empty()) {
+            continue;
+        }
+        const std::uint32_t child = as_uint(insn.args[0]);
+        if (child != event_id) {
+            collect_event_blasts(level, child, out, depth + 1);
+        }
+    }
 }
 
 bool parse_tables(const std::filesystem::path& level_path, std::string* error,
@@ -416,6 +504,15 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
             }
             weapon.thing_type = fire.thing_type;
             weapon.projectile_charge = fire.projectile_charge;
+        }
+
+        if (weapon.thing_type >= 0) {
+            if (const auto events = thing_type_events(*level, weapon.thing_type)) {
+                collect_event_blasts(*level, events->death_event,
+                                     weapon.impact_blasts);
+                collect_event_blasts(*level, events->expire_event,
+                                     weapon.expire_blasts);
+            }
         }
 
         slots.push_back(std::move(weapon));

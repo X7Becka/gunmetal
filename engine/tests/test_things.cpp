@@ -609,6 +609,30 @@ void test_real_level(const fs::path& path, int top, int recursive, int executed,
     }
 }
 
+void test_type_events() {
+    if (!fs::exists(kGame / "level0.sbt")) {
+        return;
+    }
+    const gm::SbtLevel level = load_real(kGame / "level0.sbt");
+    const auto rocket = gm::thing_type_events(level, 31);
+    CHECK(rocket.has_value());
+    if (rocket) {
+        CHECK_EQ(rocket->death_event, static_cast<std::uint32_t>(-30103));
+        CHECK_EQ(rocket->expire_event, static_cast<std::uint32_t>(-30103));
+        CHECK_EQ(rocket->create_event, static_cast<std::uint32_t>(-30104));
+        CHECK_EQ(rocket->damaged_event, 0u);
+    }
+    const auto grenade = gm::thing_type_events(level, 28);
+    CHECK(grenade.has_value());
+    if (grenade) {
+        CHECK_EQ(grenade->death_event, static_cast<std::uint32_t>(-30094));
+        CHECK_EQ(grenade->expire_event, static_cast<std::uint32_t>(-30093));
+        CHECK_EQ(grenade->create_event, 0u);
+    }
+    CHECK(!gm::thing_type_events(level, -1).has_value());
+    CHECK(!gm::thing_type_events(level, 100000).has_value());
+}
+
 void test_real_dm1() {
     if (!fs::exists(kGame / "dm1.sbt")) {
         std::printf("things: game not installed, real levels skipped\n");
@@ -779,6 +803,7 @@ int main(int argc, char** argv) {
     test_generate_and_cycle();
     test_negatives();
     test_real_dm1();
+    test_type_events();
     if (full) {
         test_corpus();
     } else {
