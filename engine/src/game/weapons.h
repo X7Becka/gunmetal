@@ -178,6 +178,11 @@ struct Weapon {
                                               bool underwater,
                                               bool from_ground = true,
                                               bool deathmatch = true) const;
+    /// Blasts in the chosen `IF FIRE_*` body (EMP rings); they run at the
+    /// shot, centered on the shooter, not at the hit point.
+    std::vector<Blast> select_inline_blasts(bool underwater,
+                                            bool from_ground = true,
+                                            bool deathmatch = true) const;
 };
 
 /// One `DEFINE_AMMO` record (`0x450b10`, record 0x38).
@@ -516,6 +521,15 @@ BlastDamageResult apply_weapon_blast(
     std::span<const Vec3d> thing_positions,
     std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals,
     double power_up = -1.0);
+
+/// Apply `weapon.inline_blasts` at the shot centre (EMP rings).  The caller is
+/// responsible for the original `SLEEP 22` spacing between rings.
+BlastDamageResult apply_weapon_inline(
+    const Weapon& weapon, const Vec3d& center, bool underwater, bool from_ground,
+    bool deathmatch, int source_player, int source_thing,
+    std::span<const Vec3d> player_positions, std::span<Vitals> player_vitals,
+    std::span<const Vec3d> thing_positions,
+    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals);
 
 
 /// Exact `0x470500` intake for a THING: no plate/hull multipliers, shield

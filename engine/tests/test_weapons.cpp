@@ -754,6 +754,7 @@ void test_runtime_blast_bridge() {
     const gm::Weapon* plasma = nullptr;
     const gm::Weapon* rgm = nullptr;
     const gm::Weapon* nuke = nullptr;
+    const gm::Weapon* emp = nullptr;
     for (const gm::Weapon& weapon : table->table()) {
         if (weapon.name == "ROCKET") {
             rocket = &weapon;
@@ -763,6 +764,8 @@ void test_runtime_blast_bridge() {
             rgm = &weapon;
         } else if (weapon.name == "TAC NUKE") {
             nuke = &weapon;
+        } else if (weapon.name == "EMP GUN") {
+            emp = &weapon;
         }
     }
     CHECK(rocket != nullptr);
@@ -842,6 +845,17 @@ void test_runtime_blast_bridge() {
             CHECK_EQ(rgm_blasts.hits[0].hit.plate, 0);
             CHECK_EQ(rgm_blasts.hits[1].hit.plate, 12070); // 15000@256
         }
+    }
+
+    // EMP rings run at the shot centre, not at a later hit point.
+    if (emp != nullptr) {
+        vitals[0].hp = 20000;
+        vitals[0].alive = true;
+        const gm::BlastDamageResult rings = gm::apply_weapon_inline(
+            *emp, {0.0, 0.0, 0.0}, false, true, true, -1, -1,
+            no_players, no_player_vitals, things, alive, vitals);
+        CHECK_EQ(rings.hits.size(), 5U);
+        CHECK(vitals[0].hp < 20000);
     }
 
     // TAC NUKE's guarded default branch contributes exactly three blasts.

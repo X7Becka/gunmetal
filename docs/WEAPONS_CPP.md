@@ -114,6 +114,7 @@ struct Arsenal {
 | `apply_blast` | сферический запрос `0x477280` без LOS; цели-игроки/THING, флаги bit0/2/3, событие на попадание. |
 | `apply_blast_damage` | `apply_blast` + `apply_damage_gauge` для игроков и `apply_thing_damage` для THING; возвращает hits с результатами. |
 | `apply_weapon_blast` | выбирает `impact_blasts`/`expire_blasts` по контексту (`expired`, вода, земля, DM) и применяет их через `apply_blast_damage`; события остаются в `hits` для `event_post`. |
+| `apply_weapon_inline` | применяет `inline_blasts` (EMP-кольца) в точке выстрела; интервалы `SLEEP 22` остаются вызывающему слою. |
 | `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |
 | `Weapon::select_blasts(expired, underwater, from_ground, deathmatch)` | копия `expire_blasts` или `impact_blasts` только для выбранного контекста; нейтральные blast’ы проходят всегда. Рантайм вызывает после попадания/истечения. |
 | `Weapon::select_blasts_at_power(power, ...)` | то же для PLASMA: `variant_for_power` выбирает TT36 (>=0.66), TT37 (>=0.33) или TT38. |

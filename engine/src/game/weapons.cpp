@@ -225,6 +225,12 @@ std::vector<Blast> Weapon::select_blasts_at_power(double power_up, bool expired,
     return select_blasts(expired, underwater, from_ground, deathmatch);
 }
 
+std::vector<Blast> Weapon::select_inline_blasts(bool underwater,
+                                                bool from_ground,
+                                                bool deathmatch) const {
+    return filter_blasts(inline_blasts, underwater, from_ground, deathmatch);
+}
+
 Arsenal arsenal_from_game(const GameState& game) {
     Arsenal arsenal;
     arsenal.mask = game.weapon_mask;
@@ -1367,6 +1373,24 @@ BlastDamageResult apply_weapon_blast(
             : weapon.select_blasts(expired, underwater, from_ground,
                                    deathmatch);
     for (const Blast& blast : selected) {
+        BlastDamageResult one = apply_blast_damage(
+            center, blast, source_player, source_thing, player_positions,
+            player_vitals, thing_positions, thing_alive, thing_vitals);
+        result.chain_reaction = result.chain_reaction | one.chain_reaction;
+        result.hits.insert(result.hits.end(), one.hits.begin(), one.hits.end());
+    }
+    return result;
+}
+
+BlastDamageResult apply_weapon_inline(
+    const Weapon& weapon, const Vec3d& center, bool underwater, bool from_ground,
+    bool deathmatch, int source_player, int source_thing,
+    std::span<const Vec3d> player_positions, std::span<Vitals> player_vitals,
+    std::span<const Vec3d> thing_positions,
+    std::span<const bool> thing_alive, std::span<ThingVitals> thing_vitals) {
+    BlastDamageResult result;
+    for (const Blast& blast :
+         weapon.select_inline_blasts(underwater, from_ground, deathmatch)) {
         BlastDamageResult one = apply_blast_damage(
             center, blast, source_player, source_thing, player_positions,
             player_vitals, thing_positions, thing_alive, thing_vitals);
