@@ -572,8 +572,10 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > `SET_LEVEL_GRAVITY` — множитель `0x80f840` (default 1.0),
       > скалярная база не найдена (`docs/PLAYER_GHIDRA.md`).
       > `game/weapons.*` (CTest `weapons`): DEFINE_WEAPONS/AMMO, сейвовый
-      > loadout, cooldown 2/8 тиков, spread, recoil, hitscan; урон/магазин
-      > и оригинальные скорости снарядов — ещё нет.
+      > loadout, cooldown 2/8 тиков, spread, recoil; hitscan BULLET/LASER и
+      > урон из подскриптов (MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00);
+      > `apply_damage_gauge` — точная модель `0x453b50`. Магазин и урон
+      > THING/impact — ещё нет.
 - 🟡 `M2.2.7` AI/things: состояния, path, дети, мораль, оружие, события.
       > C++ `world/things.*` (CTest `things`/`things_full`): top-level 4008,
       > recursive 7563, executed 7617, 391 старт, 2896/2896 model refs;

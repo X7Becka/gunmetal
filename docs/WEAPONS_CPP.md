@@ -143,8 +143,8 @@ pos  += speed * dt * dir                                // 0x4752d0
 
 `THING_TYPES +0x10` для `ROCKET` = 18, `MRL` = 25, `NUKE` = 10 (dm1).
 `BULLET`/`LASER` — **hitscan**: `0x478520`/`0x478be0`, урон из операндов
-`L2`/`L4`, impact event отдельно. Поэтому `hitscan=false` для всех оружий —
-неверно; это ограничение текущего C++-рантайма, а не оригинала.
+`L2`/`L4`, impact event отдельно. `Weapons::load()` теперь выбирает hitscan
+для BULLET/LASER и берёт урон из подскрипта; THING остаётся объектом.
 
 Сейв (`docs/SAVE_FIELDS.md` §9.2, `docs/FORMATS.md` «Оружие и патроны»):
 
@@ -217,12 +217,13 @@ if (eax > 0) { eax -= dt_ms; [player+0x81c358] = eax; if (eax < 0) = 0; }
 |---|---|---|
 | `magazine` | `0` | 0 = «прямая подача»: оригинал вычитает `ammo[slot]` напрямую (`0x445e98`), магазина в сейве нет. Магазин включается только вручную/синтетикой. |
 | `reload_ticks` | `0` | механики перезарядки в оригинале не найдено; 0 = мгновенно, но `reload()` для `magazine == 0` возвращает `no_magazine`. |
-| `damage` | `1.0` | **placeholder, не баланс**. Поля в `DEFINE_WEAPONS` нет; реальный hitscan-урон лежит в подскрипте: MG 400, CANNON/AUTOCANNON 1500, RAILGUN 6000 сотых. Резолвер пока не подключён, поэтому `load()` оставляет 1.0. |
-| `hitscan` | `false` | оригинал: BULLET/LASER — hitscan (`0x478520`/`0x478be0`), THING — объект через `0x45e19d`; текущий рантайм пока использует один projectile-путь. |
+| `damage` | резолвится для BULLET/LASER, иначе `1.0` | `load()` ищет `projectile_id` в entity-таблице, декодирует подскрипт и берёт `L2` у BULLET / `L4` у LASER: MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00. Для THING/impact остаётся placeholder 1.0. |
+| `hitscan` | резолвится | первый `FIRE_SOURCEPLAYER_BULLET`/`_LASER` → true, `_THING` → false (`0x478520`/`0x478be0`/`0x45e19d`). |
 | `projectile_speed` | `12000` ед/с | поля скорости нет; оригинал: `THING_TYPES[type].+0x10 + charge*operand[9]` (`0x46f0f0`). 12000 — placeholder, влияет только на `ShotResult::time`. |
 
-`hitscan` в API существует как режим рантайма: тесты и будущие типы оружия
-могут его включить. Для поставочных данных он всегда `false`.
+`hitscan` для поставочных BULLET/LASER теперь `true`; THING (GRENADE/ROCKET/
+PLASMA и т.п.) остаётся `false`. Для `level10.sbt` цепочка `GENERATE` не
+развёрнута — там возможен fallback.
 
 Разброс: `spread`/`spread_y` — тангенсы конуса из данных. Рантайм берёт
 точку равномерно в квадрате `[-1,1]²` (не в круге), масштабирует на тангенсы
@@ -266,11 +267,12 @@ dv.z = 0
 
 | сейв | slot | ammo[0] | ammo[1] | mask | первый выстрел: ammo_left | cooldown | distance | time | damage |
 |---|---|---|---|---|---|---|---|---|---|
-| `saved0.sbt` | 0 (MACHINE GUN) | 2000 | 90 | 3 | 1999 | 2 | 7000 | 0.58333333333333337 | 1.0 |
-| `saved1.sbt` | 1 (CANNON) | 1975 | 87 | 3 | 86 | 8 | 8000 | 0.66666666666666663 | 1.0 |
+| `saved0.sbt` | 0 (MACHINE GUN) | 2000 | 90 | 3 | 1999 | 2 | 7000 | 0 | 4.0 |
+| `saved1.sbt` | 1 (CANNON) | 1975 | 87 | 3 | 86 | 8 | 8000 | 0 | 15.0 |
 
 Первый выстрел сделан из `origin = (0,0,0)`, `dir = (1,0,0)` в пустой
-`CollisionWorld` (промах, `hit == false`). `time = range / 12000`.
+`CollisionWorld` (промах, `hit == false`). Оба оружия — hitscan, поэтому
+`projectile=false`, `time=0`; урон 400/1500 сотых из подскрипта.
 
 Сэмплы разброса первого выстрела (SplitMix64, seed по умолчанию
 `0x243f6a8885a308d3`, `shot_index = 0`):
@@ -293,9 +295,12 @@ dv.z = 0
 * перезарядка: магазин 5, резерв 3, `reload_ticks=7` → после 7 тиков
   `magazine=3`, `ammo=0`;
 * отдача: `yaw=0, pitch=0, D=100` → `(0,-100,0)`;
-* урон: 10 очков во front при щите 8000 → щит 7000, броня не тронута;
-  100 очков в back → щит 0, броня `-2000` сотых; overkill 1000 очков →
-  `overflow=84000`, броня 0.
+* урон (старый synthetic API): 10 очков во front при щите 8000 → щит 7000,
+  броня не тронута; 100 очков в back → щит 0, броня `-2000` сотых; overkill
+  1000 очков → `overflow=84000`, броня 0;
+* gauge (`apply_damage_gauge`): 400 в плиту 8000 → 7600, ровно 0 не broken;
+  следующий 400 → hull 9600; 400 в плиту 300 → broken[0], hull 9900;
+  flags 1/3 и перелив; `-1,150` → `burn_timer=136`, урона нет.
 
 ---
 
@@ -308,9 +313,9 @@ dv.z = 0
 | кулдаун = `weapon[+0x2c]`, `>0` блокирует выстрел | **доказано** (`0x445aa8`, `0x445f08`) |
 | `ammo[12]`, `mask`, `slot` в сейве | **доказано** (`docs/SAVE_FIELDS.md` §9.2) |
 | выстрел ставит `GENERATE`-событие `event_post` (`0x445eee`, `0x445f61`) | **доказано**; фактический spawn — в подскрипте сущности, см. `docs/EVENTS.md` |
-| hitscan-путь | **найден** для BULLET/LASER (`0x478520`/`0x478be0`); C++ пока `hitscan=false` |
+| hitscan-путь | **доказан и подключён**: BULLET/LASER (`0x478520`/`0x478be0`), THING — объект |
 | магазин/перезарядка | **гипотеза** (в данных и коде не найдено) |
-| урон | BULLET `L2`, LASER `L4`, blast — константы impact-скрипта; C++ `1.0` — placeholder |
+| урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — placeholder |
 | скорость снаряда | `THING_TYPES +0x10 + charge*operand[9]`; C++ `12000` — placeholder |
 | разброс — равномерный квадрат, SplitMix64 | **гипотеза рантайма** |
 | отдача — горизонтальный импульс | **доказано** (`0x459f4d`, `docs/SHAKE.md` §6); поля в оружии нет |
@@ -324,14 +329,14 @@ dv.z = 0
    `0x46ea40` → `0x46d8b0` найдена; скорость =
    `THING_TYPES[type].+0x10 + charge*operand[9]`. Осталось занести
    `spawn_type`/`spawn_speed_add` в C++ Weapon из `.sbt` и убрать `12000`.
-2. **Hitscan.** Для BULLET/LASER найдены `0x478520`/`0x478be0`: дистанция,
-   impact event, урон `L2`/`L4`, конус через `0x477f90`. Нужно выбрать режим
-   по оружию, а не держать `hitscan=false` для всех.
+2. **Hitscan.** Режим выбирается по первому условию подскрипта:
+   BULLET/LASER → hitscan, THING → объект. Для BULLET/LASER найдены
+   `0x478520`/`0x478be0`, дистанция, impact event, урон `L2`/`L4` и конус
+   через `0x477f90`.
 3. **Урон и броня.** Формула `0x453b50` реализована
-   (`apply_damage_gauge`); реальные hitscan-числа: MG 400, CANNON 1500,
-   AUTOCANNON 1500, RAILGUN 6000 сотых. Осталось резолвить их из
-   `projectile_id` → подскрипт (`FIRE_SOURCEPLAYER_BULLET`, третий операнд) и
-   заменить `damage=1.0`; урон THING/impact пока не разобран.
+   (`apply_damage_gauge`); hitscan-числа резолвятся из подскрипта: MG 4.00,
+   CANNON/AUTOCANNON 15.00, RAILGUN 60.00. Осталось разобрать урон
+   THING/impact (GRENADE/ROCKET/…), `level10.sbt` и blast-ветки.
 4. **Магазин/перезарядка.** Механики в оригинале нет; слой оставлен
    выключенным (`magazine=0`, `reload_ticks=0`). Включать только если
    появится доказательство из другой версии/режима.

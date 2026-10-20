@@ -22,12 +22,10 @@
 //
 // Hypotheses (no field exists in the shipped data, see §3 of the doc):
 //   * `magazine` / `reload_ticks` / `damage` / `hitscan` / `projectile_speed`.
-//     `load()` keeps a conservative runtime: magazine 0 = direct feed, no
-//     reload, damage 1.0 (placeholder, not balance).  The original uses
-//     hitscan for BULLET/LASER (0x478520/0x478be0) and a real THING for
-//     THING weapons (0x45e19d -> 0x46ea40 -> 0x46d8b0); the current runtime
-//     still treats every weapon as a projectile and uses
-//     `kDefaultProjectileSpeed`.
+//     `load()` keeps magazine 0 = direct feed and no reload.  It resolves
+//     BULLET/LASER hitscan and their direct damage from the entity sub-script;
+//     THING weapons spawn an entity (0x45e19d -> 0x46ea40 -> 0x46d8b0) and
+//     keep the `kDefaultProjectileSpeed` runtime placeholder.
 //   * `apply_damage_gauge` is the exact 0x453b50 plate/hull model (hundredths,
 //     flags, spill, statuses); `apply_damage` keeps the old synthetic API.
 //   * spread sampling (uniform in the tangent square, deterministic seed).
@@ -106,10 +104,10 @@ struct Weapon {
     int muzzle = 0;                      ///< d20 -> +0x20, 0..7
 
     // --- hypothesis layer (not in DEFINE_WEAPONS) --------------------------
-    double damage = 0.0;        ///< points, caller supplied; load() = 1.0
+    double damage = 0.0;        ///< points; BULLET/LASER resolved, THING fallback 1.0
     int magazine = 0;           ///< capacity; 0 = direct feed (original)
     int reload_ticks = 0;       ///< 0 = instant (original has no reload)
-    bool hitscan = false;       ///< original: BULLET/LASER hitscan, THING spawns an entity; runtime TODO
+    bool hitscan = false;       ///< resolved: first BULLET/LASER true, THING false
     double projectile_speed = 0.0; ///< units/s when !hitscan; 0 = invalid
 };
 
@@ -214,6 +212,11 @@ public:
     /// record has the wrong arity or a field is out of range (negative period,
     /// non-finite/negative spread or range, bad fire mode, ammo type index past
     /// the `DEFINE_AMMO` table, non-positive ammo per shot).
+    ///
+    /// BULLET/LASER weapon records are additionally resolved through the
+    /// entity sub-script (`projectile_id`): `hitscan=true` and `damage` is the
+    /// direct-hit gauge / 100.  THING records keep `hitscan=false` and the
+    /// conservative damage/speed placeholders.
     static std::optional<Weapons> load(const GameState& game,
                                        const std::filesystem::path& level_path,
                                        std::string* error = nullptr);

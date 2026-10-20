@@ -45,6 +45,13 @@ bool read_file(const std::filesystem::path& path, std::vector<std::uint8_t>& out
     return true;
 }
 
+std::uint32_t read_u32(const std::uint8_t* data) {
+    return static_cast<std::uint32_t>(data[0]) |
+           (static_cast<std::uint32_t>(data[1]) << 8U) |
+           (static_cast<std::uint32_t>(data[2]) << 16U) |
+           (static_cast<std::uint32_t>(data[3]) << 24U);
+}
+
 std::uint32_t as_uint(const SbtValue& value) {
     if (value.kind == SbtValue::Kind::UInt) {
         return value.u;
@@ -174,6 +181,72 @@ Arsenal arsenal_from_game(const GameState& game) {
 }
 
 namespace {
+
+struct FireScriptInfo {
+    bool found = false;
+    bool hitscan = false;
+    int damage_gauge = 0;
+};
+
+bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info) {
+    for (const SbtInsn& insn : insns) {
+        if (!insn.condition.empty()) {
+            if (insn.condition == "FIRE_SOURCEPLAYER_BULLET") {
+                info.found = true;
+                info.hitscan = true;
+                if (insn.args.size() > 2) {
+                    info.damage_gauge = static_cast<int>(as_uint(insn.args[2]));
+                }
+                return true;
+            }
+            if (insn.condition == "FIRE_SOURCEPLAYER_LASER") {
+                info.found = true;
+                info.hitscan = true;
+                if (insn.args.size() > 4) {
+                    info.damage_gauge = static_cast<int>(as_uint(insn.args[4]));
+                }
+                return true;
+            }
+            if (insn.condition == "FIRE_SOURCEPLAYER_THING") {
+                info.found = true;
+                info.hitscan = false;
+                return true;
+            }
+        }
+        if (!insn.body.empty() && scan_fire_script(insn.body, info)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool resolve_fire_script(const SbtLevel& level, std::uint32_t entity_id,
+                         FireScriptInfo& info) {
+    const std::size_t n = level.script.handles;
+    if (n == 0 || level.script_handles_data.size() < n * 12) {
+        return false;
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        const auto* data = level.script_handles_data.data();
+        const auto id = static_cast<std::int32_t>(read_u32(data + (n + i) * 4));
+        if (id != static_cast<std::int32_t>(entity_id)) {
+            continue;
+        }
+        const std::uint32_t offset = read_u32(data + (2 * n + i) * 4);
+        if (offset >= level.script_code.size()) {
+            return false;
+        }
+        std::string error;
+        const std::span<const std::uint8_t> sub(level.script_code.data() + offset,
+                                                level.script_code.size() - offset);
+        const auto program = decode_sbt_script(sub, error);
+        if (!program) {
+            return false;
+        }
+        return scan_fire_script(program->insns, info);
+    }
+    return false;
+}
 
 bool parse_tables(const std::filesystem::path& level_path, std::string* error,
                   Weapons* out) {
@@ -308,15 +381,24 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
                         " is past the DEFINE_AMMO table");
         }
 
-        // Hypothesis layer: the original directly feeds from ammo[slot].
-        // BULLET/LASER use hitscan (0x478520/0x478be0); THING weapons spawn
-        // an .soe entity (0x45e19d -> 0x46ea40).  This runtime still uses one
-        // projectile path for every weapon until the mode is wired per type.
+        // The original directly feeds from ammo[slot].  BULLET/LASER use
+        // hitscan (0x478520/0x478be0); THING weapons spawn an .soe entity
+        // (0x45e19d -> 0x46ea40).  Resolve the mode and the direct-hit gauge
+        // from the entity sub-script; level10.sbt's GENERATE chain and all
+        // impact/blast damage remain fallback/placeholder for now.
         weapon.magazine = 0;
         weapon.reload_ticks = 0;
         weapon.damage = kPlaceholderDamage;
         weapon.hitscan = false;
         weapon.projectile_speed = kDefaultProjectileSpeed;
+
+        FireScriptInfo fire;
+        if (resolve_fire_script(*level, weapon.projectile_id, fire) && fire.found) {
+            weapon.hitscan = fire.hitscan;
+            if (fire.hitscan && fire.damage_gauge > 0) {
+                weapon.damage = static_cast<double>(fire.damage_gauge) / kGaugeScale;
+            }
+        }
 
         slots.push_back(std::move(weapon));
     }

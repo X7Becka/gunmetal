@@ -693,6 +693,50 @@ void test_negatives_synthetic() {
     CHECK(origin.error == gm::FireError::bad_origin);
 }
 
+void test_real_weapon_modes() {
+    std::string error;
+    const auto table = gm::Weapons::load(kGame / "level0.sbt", &error);
+    CHECK(table.has_value());
+    if (!table) {
+        std::fprintf(stderr, "weapons modes: %s\n", error.c_str());
+        return;
+    }
+    const auto find = [&](std::string_view name) -> const gm::Weapon* {
+        for (const gm::Weapon& weapon : table->table()) {
+            if (weapon.name == name) {
+                return &weapon;
+            }
+        }
+        return nullptr;
+    };
+    const gm::Weapon* mg = find("MACHINE GUN");
+    const gm::Weapon* cannon = find("CANNON");
+    const gm::Weapon* auto_cannon = find("AUTOCANNON");
+    const gm::Weapon* rail = find("RAILGUN");
+    const gm::Weapon* rocket = find("ROCKET");
+    CHECK(mg != nullptr && cannon != nullptr && auto_cannon != nullptr &&
+          rail != nullptr && rocket != nullptr);
+    if (mg != nullptr) {
+        CHECK(mg->hitscan);
+        CHECK_NEAR(mg->damage, 4.0, 0.0);
+    }
+    if (cannon != nullptr) {
+        CHECK(cannon->hitscan);
+        CHECK_NEAR(cannon->damage, 15.0, 0.0);
+    }
+    if (auto_cannon != nullptr) {
+        CHECK(auto_cannon->hitscan);
+        CHECK_NEAR(auto_cannon->damage, 15.0, 0.0);
+    }
+    if (rail != nullptr) {
+        CHECK(rail->hitscan);
+        CHECK_NEAR(rail->damage, 60.0, 0.0);
+    }
+    if (rocket != nullptr) {
+        CHECK(!rocket->hitscan);
+    }
+}
+
 // --- real saves ------------------------------------------------------------
 
 struct GoldenSave {
@@ -704,13 +748,15 @@ struct GoldenSave {
     std::uint32_t ammo_left;
     double spread_x;
     double spread_y;
+    double damage;
+    bool hitscan;
 };
 
 constexpr std::array<GoldenSave, 2> kSaves = {{
     {"saved0.sbt", 0, {{2000, 90}}, 2, 7000.0, 1999, -0.2421790113617004,
-     -0.646618239477736},
+     -0.646618239477736, 4.0, true},
     {"saved1.sbt", 1, {{1975, 87}}, 8, 8000.0, 86, 0.26468357609715865,
-     0.61488239516758347},
+     0.61488239516758347, 15.0, true},
 }};
 
 std::vector<std::uint8_t> read_all(const fs::path& path) {
@@ -773,11 +819,11 @@ void test_real_tables(const gm::Weapons& table) {
         CHECK_NEAR(mg->spread_y, 0.46630765815499853, 1e-15);
         CHECK_NEAR(mg->range, 7000.0, 0.0);
         CHECK_EQ(mg->muzzle, 0);
-        // Hypothesis layer: original direct feed, no reload, projectile.
-        CHECK_NEAR(mg->damage, 1.0, 0.0);
+        // Resolved from the entity child script: BULLET hitscan, 400/100.
+        CHECK_NEAR(mg->damage, 4.0, 0.0);
         CHECK_EQ(mg->magazine, 0);
         CHECK_EQ(mg->reload_ticks, 0);
-        CHECK(!mg->hitscan);
+        CHECK(mg->hitscan);
         CHECK_NEAR(mg->projectile_speed, 12000.0, 0.0);
     }
 
@@ -856,11 +902,12 @@ void test_real_save(const GoldenSave& golden) {
         gm::fire(*table, arsenal, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, empty);
     CHECK(first.ok);
     CHECK(first.fired);
-    CHECK(first.projectile);
+    CHECK(first.projectile == !golden.hitscan);
     CHECK(!first.hit);
     CHECK_NEAR(first.distance, golden.range, 1e-12);
-    CHECK_NEAR(first.time, golden.range / gm::kDefaultProjectileSpeed, 1e-12);
-    CHECK_NEAR(first.damage, gm::kPlaceholderDamage, 0.0);
+    CHECK_NEAR(first.time, golden.hitscan ? 0.0 : golden.range / gm::kDefaultProjectileSpeed,
+               1e-12);
+    CHECK_NEAR(first.damage, golden.damage, 0.0);
     CHECK_EQ(first.consumed, std::uint32_t(1));
     CHECK_EQ(first.ammo_left, golden.ammo_left);
     CHECK_EQ(first.cooldown_left, golden.fire_ticks);
@@ -963,6 +1010,7 @@ int main() {
     if (fs::exists(kGame / "SAVEGAME" / "saved0.sbt") &&
         fs::exists(kGame / "SAVEGAME" / "saved1.sbt") &&
         fs::exists(kGame / "level0.sbt")) {
+        test_real_weapon_modes();
         for (const GoldenSave& golden : kSaves) {
             test_real_save(golden);
         }
