@@ -129,6 +129,16 @@ target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
 gm_label(sbtvm quick)
 
+add_executable(gm_vm_tests test_vm_exec.cpp)
+target_link_libraries(gm_vm_tests PRIVATE gm_engine)
+# docs/VM_CPP.md: C++ port of gm/sbtvm_exec.py.  The default run checks
+# level0/dm1/level1 block-by-block and all 36 main scripts; `--full` sweeps the
+# whole corpus (15 061 blocks) and the 78 421 executed commands.
+add_test(NAME vm COMMAND gm_vm_tests)
+gm_label(vm quick)
+add_test(NAME vm_full COMMAND gm_vm_tests --full)
+gm_label(vm_full full)
+
 add_executable(gm_soe_tests test_soe.cpp)
 target_link_libraries(gm_soe_tests PRIVATE gm_engine)
 add_test(NAME soe COMMAND gm_soe_tests)
@@ -176,7 +186,7 @@ endif()
 # Fast targets for the inner loop: build the binaries, then run CTest.
 #   cmake --build build/dev --target check-quick
 #   cmake --build build/test --target check
-set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_fuzz_tests gm_save_tests gunmetal)
+set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_vm_tests gm_fuzz_tests gm_save_tests gunmetal)
 add_custom_target(check-quick
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -L quick -j 8
             --output-on-failure
