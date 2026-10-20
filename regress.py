@@ -975,7 +975,7 @@ def main() -> int:
                           "AMMO id=4, 131@24, one trailing tile"))
     film_src = os.path.join(G, "Film", "AMMO4.SOF")
     film_out = os.path.join(out, "film_rebuild")
-    rc, text = run_raw(["film", film_src, "--rebuild", film_out])
+    rc, text = run(["film", film_src, "--rebuild", film_out])
     same = (os.path.exists(os.path.join(film_out, "AMMO4.SOF"))
             and os.path.exists(os.path.join(film_out, "ammo.fdx")))
     if same:
