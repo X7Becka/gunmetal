@@ -661,17 +661,20 @@ void test_target_history() {
     // (use_thing_fields=false) keeps lag 0 regardless of the record.
     gm::AiConfig typed_config;
     typed_config.use_thing_fields = true;
+    const gm::Things lag3 = make_synthetic_things(3);
     gm::Ai typed(typed_config);
-    CHECK_EQ(typed.attach(make_synthetic_things(3)), 2u);
+    CHECK_EQ(typed.attach(lag3), 2u);
     CHECK_EQ(typed.agent(0)->history_lag, 3);
+    const gm::Things lag500 = make_synthetic_things(500);
     gm::Ai clamped(typed_config);
-    CHECK_EQ(clamped.attach(make_synthetic_things(500)), 2u);
+    CHECK_EQ(clamped.attach(lag500), 2u);
     CHECK_EQ(clamped.agent(0)->history_lag, 239);
+    const gm::Things lag_negative = make_synthetic_things(-4);
     gm::Ai negative(typed_config);
-    CHECK_EQ(negative.attach(make_synthetic_things(-4)), 2u);
+    CHECK_EQ(negative.attach(lag_negative), 2u);
     CHECK_EQ(negative.agent(0)->history_lag, 0);
     gm::Ai plain;
-    CHECK_EQ(plain.attach(make_synthetic_things(3)), 2u);
+    CHECK_EQ(plain.attach(lag3), 2u);
     CHECK_EQ(plain.agent(0)->history_lag, 0);
 
     // The agent's aim point follows +0x1d0: lag 3 means the eye from three

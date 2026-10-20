@@ -183,6 +183,9 @@ public:
     /// with an absolute position can be agents; the rest are counted in
     /// `skipped_without_position`.  Returns the number of attached agents.
     std::size_t attach(const Things& things);
+    /// The AI keeps a pointer to `things` for `sync_vitals`; a temporary would
+    /// dangle on the next tick.
+    std::size_t attach(Things&& things) = delete;
 
     /// Set the players' eye points (world units), one to eight entries.  The
     /// old single-player form is `set_player`.  Returns false and leaves the
