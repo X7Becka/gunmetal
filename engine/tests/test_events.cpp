@@ -216,6 +216,123 @@ void test_bad_records() {
     CHECK(!bad_drain.ok);
 }
 
+void test_text_registry() {
+    // The registry of 0x619860: ten slots, dedup on (text, kind, font), a
+    // deadline of `now + 0x111` and the swap-with-last expiry.
+    gm::TextRegistry registry;
+    CHECK(registry.empty());
+    CHECK_EQ(registry.counter(), 0U);
+
+    CHECK(registry.post("hello", 3, -1, 100));
+    CHECK(registry.post("player 1", 4, 0, 200));
+    CHECK(registry.post("player 2", 4, 1, 300));
+    CHECK_EQ(registry.size(), 3U);
+    CHECK_EQ(registry.counter(), 3U);
+    CHECK_EQ(registry.messages()[0].text, std::string("hello"));
+    CHECK_EQ(registry.messages()[0].kind, -1);
+    CHECK_EQ(registry.messages()[0].font, 3);
+    CHECK_EQ(registry.messages()[0].deadline, 100U);
+    CHECK_EQ(registry.messages()[0].updated, 0U);
+    CHECK_EQ(registry.messages()[2].updated, 2U);
+
+    // The same text, kind and font refreshes the slot instead of adding one.
+    CHECK(registry.post("hello", 3, -1, 111));
+    CHECK_EQ(registry.size(), 3U);
+    CHECK_EQ(registry.counter(), 4U);
+    CHECK_EQ(registry.messages()[0].deadline, 111U);
+    CHECK_EQ(registry.messages()[0].updated, 3U);
+
+    // The same text with another font or another channel is a new message.
+    CHECK(registry.post("hello", 5, -1, 120));
+    CHECK(registry.post("hello", 3, 0, 120));
+    CHECK_EQ(registry.size(), 5U);
+    CHECK_EQ(registry.counter(), 6U);
+
+    // The lifetime of the original: `now + 0x111`.
+    CHECK(registry.post_lifetime("timed", 1, -1, 7));
+    CHECK_EQ(registry.messages()[5].deadline, 7U + gm::TextRegistry::kLifetimeFrames);
+
+    // The text is cut to 0x31 characters.
+    const std::string long_text(60, 'x');
+    CHECK(registry.post(long_text, 2, -1, 400));
+    CHECK_EQ(registry.messages().back().text.size(), gm::TextRegistry::kMaxTextLength);
+
+    // A full registry drops the new message and does not move the counter.
+    gm::TextRegistry full;
+    for (std::size_t i = 0; i < gm::TextRegistry::kMaxMessages; ++i) {
+        CHECK(full.post("m" + std::to_string(i), 1, -1, 1000));
+    }
+    CHECK_EQ(full.size(), gm::TextRegistry::kMaxMessages);
+    const std::uint32_t counter = full.counter();
+    CHECK(!full.post("overflow", 1, -1, 1000));
+    CHECK_EQ(full.size(), gm::TextRegistry::kMaxMessages);
+    CHECK_EQ(full.counter(), counter);
+    // ... but the same text still refreshes its slot.
+    CHECK(full.post("m0", 1, -1, 2000));
+    CHECK_EQ(full.messages()[0].deadline, 2000U);
+
+    // Expiry: the freed slot is filled with the last message.
+    gm::TextRegistry expiring;
+    expiring.post("a", 1, -1, 10);
+    expiring.post("b", 1, -1, 20);
+    expiring.post("c", 1, -1, 30);
+    // "a" dies: the last message moves into the freed slot, then "b" dies
+    // too and the registry keeps only "c".
+    expiring.expire(25);
+    CHECK_EQ(expiring.size(), 1U);
+    CHECK_EQ(expiring.messages()[0].text, std::string("c"));
+    expiring.expire(31);
+    CHECK(expiring.empty());
+
+    // A message survives while its deadline is not in the past.
+    gm::TextRegistry survivor;
+    survivor.post("a", 1, -1, 10);
+    survivor.expire(10);
+    CHECK_EQ(survivor.size(), 1U);
+    survivor.expire(11);
+    CHECK(survivor.empty());
+
+    // Selection: the system channel and the requested one, oldest update
+    // first.
+    gm::TextRegistry select;
+    select.post("sys", 1, -1, 100);
+    select.post("p0", 1, 0, 100);
+    select.post("p1", 1, 1, 100);
+    select.post("p0 again", 1, 0, 100);
+    const auto drawn = select.select(0);
+    CHECK_EQ(drawn.size(), 3U);
+    if (drawn.size() == 3) {
+        CHECK_EQ(drawn[0]->text, std::string("sys"));
+        CHECK_EQ(drawn[1]->text, std::string("p0"));
+        CHECK_EQ(drawn[2]->text, std::string("p0 again"));
+    }
+    CHECK_EQ(select.select(1).size(), 2U);
+    CHECK_EQ(select.select(7).size(), 1U);
+
+    // The queue feeds the registry: `event_dispatch` maps the record type to
+    // the channel (type - 5).
+    gm::EventQueue queue;
+    CHECK(queue.post_text(-1, 2, "from the queue"));
+    CHECK(queue.post_text(0, 3, "channel 0"));
+    const auto parsed = queue.drain();
+    CHECK(parsed.ok);
+    gm::TextRegistry fed;
+    for (const gm::Event& event : parsed.events) {
+        CHECK(gm::post_event(fed, event, 10));
+    }
+    CHECK_EQ(fed.size(), 2U);
+    CHECK_EQ(fed.messages()[0].kind, -1);
+    CHECK_EQ(fed.messages()[0].font, 2);
+    CHECK_EQ(fed.messages()[0].deadline, 10U + gm::TextRegistry::kLifetimeFrames);
+    CHECK_EQ(fed.messages()[1].kind, 0);
+
+    // Non-text events do not reach the registry.
+    gm::Event generate;
+    generate.type = gm::EventType::generate;
+    CHECK(!gm::post_event(fed, generate, 10));
+    CHECK_EQ(fed.size(), 2U);
+}
+
 } // namespace
 
 int main() {
@@ -225,6 +342,7 @@ int main() {
     test_switch_and_text();
     test_overflow_rule();
     test_bad_records();
+    test_text_registry();
     if (g_failures != 0) {
         std::fprintf(stderr, "events: %d failure(s)\n", g_failures);
         return 1;

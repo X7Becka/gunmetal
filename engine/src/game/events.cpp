@@ -301,4 +301,87 @@ EventParseResult EventQueue::parse(std::span<const std::uint8_t> bytes) {
     return result;
 }
 
+// --- the message registry (0x619860) ----------------------------------------
+
+void TextRegistry::clear() {
+    // FUN_00463a90 also clears a flag at 0x619aa8 that the dispatcher never
+    // reads; only the count and the update counter matter.
+    messages_.clear();
+    counter_ = 0;
+}
+
+bool TextRegistry::post(std::string_view text, std::int32_t font, std::int32_t kind,
+                        std::uint32_t deadline) {
+    // The original compares the stored text (strcmp), the kind and the font
+    // and refreshes the slot it finds.
+    for (TextMessage& message : messages_) {
+        if (message.kind == kind && message.font == font && message.text == text) {
+            message.deadline = deadline;
+            message.updated = counter_;
+            ++counter_;
+            return true;
+        }
+    }
+    if (messages_.size() >= kMaxMessages) {
+        return false; // the original drops the message
+    }
+    TextMessage message;
+    // strncpy(dst, src, 0x32) plus a forced NUL at the end of the slot: at
+    // most 0x31 characters are kept.
+    message.text.assign(text.substr(0, kMaxTextLength));
+    message.kind = kind;
+    message.font = font;
+    message.deadline = deadline;
+    message.updated = counter_;
+    messages_.push_back(message);
+    ++counter_;
+    return true;
+}
+
+bool TextRegistry::post_lifetime(std::string_view text, std::int32_t font, std::int32_t kind,
+                                 std::uint32_t now) {
+    return post(text, font, kind, now + kLifetimeFrames);
+}
+
+void TextRegistry::expire(std::uint32_t now) {
+    // FUN_00463e00: a message dies when `deadline < now`; the freed slot is
+    // filled with the *last* message (the order of the registry changes).
+    std::size_t index = 0;
+    while (index < messages_.size()) {
+        if (messages_[index].deadline < now) {
+            messages_[index] = messages_.back();
+            messages_.pop_back();
+        }
+        ++index;
+    }
+}
+
+std::vector<const TextMessage*> TextRegistry::select(std::int32_t channel) const {
+    // The original walks the slots from the end and inserts each one before
+    // the first slot with a not smaller update counter: the result is sorted
+    // by the update counter, the oldest update first.
+    std::vector<const TextMessage*> out;
+    for (std::size_t index = messages_.size(); index-- > 0;) {
+        const TextMessage& message = messages_[index];
+        if (message.kind != -1 && message.kind != channel) {
+            continue;
+        }
+        auto position = out.begin();
+        while (position != out.end() && (*position)->updated < message.updated) {
+            ++position;
+        }
+        out.insert(position, &message);
+    }
+    return out;
+}
+
+bool post_event(TextRegistry& registry, const Event& event, std::uint32_t now) {
+    if (!is_text_type(static_cast<std::uint8_t>(event.type))) {
+        return false;
+    }
+    // The dispatcher posts `now + 0x111` as the deadline.
+    return registry.post_lifetime(event.text, static_cast<std::int32_t>(event.font),
+                                  static_cast<std::int32_t>(event.channel), now);
+}
+
 } // namespace gm

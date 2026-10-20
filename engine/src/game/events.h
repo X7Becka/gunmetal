@@ -17,6 +17,10 @@
 // 2 is Trigger Switch.  The original dispatch table also has no type 0/13+:
 // it prints an error and drops the whole queue.
 //
+// The text records do not raise an event: `event_dispatch` puts them into the
+// message registry of `0x619860` (ten slots, dedup on text/kind/font, a
+// lifetime of `now + 0x111`).  That registry is `TextRegistry` below.
+//
 // The queue's overflow check is `0x750e < used_bytes` *before* appending a
 // record, so a record may start at 0x750e and the effective capacity is
 // 0x750e + 0x1b.  We preserve that rule rather than silently changing it.
@@ -72,6 +76,70 @@ struct EventParseResult {
     std::string error;
     std::vector<Event> events;
 };
+
+/// One slot of the message registry of the original (`0x619860`).
+///
+/// The original keeps the text in a 0x32 byte slot (`strncpy` with the last
+/// byte forced to NUL, so at most 0x31 characters) and the other fields in
+/// parallel arrays: the kind/channel (`0x619838`), the font (`0x619a58`), the
+/// deadline (`0x619810`) and the update counter (`0x619a80`).
+struct TextMessage {
+    std::string text;           ///< at most 0x31 characters
+    std::int32_t kind = 0;      ///< channel: -1 = system, 0..7 = players
+    std::int32_t font = 0;      ///< font index (0..0x1e)
+    std::uint32_t deadline = 0; ///< the frame the message dies at
+    std::uint32_t updated = 0;  ///< the update counter of the slot
+};
+
+/// The message registry of the original game: `FUN_00463ab0` posts a message,
+/// `FUN_00463e00` expires them, `FUN_00463bc0`/`FUN_00463ef0` draw them.
+///
+/// The registry holds at most ten messages.  A message with the same
+/// (text, kind, font) as an existing one refreshes that slot instead of
+/// taking a second one; when the registry is full a new message is dropped.
+/// An expired message (`deadline < now`) is removed by moving the *last*
+/// slot into the freed one, exactly like the original.
+class TextRegistry {
+public:
+    static constexpr std::size_t kMaxMessages = 10;
+    static constexpr std::size_t kTextCapacity = 0x32; ///< the strncpy limit
+    static constexpr std::size_t kMaxTextLength = kTextCapacity - 1;
+    /// The lifetime of the original: the dispatcher posts `now + 0x111`.
+    static constexpr std::uint32_t kLifetimeFrames = 0x111;
+
+    /// `FUN_00463a90`: drop everything and reset the update counter.
+    void clear();
+
+    /// `FUN_00463ab0`: post a message with an explicit deadline.  Returns
+    /// false when the registry is full and the message is dropped.
+    bool post(std::string_view text, std::int32_t font, std::int32_t kind,
+              std::uint32_t deadline);
+
+    /// Post a message that lives `kLifetimeFrames` frames.
+    bool post_lifetime(std::string_view text, std::int32_t font, std::int32_t kind,
+                       std::uint32_t now);
+
+    /// `FUN_00463e00`: drop the messages whose deadline is in the past.
+    void expire(std::uint32_t now);
+
+    /// The messages to draw for `channel`: the system channel (-1) and the
+    /// requested one, oldest update first (`FUN_00463bc0`).
+    std::vector<const TextMessage*> select(std::int32_t channel) const;
+
+    [[nodiscard]] const std::vector<TextMessage>& messages() const { return messages_; }
+    [[nodiscard]] std::size_t size() const { return messages_.size(); }
+    [[nodiscard]] bool empty() const { return messages_.empty(); }
+    /// The global update counter (`0x619ab0`).
+    [[nodiscard]] std::uint32_t counter() const { return counter_; }
+
+private:
+    std::vector<TextMessage> messages_;
+    std::uint32_t counter_ = 0;
+};
+
+/// Feed one event of the queue into a registry (`event_dispatch`, the types
+/// 4..12 branch).  Non-text events are ignored and return false.
+bool post_event(TextRegistry& registry, const Event& event, std::uint32_t now);
 
 /// Append-only staging queue.  `drain()` is the equivalent of `event_dispatch`.
 class EventQueue {
