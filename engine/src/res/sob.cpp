@@ -11,7 +11,7 @@ constexpr int kTexSlots = 8;
 constexpr int kPlaneNumbers = 15;
 // A face chain is walked recursively (the sentinel makes the grammar
 // ambiguous); a hostile token stream must not overflow the stack.
-constexpr int kMaxFaceDepth = 512;
+constexpr int kMaxFaceDepth = 4096;
 
 std::vector<std::string> tokenize(std::span<const std::uint8_t> data) {
     std::vector<std::string> out;

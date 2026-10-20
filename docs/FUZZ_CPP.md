@@ -40,7 +40,7 @@ have golden tests; the remaining formats are out of scope for this matrix.
 The SOB coverage already paid for itself: the wide run found a truncated
 face-index list read past the token vector and an unbounded face-chain
 recursion.  `parse_sob` now checks `q + nv <= tokens.size()` and caps the
-recursive sentinel walk at 512 faces (shipped maximum is 310).
+recursive sentinel walk at 4096 faces (shipped maximum is 1130).
 
 ## Running
 
