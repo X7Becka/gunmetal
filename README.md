@@ -78,6 +78,9 @@ docs/PLAYER.md        спавн игрока, DM-респавн, высота �
 docs/CAMERA.md        базис первого лица, проекция, xref 0x41e025
 docs/SAVE.md          сейвы: контейнер, блоки, byte-exact rebuild
 docs/SOU_CONTAINER.md .sou: статистика, 4091/4091 rebuild, аномалии
+docs/VM_EXEC.md      SCRIPT-VM: исполнение 199 опкодов, 36/36
+docs/SBT_RECORDS.md  .sbt: 38/38 файлов, 289 структурных записей
+docs/SBV.md          .sbv: YUV-кодек, 6843/6843 кадров
 docs/UI.md           SML/SME: 300 файлов, теги, экраны, HUD-ассеты
 docs/SHAKE.md        тряска камеры, view-pitch, отдача
 docs/SAVE_FIELDS.md  сейвы: карта 128 полей (83 proven), xref
