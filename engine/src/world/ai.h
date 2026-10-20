@@ -111,6 +111,12 @@ struct AiAgent {
     std::array<int, 4> shields{};
     int hits_left = 0;
     double distance = 0.0;      ///< last eye-to-eye distance (0 without a player)
+    /// Aim point from `target_history_offset` (lag 0 = live eye).  The state
+    /// machine keeps using the live distance for range/LOS; this is the point
+    /// an actual weapon layer should fire at.
+    Vec3d aim_point{};
+    double aim_distance = 0.0;
+    bool has_aim = false;
     bool visible = false;       ///< last line-of-sight result
     bool returning = false;     ///< idle substate: walking home, no sight checks
     bool has_home = false;
@@ -210,7 +216,8 @@ public:
 
     /// Ring of the target's world positions.  `tick` appends the live player
     /// eye exactly once per accepted tick; `attach` and `clear_player` reset
-    /// it.  Nothing else in the state machine consumes it yet.
+    /// it.  Agents consume it through `AiAgent::aim_point` at their
+    /// `history_lag`.
     const TargetHistory& target_history() const { return history_; }
     void reset_target_history() { history_.reset(); }
 

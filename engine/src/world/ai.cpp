@@ -299,6 +299,20 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                     ++stats_.los_blocked;
                 }
             }
+            // Aim at the target position the thing's +0x1d0 asks for.  `0`
+            // is the live eye; positive lags use the 240-slot ring and fall
+            // back to the live eye until enough history exists.
+            Vec3d aim = player_eye_;
+            if (agent.history_lag > 0) {
+                target_position(agent.history_lag, aim);
+            }
+            agent.aim_point = aim;
+            agent.aim_distance = length(aim - eye);
+            agent.has_aim = true;
+        } else {
+            agent.aim_point = Vec3d{};
+            agent.aim_distance = 0.0;
+            agent.has_aim = false;
         }
         agent.distance = distance;
         agent.visible = visible;
@@ -380,7 +394,8 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                     if (agent.timer <= 0.0) {
                         agent.timer = attack_period;
                         ++stats_.attacks;
-                        log(AiEventType::attack, agent, distance, tick);
+                        log(AiEventType::attack, agent,
+                            agent.has_aim ? agent.aim_distance : distance, tick);
                     }
                 }
             } else {

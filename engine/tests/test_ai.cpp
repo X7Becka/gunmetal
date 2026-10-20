@@ -671,6 +671,29 @@ void test_target_history() {
     CHECK_EQ(plain.attach(make_synthetic_things(3)), 2u);
     CHECK_EQ(plain.agent(0)->history_lag, 0);
 
+    // The agent's aim point follows +0x1d0: lag 3 means the eye from three
+    // accepted ticks ago.  The live distance still drives LOS/range.
+    const gm::Things aimed_things = make_synthetic_things(3);
+    gm::Ai aimed(typed_config);
+    CHECK_EQ(aimed.attach(aimed_things), 2u);
+    const gm::CollisionWorld clear_world;
+    for (int i = 1; i <= 5; ++i) {
+        CHECK(aimed.set_player({static_cast<double>(i), 0.0, 10.0}));
+        aimed.tick(clear_world);
+    }
+    const gm::AiAgent* aimer = aimed.agent(0);
+    CHECK(aimer != nullptr);
+    if (aimer != nullptr) {
+        CHECK(aimer->has_aim);
+        CHECK_EQ(aimer->history_lag, 3);
+        CHECK_NEAR(aimer->aim_point.x, 2.0, 0.0);
+        CHECK_NEAR(aimer->aim_point.y, 0.0, 0.0);
+        CHECK_NEAR(aimer->aim_distance, 2.0, 1e-12);
+    }
+    aimed.clear_player();
+    aimed.tick(clear_world);
+    CHECK(!aimed.agent(0)->has_aim);
+
     // Determinism: two runs record identical rings over 300 ticks.
     gm::Ai first;
     gm::Ai second;
