@@ -20,9 +20,14 @@ i = 0); the last ``end`` lands exactly on EOF for all three shipped files.
 
 The container is writable, too: :func:`build` regenerates the header/table from
 the frame blocks and reproduces every shipped clip byte for byte (no cross-frame
-state, so the blocks are carried verbatim).  A *pixel* compressor is out of
-scope: ``gundx.exe`` only contains the decoder, and the bit stream's per-block
-class/exponent decisions are not recoverable from the decoded planes.
+state, so the blocks are carried verbatim).  The *pixel* codec is also written
+here: :func:`encode_frame` inverts the pyramid (forward lifting, 1/4 base grid,
+3/4 entropy blocks) and produces a valid bit stream that the decoder above --
+and the C++ port -- rebuilds bit-exactly in the pixel domain.  It is a
+re-encoder, not a clone of the original compressor: the per-block class and
+exponent *choices* of ``gundx.exe``'s (nonexistent) encoder are not recoverable
+from a decoded frame, so the re-encoded blocks are usually a few percent larger
+and never byte-identical to the shipped ones.
 
 Payload codec
 -------------
@@ -84,16 +89,25 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 
+from . import png as _png
+
 MAGIC = b"SBV0"
 MAX_WIDTH = 0x140               # the loader rejects anything wider (320 px)
 MAX_HEIGHT = 1024               # trust-boundary guard (shipped clips: 160)
 MAX_FRAMES = 200_000            # trust-boundary guard (largest clip: 4523)
+MAX_FRAME_BYTES = 64 << 20      # encoder guard: a single block stays below this
+MAX_UNARY = 1 << 22             # encoder guard: unary run length
 
 # --- diagnostics ----------------------------------------------------------
 # Number of blocks decoded through a "family" handler (class 2 or 4..16).  Zero
 # for all shipped videos; a non-zero value means the frame used a code path that
 # is only approximated here.
 FAMILY_BLOCKS = 0
+# Number of planes whose coarse grid could not be reproduced exactly by the
+# 8-bit base quantiser.  Stays 0 for every shipped frame (the reference
+# compressor used the same 8-bit grid); a non-zero value means the re-encoded
+# frame is only an approximation in those planes.
+LOSSY_PLANES = 0
 
 
 @dataclass
@@ -113,8 +127,17 @@ class Sbv:
     data_start: int
     table: list[tuple[int, int]] = field(default_factory=list)
     file_size: int = 0
+    blob: bytes | None = None           # set by parse()/parse_file() for blob-less calls
 
-    def frames(self, blob: bytes) -> list[Frame]:
+    def _data(self, blob):
+        if blob is None:
+            blob = self.blob
+        if blob is None:
+            raise ValueError("no clip bytes: parse the file first or pass blob")
+        return blob
+
+    def frames(self, blob: bytes | None = None) -> list["Frame"]:
+        blob = self._data(blob)
         out: list[Frame] = []
         prev = 0
         for i, (ts, end) in enumerate(self.table):
@@ -124,7 +147,13 @@ class Sbv:
             prev = end
         return out
 
-    def frame(self, blob: bytes, index: int) -> Frame:
+    def frame(self, blob, index: int | None = None) -> "Frame":
+        """Return frame ``index``; ``clip.frame(blob, i)`` and ``clip.frame(i)``."""
+        if index is None:
+            if not isinstance(blob, int):
+                raise TypeError("frame() needs an index (and optionally a blob)")
+            index, blob = blob, None
+        blob = self._data(blob)
         if not 0 <= index < self.frame_count:
             raise IndexError(f"frame {index} out of range (0..{self.frame_count - 1})")
         ts, end = self.table[index]
@@ -132,18 +161,43 @@ class Sbv:
         start = self.data_start + prev
         return Frame(index, ts, start, blob[start:self.data_start + end])
 
-    def to_bytes(self, blob: bytes) -> bytes:
+    def to_bytes(self, blob: bytes | None = None) -> bytes:
         """Re-serialise the clip; byte-exact for the shipped files.
 
         The frame table is regenerated from the block sizes, so any bytes past
         the last frame (no shipped file has any) are copied over verbatim.
         """
+        blob = self._data(blob)
         out = build(self.width, self.height,
                     [(fr.timestamp_ms, fr.data) for fr in self.frames(blob)])
         tail = self.file_size - self.data_start - (self.table[-1][1] if self.table else 0)
         if tail > 0:
             out += blob[self.file_size - tail:]
         return out
+
+    rebuild = to_bytes
+
+    # --- decoding helpers (blob-less API) ---------------------------------
+    def decode_planes(self, index: int) -> bytes:
+        """Decode frame ``index`` to the raw signed-16 plane buffer."""
+        fr = self.frame(index)
+        return decode_frame_planes(fr.data, self.width, self.height)
+
+    def decode_frame(self, index: int) -> bytes:
+        """Decode frame ``index`` to packed 8-bit RGB (top-down)."""
+        fr = self.frame(index)
+        return decode_frame_rgb(fr.data, self.width, self.height)
+
+    def to_png(self, index: int, palette: bytes | None = None) -> bytes:
+        """Render frame ``index`` as an 8-bit RGB PNG.
+
+        ``palette`` is accepted for API symmetry with the indexed formats; this
+        codec carries no palette (the planes are Y/C0/C1, see the module docs),
+        so it is ignored.  A supplied palette is validated as 256 BGRA entries.
+        """
+        if palette is not None and len(palette) not in (0, 256 * 4):
+            raise ValueError("palette must be 256 BGRA entries (1024 bytes) or None")
+        return _png.rgb(self.width, self.height, self.decode_frame(index))
 
 
 def parse_file(path: str) -> tuple[Sbv, bytes]:
@@ -179,7 +233,7 @@ def parse(blob: bytes, path: str = "<mem>") -> Sbv:
             raise ValueError(f"frame {i} runs past EOF: "
                              f"{need}+{end} > {len(blob)}")
         previous = end
-    return Sbv(path, width, height, count, need, table, len(blob))
+    return Sbv(path, width, height, count, need, table, len(blob), blob)
 
 
 def validate(sbv: Sbv) -> bool:
@@ -632,3 +686,352 @@ def planes_to_rgb(planes: bytes, width: int, height: int) -> bytes:
 def decode_frame_rgb(frame: bytes, width: int, height: int) -> bytes:
     """Decode one frame block straight to packed 8-bit RGB."""
     return planes_to_rgb(decode_frame_planes(frame, width, height), width, height)
+
+
+# =========================================================================
+# Pixel encoder -- exact inverse of the pyramid above
+#
+# The decoder is a chain of *reversible* integer operations, so a frame can be
+# decomposed again:
+#
+#   1. invert `_filt_edges` (reverse lifting schedule: horizontal pass of the
+#      band first, then the vertical one, bands from bottom to top);
+#   2. read the 3/4 samples the entropy blocks carry (row-major path B layout,
+#      see `_scatter_blocks`) and keep the even/even quarter as the next
+#      coarser image;
+#   3. repeat for the three levels; the coarsest even/even grid is the base
+#      grid, quantised to the 8-bit ``lo/hi`` grid of `_base_grid`.
+#
+# The blocks are then coded with classes 0 and 3 only.  Class 1 and the
+# "family" handlers are decoder-only paths; class 3 covers every residual
+# (``(1+run) * step`` with a sign bit) and the block sign bit is always 0 so
+# the row-major scatter path B is used.
+# =========================================================================
+
+# Plane sample offsets in the flat buffer used by the decoder (luma first).
+_PLANE_GAP = 0x20
+
+
+def _samples_at(planes: bytes, offset: int, count: int) -> list[int]:
+    return list(struct.unpack_from("<%dH" % count, planes, offset))
+
+
+def _inv_lift_2d(smp: list[int], w: int, h: int) -> None:
+    """Exact inverse of :func:`_lift_2d` over a flat ``w*h`` sample list."""
+    g = smp.__getitem__
+
+    def put(i: int, v: int) -> None:
+        smp[i] = v & 0xFFFF
+
+    for band in range((h - 2) // 2 - 1, -1, -1):
+        r0 = 2 * band
+        # horizontal pass of the band (rows r0 and r0+1), undone last-to-first
+        for row in (r0, r0 + 1):
+            base = row * w
+            put(base + w - 1, g(base + w - 1) - g(base + w - 2))
+            for i in range(w - 2, 0, -2):
+                t = base + i
+                ax2 = _sar16(g(t - 2) + g(t) + 1, 1)
+                put(t - 1, g(t - 1) - ax2)
+                ax = _sar16(g(t - 1) + g(t + 1) + 2, 2)
+                put(t, g(t) + ax)
+        # vertical pass: rows (r0, r0+1, r0+2, r0+3) -> undo B then C
+        for j in range(w):
+            a = r0 * w + j
+            b = a + w
+            c = b + w
+            d = c + w
+            put(b, g(b) - _sar16(g(a) + g(c) + 1, 1))
+            put(c, g(c) + _sar16(g(d) + g(b) + 2, 2))
+
+
+def _inv_filt_edges(smp: list[int], w: int, h: int) -> None:
+    """Exact inverse of :func:`_filt_edges` (lift + bottom/right fix-ups)."""
+    g = smp.__getitem__
+
+    def put(i: int, v: int) -> None:
+        smp[i] = v & 0xFFFF
+
+    wh = w * h
+    row_b = wh - 2 * w
+    row_c = wh - w
+    # undo the last-column fix of the two bottom rows
+    for row in (row_b, row_c):
+        t = row + w - 1
+        put(t, g(t) - g(t - 1))
+    # undo the right-edge fix-up, iterations right to left
+    for i in range(w - 2, 0, -2):
+        for row in (row_b, row_c):
+            t = row + i
+            ax2 = _sar16(g(t - 2) + g(t) + 1, 1)
+            put(t - 1, g(t - 1) - ax2)
+            ax = _sar16(g(t - 1) + g(t + 1) + 2, 2)
+            put(t, g(t) + ax)
+    # undo last-row += second-to-last row
+    for i in range(w):
+        t = row_c + i
+        put(t, g(t) - g(row_b + i))
+    _inv_lift_2d(smp, w, h)
+
+
+def _pyramid_stages(width: int, height: int) -> list[tuple[int, int, int]]:
+    """(w, h, factor) coarse -> fine, identical for luma and chroma planes."""
+    return [(width // 4, height // 4, 4),
+            (width // 2, height // 2, 8),
+            (width, height, 8)]
+
+
+def _forward_plane(planes: bytes, offset: int, width: int, height: int):
+    """Split one plane into (base grid, per-stage block values, stages)."""
+    smp = _samples_at(planes, offset, width * height)
+    stages = _pyramid_stages(width, height)
+    blocks: dict[tuple[int, int], list[list[int]]] = {}
+    for (sw, sh, factor) in reversed(stages):
+        _inv_filt_edges(smp, sw, sh)
+        vals: list[list[int]] = []
+        for i in range(0, sh, factor):
+            for j in range(0, sw, factor):
+                blk: list[int] = []
+                for k in range(0, factor, 2):
+                    row = (i + k) * sw + j
+                    blk.extend(smp[row + c] for c in range(1, factor, 2))
+                    row += sw
+                    blk.extend(smp[row + c] for c in range(factor))
+                vals.append(blk)
+        blocks[(sw, sh)] = vals
+        # even/even quarter -> next coarser image
+        smp = [smp[y * sw + x] for y in range(0, sh, 2) for x in range(0, sw, 2)]
+    # the coarsest grid's even/even quarter is what _base_grid transmits
+    base = [_s16(v) for v in smp]
+    return base, blocks, stages
+
+
+def _quantise_base(base: list[int]):
+    """Pick ``(lo, span)`` so every coarse sample is hit exactly by 8 bits.
+
+    ``_base_grid`` reconstructs ``(int)(byte * (max - min) / 256.0 + min)``; the
+    reference compressor sets ``lo = min(sample)`` and chooses ``hi`` so that
+    code 255 lands on the largest sample.  Re-deriving that span from the
+    decoded samples is a small bounded search (the span differs from
+    ``max - min`` by less than ``span/255``).
+    """
+    lo = min(base)
+    span_dec = max(base) - lo
+
+    def fallback() -> tuple[int, int, list[int], bool]:
+        span = max(256, span_dec + 1)
+        codes = []
+        for v in base:
+            code = int((v - lo) * 256 / span + 0.5)
+            codes.append(0 if code < 0 else (255 if code > 255 else code))
+        return lo, span, codes, False
+
+    # An 8-bit grid has at most 256 distinct codes; more distinct samples can
+    # never be represented exactly.
+    if len(set(base)) > 256:
+        return fallback()
+
+    def codes_for(span: int):
+        out = []
+        for v in base:
+            d = (v - lo) * 256
+            b0 = d // span
+            for code in (b0, b0 + 1, b0 + 2):
+                if not 0 <= code <= 255:
+                    continue
+                num = code * span + 256 * lo
+                dec = num // 256 if num >= 0 else -((-num) // 256)
+                if dec == v:
+                    out.append(code)
+                    break
+            else:
+                return None
+        return out
+
+    for want_max in (True, False):
+        for span in range(max(span_dec, 1), span_dec + 700):
+            if want_max and (255 * span) // 256 != span_dec:
+                continue
+            codes = codes_for(span)
+            if codes is not None:
+                return lo, span, codes, True
+    # No exact 8-bit grid: fall back to a uniform quantiser and flag it.
+    return fallback()
+
+
+class _BitWriter:
+    """MSB-first writer mirroring the decoder's 32-bit little-endian reader."""
+
+    __slots__ = ("out", "acc", "n", "pred1", "pred2")
+
+    def __init__(self) -> None:
+        self.out = bytearray()
+        self.acc = 0
+        self.n = 0
+        self.pred1 = 0
+        self.pred2 = 0
+
+    def _flush_words(self) -> None:
+        while self.n >= 32:
+            self.n -= 32
+            self.out += ((self.acc >> self.n) & 0xFFFFFFFF).to_bytes(4, "little")
+            self.acc &= (1 << self.n) - 1
+
+    def bits(self, value: int, count: int) -> None:
+        self.acc = (self.acc << count) | (value & ((1 << count) - 1))
+        self.n += count
+        self._flush_words()
+
+    def bit(self, value: int) -> None:
+        self.acc = (self.acc << 1) | (value & 1)
+        self.n += 1
+        if self.n >= 32:
+            self._flush_words()
+
+    def unary(self, run: int) -> None:
+        if run < 0 or run > MAX_UNARY:
+            raise ValueError(f"unary run out of range: {run}")
+        self.acc = (self.acc << (run + 1)) | (((1 << run) - 1) << 1)
+        self.n += run + 1
+        self._flush_words()
+
+    def flush(self) -> None:
+        """Pad the pending bits into a whole word (the decoder drops them)."""
+        if self.n:
+            self.out += ((self.acc << (32 - self.n)) & 0xFFFFFFFF).to_bytes(4, "little")
+            self.acc = 0
+            self.n = 0
+
+    # one entropy block, class 0 or class 3
+    def block(self, vals: list[int]) -> None:
+        if not any(vals):
+            delta = -self.pred1
+            self.unary(abs(delta))
+            if delta:
+                self.bit(1 if delta < 0 else 0)
+            self.pred1 = 0
+            return
+        step_exp = 15
+        for v in vals:
+            if v:
+                mag = v if v < 0x8000 else 0x10000 - v
+                z = (mag & -mag).bit_length() - 1
+                if z < step_exp:
+                    step_exp = z
+        delta = 3 - self.pred1
+        self.unary(abs(delta))
+        if delta:
+            self.bit(1 if delta < 0 else 0)
+        self.pred1 = 3
+        de = step_exp - self.pred2
+        self.unary(abs(de))
+        if de:
+            self.bit(1 if de < 0 else 0)
+        self.pred2 = step_exp
+        step = 1 << step_exp
+        self.bit(0)                       # sign = 0 -> row-major scatter path
+        i = 0
+        n = len(vals)
+        while i < n:
+            if i % 4 == 0:                # decoder's 16-byte alignment shortcut
+                if not (vals[i] or vals[i + 1] or vals[i + 2] or vals[i + 3]):
+                    self.bit(0)
+                    i += 4
+                    continue
+                self.bit(1)
+            v = vals[i]
+            if v == 0:
+                self.bit(0)
+            else:
+                self.bit(1)
+                self.bit(1 if v >= 0x8000 else 0)
+                self.unary((v if v < 0x8000 else 0x10000 - v) // step - 1)
+            i += 1
+
+
+def _encode_plane(planes: bytes, offset: int, width: int, height: int,
+                  bw: _BitWriter) -> bytes:
+    global LOSSY_PLANES
+    base, blocks, stages = _forward_plane(planes, offset, width, height)
+    lo, span, codes, exact = _quantise_base(base)
+    if not exact:
+        LOSSY_PLANES += 1
+    out = bytearray(struct.pack("<ii", lo, lo + span))
+    out += bytes(codes)
+    for (sw, sh, factor) in stages:
+        bw.pred1 = 0                       # `_scatter_blocks` resets both
+        bw.pred2 = 0
+        for blk in blocks[(sw, sh)]:
+            bw.block(blk)
+    return bytes(out)
+
+
+def encode_frame(planes: bytes, width: int, height: int) -> bytes:
+    """Encode a raw signed-16 plane buffer into one ``.sbv`` frame block.
+
+    ``planes`` is the same layout :func:`decode_frame_planes` returns (luma
+    ``W*H`` samples, ``0x20`` gap, two ``W/2 x H/2`` chroma planes).  The result
+    is a valid block: ``decode_frame_planes(block, width, height) == planes``
+    whenever no plane hit the lossy coarse-grid fallback (see
+    :data:`LOSSY_PLANES`).
+    """
+    if width % 32 or height % 32 or height < 32 or \
+            not 1 <= width <= MAX_WIDTH or not 1 <= height <= MAX_HEIGHT:
+        raise ValueError(f"unsupported frame geometry {width}x{height} "
+                         "(both sides must be multiples of 32)")
+    need = plane_buffer_size(width, height)
+    if len(planes) < need:
+        raise ValueError(f"plane buffer too short: want {need}, have {len(planes)}")
+    bw = _BitWriter()
+    out = bytearray()
+    cw, ch = width // 2, height // 2
+    o_lum = 0
+    o_c0 = width * height * 2 + _PLANE_GAP
+    o_c1 = o_c0 + cw * ch * 2 + _PLANE_GAP
+    for offset, pw, ph in ((o_lum, width, height), (o_c0, cw, ch), (o_c1, cw, ch)):
+        bw.pred1 = 0
+        bw.pred2 = 0
+        out += _encode_plane(planes, offset, pw, ph, bw)
+        bw.flush()
+        out += bw.out
+        bw.out = bytearray()
+        if len(out) > MAX_FRAME_BYTES:
+            raise ValueError(f"encoded frame exceeds {MAX_FRAME_BYTES} bytes")
+    return bytes(out)
+
+
+def encode_frame_rgb(rgb: bytes, width: int, height: int) -> bytes:
+    """Encode packed 8-bit RGB into a frame block.
+
+    The colour transform is lossy by nature (three 8-bit channels into a
+    16x-gained Y/C0/C1 basis whose forward matrix is not stored in
+    ``gundx.exe``); the approximation below is the algebraic inverse of
+    :func:`planes_to_rgb` before clamping, so a decode lands within a couple of
+    levels for ordinary footage.  For an exact round-trip use
+    :func:`encode_frame` on decoded planes.
+    """
+    if len(rgb) != width * height * 3:
+        raise ValueError("rgb buffer has the wrong size")
+    cw, ch = width // 2, height // 2
+    lum = [0] * (width * height)
+    ch0 = [0] * (cw * ch)
+    ch1 = [0] * (cw * ch)
+    for y in range(height):
+        for x in range(width):
+            o = (y * width + x) * 3
+            r = rgb[o]
+            g = rgb[o + 1]
+            b = rgb[o + 2]
+            Y = (16 * (r + g + b) - 24) // 3
+            c0 = 16 * r - Y
+            c1 = 16 * b - Y
+            lum[y * width + x] = Y & 0xFFFF
+            if not (x & 1) and not (y & 1):
+                ch0[(y >> 1) * cw + (x >> 1)] = c0 & 0xFFFF
+                ch1[(y >> 1) * cw + (x >> 1)] = c1 & 0xFFFF
+    planes = bytearray(plane_buffer_size(width, height))
+    struct.pack_into("<%dH" % (width * height), planes, 0, *lum)
+    struct.pack_into("<%dH" % (cw * ch), planes, width * height * 2 + _PLANE_GAP, *ch0)
+    struct.pack_into("<%dH" % (cw * ch), planes,
+                     width * height * 2 + _PLANE_GAP + cw * ch * 2 + _PLANE_GAP, *ch1)
+    return encode_frame(bytes(planes), width, height)
