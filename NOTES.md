@@ -826,7 +826,7 @@ look16.tab   look162.tab   neons.pin
 | `sbm <image> <out.sbm> [--palette BMP] [--game DIR] [--mips N] [--flags N] [--filter box\|nearest]` | закодировать PNG/BMP в `.sbm` |
 | `textures <game> <out>` | `PICS/SBM.DAT` → PNG (общая палитра) |
 | `sprites <game> <out>` | `sprites/SBM.DAT` → PNG (индекс 0 прозрачен) |
-| `sounds <game> <out>` | `sounds/SOU.DAT`: `SOU0` → WAV, `SOU1/2` → сырые дампы |
+| `sounds <game> <out>` | `sounds/SOU.DAT`: `SOU0/1/2` → WAV (999 файлов) |
 | `frontend <game> <out>` | `FRONTEND/BMP.DAT` → BMP |
 | `sob <src> <out>` | `.sob` → OBJ + MTL |
 | `view <paths...> [--out O] [--size N] [--angle A] [--az A] [--el E] [--zoom Z] [--uv fit\|tile] [--no-textures] [--flat] [--wire] [--cull] [--sheet] [--pos X,Y,Z] [--look X,Y,Z] [--clip D] [--no-materials] [--no-brightness] [--no-lightmap] [--ambient N] [--sector N] [--no-sectors] [--transform] [--scene] [--scene-lights] [--scene-scale S] [--scene-markers-depth] [--things] [--thing-scale S] [--no-background] [--ascii [N]] [--game DIR]` | софт-рендер моделей `.sob` и уровней `.sbw` в PNG (`gm/render.py`); `--sheet` — 4 ракурса в одном PNG, `--pos/--look/--clip` — вид изнутри уровня, лайтмапы из `<уровень>.sbc`; `--scene` накладывает маркеры сцены из `<уровень>.sbt`, `--scene-lights` освещает полигоны без лайтмапа скриптовыми источниками; `--transform` ставит объекты `.sbw` в мир движка (`origin + basis·local`, по умолчанию — файловый кадр), `--things` добавляет модели вещей уровня (`ADD_THING*` из подскриптов сущностей), `--no-background` выбрасывает объекты длиннее 4000 ед. (скайбокс) |
