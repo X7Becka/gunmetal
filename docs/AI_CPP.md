@@ -227,7 +227,7 @@ state machine — следующий шаг. Tunables ниже — **гипот�
 | `kAiHistorySlots` | 240 | **proven** (данные+код) | `history[240][3]` в структуре объекта (`+0x30`), `history_index` (`+0x3204`) wrap на `0xf0` — docs/SAVE_FIELDS.md §9.2 |
 | `TargetHistory` шаг | 1 запись / tick | **proven** (код) | «позиция пишется каждый апдейт», `0x44377b..0x44378b`, docs/SAVE_FIELDS.md §9.2 |
 | clamp `history_lag` | 0 или 1..239 | **proven** (код) | `0x473eed`/`0x476523`, поле +0x1d0, docs/SOE.md; 0 — «текущая позиция». Данные: 0..10 во всём корпусе, у dm1/level0 только 0 (например level1 — 1..2, level3 — 1..10) |
-| смысл `lag = N` | N тиков назад | hypothesis | доказан сдвиг по 240-кадровой истории, но не единица счёта; C++ выбрал 1 tick = 1 запись |
+| смысл `lag = N` | N записей/тиков назад | **proven** (код) | `FUN_00473a00` (`0x473a00`): `i = history_index; i = (i < lag) ? i - lag + 0xf0 : i - lag; p = &DAT_00819070 + (i + player*0x236)*0x18`; stride `0x18` = 3 double, `0xf0` = 240. `+0x1d0` — ровно число записей назад, C++ хранит 1 запись/тик. |
 
 `AiConfig::use_thing_fields` (по умолчанию `false`) включает реальные поля:
 `search_radius → sight`, `target_zone_threshold → attack zone`,
