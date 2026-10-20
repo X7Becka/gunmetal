@@ -198,11 +198,9 @@ shield_max`, `0 ≤ weapon_slot ≤ 11`; дополнительно позици
 
 ## 6. Ограничения
 
-1. **`engine/CMakeLists.txt` не изменён** (вне разрешённого scope).
-   `save.cpp` компилируется прямо в `gm_save_tests`, поэтому API доступен
-   тесту, но не линкуется в `gm_engine`. Чтобы использовать его из движка,
-   нужно добавить одну строку в `engine/CMakeLists.txt`:
-   `src/res/save.cpp` в список `add_library(gm_engine STATIC ...)`.
+1. **Интеграция в `gm_engine` сделана основным агентом:** `src/res/save.cpp`
+   добавлен в `add_library(gm_engine STATIC ...)`; CTest-тест `save` остаётся
+   отдельным таргетом `gm_save_tests`.
 2. **Только чтение.** Writer'а нет; `parse_save` не пересобирает байты.
 3. **Строгая валидация.** Сейв с `armor_max == 0`, `weapon_slot == -1` в
    *присутствующем* слоте или NaN в позиции будет отвергнут; Python

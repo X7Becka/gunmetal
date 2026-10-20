@@ -467,6 +467,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
 - ✅ Карта полей: `tools/re/save_fields.py`, `docs/SAVE_FIELDS.md` — 128
       записей (83 proven / 31 hypothesis / 14 unknown), `--map/--json/--check/
       --self-test/--diff`; исправлены смещения `F3..F20`.
+- ✅ C++-читатель `engine/src/res/save.*`: контейнер/15 блоков, player 9,
+      golden saved0/saved1 (позиция/углы/armor/shields/ammo), `find_save_level`;
+      CTest `save` (19 негативных кейсов, ASan/UBSan чисто).
 - ⬜ Решить, может ли оригинал читать наши сейвы (stretch).
 
 **Выход:** сохранение читается и пишется без потерь; diff показывает только
