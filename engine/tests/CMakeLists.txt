@@ -100,6 +100,15 @@ target_link_libraries(gm_hud_player_tests PRIVATE gm_engine)
 add_test(NAME hud_player COMMAND gm_hud_player_tests)
 gm_label(hud_player quick)
 
+add_executable(gm_hud_bind_tests test_hud_bind.cpp)
+target_link_libraries(gm_hud_bind_tests PRIVATE gm_engine)
+# Screen -> film family/name/line binding plus <I x y a> placement: shipped
+# .sml/.sme corpus (72 images, 15 unique), help.sme, a synthetic multi-image
+# screen, state-derived family choice, missing films and malformed markup.
+# Goldens and proven/hypothesis split: docs/HUD_BIND.md.
+add_test(NAME hud_bind COMMAND gm_hud_bind_tests)
+gm_label(hud_bind quick)
+
 add_executable(gm_sou1_tests test_sou1.cpp)
 target_link_libraries(gm_sou1_tests PRIVATE gm_engine)
 # `sou1` pins 11 records covering every sample rate, mono/stereo and the
