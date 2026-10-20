@@ -354,6 +354,12 @@ void test_network_blob() {
     const auto parsed = gm::EventQueue::parse_network_blob(blob);
     CHECK(parsed.ok);
     CHECK_EQ(parsed.events.size(), 2U);
+    gm::EventQueue receiver;
+    const auto accepted = receiver.accept_network_blob(blob);
+    CHECK(accepted.ok);
+    CHECK_EQ(receiver.size(), length);
+    const auto drained = receiver.drain();
+    CHECK_EQ(drained.events.size(), 2U);
     if (parsed.events.size() == 2) {
         CHECK(parsed.events[0].type == gm::EventType::generate);
         CHECK_EQ(parsed.events[0].id, 7);

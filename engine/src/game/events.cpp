@@ -532,4 +532,20 @@ EventParseResult EventQueue::parse_network_blob(std::span<const std::uint8_t> by
     return parse(bytes.subspan(4, length));
 }
 
+EventParseResult EventQueue::accept_network_blob(std::span<const std::uint8_t> bytes) {
+    EventParseResult parsed = parse_network_blob(bytes);
+    if (!parsed.ok) {
+        return parsed;
+    }
+    const std::uint32_t length = get_u32(bytes, 0);
+    if (length > kBufferSize) {
+        parsed.ok = false;
+        parsed.events.clear();
+        parsed.error = "network event blob does not fit the dispatch buffer";
+        return parsed;
+    }
+    bytes_.assign(bytes.begin() + 4, bytes.begin() + 4 + length);
+    return parsed;
+}
+
 } // namespace gm

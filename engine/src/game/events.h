@@ -297,6 +297,10 @@ public:
     /// overrun.
     static EventParseResult parse_network_blob(std::span<const std::uint8_t> bytes);
 
+    /// Client side of `FUN_00466ae0`: validate a blob and replace the queued
+    /// records with its announced bytes.  On error the queue is untouched.
+    EventParseResult accept_network_blob(std::span<const std::uint8_t> bytes);
+
 private:
     bool can_append(std::size_t record_size, std::size_t overflow) const;
     std::size_t threshold_for(EventType type) const;
