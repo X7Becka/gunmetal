@@ -39,6 +39,10 @@ struct Options {
     bool no_lightmaps = false;
     bool lightmap_world = false;
     bool wire = false;
+    int mip = 0;               // fixed mip level (0 = base)
+    bool bilinear = false;     // opt-in bilinear filtering
+    bool alpha_test = false;   // key out the transparent palette index
+    int transparent_index = 0;
     bool things = false;       // place the scene's ADD_THING models
     float thing_scale = 1.0f;  // extra scale for those models
     bool info = false;

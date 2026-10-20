@@ -199,6 +199,37 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             options.lightmap_world = true;
         } else if (arg == "--wire") {
             options.wire = true;
+        } else if (arg == "--mip") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.mip = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--mip expects an integer";
+                return std::nullopt;
+            }
+        } else if (arg == "--filter") {
+            const auto v = value(arg);
+            if (!v || (*v != "nearest" && *v != "bilinear")) {
+                error = "--filter expects nearest|bilinear";
+                return std::nullopt;
+            }
+            options.bilinear = (*v == "bilinear");
+        } else if (arg == "--alpha-test") {
+            options.alpha_test = true;
+        } else if (arg == "--transparent-index") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.transparent_index = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--transparent-index expects an integer";
+                return std::nullopt;
+            }
         } else if (arg == "--things") {
             options.things = true;
         } else if (arg == "--thing-scale") {
@@ -293,6 +324,10 @@ std::string usage() {
        << "      --no-textures flat colours instead of archive textures\n"
        << "      --no-lightmaps ignore .sbc lightmaps\n"
        << "      --wire        draw polygon edges\n"
+       << "      --mip N       sample fixed mip level N (default 0)\n"
+       << "      --filter M    nearest|bilinear texture filtering\n"
+       << "      --alpha-test  drop texels equal to --transparent-index\n"
+       << "      --transparent-index N  palette key (default 0)\n"
        << "      --things      place the scene's ADD_THING models\n"
        << "      --thing-scale X  extra scale for those models (default 1)\n"
        << "      --info        print the level summary instead of opening the viewer\n"

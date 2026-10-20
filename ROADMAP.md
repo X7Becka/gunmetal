@@ -643,9 +643,10 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > побитово (double + `-ffp-contract=off`); математика оригинала — после M2.
 - 🟡 `M4.2.3` Текстуры: wrap/clamp, mip, фильтрация, прозрачный индекс.
       > Python: opt-in mip (fixed/auto LOD), bilinear, alpha-test по индексу 0
-      > (`docs/MIPMAPS.md`, `tools/parity_mip.py`, 50 проверок); default остаётся
-      > mip0/nearest и побитово совпадает со старыми golden. C++ — mip0/nearest,
-      > трилинейного смешивания и Glide-dither нет.
+      > (`docs/MIPMAPS.md`, `tools/parity_mip.py`, 50 проверок); C++: fixed mip,
+      > bilinear, alpha-test (кадр level0 320x200 побитово = Python,
+      > FNV `2d456b5942c1cac5`). Default — mip0/nearest, старые golden целы.
+      > Нет auto-LOD в C++, трилинейного смешивания и Glide-dither.
 - ⬜ `M4.2.4` Смешивание: точная математика из `M2`, а не приближение.
 - 🟡 `M4.2.5` Освещение: нормали, brightness, лайтмапы, скриптовые источники.
       > ambient + |N·L|, brightness, лайтмапы; скриптовые источники и точная

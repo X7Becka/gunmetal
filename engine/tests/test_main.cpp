@@ -1402,6 +1402,14 @@ void test_render() {
             const auto view = gm::render_scene(meshes, options, &pool, lightmaps);
             CHECK_EQ(fnv_rgb(view.rgb), 0x9e54d79f29ac47c6ull);
 
+            // Opt-in mip 1 + bilinear + palette-index-0 alpha test: the same
+            // frame as gm/render.py (mip=1, filter="bilinear", alpha_test).
+            options.mip = 1;
+            options.bilinear = true;
+            options.alpha_test = true;
+            const auto sampled = gm::render_scene(meshes, options, &pool, lightmaps);
+            CHECK_EQ(fnv_rgb(sampled.rgb), 0x2d456b5942c1cac5ull);
+
             options.clip = 300.0f;
             const auto clipped = gm::render_scene(meshes, options, &pool, lightmaps);
             CHECK_EQ(fnv_rgb(clipped.rgb), 0xa4ccdd84a43ca565ull);

@@ -25,11 +25,22 @@ struct Vec3d {
     double z = 0.0;
 };
 
-/// An 8-bit texture resolved to RGB, top-down.
+/// One mip level: RGB plus the original palette indices (alpha keying).
+struct TextureLevel {
+    int width = 0;
+    int height = 0;
+    std::vector<std::uint8_t> rgb;
+    std::vector<std::uint8_t> indices;
+};
+
+/// An 8-bit texture resolved to RGB, top-down.  ``rgb``/``width``/``height``
+/// are level 0; ``levels`` keeps the full chain for opt-in mip sampling.
 struct Texture {
     int width = 0;
     int height = 0;
     std::vector<std::uint8_t> rgb;
+    std::vector<std::uint8_t> indices;
+    std::vector<TextureLevel> levels;
 };
 
 /// Texture lookup over ``PICS/SBM.IDX`` then ``sprites/SBM.IDX``; the same
@@ -133,6 +144,11 @@ struct RenderOptions {
     Vec3d target;
     // Drop faces farther than this from the eye (0 = disabled), as in the viewer.
     float clip = 0.0f;
+    // Opt-in texture sampling (defaults preserve the historical mip0/nearest).
+    int mip = 0;                    // fixed level, clamped to the chain
+    bool bilinear = false;
+    bool alpha_test = false;
+    int transparent_index = 0;
 };
 
 struct RenderResult {

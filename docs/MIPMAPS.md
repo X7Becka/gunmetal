@@ -250,3 +250,20 @@ open("/tmp/level0_mip.png", "wb").write(
     render.render(ms, 320, 200, pool=pool, mip="auto", filter="bilinear"))
 PY
 ```
+
+## C++ renderer
+
+`engine/src/render` mirrors the opt-in modes for a *fixed* level:
+
+```sh
+gunmetal --level level0 --mip 1 --filter bilinear --alpha-test \
+         --pos 0,0,600 --look 0,0,0 --lm-world \
+         --width 320 --height 200 --render out.png
+```
+
+`RenderOptions::{mip,bilinear,alpha_test,transparent_index}` sample the stored
+`TextureLevel` chain (RGB + palette indices) and skip keyed texels before the
+z-write, exactly like `gm/render.py`.  The level0 frame at 320x200 is
+bit-identical to Python (FNV-1a64 of RGB = `2d456b5942c1cac5`, pinned in
+`gm_tests`); defaults keep the historical mip0/nearest output.  Auto LOD and
+trilinear blending are not implemented in C++.

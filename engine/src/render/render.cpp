@@ -282,7 +282,8 @@ void draw_triangle(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, in
                    int height, const Projected* tri, const V2* tuv, const Texture* tex,
                    double shade, int cr, int cg, int cb, double u0, double v0, double su,
                    double sv, const Blend& blend, bool z_write, const SbcRecord* lm_page,
-                   const V2* lmuv, double lm_base) {
+                   const V2* lmuv, double lm_base, int mip, bool bilinear,
+                   bool alpha_test, int transparent_index) {
     const double x0 = tri[0].sx, y0 = tri[0].sy, w0 = tri[0].invz;
     const double x1 = tri[1].sx, y1 = tri[1].sy, w1 = tri[1].invz;
     const double x2 = tri[2].sx, y2 = tri[2].sy, w2 = tri[2].invz;
@@ -298,8 +299,18 @@ void draw_triangle(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, in
         return;
     }
     const double inv = 1.0 / area;
-    const int tex_w = tex ? tex->width : 1;
-    const int tex_h = tex ? tex->height : 1;
+    const TextureLevel* tex_level = nullptr;
+    if (tex != nullptr) {
+        if (!tex->levels.empty()) {
+            const int last = static_cast<int>(tex->levels.size()) - 1;
+            const int level = std::max(0, std::min(mip, last));
+            tex_level = &tex->levels[static_cast<std::size_t>(level)];
+        } else {
+            tex_level = nullptr;
+        }
+    }
+    const int tex_w = tex_level ? tex_level->width : (tex ? tex->width : 1);
+    const int tex_h = tex_level ? tex_level->height : (tex ? tex->height : 1);
     const int lm_w = lm_page ? lm_page->width : 1;
     const int lm_h = lm_page ? lm_page->height : 1;
 
@@ -324,10 +335,8 @@ void draw_triangle(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, in
             if (iz <= zbuf[i]) {
                 continue;
             }
-            if (z_write) {
-                zbuf[i] = iz;
-            }
             double r = 0.0, g = 0.0, b = 0.0;
+            bool transparent = false;
             if (tex == nullptr) {
                 r = static_cast<double>(cr);
                 g = static_cast<double>(cg);
@@ -337,14 +346,69 @@ void draw_triangle(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, in
                                    l2 * tuv[2].u * w2) / iz;
                 const double vv = (l0 * tuv[0].v * w0 + l1 * tuv[1].v * w1 +
                                    l2 * tuv[2].v * w2) / iz;
-                int tx = static_cast<int>((uu - u0) / su * static_cast<double>(tex_w)) % tex_w;
-                int ty = static_cast<int>((vv - v0) / sv * static_cast<double>(tex_h)) % tex_h;
-                tx = ((tx % tex_w) + tex_w) % tex_w;
-                ty = ((ty % tex_h) + tex_h) % tex_h;
-                const std::size_t o = (static_cast<std::size_t>(ty) * tex_w + tx) * 3;
-                r = static_cast<double>(tex->rgb[o]);
-                g = static_cast<double>(tex->rgb[o + 1]);
-                b = static_cast<double>(tex->rgb[o + 2]);
+                const std::uint8_t* pixels = tex_level ? tex_level->rgb.data() : tex->rgb.data();
+                const std::uint8_t* index = tex_level ? tex_level->indices.data()
+                                                      : tex->indices.data();
+                const bool have_index = tex_level ? !tex_level->indices.empty()
+                                                  : !tex->indices.empty();
+                if (!bilinear) {
+                    int tx = static_cast<int>((uu - u0) / su * static_cast<double>(tex_w)) %
+                             tex_w;
+                    int ty = static_cast<int>((vv - v0) / sv * static_cast<double>(tex_h)) %
+                             tex_h;
+                    tx = ((tx % tex_w) + tex_w) % tex_w;
+                    ty = ((ty % tex_h) + tex_h) % tex_h;
+                    const std::size_t o = (static_cast<std::size_t>(ty) * tex_w + tx) * 3;
+                    r = static_cast<double>(pixels[o]);
+                    g = static_cast<double>(pixels[o + 1]);
+                    b = static_cast<double>(pixels[o + 2]);
+                    if (alpha_test && have_index &&
+                        static_cast<int>(index[static_cast<std::size_t>(ty) * tex_w + tx]) ==
+                            transparent_index) {
+                        transparent = true;
+                    }
+                } else {
+                    double fu = (uu - u0) / su * tex_w - 0.5;
+                    double fv = (vv - v0) / sv * tex_h - 0.5;
+                    int tx0 = static_cast<int>(std::floor(fu));
+                    int ty0 = static_cast<int>(std::floor(fv));
+                    const double ax = fu - tx0;
+                    const double ay = fv - ty0;
+                    tx0 = ((tx0 % tex_w) + tex_w) % tex_w;
+                    ty0 = ((ty0 % tex_h) + tex_h) % tex_h;
+                    const int tx1 = (tx0 + 1) % tex_w;
+                    const int ty1 = (ty0 + 1) % tex_h;
+                    const std::size_t o00 = (static_cast<std::size_t>(ty0) * tex_w + tx0) * 3;
+                    const std::size_t o10 = (static_cast<std::size_t>(ty0) * tex_w + tx1) * 3;
+                    const std::size_t o01 = (static_cast<std::size_t>(ty1) * tex_w + tx0) * 3;
+                    const std::size_t o11 = (static_cast<std::size_t>(ty1) * tex_w + tx1) * 3;
+                    const double w00 = (1.0 - ax) * (1.0 - ay);
+                    const double w10 = ax * (1.0 - ay);
+                    const double w01 = (1.0 - ax) * ay;
+                    const double w11 = ax * ay;
+                    r = pixels[o00] * w00 + pixels[o10] * w10 + pixels[o01] * w01 +
+                        pixels[o11] * w11;
+                    g = pixels[o00 + 1] * w00 + pixels[o10 + 1] * w10 + pixels[o01 + 1] * w01 +
+                        pixels[o11 + 1] * w11;
+                    b = pixels[o00 + 2] * w00 + pixels[o10 + 2] * w10 + pixels[o01 + 2] * w01 +
+                        pixels[o11 + 2] * w11;
+                    if (alpha_test && have_index) {
+                        const auto on = [&](std::size_t off) {
+                            return index[off] != static_cast<std::uint8_t>(transparent_index);
+                        };
+                        const double a = w00 * on(static_cast<std::size_t>(ty0) * tex_w + tx0) +
+                                         w10 * on(static_cast<std::size_t>(ty0) * tex_w + tx1) +
+                                         w01 * on(static_cast<std::size_t>(ty1) * tex_w + tx0) +
+                                         w11 * on(static_cast<std::size_t>(ty1) * tex_w + tx1);
+                        transparent = a <= 0.5;
+                    }
+                }
+            }
+            if (transparent) { // keyed texel: no colour and no depth
+                continue;
+            }
+            if (z_write) {
+                zbuf[i] = iz;
             }
             double f = shade;
             if (lm_page != nullptr && !lm_page->pixels.empty()) {
@@ -395,7 +459,8 @@ void draw_poly(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, int wi
                int height, const std::vector<Projected>& pts, const std::vector<V2>& uvs,
                const Texture* tex, double shade, int cr, int cg, int cb, bool fit_enabled,
                const Fit& fit, const Blend& blend, const SbcRecord* lm_page,
-               const std::vector<V2>& lmuv, double lm_base, bool cull) {
+               const std::vector<V2>& lmuv, double lm_base, bool cull, int mip,
+               bool bilinear, bool alpha_test, int transparent_index) {
     if (pts.size() < 3) {
         return;
     }
@@ -420,7 +485,8 @@ void draw_poly(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, int wi
             lmp = tlm;
         }
         draw_triangle(buf, zbuf, width, height, tri, tuv, tex, shade, cr, cg, cb, f.u0, f.v0,
-                      f.su, f.sv, blend, z_write, lm_page, lmp, lm_base);
+                      f.su, f.sv, blend, z_write, lm_page, lmp, lm_base, mip, bilinear,
+                      alpha_test, transparent_index);
     }
 }
 
@@ -675,20 +741,29 @@ std::unique_ptr<Texture> TexturePool::load(const std::string& name) {
         if (!sbm || sbm->mips.empty() || palette_.empty()) {
             continue;
         }
-        const SbmLevel& level = sbm->mips.front();
-        const auto rgba = sbm_to_rgba(level, palette_);
         Texture tex;
-        tex.width = level.width;
-        tex.height = level.height;
-        tex.rgb.resize(static_cast<std::size_t>(level.width) * level.height * 3);
-        for (int i = 0; i < level.width * level.height; ++i) {
-            tex.rgb[static_cast<std::size_t>(i) * 3 + 0] =
-                rgba[static_cast<std::size_t>(i) * 4 + 0];
-            tex.rgb[static_cast<std::size_t>(i) * 3 + 1] =
-                rgba[static_cast<std::size_t>(i) * 4 + 1];
-            tex.rgb[static_cast<std::size_t>(i) * 3 + 2] =
-                rgba[static_cast<std::size_t>(i) * 4 + 2];
+        tex.levels.reserve(sbm->mips.size());
+        for (const SbmLevel& level : sbm->mips) {
+            const auto rgba = sbm_to_rgba(level, palette_);
+            TextureLevel out;
+            out.width = level.width;
+            out.height = level.height;
+            out.indices = level.pixels;
+            out.rgb.resize(static_cast<std::size_t>(level.width) * level.height * 3);
+            for (int i = 0; i < level.width * level.height; ++i) {
+                out.rgb[static_cast<std::size_t>(i) * 3 + 0] =
+                    rgba[static_cast<std::size_t>(i) * 4 + 0];
+                out.rgb[static_cast<std::size_t>(i) * 3 + 1] =
+                    rgba[static_cast<std::size_t>(i) * 4 + 1];
+                out.rgb[static_cast<std::size_t>(i) * 3 + 2] =
+                    rgba[static_cast<std::size_t>(i) * 4 + 2];
+            }
+            tex.levels.push_back(std::move(out));
         }
+        tex.width = tex.levels.front().width;
+        tex.height = tex.levels.front().height;
+        tex.rgb = tex.levels.front().rgb;
+        tex.indices = tex.levels.front().indices;
         ++loads_;
         return std::make_unique<Texture>(std::move(tex));
     }
@@ -941,7 +1016,8 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
             if (options.solid) {
                 draw_poly(result.rgb, zbuf, options.width, options.height, pts, uvs, tex, shade,
                           cr, cg, cb, tex != nullptr, fit, blend, page, lmuv, lm_base,
-                          options.cull);
+                          options.cull, options.mip, options.bilinear,
+                          options.alpha_test, options.transparent_index);
             }
             if (options.wire) {
                 for (std::size_t k = 0; k < pts.size(); ++k) {
@@ -961,7 +1037,8 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
             draw_poly(result.rgb, zbuf, options.width, options.height, item.pts, item.uvs,
                       item.tex, item.shade, item.r, item.g, item.b, item.tex != nullptr,
                       item.fit, item.blend, item.lm_page, item.lmuv, item.lm_base,
-                      options.cull);
+                      options.cull, options.mip, options.bilinear,
+                      options.alpha_test, options.transparent_index);
         }
     }
     return result;
