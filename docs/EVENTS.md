@@ -99,8 +99,8 @@ Source-relative вещь без мировой точки даёт коорди�
 | тип | обработчик | статус |
 |---|---|---|
 | 1, 3 | `generate_event` (`0x479960`) | код |
-| 2 | `FUN_0044f960` | не разобрано |
-| 4…12 | `FUN_00463ab0(record + 2, ...)` | не разобрано (таблица строк/id) |
+| 2 | `FUN_0044f960` | **C++** `EventDispatcher` (§2.2) |
+| 4…12 | `FUN_00463ab0(record + 2, ...)` | **C++** `TextRegistry` (§2.1) |
 | иное | `Internal Error: Bad event value in do_events()` | код |
 
 Для типа 1 в `generate_event` передаются id, u16, два i16, x/y/z, extra; для
