@@ -110,6 +110,10 @@ python3 gm.py sprites  "…/Gunmetal 3dfx" out/sprites --transparent 0
 
 python3 gm.py sounds   "…/Gunmetal 3dfx" out/sounds
 
+# контейнер .sou: статистика и byte-exact rebuild
+python3 gm.py sou "…/Gunmetal 3dfx/sounds/SOU.IDX" --stats
+python3 gm.py sou "…/Gunmetal 3dfx/sounds/SOU.IDX" --rebuild out/sou
+
 # музыка: 3092 записи MUSIC/SOU.IDX -> WAV (формат 4, Python-декодер)
 python3 gm.py music    "…/Gunmetal 3dfx/MUSIC/SOU.IDX" out/music
 python3 gm.py music    "…/Gunmetal 3dfx/MUSIC/SOU.IDX" out/music --limit 10

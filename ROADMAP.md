@@ -368,8 +368,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       --wav OUT` даёт WAV, побайтово равный Python.
 - ✅ Python-порт SOU2: `gm/sou2.py` + `gm.py music`, паритет с C++ на 3092
       записях (`tools/parity_sou2.py`); `Sou.to_wav` делегирует SOU2.
-- 🟡 `gm/sou.py`: `stats`, `--rebuild` контейнера SOU0/1/2 — отдельный агент
-      (`feat/sou-container`); декодеры уже готовы.
+- ✅ `gm/sou.py`: `stats`, `to_bytes`/`rebuild`, `gm.py sou IDX
+      [--stats|--rebuild DIR]`; 4091/4091 записей (sounds + MUSIC)
+      побайтово, включая 481 нечётный `length` и хвост `L06A01`.
 - ⬜ Fallback: WAV-заглушка/тишина с предупреждением, а не «PCM-мусор».
 
 **Выход:** 999 + 3092 записей декодируются в WAV; `SILENCE` — тишина, лупы

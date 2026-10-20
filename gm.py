@@ -335,6 +335,43 @@ def cmd_sounds(opts) -> int:
     return 0 if bad == 0 else 1
 
 
+def cmd_sou(opts) -> int:
+    """Container stats/rebuild for sounds/SOU.IDX or MUSIC/SOU.IDX."""
+    import json as _json
+    from gm import sou as soumod
+
+    bf = bigfile.BigFile(opts.idx)
+    items = [(e.name, bf.read(e)) for e in bf.entries]
+    report = soumod.stats(items)
+    if opts.stats or not opts.rebuild:
+        if opts.json:
+            print(_json.dumps(report, indent=2, ensure_ascii=False))
+        else:
+            print("sou: %d entries (%d parsed, %d bad), %.1f s, %d bytes"
+                  % (report["entries"], report["parsed"], report["bad"],
+                     report["seconds"], report["bytes"]))
+            print("  formats=%s rates=%s channels=%s"
+                  % (report["formats"], report["rates"], report["channels"]))
+            print("  loadable=%d anomalies=%s"
+                  % (report["loadable"], report["anomalies"]))
+    if not opts.rebuild:
+        return 0 if report["bad"] == 0 else 1
+    os.makedirs(opts.rebuild, exist_ok=True)
+    ok = bad = 0
+    for name, blob in items:
+        try:
+            data = soumod.parse(blob).rebuild()
+            dst = os.path.join(opts.rebuild, bigfile.safe_name(name) + ".sou")
+            with _wopen(dst, opts) as f:
+                f.write(data)
+            ok += 1
+        except (ValueError, OSError) as exc:
+            bad += 1
+            print("  FAIL %s: %s" % (name, exc), file=sys.stderr)
+    print("sou rebuild: %d written, %d failed -> %s" % (ok, bad, opts.rebuild))
+    return 0 if bad == 0 else 1
+
+
 def cmd_music(opts) -> int:
     """MUSIC/SOU.IDX -> one WAV per SOU2 entry (format-4 decoder)."""
     bf = bigfile.BigFile(opts.idx)
@@ -2067,6 +2104,13 @@ def main(argv=None) -> int:
     p.add_argument("game")
     p.add_argument("out")
     p.set_defaults(func=cmd_sounds)
+
+    p = sub.add_parser("sou", help="SOU container stats / byte-exact rebuild")
+    p.add_argument("idx", help="sounds/SOU.IDX or MUSIC/SOU.IDX")
+    p.add_argument("--stats", action="store_true", help="print stats only")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--rebuild", metavar="DIR", help="write every blob back (.sou)")
+    p.set_defaults(func=cmd_sou)
 
     p = sub.add_parser("music", help="MUSIC/SOU.IDX -> one WAV per SOU2 entry")
     p.add_argument("idx", help="music .IDX (the .DAT is its sibling)")

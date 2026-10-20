@@ -131,6 +131,17 @@ def security_checks(G: str, results: list[bool], out: str) -> None:
                           rc1 == 0 and rc2 != 0 and "refusing to overwrite" in text2
                           and rc3 == 0, "needs --force"))
 
+    # .sou container stats and rebuild.
+    rc, text = run_raw(["sou", os.path.join(G, "sounds", "SOU.IDX"), "--json"])
+    try:
+        rep = json.loads(text)
+    except Exception:
+        rep = {}
+    ok = (rc == 0 and rep.get("entries") == 999 and rep.get("bad") == 0
+          and rep.get("formats") == {"SOU0": 13, "SOU1": 983, "SOU2": 3}
+          and rep.get("loadable") == 999)
+    results.append(report("sou / container stats (sounds)", ok,
+                          "999: 13 SOU0 + 983 SOU1 + 3 SOU2, 0 bad"))
     # Python SOU1 decoder vs the emulator-verified FNV manifest.
     p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "parity_sou1.py"),
                         "--fast", "--game", G], capture_output=True, text=True, cwd=HERE)
@@ -991,6 +1002,12 @@ def main() -> int:
                               p.returncode == 0 and "672/672 identical" in p.stdout
                               and "byte-exact via raw        : 672/672" in p.stdout,
                               "semantic + raw byte-exact"))
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                         "sou_container.py"), "--check"],
+                           capture_output=True, text=True, cwd=HERE)
+        results.append(report("sou / 4091-entry rebuild", p.returncode == 0
+                              and "4091/4091" in p.stdout,
+                              (p.stdout.strip().splitlines() or ["no output"])[-1]))
     render_checks(G, results, out, opts.full)
     # One shared sweep feeds "all levels decode", the 1.875 world-frame ratio
     # and the ADD_THING check below.
