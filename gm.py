@@ -646,11 +646,14 @@ def cmd_film(opts) -> int:
         palette = bmp.parse(open(opts.palette, "rb").read()).palette
     elif opts.apng:
         from gm import bmp
-        for cand in ("Kflm0000.bmp", os.path.join("Film", "Kflm0000.bmp")):
-            path0 = os.path.join(os.path.dirname(os.path.abspath(paths[0])), cand) \
-                if paths else ""
-            if path0 and os.path.isfile(path0):
-                palette = bmp.parse(open(path0, "rb").read()).palette
+        folder = os.path.dirname(os.path.abspath(paths[0])) if paths else ""
+        for cand in (folder, os.path.join(folder, "Film") if folder else ""):
+            if not cand or not os.path.isdir(cand):
+                continue
+            name = next((n for n in os.listdir(cand)
+                         if n.lower() == "kflm0000.bmp"), None)
+            if name:
+                palette = bmp.parse(open(os.path.join(cand, name), "rb").read()).palette
                 break
         if palette is None:
             print("film: --apng needs --palette (Kflm0000.bmp not found)", file=sys.stderr)
