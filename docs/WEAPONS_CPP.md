@@ -266,7 +266,7 @@ if (eax > 0) { eax -= dt; [player+0x81c358] = eax; if (eax < 0) = 0; }
 | `reload_ticks` | `0` | механики перезарядки в оригинале не найдено; 0 = мгновенно, но `reload()` для `magazine == 0` возвращает `no_magazine`. |
 | `damage` | резолвится для BULLET/LASER, иначе `1.0` | `load()` ищет `projectile_id` в entity-таблице, декодирует подскрипт и берёт `L2` у BULLET / `L4` у LASER: MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00. Для THING остаётся placeholder 1.0, но урон снаряда теперь считается через `apply_blast`/`apply_thing_damage` по таблице §7 Ghidra, а не по этому полю. |
 | `hitscan` | резолвится | первый `FIRE_SOURCEPLAYER_BULLET`/`_LASER` → true, `_THING` → false (`0x478520`/`0x478be0`/`0x45e19d`). |
-| `projectile_speed` | `12000` ед/с | поля скорости нет; оригинал: `THING_TYPES[type].+0x10 + charge*operand[9]` (`0x46f0f0`). 12000 — placeholder, влияет только на `ShotResult::time`. |
+| `projectile_speed` | `THING_TYPES[type].+0x10 × 91` ед/с; `12000` — fallback | `0x46f0f0` читает double `+0x10` (ед/тик), `0x4752d0` делает `pos += speed·dt`; 91 тик = 1 с, поэтому ROCKET 18→1638, MRL 25→2275, NUKE 10→910. `charge*operand[9]` добавляется вызывающим слоем. |
 
 `hitscan` для поставочных BULLET/LASER теперь `true`; THING (GRENADE/ROCKET/
 PLASMA и т.п.) остаётся `false`. Для `level10.sbt` цепочка `GENERATE` не
@@ -370,8 +370,10 @@ DM-only blast’а плюс общий статус, поэтому DM и non-DM
 
 `apply_weapon_blast` — runtime-мост: на попадание берёт collide-ветку
 (`expired=false`), на истечение — expire (`expired=true`), фильтрует контекст
-и применяет каждый blast к игрокам/THING. Осталось: `projectile_speed=12000`
-пока placeholder до доказательства единиц `THING_TYPES+0x10`.
+и применяет каждый blast к игрокам/THING. `projectile_speed` теперь
+`THING_TYPES+0x10 × 91` (ед/тик, доказано `0x4752d0`); 12000 остаётся только
+fallback’ом для типа без скорости. `charge*operand[9]` ещё должен добавить
+игровой слой.
 
 ---
 
@@ -454,7 +456,7 @@ DM-only blast’а плюс общий статус, поэтому DM и non-DM
 | hitscan-путь | **доказан и подключён**: BULLET/LASER (`0x478520`/`0x478be0`), THING — объект |
 | магазин/перезарядка | **гипотеза** (в данных и коде не найдено) |
 | урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — отдельные `apply_blast`/`apply_thing_damage`; загрузчик разворачивает collide/expire-блоки `THING_TYPES` (плюс один GENERATE) в `impact_blasts`/`expire_blasts`, `apply_weapon_blast` применяет выбранную ветку |
-| скорость снаряда | `THING_TYPES +0x10 + charge*operand[9]`; C++ `12000` — placeholder |
+| скорость снаряда | **доказано**: `THING_TYPES +0x10` — ед/тик (`0x4752d0: pos += speed·dt`), C++ `×91`; `charge*operand[9]` — отдельная добавка |
 | разброс — равномерный квадрат, SplitMix64 | **гипотеза рантайма** |
 | отдача — горизонтальный импульс | **доказано** (`0x459f4d`, `docs/SHAKE.md` §6); поля в оружии нет |
 | урон: плита/корпус, перелив, flags, статусы | **доказано** `0x453b50`; `0x443c7d` — DoT-деградация, а не попадание |
@@ -464,9 +466,9 @@ DM-only blast’а плюс общий статус, поэтому DM и non-DM
 ## 6. Что осталось
 
 1. **Скорость и тип снаряда.** Цепочка `FIRE_SOURCEPLAYER_THING` →
-   `0x46ea40` → `0x46d8b0` найдена; скорость =
-   `THING_TYPES[type].+0x10 + charge*operand[9]`. Осталось занести
-   `spawn_type`/`spawn_speed_add` в C++ Weapon из `.sbt` и убрать `12000`.
+   `0x46ea40` → `0x46d8b0` найдена; базовая скорость
+   `THING_TYPES[type].+0x10 × 91` уже в `projectile_speed`. Осталось
+   применить `charge*operand[9]` в игровом слое (поле `projectile_charge`).
 2. **Hitscan.** Режим выбирается по первому условию подскрипта:
    BULLET/LASER → hitscan, THING → объект. Для BULLET/LASER найдены
    `0x478520`/`0x478be0`, дистанция, impact event, урон `L2`/`L4` и конус

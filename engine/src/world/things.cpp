@@ -58,6 +58,7 @@ struct TypeTable {
     std::vector<int> model_indices;
     std::vector<std::string> models;
     std::vector<int> movement_types;
+    std::vector<double> speeds;
     std::vector<double> search_radii;
     std::vector<int> target_zone_thresholds;
     std::vector<int> target_history_offsets;
@@ -93,6 +94,7 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.names.reserve(count);
         table.model_indices.reserve(count);
         table.movement_types.reserve(count);
+        table.speeds.reserve(count);
         table.search_radii.reserve(count);
         table.target_zone_thresholds.reserve(count);
         table.target_history_offsets.reserve(count);
@@ -119,6 +121,7 @@ TypeTable resolve_types(const SbtLevel& level) {
                 ++table.missing_models;
             }
             table.movement_types.push_back(static_cast<std::int32_t>(rd32(entry + 0x1b4)));
+            table.speeds.push_back(std::bit_cast<double>(rd64(entry + 0x10)));
             table.search_radii.push_back(std::bit_cast<double>(rd64(entry + 0x58)));
             table.target_zone_thresholds.push_back(
                 static_cast<std::int32_t>(rd32(entry + 0x1cc)));
@@ -150,6 +153,7 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     }
     const auto i = static_cast<std::size_t>(thing.type);
     thing.movement_type = types.movement_types[i];
+    thing.speed = types.speeds[i];
     thing.search_radius = types.search_radii[i];
     thing.target_zone_threshold = types.target_zone_thresholds[i];
     thing.target_history_offset = types.target_history_offsets[i];
@@ -381,6 +385,7 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     }
     ThingTypeEvents out;
     out.type = type;
+    out.speed = types.speeds[index];
     out.collide_event = types.collide_events[index];
     out.expire_event = types.expire_events[index];
     out.damaged_event = types.damaged_events[index];

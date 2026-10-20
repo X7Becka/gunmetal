@@ -25,8 +25,8 @@
 //     BULLET/LASER hitscan and their direct damage from the entity sub-script;
 //     THING weapons spawn an entity (0x45e19d -> 0x46ea40 -> 0x46d8b0) and
 //     resolve THING_TYPES collide/expire events into impact/expire blasts;
-//     `projectile_speed` stays a placeholder until the THING_TYPES speed table
-//     and its unit are proven.
+//     `projectile_speed` is `+0x10 * 91` (units per tick, proven by 0x4752d0)
+//     with the 12000 fallback only for a type without a speed.
 //   * `apply_damage_gauge` is the exact 0x453b50 plate/hull model (hundredths,
 //     flags, spill, statuses); `apply_damage` keeps the old synthetic API.
 //   * spread sampling (uniform in the tangent square, deterministic seed).
@@ -62,11 +62,10 @@ constexpr int kWeaponTableMax = 32;
 constexpr double kWeaponTickHz = 91.0;
 /// Seconds in one tick.
 constexpr double kWeaponTickSeconds = 1.0 / kWeaponTickHz;
-/// Placeholder projectile speed in world units/second.  `DEFINE_WEAPONS` has
-/// no speed field; the real THING speed is `THING_TYPES[+0x10]` plus
-/// `charge * operand[9]` (Ghidra 0x46dd11/0x46f0f0), and the original moves
-/// it by `speed * dt`.  This constant only fills `ShotResult::time` and never
-/// changes the hit point (the runtime resolves a straight segment).
+/// Fallback projectile speed when a THING type has no `+0x10` value.  The
+/// real speed is `THING_TYPES[type].+0x10` in world units per tick plus
+/// `charge * operand[9]` (Ghidra 0x46f0f0); `0x4752d0` advances the position
+/// by `speed * dt` at 91 Hz, so `load()` stores `speed * 91` in units/second.
 constexpr double kDefaultProjectileSpeed = 12000.0;
 /// Placeholder damage in points.  There is no damage field in the weapon
 /// table; this value is deliberately conservative and is not game balance.
@@ -109,8 +108,9 @@ struct ThingVariant {
 /// Field provenance: `docs/FORMATS.md` §12.3 (consumer `0x450be0`) and
 /// `docs/SHAKE.md` §7.1.  `fire_ticks` is the raw `+0x2c` value (fixed
 /// ticks); `fire_period_ms` is its display conversion, `round(ticks*1000/91)`.
-/// `magazine`, `reload_ticks`, `damage`, `hitscan` and `projectile_speed` have
-/// no shipped-data source and are marked in the doc.
+/// `magazine`/`reload_ticks` have no shipped-data source; `damage` and
+/// `hitscan` are resolved from the FIRE script, `projectile_speed` from
+/// THING_TYPES `+0x10` (units/tick × 91).
 struct Weapon {
     std::string name;       ///< strings[0], e.g. "MACHINE GUN"
     std::string icon;       ///< strings[2], e.g. "WICON1"

@@ -599,8 +599,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > (`inline_blasts`, 5 шт.) загружаются; DISINT получает secondary
       > hitscan 400.00@200; RGM — тип 32, `impact_blasts` пуст. PLASMA
       > power-up-ветки 36/37/38 загружены в `thing_variants` и выбираются
-      > `variant_for_power`/`select_blasts_at_power`. Осталось:
-      > `projectile_speed` и точные единицы `THING_TYPES+0x10`.
+      > `variant_for_power`/`select_blasts_at_power`. `projectile_speed`
+      > теперь `THING_TYPES+0x10 × 91` (ед/тик доказаны `0x4752d0`);
+      > `charge*operand[9]` остаётся добавкой игрового слоя.
 - 🟡 `M2.2.7` AI/things: состояния, path, дети, мораль, оружие, события.
       > C++ `world/things.*` (CTest `things`/`things_full`): top-level 4008,
       > recursive 7563, executed 7617, 391 старт, 2896/2896 model refs;

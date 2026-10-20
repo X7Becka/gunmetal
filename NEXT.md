@@ -6,9 +6,10 @@
 ## Сейчас
 
 1. **Снаряды / скорость.** `thing_variants` PLASMA 36/37/38 загружены;
-   осталось доказать единицы `THING_TYPES+0x10` и заменить placeholder
-   `projectile_speed=12000`. Impact/expire-ветки GRENADE/ROCKET/RGM/MRL/
-   NUKE/EMP/DISINT уже загружены и применяются через `apply_weapon_blast`.
+   `projectile_speed = THING_TYPES+0x10 × 91` (ед/тик доказаны `0x4752d0`),
+   12000 остаётся fallback’ом. Осталось применить `charge*operand[9]` в
+   игровом слое. Impact/expire-ветки GRENADE/ROCKET/RGM/MRL/NUKE/EMP/
+   DISINT загружены и применяются через `apply_weapon_blast`.
 2. **AI wiring.** Навигация/240-кадровая история цели по `target_history_offset`;
    использовать `Thing::health/shields/hits/events` в runtime.
 3. **Event effects.** Реестр текста `0x619860`, побочные эффекты switch,

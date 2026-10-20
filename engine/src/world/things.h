@@ -56,6 +56,7 @@ struct Thing {
     // docs/SOE.md.  They are exposed for AI wiring but not yet used by the
     // C++ state machine.
     int movement_type = -1;          // +0x1b4, 0..18
+    double speed = 0.0;              // +0x10 (double), world units per tick
     double search_radius = 0.0;      // +0x58 (double), target search radius
     int target_zone_threshold = 200; // +0x1cc, default 200
     int target_history_offset = 0;   // +0x1d0, target position-history lag
@@ -81,6 +82,7 @@ struct Thing {
 /// through 0x4703a0 when the per-impact hits counter or lifetime is exhausted.
 struct ThingTypeEvents {
     int type = -1;
+    double speed = 0.0; ///< +0x10 (double), world units per 91 Hz tick
     std::uint32_t collide_event = 0;
     std::uint32_t expire_event = 0;
     std::uint32_t damaged_event = 0;

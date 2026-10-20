@@ -933,6 +933,7 @@ void test_real_weapon_modes() {
     if (disint != nullptr) {
         CHECK(!disint->hitscan);
         CHECK_EQ(disint->thing_type, 34);
+        CHECK_NEAR(disint->projectile_speed, 16.0 * 91.0, 1e-9);
         CHECK_NEAR(disint->secondary_damage, 400.0, 0.0);
         CHECK_NEAR(disint->secondary_range, 200.0, 0.0);
         CHECK_EQ(disint->impact_blasts.size(), 1U);
@@ -983,8 +984,13 @@ void test_real_weapon_modes() {
             CHECK_EQ(low_blasts[1].plate, 2200);
         }
     }
+    const gm::Weapon* mrl = find("MRL");
+    if (mrl != nullptr) {
+        CHECK_NEAR(mrl->projectile_speed, 25.0 * 91.0, 1e-9);
+    }
     const gm::Weapon* nuke = find("TAC NUKE");
     if (nuke != nullptr) {
+        CHECK_NEAR(nuke->projectile_speed, 10.0 * 91.0, 1e-9);
         CHECK_EQ(nuke->impact_blasts.size(), 15U); // all guarded branches kept
         CHECK_EQ(nuke->select_blasts(true, false, false, false).size(), 3U);
         CHECK_EQ(nuke->select_blasts(true, true, false, false).size(), 3U);
@@ -993,6 +999,7 @@ void test_real_weapon_modes() {
     if (rgm != nullptr) {
         CHECK(!rgm->hitscan);
         CHECK_EQ(rgm->thing_type, 32);
+        CHECK_NEAR(rgm->projectile_speed, 18.0 * 91.0, 1e-9);
         CHECK_EQ(rgm->impact_event, 0U);
         CHECK_EQ(rgm->impact_blasts.size(), 0U);
         CHECK_EQ(rgm->expire_blasts.size(), 3U);
@@ -1011,6 +1018,7 @@ void test_real_weapon_modes() {
     if (rocket != nullptr) {
         CHECK(!rocket->hitscan);
         CHECK_EQ(rocket->thing_type, 31);
+        CHECK_NEAR(rocket->projectile_speed, 18.0 * 91.0, 1e-9);
         CHECK_EQ(rocket->impact_blasts.size(), 3U);
         if (rocket->impact_blasts.size() == 3) {
             const auto& direct = rocket->impact_blasts[0];

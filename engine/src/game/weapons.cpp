@@ -781,6 +781,12 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
 
         if (weapon.thing_type >= 0) {
             if (const auto events = thing_type_events(*level, weapon.thing_type)) {
+                // 0x46f0f0 reads THING_TYPES[type]+0x10 (double) and 0x4752d0
+                // advances pos by `speed * dt`; the same units/tick as op4.
+                if (events->speed > 0.0) {
+                    weapon.projectile_speed =
+                        events->speed * kWeaponTickHz;
+                }
                 collect_event_blasts(*level, events->collide_event,
                                      weapon.impact_blasts);
                 collect_event_blasts(*level, events->expire_event,
