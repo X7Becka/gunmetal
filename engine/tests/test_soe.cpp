@@ -385,7 +385,7 @@ void test_field_map() {
     check(gm::kSoeRecordSize == 936, "THING_TYPES record is 936 bytes");
     // Generated from gm/soe.py FIELD_MAP: every string, offset, status and
     // xref must stay identical to the Python table.
-    check(fnv1a(0xcbf29ce484222325ull, canonical_map()) == 0x8f713bc27e174174ull,
+    check(fnv1a(0xcbf29ce484222325ull, canonical_map()) == 0xafc1dd8ad74dc639ull,
           "field map matches the gm/soe.py golden hash");
 
     const gm::SoeFieldInfo* sob = gm::label_info("class_name");

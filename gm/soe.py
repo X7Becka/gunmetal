@@ -260,7 +260,7 @@ FIELD_MAP: tuple[FieldInfo, ...] = (
     FieldInfo(0x1D4, 4, "int", "max_health",
               "maximum HP; current=max at spawn, 0 = damage-immune",
               "proven", "%ld 0x47d03a; copy 0x46dc1b/0x46dc21; damage 0x470469",
-              ("0x46dc1b", "0x46dc21", "0x470469"), soe="f1d4", instance=0x350),
+              ("0x46dc1b", "0x46dc21", "0x470469"), soe="f1d4", instance=0x354),
     FieldInfo(0x1D8, 4, "int", "shield0", "max shield layer 0",
               "proven", "0x4b9640 / error 0x4bb974", ("0x470452", "0x47045d"),
               soe="shield0", instance=0x368),

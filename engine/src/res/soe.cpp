@@ -160,7 +160,7 @@ const std::array<SoeFieldInfo, 77> kFieldMap = {{
      "v>=7 0x47d7c0; 0x473eed / 0x476523", "0x473eed, 0x476523"},
     {0x1d4, 4, SoeValueKind::Int, "max_health",
      "maximum HP; current=max at spawn, 0 = damage-immune", SoeStatus::Proven,
-     "f1d4", std::string_view{}, 1, 0, 0x350,
+     "f1d4", std::string_view{}, 1, 0, 0x354,
      "%ld 0x47d03a; copy 0x46dc1b/0x46dc21; damage 0x470469", "0x46dc1b, 0x46dc21, 0x470469"},
     {0x1d8, 4, SoeValueKind::Int, "shield0", "max shield layer 0", SoeStatus::Proven,
      "shield0", std::string_view{}, 1, 0, 0x368,

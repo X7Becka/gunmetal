@@ -56,6 +56,13 @@ const auto& events = ai.events(); // накопительный журнал
 ```cpp
 struct AiAgent {
     int thing_id;       // Thing::id из Things
+    int thing_type;     // Thing::type, -1 = нет записи
+    int movement_type;  // 0..18, данные; навигации пока нет
+    double search_radius; // эффективный радиус обнаружения (строго <)
+    int target_zone;    // эффективный радиус взаимодействия (целый)
+    int history_lag;    // 0..239; 0 = текущая позиция цели
+    double max_health;  // эффективный максимум HP
+    bool immune;        // max_health == 0
     AiState state;      // idle / patrol / alert / attack / dead
     int target;         // 0 = единственный игрок, -1 = нет
     double alertness;   // 1.0 пока видит, убывает без LOS
@@ -80,7 +87,7 @@ struct AiAgent {
 `AiStats` — счётчики на текущий момент: `attached`, `skipped_without_position`,
 `idle/patrol/alert/attack/dead`, `ticks`, `los_checks`, `los_blocked`,
 `transitions`, `attacks`, `damage_events`, `deaths`, `ignored_ticks`,
-`clamped_ticks`, `invalid_damage`.
+`clamped_ticks`, `invalid_damage`, `typed_agents`, `immune_hits`.
 
 `events()` возвращает упорядоченный журнал `AiEvent { type, thing_id, from, to,
 value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
@@ -150,8 +157,8 @@ state machine — следующий шаг. Все числа ниже — **г
 | константа | значение | статус | почему |
 |---|---:|---|---|
 | `kAiTickHz` | 91 | **proven** | тот же фиксированный тик, что `Things`/`Doors`/HUD (docs/THINGS_CPP.md, docs/PLAYER_CONTROLLER.md) |
-| `sight_range` | 512 | hypothesis | удобный радиус уровня; `Thing::search_radius` уже заполняется из `+0x58`, но AI его пока не использует |
-| `attack_range` | 96 | hypothesis | масштаб уровня; `+0x1cc` — порог «цель в зоне» (default 200), а не дальность атаки; пока не подключён |
+| `sight_range` | 512 | hypothesis | fallback; при `use_thing_fields=true` берётся `Thing::search_radius` (`+0x58`) |
+| `attack_range` | 96 | hypothesis | fallback; при `use_thing_fields=true` берётся `Thing::target_zone_threshold` (`+0x1cc`) |
 | `leash` | 384 | hypothesis | 0.75 × sight; оригинальный leash не разобран |
 | `eye_height` | 10 | hypothesis | LIGHT chassis = 10.0 (docs/PLAYER.md §5); у вещей высота глаза не доказана |
 | `alert_seconds` | 0.5 | hypothesis | задержка «увидел → атака» |
@@ -159,15 +166,18 @@ state machine — следующий шаг. Все числа ниже — **г
 | `patrol_after_seconds` | 2.0 | hypothesis | idle → patrol без цели |
 | `attack_period` | 0.75 | hypothesis | период события атаки; `+0x1d0` — не период, а лаг истории цели, поэтому он не подходит |
 | `return_speed` | 200 | hypothesis | скорость возврата, не ориентация движения `+0x1b4` |
-| `health` | 100 | hypothesis | HP вещи; `+0x1d4` — max HP, 0 означает неуязвимость; пока не подключён |
+| `health` | 100 | hypothesis | fallback; при `use_thing_fields=true` берётся `Thing::max_health` (`+0x1d4`), 0 = иммунитет |
 | `max_dt` | 0.25 | hypothesis | защита от «огромного dt» |
 | `los_skin` | 1e-3 | hypothesis | допуск на конечную точку луча |
 
-`Things` теперь отдаёт `movement_type`, `search_radius`, `target_zone_threshold`,
-`target_history_offset` и `max_health` (`docs/THINGS_CPP.md`), но `Ai` пока
-использует fallback-константы: привязка состояния/переходов к этим полям —
-следующий этап. Значения в `.sbt` уже масштабированы, повторно их умножать
-нельзя.
+`AiConfig::use_thing_fields` (по умолчанию `false`) включает реальные поля:
+`search_radius → sight`, `target_zone_threshold → attack zone`,
+`max_health → health/immune`, `movement_type` и `target_history_offset` —
+данные агента. `false` сохраняет прежние fallback-константы и старые goldens;
+синтетический тест с нулевой записью типа поэтому не ломается. Значения в
+`.sbt` уже масштабированы, повторно их умножать нельзя. `search_radius`
+используется строгим `<`, как `FCOMP`; `max_health == 0` отклоняет урон
+(`immune_hits`).
 
 ---
 

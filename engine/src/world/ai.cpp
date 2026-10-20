@@ -64,7 +64,25 @@ std::size_t Ai::attach(const Things& things) {
         agent.position = agent.home;
         agent.leash = config_.leash;
         agent.has_home = true;
-        agent.health = thing.alive ? config_.health : 0.0;
+        agent.thing_type = thing.type;
+        if (config_.use_thing_fields && thing.type >= 0 && !thing.type_name.empty()) {
+            agent.movement_type =
+                (thing.movement_type >= 0 && thing.movement_type <= 18)
+                    ? thing.movement_type
+                    : 0;
+            agent.search_radius = thing.search_radius;
+            agent.target_zone = thing.target_zone_threshold;
+            agent.history_lag = std::clamp(thing.target_history_offset, 0, 239);
+            agent.max_health = static_cast<double>(std::max(0, thing.max_health));
+            agent.immune = thing.max_health == 0;
+            agent.health = thing.alive ? (agent.immune ? 0.0 : agent.max_health) : 0.0;
+            ++stats_.typed_agents;
+        } else {
+            agent.search_radius = config_.sight_range;
+            agent.target_zone = static_cast<int>(config_.attack_range);
+            agent.max_health = config_.health;
+            agent.health = thing.alive ? config_.health : 0.0;
+        }
         agent.state = thing.alive ? AiState::idle : AiState::dead;
         agent.timer = thing.alive ? config_.patrol_after_seconds : 0.0;
         agents_.push_back(agent);
@@ -208,7 +226,7 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             const Vec3d eye = agent.position + Vec3d{0.0, 0.0, config_.eye_height};
             const Vec3d delta = player_eye_ - eye;
             distance = length(delta);
-            if (distance <= config_.sight_range) {
+            if (distance < agent.search_radius) {
                 ++stats_.los_checks;
                 visible = line_of_sight(world, eye, player_eye_, distance, config_.los_skin);
                 if (!visible) {
@@ -265,7 +283,7 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                 if (agent.timer > 0.0) {
                     agent.timer -= dt;
                 }
-                if (agent.timer <= 0.0 && distance <= config_.attack_range) {
+                if (agent.timer <= 0.0 && distance <= static_cast<double>(agent.target_zone)) {
                     agent.timer = attack_period;
                     set_state(agent, AiState::attack, tick);
                 }
@@ -283,7 +301,10 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         case AiState::attack:
             if (visible) {
                 agent.alertness = 1.0;
-                if (distance > config_.attack_range * 1.25) {
+                const double leave_zone = config_.use_thing_fields
+                                             ? static_cast<double>(agent.target_zone)
+                                             : static_cast<double>(agent.target_zone) * 1.25;
+                if (distance > leave_zone) {
                     agent.timer = 0.0;
                     set_state(agent, AiState::alert, tick);
                 } else {
@@ -328,6 +349,10 @@ bool Ai::damage(int thing_id, double amount) {
     }
     if (agent == nullptr || agent->state == AiState::dead) {
         ++stats_.invalid_damage;
+        return false;
+    }
+    if (agent->immune) {
+        ++stats_.immune_hits;
         return false;
     }
 

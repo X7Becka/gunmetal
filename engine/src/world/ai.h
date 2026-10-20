@@ -52,6 +52,7 @@ struct AiConfig {
     double attack_period = 0.75;       ///< seconds between attack events
     double return_speed = 200.0;       ///< world units / second while returning
     double health = 100.0;             ///< per-agent hit points; original max is +0x1d4 (0 = immune)
+    bool use_thing_fields = false;     ///< opt-in: use Thing's THING_TYPES copy
     double max_dt = 0.25;              ///< larger tick arguments are clamped
     double los_skin = 1e-3;            ///< "still visible" tolerance at the target
 };
@@ -59,6 +60,13 @@ struct AiConfig {
 /// One agent, keyed by the runtime `Thing::id` from `Things`.
 struct AiAgent {
     int thing_id = -1;
+    int thing_type = -1;        ///< Thing::type, -1 = no record
+    int movement_type = -1;     ///< 0..18; data only, no navigation yet
+    double search_radius = 0.0; ///< effective acquisition radius (strict <)
+    int target_zone = 0;        ///< effective interaction radius (integer)
+    int history_lag = 0;        ///< 0..239; 0 = current target position
+    double max_health = 0.0;    ///< effective maximum HP
+    bool immune = false;        ///< max_health == 0
     AiState state = AiState::idle;
     int target = -1;            ///< 0 = the single player, -1 = none
     double alertness = 0.0;     ///< 1.0 visible, decays while unseen
@@ -115,6 +123,8 @@ struct AiStats {
     std::uint64_t ignored_ticks = 0;
     std::uint64_t clamped_ticks = 0;
     std::uint64_t invalid_damage = 0;
+    std::size_t typed_agents = 0;   ///< agents with a THING_TYPES record
+    std::uint64_t immune_hits = 0;  ///< damage rejected by max_health == 0
 };
 
 /// The level's AI runtime.  `attach` reads the thing runtime once; afterwards

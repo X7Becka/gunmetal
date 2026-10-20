@@ -633,6 +633,31 @@ void test_real_dm1() {
         CHECK_NEAR(last->home.y, 216.0, 0.0);
         CHECK_NEAR(last->home.z, 264.0, 0.0);
     }
+
+    // Opt-in THING_TYPES fields: telrad is immune; OILDRUM has 1000 HP.
+    gm::AiConfig typed_config;
+    typed_config.use_thing_fields = true;
+    gm::Ai typed(typed_config);
+    CHECK_EQ(typed.attach(things), 5u);
+    const gm::AiAgent* telrad = typed.agent(115);
+    CHECK(telrad != nullptr);
+    if (telrad != nullptr) {
+        CHECK_EQ(telrad->movement_type, 0);
+        CHECK_NEAR(telrad->search_radius, 0.0, 0.0);
+        CHECK_EQ(telrad->target_zone, 200);
+        CHECK_EQ(telrad->max_health, 0.0);
+        CHECK(telrad->immune);
+        CHECK(!typed.damage(115, 10.0));
+        CHECK_EQ(typed.stats().immune_hits, 1u);
+    }
+    const gm::AiAgent* drum = typed.agent(140);
+    CHECK(drum != nullptr);
+    if (drum != nullptr) {
+        CHECK_EQ(drum->movement_type, 18);
+        CHECK_NEAR(drum->search_radius, 0.0, 0.0);
+        CHECK_EQ(drum->max_health, 1000.0);
+        CHECK(!drum->immune);
+    }
 }
 
 } // namespace
