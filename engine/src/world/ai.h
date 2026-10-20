@@ -16,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 #include "render/collide.h" // Vec3d, CollisionWorld
@@ -32,6 +33,8 @@ inline constexpr double kAiTickSeconds = 1.0 / 91.0;
 /// (struct+0x3204, docs/SAVE_FIELDS.md §9.2).  The AI mirrors that shape.
 inline constexpr int kAiHistorySlots = 240;
 inline constexpr int kAiHistoryMaxLag = kAiHistorySlots - 1; // 239 = 0xef
+/// The original scans players 0..7 and things 8..0x10b (`FUN_00473a00`).
+inline constexpr int kAiMaxPlayers = 8;
 
 /// Effective lag from `Thing::target_history_offset` (+0x1d0): `0` keeps the
 /// live target position, positive values are clamped to 1..239 — the engine's
@@ -181,12 +184,17 @@ public:
     /// `skipped_without_position`.  Returns the number of attached agents.
     std::size_t attach(const Things& things);
 
-    /// Set the one player eye point (world units).  Returns false and leaves
-    /// the previous value untouched for NaN/inf.  `clear_player()` means "no
-    /// player present"; `tick` is safe in that state.
+    /// Set the players' eye points (world units), one to eight entries.  The
+    /// old single-player form is `set_player`.  Returns false and leaves the
+    /// previous set untouched for an empty span, more than eight entries or a
+    /// NaN/inf.  `clear_players()` means "no players"; `tick` is safe then.
+    bool set_players(std::span<const Vec3d> eyes);
     bool set_player(const Vec3d& eye);
-    void clear_player();
-    bool has_player() const { return has_player_; }
+    void clear_players();
+    void clear_player() { clear_players(); }
+    bool has_player() const { return player_count_ > 0; }
+    int player_count() const { return player_count_; }
+    bool player_eye(int index, Vec3d& out) const;
 
     /// Advance one or more fixed ticks.  `dt` defaults to exactly 1/91 s and is
     /// clamped to `config().max_dt`; non-finite or non-positive values are
@@ -214,21 +222,24 @@ public:
     /// an agent outside its leash; real movement (navigation) is not modelled.
     bool place(int thing_id, const Vec3d& position);
 
-    /// Ring of the target's world positions.  `tick` appends the live player
-    /// eye exactly once per accepted tick; `attach` and `clear_player` reset
-    /// it.  Agents consume it through `AiAgent::aim_point` at their
+    /// Ring of player 0's world positions.  `tick` appends every live player
+    /// eye exactly once per accepted tick; `attach`/`clear_players` reset all
+    /// rings.  Agents consume them through `AiAgent::aim_point` at their
     /// `history_lag`.
-    const TargetHistory& target_history() const { return history_; }
-    void reset_target_history() { history_.reset(); }
+    const TargetHistory& target_history(int player = 0) const;
+    void reset_target_history();
 
     /// Explicit append for tests/debug; NaN/inf is rejected.  The normal path
-    /// is `tick`, which records the player eye once per accepted tick.
+    /// is `tick`, which records each player eye once per accepted tick.
     bool record_target_position(const Vec3d& position);
+    bool record_target_position(int player, const Vec3d& position);
 
-    /// Position of the target `lag` ticks back: `lag == 0` is the live player
-    /// eye (or the newest entry without a player), positive lags are clamped
-    /// to 1..239.  False when the ring is shorter than `lag + 1`.
+    /// Position of player 0 `lag` ticks back: `lag == 0` is the live eye (or
+    /// the newest entry without a player), positive lags are clamped to
+    /// 1..239.  False when the ring is shorter than `lag + 1`.
     bool target_position(int lag, Vec3d& out) const;
+    /// Same for one player slot, matching the original's per-player ring.
+    bool target_position(int player, int lag, Vec3d& out) const;
 
     const std::vector<AiAgent>& agents() const { return agents_; }
     const AiAgent* agent(int thing_id) const;
@@ -248,9 +259,9 @@ private:
     std::vector<AiAgent> agents_;
     std::vector<AiEvent> events_;
     AiStats stats_;
-    TargetHistory history_;
-    Vec3d player_eye_{};
-    bool has_player_ = false;
+    std::array<TargetHistory, kAiMaxPlayers> histories_{};
+    std::array<Vec3d, kAiMaxPlayers> player_eyes_{};
+    int player_count_ = 0;
     /// The things the agents belong to (read only); set by `attach()`.
     const Things* things_ = nullptr;
 };

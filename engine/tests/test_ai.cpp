@@ -102,6 +102,7 @@ struct TypeSpec {
     int max_health = 0;    ///< THING_TYPES +0x1d4, 0 = damage immune
     std::array<int, 4> shields{}; ///< THING_TYPES +0x1d8..+0x1e4
     int hits_left = 0;     ///< THING_TYPES +0x1c8
+    double search_radius = 6000.0; ///< THING_TYPES +0x58
 };
 
 gm::SbtLevel make_sbt_level(const std::vector<std::uint8_t>& code,
@@ -128,6 +129,8 @@ gm::SbtLevel make_sbt_level(const std::vector<std::uint8_t>& code,
         const std::size_t length = std::min<std::size_t>(std::strlen(types[i].name), 15);
         std::memcpy(types_record.payload.data() + base, types[i].name, length);
         put_u32(types_record.payload, base + 0x1A4, types[i].model_index);
+        std::memcpy(types_record.payload.data() + base + 0x58,
+                    &types[i].search_radius, sizeof(double));
         put_u32(types_record.payload, base + 0x1C8,
                 static_cast<std::uint32_t>(types[i].hits_left));
         put_u32(types_record.payload, base + 0x1D0,
@@ -693,6 +696,32 @@ void test_target_history() {
     aimed.clear_player();
     aimed.tick(clear_world);
     CHECK(!aimed.agent(0)->has_aim);
+
+    // Multiple player eyes: the scan picks the nearest visible target, and
+    // each slot has its own 240-slot history (original 0x473a00).
+    gm::Ai multi;
+    CHECK_EQ(multi.attach(things), 2u);
+    const std::array<gm::Vec3d, 2> eyes{
+        {{0.0, 60.0, 10.0}, {0.0, 30.0, 10.0}}};
+    CHECK(multi.set_players(eyes));
+    CHECK_EQ(multi.player_count(), 2);
+    multi.tick(empty);
+    const gm::AiAgent* nearest = multi.agent(0);
+    CHECK(nearest != nullptr);
+    if (nearest != nullptr) {
+        CHECK_EQ(nearest->target, 1);
+        CHECK_NEAR(nearest->distance, 30.0, 1e-12);
+        CHECK(nearest->has_aim);
+        CHECK_NEAR(nearest->aim_point.y, 30.0, 1e-12);
+    }
+    CHECK_EQ(multi.target_history(0).size(), 1u);
+    CHECK_EQ(multi.target_history(1).size(), 1u);
+    gm::Vec3d slot{};
+    CHECK(multi.target_position(1, 0, slot));
+    CHECK_NEAR(slot.y, 30.0, 1e-12);
+    CHECK(!multi.target_position(2, 0, slot));
+    CHECK(!multi.set_players({}));
+    CHECK_EQ(multi.player_count(), 2); // rejected empty set leaves it intact
 
     // Determinism: two runs record identical rings over 300 ticks.
     gm::Ai first;

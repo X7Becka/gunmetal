@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 namespace gm {
@@ -83,7 +84,7 @@ bool TargetHistory::at(int lag, Vec3d& out) const {
 std::size_t Ai::attach(const Things& things) {
     agents_.clear();
     events_.clear();
-    history_.reset();
+    reset_target_history();
     stats_ = AiStats{};
     things_ = &things;
 
@@ -129,36 +130,82 @@ std::size_t Ai::attach(const Things& things) {
     return agents_.size();
 }
 
-bool Ai::set_player(const Vec3d& eye) {
-    if (!finite(eye)) {
+bool Ai::set_players(std::span<const Vec3d> eyes) {
+    if (eyes.empty() || eyes.size() > static_cast<std::size_t>(kAiMaxPlayers)) {
         return false;
     }
-    player_eye_ = eye;
-    has_player_ = true;
+    for (const Vec3d& eye : eyes) {
+        if (!finite(eye)) {
+            return false;
+        }
+    }
+    for (std::size_t i = 0; i < eyes.size(); ++i) {
+        player_eyes_[i] = eyes[i];
+    }
+    for (std::size_t i = eyes.size(); i < player_eyes_.size(); ++i) {
+        player_eyes_[i] = Vec3d{};
+    }
+    player_count_ = static_cast<int>(eyes.size());
     return true;
 }
 
-void Ai::clear_player() {
-    has_player_ = false;
-    player_eye_ = Vec3d{};
-    history_.reset();
+bool Ai::set_player(const Vec3d& eye) {
+    return set_players(std::span<const Vec3d>(&eye, 1));
+}
+
+void Ai::clear_players() {
+    player_count_ = 0;
+    player_eyes_.fill(Vec3d{});
+    for (TargetHistory& history : histories_) {
+        history.reset();
+    }
+}
+
+bool Ai::player_eye(int index, Vec3d& out) const {
+    if (index < 0 || index >= player_count_) {
+        return false;
+    }
+    out = player_eyes_[static_cast<std::size_t>(index)];
+    return true;
 }
 
 bool Ai::record_target_position(const Vec3d& position) {
-    if (!finite(position)) {
+    return record_target_position(0, position);
+}
+
+bool Ai::record_target_position(int player, const Vec3d& position) {
+    if (player < 0 || player >= kAiMaxPlayers || !finite(position)) {
         return false;
     }
-    history_.record(position);
+    histories_[static_cast<std::size_t>(player)].record(position);
     return true;
 }
 
+const TargetHistory& Ai::target_history(int player) const {
+    const int index = std::clamp(player, 0, kAiMaxPlayers - 1);
+    return histories_[static_cast<std::size_t>(index)];
+}
+
+void Ai::reset_target_history() {
+    for (TargetHistory& history : histories_) {
+        history.reset();
+    }
+}
+
 bool Ai::target_position(int lag, Vec3d& out) const {
+    return target_position(0, lag, out);
+}
+
+bool Ai::target_position(int player, int lag, Vec3d& out) const {
+    if (player < 0 || player >= kAiMaxPlayers) {
+        return false;
+    }
     const int clamped = std::clamp(lag, 0, kAiHistoryMaxLag);
-    if (clamped == 0 && has_player_) {
-        out = player_eye_; // lag 0 is "current": the live target position
+    if (clamped == 0 && player < player_count_) {
+        out = player_eyes_[static_cast<std::size_t>(player)];
         return true;
     }
-    return history_.at(clamped, out);
+    return histories_[static_cast<std::size_t>(player)].at(clamped, out);
 }
 
 bool Ai::line_of_sight(const CollisionWorld& world, const Vec3d& from_eye,
@@ -243,11 +290,11 @@ void Ai::tick(const CollisionWorld& world, double dt) {
     // dead before the state machine runs.
     sync_vitals();
 
-    // One target position per accepted tick, mirroring the original's write
-    // into history[240][3] every update (docs/SAVE_FIELDS.md §9.2).  Without a
-    // player there is no target position and no entry.
-    if (has_player_) {
-        history_.record(player_eye_);
+    // One target position per player per accepted tick, mirroring the
+    // original's per-player history[240][3] (docs/SAVE_FIELDS.md §9.2).
+    for (int p = 0; p < player_count_; ++p) {
+        histories_[static_cast<std::size_t>(p)].record(
+            player_eyes_[static_cast<std::size_t>(p)]);
     }
     const double lose_seconds =
         config_.lose_sight_seconds > 1e-9 ? config_.lose_sight_seconds : kAiTickSeconds;
@@ -286,25 +333,54 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             continue;
         }
 
+        const Vec3d eye =
+            agent.position + Vec3d{0.0, 0.0, config_.eye_height};
         double distance = 0.0;
         bool visible = false;
-        if (has_player_) {
-            const Vec3d eye = agent.position + Vec3d{0.0, 0.0, config_.eye_height};
-            const Vec3d delta = player_eye_ - eye;
-            distance = length(delta);
-            if (distance < agent.search_radius) {
-                ++stats_.los_checks;
-                visible = line_of_sight(world, eye, player_eye_, distance, config_.los_skin);
-                if (!visible) {
-                    ++stats_.los_blocked;
-                }
+        int chosen = -1;
+        double best = std::numeric_limits<double>::infinity();
+        double nearest = std::numeric_limits<double>::infinity();
+        for (int p = 0; p < player_count_; ++p) {
+            const Vec3d& target_eye =
+                player_eyes_[static_cast<std::size_t>(p)];
+            const double d = length(target_eye - eye);
+            nearest = std::min(nearest, d);
+            if (d >= agent.search_radius) {
+                continue;
             }
-            // Aim at the target position the thing's +0x1d0 asks for.  `0`
-            // is the live eye; positive lags use the 240-slot ring and fall
-            // back to the live eye until enough history exists.
-            Vec3d aim = player_eye_;
+            ++stats_.los_checks;
+            const bool seen =
+                line_of_sight(world, eye, target_eye, d, config_.los_skin);
+            if (!seen) {
+                ++stats_.los_blocked;
+            } else if (d < best) {
+                best = d;
+                chosen = p;
+            }
+        }
+        if (chosen >= 0) {
+            agent.target = chosen;
+            distance = best;
+            visible = true;
+        } else if (agent.target >= 0 && agent.target < player_count_) {
+            // Keep the last target for the loss-of-sight fade; the state
+            // machine later clears it after `lose_sight_seconds`.
+            distance = length(
+                player_eyes_[static_cast<std::size_t>(agent.target)] - eye);
+        } else {
+            agent.target = -1;
+            distance = std::isfinite(nearest) ? nearest : 0.0;
+        }
+
+        // Aim at the target position the thing's +0x1d0 asks for.  `0` is the
+        // live eye; positive lags use that player's 240-slot ring and fall
+        // back to the live eye until enough history exists.
+        if (agent.target >= 0 && agent.target < player_count_) {
+            const Vec3d& target_eye =
+                player_eyes_[static_cast<std::size_t>(agent.target)];
+            Vec3d aim = target_eye;
             if (agent.history_lag > 0) {
-                target_position(agent.history_lag, aim);
+                target_position(agent.target, agent.history_lag, aim);
             }
             agent.aim_point = aim;
             agent.aim_distance = length(aim - eye);
@@ -335,7 +411,7 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         switch (agent.state) {
         case AiState::idle:
             if (visible) {
-                agent.target = 0;
+                agent.target = chosen >= 0 ? chosen : 0;
                 agent.alertness = 1.0;
                 agent.timer = config_.alert_seconds;
                 set_state(agent, AiState::alert, tick);
@@ -350,7 +426,7 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             break;
         case AiState::patrol:
             if (visible) {
-                agent.target = 0;
+                agent.target = chosen >= 0 ? chosen : 0;
                 agent.alertness = 1.0;
                 agent.timer = config_.alert_seconds;
                 set_state(agent, AiState::alert, tick);

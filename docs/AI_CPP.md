@@ -45,7 +45,8 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 
 gm::Ai ai;                       // AiConfig по умолчанию
 const std::size_t n = ai.attach(things); // executed view, только absolute
-ai.set_player(eye);              // eye = (x, y, z) в мировом кадре
+ai.set_player(eye);              // один eye; старый API
+ai.set_players(eyes);            // 1..8 eye, как скан 0x473a00
 ai.tick(world);                  // ровно один тик 1/91 с
 ai.tick(world, dt);              // dt зажимается до config().max_dt
 ai.damage(id, 25.0);             // true, если агент жив и урон принят
@@ -60,8 +61,9 @@ const auto& events = ai.events(); // накопительный журнал
 // История позиции цели (240 слотов, один write на принятый tick).
 const gm::TargetHistory& history = ai.target_history();
 gm::Vec3d p{};
-ai.target_position(0, p);        // 0 = текущая позиция игрока; false без цели
+ai.target_position(0, p);        // 0 = текущая позиция player 0
 ai.target_position(5, p);        // 5 тиков назад; false, если истории меньше
+ai.target_position(1, 5, p);     // player 1, 5 записей назад
 ai.reset_target_history();       // ручной сброс
 ai.record_target_position(p);    // ручная запись (тест/отладка), NaN/inf → false
 ```
@@ -121,9 +123,15 @@ value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
 
 * `TargetHistory::at(lag, out)` — `lag` зажимается в 0..239; 0 = самая свежая
   запись, 1 = предыдущий tick. `false`, если записей меньше `lag + 1`.
-* `Ai::target_position(lag, out)` — для `lag == 0` возвращает **живой** eye
-  игрока (как оригинал, где 0 = текущая позиция), иначе читает кольцо. Без
-  игрока `lag 0` отдаёт самую свежую запись; пустое кольцо → `false`.
+* `Ai::target_position(lag, out)` — player 0: для `lag == 0` возвращает
+  **живой** eye (как оригинал, где 0 = текущая позиция), иначе читает кольцо.
+  Перегрузка `target_position(player, lag, out)` делает то же для слота
+  0..7; без живого игрока `lag 0` отдаёт свежую запись, пустое кольцо →
+  `false`.
+* `set_players(span)` принимает 1..8 finite eye; пустой/9/NaN отклоняются
+  без изменения прежнего набора. `tick` пишет по одной точке в кольцо
+  каждого игрока; `AiAgent::target` — индекс ближайшего видимого игрока
+  (оригинал `0x473a00` сканирует игроков 0..7, затем вещи 8..0x10b).
 * `AiAgent::history_lag` — результат `ai_history_lag(+0x1d0)`: 0 остаётся 0,
   положительное значение зажимается в 1..239. `tick()` пишет `aim_point` =
   `target_position(history_lag)`; `0` — живой eye, положительный лаг — точка
@@ -267,6 +275,7 @@ SBT/SCRIPT: два абсолютных `ADD_THING` в `(0,0,0)` и `(1000,0,0)`
 | история: кольцо | 240 записей → `size=240`, lag 239 = самая старая, `attach`/`clear_player` очищают |
 | история: поля типа | `use_thing_fields` + `+0x1d0` = 3/500/−4 → `history_lag` 3/239/0; без opt-in → 0 |
 | история: прицел | лаг 3 после 5 тиков (x=1..5) → `aim_point.x=2`, `aim_distance=2`; без игрока `has_aim=false` |
+| несколько игроков | `set_players` (2 eye, dist 60/30) → `target=1`, `distance=30`, у player 1 своё кольцо; пустой набор отклонён |
 | два прогона | `same_agent` для всех полей и совпадение журнала на 300 тиках; отдельный прогон сравнивает кольцо истории |
 
 ### 4.2. Поставочные уровни
@@ -321,11 +330,11 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    виталов (§1.4). Осталось подключить `+0x1c4` (collide event) и `+0x1e8`
    (expire ticks), а также отдавать эти поля через `Things` для остальных
    потребителей.
-2. **Принятие решений**: `history_lag` уже даёт `AiAgent::aim_point`
-   (с упреждением на N тиков) и `aim_distance`; state machine пока считает
-   LOS/зоны по живому глазу. Осталось привязать историю к конкретной цели
-   и использовать `aim_point` в реальном оружии/сглаживании; сейчас игрок
-   один (`target=0`).
+2. **Принятие решений**: `history_lag` даёт `AiAgent::aim_point`
+   (упреждение на N записей), `target` — индекс ближайшего видимого игрока,
+   у каждого игрока своё кольцо. Осталось использовать `aim_point` в
+   реальном оружии/сглаживании и добавить вещи как цели (оригинал сканирует
+   и их, `8..0x10b`).
 3. **Навигация**: patrol waypoint'ы (`+0x320`), path/pathloop/pathrandom,
    collision-aware движение, высота/пол через `floor_at`, гравитация.
 4. **Бой**: урон игроку, оружие (`+0x21c`), снаряды, звук (`+0x1fc`),
