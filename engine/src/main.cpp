@@ -278,7 +278,7 @@ int dump_file(const gm::Options& options) {
         std::printf("declared frames: %d\n", soo->declared);
         std::printf("frames: %zu\n", soo->frames.size());
         if (!soo->frames.empty()) {
-            std::printf("first: %s %d ms\n", soo->frames.front().name.c_str(),
+            std::printf("first: %s %d ticks\n", soo->frames.front().name.c_str(),
                         soo->frames.front().duration);
         }
         return 0;
@@ -296,7 +296,8 @@ int dump_file(const gm::Options& options) {
             return 2;
         }
         std::printf("kind: SOA animation\n");
-        std::printf("mode: %d period: %d loop: %d\n", soa->mode, soa->period, soa->loop);
+        std::printf("mode: %d period: %d (%d ticks) loop: %d\n", soa->mode,
+                    soa->period, soa->period * gm::kEngineTickHz / 100, soa->loop);
         std::printf("declared frames: %d\n", soa->declared);
         std::printf("names: %zu\n", soa->names.size());
         if (!soa->names.empty()) {
