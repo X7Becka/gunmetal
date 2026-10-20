@@ -586,7 +586,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > Видео играется: `gunmetal --play Intro` (декодер SBV0, блит в окно/headless);
       > `render/text_layout.*` (CTest `text_layout`): 12 атласов, метрики,
       > переносы, `<p>/<c>/<r>`, 299 файлов / 372 страницы, 6 golden; `hud_compose`
-      > и `--hud-screen`. Экраны меню/рекорды — ещё нет.
+      > и `--hud-screen`. C++ `ui/screen.*` (CTest `screen`): страницы/строки,
+      > `<I>`, selection, scroll; help/level21/weapon20/level10 golden.
+      > Экраны меню/рекорды — ещё нет.
 - ⬜ `M2.2.11` Сеть (`M10`, после v1.0): DirectPlay init, сессии, пакеты,
       синхронизация. До v1.0 не копать.
 - ⬜ `M2.2.12` Save/load: диспетчер, все блоки, порядок.
