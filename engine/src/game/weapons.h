@@ -475,6 +475,8 @@ struct ThingVitals {
     std::uint32_t flags = 0;
     std::uint32_t flags2 = 0;
     std::uint32_t flags3 = 0;
+    std::int32_t burn_timer = 0;    ///< status -1 accumulator
+    std::uint32_t status_flags = 0; ///< 0x18 frozen / 0x40 burning
 };
 
 struct ThingDamageResult {

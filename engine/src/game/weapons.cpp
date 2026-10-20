@@ -1409,8 +1409,26 @@ ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
         return result;
     }
     if (plate < 0) {
-        // The original reaches 0x470500 for status plates -1/-2; the exact
-        // THING status path is not reconstructed, so it is a safe no-op.
+        // 0x470500 status path: -1 adds (hull * 91)/100 to the burn timer and
+        // sets 0x40 once it reaches one; -2 sets 0x18 (frozen) unless 0x40 is
+        // already present.  `hull` is the operand, not scaled by falloff.
+        if (plate == -1) {
+            vitals.burn_timer += (hull * 91) / 100;
+            if (vitals.burn_timer < 1) {
+                result.ok = true;
+                return result;
+            }
+            vitals.status_flags |= 0x40U;
+        } else if (plate == -2) {
+            if ((vitals.status_flags & 0x40U) != 0U) {
+                result.ok = true;
+                return result;
+            }
+            vitals.status_flags |= 0x18U;
+        } else {
+            result.ok = true;
+            return result;
+        }
         result.ok = true;
         return result;
     }
@@ -1474,6 +1492,8 @@ ThingVitals thing_vitals(const Thing& thing) {
     vitals.shields = thing.shields;
     vitals.shield_max = thing.shield_max;
     vitals.alive = thing.alive;
+    vitals.burn_timer = thing.burn_timer;
+    vitals.status_flags = thing.status_flags;
     return vitals;
 }
 
@@ -1482,6 +1502,8 @@ void store_thing_vitals(Thing& thing, const ThingVitals& vitals) {
     thing.max_health = vitals.max_hp;
     thing.shields = vitals.shields;
     thing.shield_max = vitals.shield_max;
+    thing.burn_timer = vitals.burn_timer;
+    thing.status_flags = vitals.status_flags;
     thing.alive = vitals.alive && vitals.hp > 0;
 }
 

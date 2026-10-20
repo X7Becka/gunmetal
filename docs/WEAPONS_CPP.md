@@ -309,8 +309,11 @@ front/back/left/right был неверен). Если плита уже 0, в �
 
 Для THING реализован отдельный `apply_thing_damage(ThingVitals&, plate, hull,
 flags, side)` — точная ветка `0x470500` без множителей: недостача щита уходит
-в HP, есть `damaged_event`, отрицательный `plate` пока no-op (точная
-статусная ветка THING не восстановлена). `blast_damage`/`blast_hull_damage`
+в HP, есть `damaged_event`. Статусы восстановлены по `0x470500`: `-1`
+добавляет `hull*91/100` в `burn_timer` и ставит `0x40` при переходе через
+1; `-2` ставит `0x18` (frozen), если `0x40` ещё нет. `ThingVitals` и
+runtim’овый `Thing` переносят `burn_timer/status_flags` через
+`thing_vitals`/`store_thing_vitals`. `blast_damage`/`blast_hull_damage`
 считают `value*(radius-d)/radius` целочисленно; `plate < 0` не масштабируется;
 `radius <= 0` возвращает 0 (в оригинале деление на ноль).
 `apply_blast` повторяет сферическую проверку `0x477280` **без LOS**: флаги

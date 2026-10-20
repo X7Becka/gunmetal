@@ -744,6 +744,26 @@ void test_blast_and_thing_damage() {
     CHECK_EQ(thing.hp, 0);
     CHECK_EQ(thing.shields[0], 0);
 
+    // THING status path (0x470500): -1 burns, -2 freezes unless burning.
+    gm::ThingVitals status;
+    status.hp = 1000;
+    status.max_hp = 1000;
+    status.alive = true;
+    gm::ThingDamageResult sr = gm::apply_thing_damage(status, -1, 200, 0, 0);
+    CHECK(sr.ok);
+    CHECK_EQ(status.burn_timer, 182); // 200 * 91 / 100
+    CHECK_EQ(status.status_flags & 0x40U, 0x40U);
+    gm::ThingVitals frozen;
+    frozen.hp = 1000;
+    frozen.max_hp = 1000;
+    frozen.alive = true;
+    sr = gm::apply_thing_damage(frozen, -2, 0, 0, 0);
+    CHECK(sr.ok);
+    CHECK_EQ(frozen.status_flags & 0x18U, 0x18U);
+    sr = gm::apply_thing_damage(frozen, -2, 0, 0, 0);
+    CHECK(sr.ok);
+    CHECK_EQ(frozen.status_flags & 0x18U, 0x18U);
+
     // Runtime Thing bridge: the same gauges go in and out of world/things.
     gm::Thing runtime_thing;
     runtime_thing.health = 1000;

@@ -64,6 +64,8 @@ struct Thing {
     int health = 0;                  // +0x1d4 current copy at spawn
     std::array<int, 4> shields{};    // +0x1d8..+0x1e4
     std::array<int, 4> shield_max{}; // +0x1d8..+0x1e4 max copies
+    int burn_timer = 0;              // status -1 accumulator
+    std::uint32_t status_flags = 0;  // runtime 0x18/0x40 bits
     int hits_left = 0;               // +0x1c8 geometry hits
     int expire_ticks = 0;            // +0x1e8 lifetime in 91 Hz ticks
     std::uint32_t timeout_event = 0; // +0x1c0
