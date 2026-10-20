@@ -61,7 +61,21 @@ struct SaveBlock {
     /// referenced samples for block 12 (non-zero counts).
     /// 0 for the fixed-size raw blocks (8,19).
     std::uint32_t count = 0;
+    /// Verbatim payload bytes (everything after the id byte).  The writer
+    /// copies these for every block except 9, so untouched blocks round-trip
+    /// byte-for-byte even when their bodies are still opaque.  ``size`` is
+    /// ``raw.size() + 1`` for every block produced by parse_save().
+    std::vector<std::uint8_t> raw;
 };
+
+/// Sizes/offsets of the block-9 layout (docs/SAVE_FIELDS.md §9.2).
+constexpr std::size_t kSavePlayerSlots = 8;
+constexpr std::size_t kSavePlayerStructSize = 0x3510;
+constexpr std::size_t kSavePlayerAttachmentAt = 0x317c;
+constexpr std::size_t kSavePlayerAttachmentSlots = 16;
+constexpr std::size_t kSavePlayerAttachmentRecord = 16;
+constexpr std::size_t kSavePlayerPairHeaderSize = 0x50;
+constexpr std::size_t kSavePlayerPairCount = 2;
 
 /// Player state of block 9 (saver 0x452020).
 ///
@@ -96,6 +110,22 @@ struct SavePlayer {
     /// (``LEVEL0`` and an empty string in the shipped saves).
     std::array<std::string, 2> pair_headers{};
 
+    /// Verbatim 0x3510 struct of every present slot.  The writer copies these
+    /// bytes and patches only the typed fields of the first present slot, so
+    /// unknown structure bytes and non-zero attachment ids survive unchanged.
+    std::array<std::vector<std::uint8_t>, kSavePlayerSlots> slot_raw{};
+    /// Concatenated 16-byte records that follow a present slot (one per
+    /// non-zero u32 in struct+0x317c).  Attachments are opaque; they are
+    /// copied verbatim.
+    std::array<std::vector<std::uint8_t>, kSavePlayerSlots> attachment_raw{};
+    /// Verbatim header and struct of the two trailing pairs.
+    std::array<std::array<std::uint8_t, kSavePlayerPairHeaderSize>,
+               kSavePlayerPairCount>
+        pair_header_raw{};
+    std::array<std::array<std::uint8_t, kSavePlayerStructSize>,
+               kSavePlayerPairCount>
+        pair_struct_raw{};
+
     /// Gauges in points (armor / 100.0), matching savefile.py's output.
     double armor_points() const { return static_cast<double>(armor) / kSaveGaugeScale; }
     double armor_max_points() const { return static_cast<double>(armor_max) / kSaveGaugeScale; }
@@ -119,6 +149,20 @@ struct Save {
         }
         return nullptr;
     }
+
+    /// Serialise the header and the block chain (``docs/SAVE_WRITER.md``).
+    ///
+    /// The header is rebuilt from the typed fields; every block body except 9
+    /// is copied from ``SaveBlock::raw`` (without its id byte), and block 9 is
+    /// rebuilt from ``player`` when present (otherwise its raw bytes are
+    /// used).  Blocks are emitted in vector order and ``0xff`` is appended, so
+    /// a parsed, unmodified save reproduces the input byte-for-byte.
+    ///
+    /// Returns nullopt and fills ``error`` when a field cannot be represented
+    /// (title/level too long, invalid player gauges, missing raw payload,
+    /// duplicate id, oversized output, ...).  This is a structural check; use
+    /// rebuild_save() for a re-parse guarantee.
+    std::optional<std::vector<std::uint8_t>> to_bytes(std::string& error) const;
 };
 
 /// Parse the container, the block chain and the player block.
@@ -129,6 +173,17 @@ struct Save {
 /// function does not require any particular set of blocks: a save without
 /// block 9 parses with ``player == std::nullopt``.
 std::optional<Save> parse_save(std::span<const std::uint8_t> bytes, std::string& error);
+
+/// Serialise *save*, re-parse the result and refresh *save* from those bytes.
+///
+/// With ``verify`` the rebuilt model must be stable (serialising the re-parsed
+/// save yields identical bytes) and the typed header/player fields must
+/// survive the round-trip unchanged; otherwise the call fails and ``error``
+/// explains which field was lost.  On success the block offsets and raw
+/// payloads in *save* describe the newly built file, so further edits start
+/// from a consistent snapshot.
+std::optional<std::vector<std::uint8_t>> rebuild_save(Save& save, bool verify,
+                                                      std::string& error);
 
 /// Result of matching a save against the installed level scripts.
 struct SaveLevelMatch {
