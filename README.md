@@ -89,6 +89,8 @@ docs/SOE_CPP.md      C++ .soe/THING_TYPES: 77 полей, railrock 67/67
 docs/HUD_CPP.md      C++ HUD: .sof блит, палитра, прозрачность, golden
 docs/HUD_PLAYER.md   HUD-фильмы: .fdx/91 Гц, loop/hold, golden
 docs/HUD_BIND.md     HUD: .sml-экран → .sof/.fdx, <I>-позиции, family
+docs/HUD_COMPOSE.md  HUD: SML→binding→timing→blit, --hud-screen
+docs/SBV_PARITY.md   .sbv: 6843/6843 кадров C++ = Python
 docs/SHAKE.md        тряска камеры, view-pitch, отдача
 docs/SAVE_FIELDS.md  сейвы: карта 128 полей (83 proven), xref
 docs/SAVE_CPP.md     C++-читатель сейвов: контейнер, блоки, player 9
