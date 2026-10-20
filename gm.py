@@ -1116,6 +1116,27 @@ def cmd_save(opts) -> int:
     import savefile
     import savediff
 
+    if opts.rebuild:
+        import save_rebuild
+        try:
+            save = save_rebuild.load(opts.path)
+            data = save.to_bytes()
+        except (OSError, ValueError) as exc:
+            print("save: %s" % exc, file=sys.stderr)
+            return 1
+        with open(opts.path, "rb") as fh:
+            original = fh.read()
+        if opts.out:
+            with _wopen(opts.out, opts) as fh:
+                fh.write(data)
+            print("save rebuild: %s -> %s (%d bytes)"
+                  % (os.path.basename(opts.path), opts.out, len(data)))
+        else:
+            print("save rebuild: %s, %d bytes, %s"
+                  % (os.path.basename(opts.path), len(data),
+                     "byte-exact" if data == original else "DIFFERS"))
+        return 0 if data == original else 1
+
     if opts.diff:
         return savediff.diff(opts.path, opts.diff, opts.game, phases=opts.phases)
     if opts.set:
@@ -2091,7 +2112,10 @@ def main(argv=None) -> int:
                    help="edit the state (armor, armor_max, shield_max, "
                         "shield=f,b,l,r, selected, mask, ammo=SLOT:VALUE, "
                         "door=INDEX:STATE); repeatable")
-    p.add_argument("--out", metavar="FILE", help="with --set: write a patched copy")
+    p.add_argument("--rebuild", action="store_true",
+                   help="serialise the parsed state; with --out write it, "
+                        "otherwise verify byte-exactness")
+    p.add_argument("--out", metavar="FILE", help="with --set/--rebuild: write a copy")
     p.add_argument("--inplace", action="store_true",
                    help="with --set: overwrite the save (explicit!)")
     p.set_defaults(func=cmd_save)

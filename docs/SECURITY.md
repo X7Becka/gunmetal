@@ -126,7 +126,7 @@ ctest --test-dir build/sandbox -R fuzz --output-on-failure
 ```bash
 export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
 python3 tools/fuzz_formats.py
-python3 regress.py                 # 96/96, включая trust-проверки
+python3 regress.py                 # 97/97, включая trust-проверки
 ctest --test-dir build/release -L quick
 ctest --test-dir build/release -R fuzz
 ```

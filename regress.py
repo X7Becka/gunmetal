@@ -817,6 +817,11 @@ def save_checks(G: str, results: list[bool]) -> None:
         results.append(report("save / gm.py save", p.returncode == 0
                               and "player:" in p.stdout,
                               os.path.basename(saves[0])))
+        p = subprocess.run([sys.executable, GM, "save", saves[0], "--game", G,
+                            "--rebuild"], capture_output=True, text=True, cwd=HERE)
+        results.append(report("save / rebuild is byte-exact",
+                              p.returncode == 0 and "byte-exact" in p.stdout,
+                              os.path.basename(saves[0])))
         import json as _json
         info = _json.loads(subprocess.run(
             [sys.executable, tool, saves[0], "--game", G, "--json"],
