@@ -384,4 +384,21 @@ bool post_event(TextRegistry& registry, const Event& event, std::uint32_t now) {
                                   static_cast<std::int32_t>(event.channel), now);
 }
 
+EventParseResult EventQueue::parse_network_blob(std::span<const std::uint8_t> bytes) {
+    EventParseResult result;
+    if (bytes.size() < 4) {
+        result.ok = false;
+        result.error = "network event blob is shorter than its length field";
+        return result;
+    }
+    const std::uint32_t length = get_u32(bytes, 0);
+    if (length > bytes.size() - 4) {
+        result.ok = false;
+        result.error = "network event blob is truncated: " + std::to_string(length) +
+                       " bytes announced, " + std::to_string(bytes.size() - 4) + " available";
+        return result;
+    }
+    return parse(bytes.subspan(4, length));
+}
+
 } // namespace gm

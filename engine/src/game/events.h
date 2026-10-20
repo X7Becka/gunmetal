@@ -196,6 +196,16 @@ public:
     /// Parse a standalone buffer; `event_dispatch` uses the same layout.
     static EventParseResult parse(std::span<const std::uint8_t> bytes);
 
+    /// The network event blob of the original: a `u32` byte count followed by
+    /// that many event records.  `FUN_00465400` writes it into the state
+    /// packet, `FUN_00466ae0` reads it and copies the records into the
+    /// dispatch buffer.
+    ///
+    /// The original copies the announced length without checking it against
+    /// the buffer; here a blob that is too short is an error instead of an
+    /// overrun.
+    static EventParseResult parse_network_blob(std::span<const std::uint8_t> bytes);
+
 private:
     bool can_append(std::size_t record_size, std::size_t overflow) const;
     std::size_t threshold_for(EventType type) const;

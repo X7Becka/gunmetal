@@ -333,6 +333,49 @@ void test_text_registry() {
     CHECK_EQ(fed.size(), 2U);
 }
 
+void test_network_blob() {
+    // The network event blob of the original: a u32 byte count followed by
+    // that many event records.
+    gm::EventQueue queue;
+    CHECK(queue.post_generate(7, 3, 1.0, 2.0, 3.0, 0x11));
+    CHECK(queue.post_text(0, 2, "net text"));
+    const std::vector<std::uint8_t>& records = queue.bytes();
+
+    std::vector<std::uint8_t> blob;
+    const std::uint32_t length = static_cast<std::uint32_t>(records.size());
+    blob.push_back(static_cast<std::uint8_t>(length & 0xffU));
+    blob.push_back(static_cast<std::uint8_t>((length >> 8U) & 0xffU));
+    blob.push_back(static_cast<std::uint8_t>((length >> 16U) & 0xffU));
+    blob.push_back(static_cast<std::uint8_t>((length >> 24U) & 0xffU));
+    blob.insert(blob.end(), records.begin(), records.end());
+
+    const auto parsed = gm::EventQueue::parse_network_blob(blob);
+    CHECK(parsed.ok);
+    CHECK_EQ(parsed.events.size(), 2U);
+    if (parsed.events.size() == 2) {
+        CHECK(parsed.events[0].type == gm::EventType::generate);
+        CHECK_EQ(parsed.events[0].id, 7);
+        CHECK_EQ(parsed.events[0].extra, 0x11U);
+        CHECK(parsed.events[1].type == gm::EventType::text_channel0);
+        CHECK_EQ(parsed.events[1].text, std::string("net text"));
+        CHECK_EQ(parsed.events[1].font, 2);
+    }
+
+    // A blob that announces more bytes than it carries is an error (the
+    // original would copy past the end of the buffer).
+    std::vector<std::uint8_t> truncated = blob;
+    truncated[0] = static_cast<std::uint8_t>(length + 1U);
+    CHECK(!gm::EventQueue::parse_network_blob(truncated).ok);
+    // ... and so is a blob without the length field.
+    const std::array<std::uint8_t, 3> short_blob{1, 0, 0};
+    CHECK(!gm::EventQueue::parse_network_blob(short_blob).ok);
+    // An empty blob is valid and carries no events.
+    const std::array<std::uint8_t, 4> empty{0, 0, 0, 0};
+    const auto none = gm::EventQueue::parse_network_blob(empty);
+    CHECK(none.ok);
+    CHECK(none.events.empty());
+}
+
 } // namespace
 
 int main() {
@@ -343,6 +386,7 @@ int main() {
     test_overflow_rule();
     test_bad_records();
     test_text_registry();
+    test_network_blob();
     if (g_failures != 0) {
         std::fprintf(stderr, "events: %d failure(s)\n", g_failures);
         return 1;
