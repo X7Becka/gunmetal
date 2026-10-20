@@ -142,7 +142,7 @@ struct Thing {
     std::uint32_t flags; int parent; bool alive; std::uint32_t script;
     std::string kind; int owner; std::uint32_t site; int occ; int depth;
     std::vector<std::string> path; bool executed; std::uint64_t age;
-    int movement_type; double speed; double search_radius; int target_zone_threshold;
+    bool expired; int expire_ticks; int movement_type; double speed; double search_radius; int target_zone_threshold;
     int target_history_offset; int max_health; int health;
     std::array<int,4> shields; std::array<int,4> shield_max;
     int hits_left; std::uint32_t timeout_event, collide_event, expire_event;
