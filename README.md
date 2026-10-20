@@ -83,6 +83,7 @@ docs/SBT_RECORDS.md  .sbt: 38/38 файлов, 289 структурных зап
 docs/SBV.md          .sbv: YUV-кодек, 6843/6843 кадров
 docs/UI.md           SML/SME: 300 файлов, теги, экраны, HUD-ассеты
 docs/SML_CPP.md      C++ SML/SME: structured reader, 299/300 golden
+docs/SOE_CPP.md      C++ .soe/THING_TYPES: 77 полей, railrock 67/67
 docs/HUD_CPP.md      C++ HUD: .sof блит, палитра, прозрачность, golden
 docs/SHAKE.md        тряска камеры, view-pitch, отдача
 docs/SAVE_FIELDS.md  сейвы: карта 128 полей (83 proven), xref
