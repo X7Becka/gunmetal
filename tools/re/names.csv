@@ -48,7 +48,9 @@ va,name,kind,subsystem,status,evidence
 0x402770,malloc_wrapper,code,io,код,выделение буфера
 0x434463,resolve_poly,code,world,код,NOTES — sector/object/poly
 0x46d000,thing_builder,code,world,код,FORMATS 12.4 — ADD_THING -> модель
-0x4795b0,projectile_spawner,code,combat,код,FORMATS 12.3 — E1/E2
+0x4795b0,event_post,code,events,код,Ghidra: очередь event type 1/3 (0x1b/0x17); не спавнер
+0x4799b0,event_dispatch,code,events,код,Ghidra: разбор очереди, type 1/3 -> generate_event
+0x479960,generate_event,code,events,код,Ghidra: GENERATE — door_toggle_by_id + generate_runner
 0x47b642,shop_ammo_clamp,code,combat,код,покупка клампится по DEFINE_AMMO.L0
 0x47c990,model_index_to_pointer,code,models,код,SOBS/<имя>.sob или Sobanim/<имя>.soo
 0x44f690,door_toggle_by_id,code,world,код,FORMATS 12.4 — GENERATE

@@ -403,7 +403,7 @@ SECTOR_FIELDS = [
        "sound parameter (the D operand of SET_SECTOR_SOUND)",
        "0x46b740/0x46b790; 0.03/0.05 in the saves"),
     _f(0x38, "event_a", "u32", "proven", "sector event id A",
-       "SET_SECTOR_EVENTS 0x4579ab, consumed by 0x445095 via 0x4795b0"),
+       "SET_SECTOR_EVENTS 0x4579ab; 0x445095 posts it via event_post 0x4795b0"),
     _f(0x3c, "event_b", "u32", "proven", "sector event id B",
        "0x4579ab, consumed by 0x44503f"),
     _f(0x40, "damage_lo", "u16", "proven", "damage, low 16 bits",

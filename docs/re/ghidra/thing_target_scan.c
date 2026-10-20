@@ -172,11 +172,11 @@ FUN_00473a00(int param_1,double *param_2,undefined4 *param_3,undefined4 *param_4
     }
     if ((-1 < iVar3) && (iVar3 < iVar1)) {
       iVar3 = (iVar3 + param_1 * 0x14a) * 4;
-      FUN_004795b0(*(undefined4 *)(&DAT_007ac478 + iVar3),(&DAT_007ac448)[param_1 * 0x14a],0,0,
-                   *(undefined4 *)param_2,*(undefined4 *)((int)param_2 + 4),
-                   *(undefined4 *)(param_2 + 1),*(undefined4 *)((int)param_2 + 0xc),
-                   *(undefined4 *)(param_2 + 2),*(undefined4 *)((int)param_2 + 0x14),
-                   local_78 * 0x10000 + 8 + param_1);
+      event_post(*(undefined4 *)(&DAT_007ac478 + iVar3),(&DAT_007ac448)[param_1 * 0x14a],0,0,
+                 *(undefined4 *)param_2,*(undefined4 *)((int)param_2 + 4),
+                 *(undefined4 *)(param_2 + 1),*(undefined4 *)((int)param_2 + 0xc),
+                 *(undefined4 *)(param_2 + 2),*(undefined4 *)((int)param_2 + 0x14),
+                 local_78 * 0x10000 + 8 + param_1);
       *(int *)(&DAT_007ac464 + iVar5) =
            *(int *)(&DAT_007ac464 + iVar5) + *(int *)(&DAT_007ac4d8 + iVar3);
       *(uint *)(&DAT_007ac468 + iVar5) = (uint)(*(int *)(&DAT_007ac468 + iVar5) == 0);

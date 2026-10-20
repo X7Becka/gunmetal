@@ -81,6 +81,10 @@ loopback; `opencode.json` подключает его как remote MCP без O
 0x473a00  thing_target_scan    обход 0x7ac3e0/0x81c244, ближайшая цель
 0x41e025  camera_basis         Rz(-yaw)*Rx(-pitch)*Ry(roll)
 0x433e00  soo_player           проигрыватель .soo
+0x4795b0  event_post           очередь событий, не спавнер снаряда
+0x4799b0  event_dispatch       разбор очереди по типу записи
+0x479960  generate_event       GENERATE: дверь + подскрипт
+0x45fa00  generate_runner      id -> подскрипт сущности
 ```
 
 Выгрузки — `docs/re/ghidra/*.c`, `index.json`, `metadata.json`; команда:

@@ -87,8 +87,8 @@ struct Weapon {
     int ammo_type = -1;     ///< d2 -> +0x3c, index into ammo_types()
     int ammo_per_shot = 1;  ///< d3 -> +0x40
 
-    std::uint32_t projectile_id = 0;     ///< d4 -> +0x30, spawner arg0
-    std::uint32_t projectile_alt = 0;    ///< d5 -> +0x34, second spawn
+    std::uint32_t projectile_id = 0;     ///< d4 -> +0x30, event id posted by event_post
+    std::uint32_t projectile_alt = 0;    ///< d5 -> +0x34, second event id
     std::uint32_t state = 0;             ///< d6 -> +0x38, player[0x331c]
     std::uint32_t price = 0;             ///< d8 -> +0x44
     std::uint32_t weight = 0;            ///< d9 -> +0x48
@@ -104,7 +104,7 @@ struct Weapon {
     double damage = 0.0;        ///< points, caller supplied; load() = 1.0
     int magazine = 0;           ///< capacity; 0 = direct feed (original)
     int reload_ticks = 0;       ///< 0 = instant (original has no reload)
-    bool hitscan = false;       ///< false for loaded data (0x4795b0 spawn)
+    bool hitscan = false;       ///< fire posts a GENERATE event; spawn is in the entity sub-script
     double projectile_speed = 0.0; ///< units/s when !hitscan; 0 = invalid
 };
 

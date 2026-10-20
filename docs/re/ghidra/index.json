@@ -288,5 +288,703 @@
       }
     ],
     "error": null
+  },
+  {
+    "name": "event_post",
+    "address": "0x4795b0",
+    "note": "event queue writer (proven; not a projectile spawner)",
+    "xrefs": [
+      {
+        "function_name": "FUN_00443690",
+        "from_address": "004448c2",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00443690",
+        "from_address": "00444db3",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00443690",
+        "from_address": "00444eb0",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00443690",
+        "from_address": "00445014",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00443690",
+        "from_address": "00445076",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00443690",
+        "from_address": "004450d1",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00443690",
+        "from_address": "00445212",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "004454a4",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "0044551e",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "00445a90",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "00445c22",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "00445cc8",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "00445e49",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "00445eee",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004453d0",
+        "from_address": "00445f61",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00445300",
+        "from_address": "004453a5",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00445fa0",
+        "from_address": "004460a3",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00445fa0",
+        "from_address": "0044619d",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00445fa0",
+        "from_address": "0044622f",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00445fa0",
+        "from_address": "0044644f",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00446470",
+        "from_address": "00446529",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00446470",
+        "from_address": "0044657c",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044de30",
+        "from_address": "0044dec1",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044f3f0",
+        "from_address": "0044f4e7",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044f3f0",
+        "from_address": "0044f57a",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044fc30",
+        "from_address": "0044ff88",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004502a0",
+        "from_address": "004503c3",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00450590",
+        "from_address": "0045065f",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00450590",
+        "from_address": "00450787",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00453120",
+        "from_address": "00453359",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00453120",
+        "from_address": "004533d1",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00453b50",
+        "from_address": "00453ef6",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00453b50",
+        "from_address": "00453f53",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00453b50",
+        "from_address": "00454015",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00453b50",
+        "from_address": "00454063",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00453b50",
+        "from_address": "004540b1",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00453b50",
+        "from_address": "004540ff",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004536e0",
+        "from_address": "004537a7",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00457230",
+        "from_address": "00457269",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00460040",
+        "from_address": "004603a3",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004690f0",
+        "from_address": "00469303",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004690f0",
+        "from_address": "004693df",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004690f0",
+        "from_address": "00469428",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004690f0",
+        "from_address": "00469557",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004690f0",
+        "from_address": "00469605",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00469670",
+        "from_address": "0046973e",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00469770",
+        "from_address": "00469852",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046d8b0",
+        "from_address": "0046e275",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470c70",
+        "from_address": "00470d58",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470c70",
+        "from_address": "00470e5e",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470c70",
+        "from_address": "00470eed",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470c70",
+        "from_address": "004714c3",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470290",
+        "from_address": "00470338",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004703a0",
+        "from_address": "00470400",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00472690",
+        "from_address": "00472747",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470500",
+        "from_address": "00470867",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470500",
+        "from_address": "004708d7",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470500",
+        "from_address": "004709a2",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00473a00",
+        "from_address": "00473ebe",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0047a980",
+        "from_address": "0047aa1b",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0047a980",
+        "from_address": "0047b180",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0047a980",
+        "from_address": "0047b1fb",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0047a980",
+        "from_address": "0047b31c",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044f690",
+        "from_address": "0044f89d",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00452670",
+        "from_address": "00452714",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00454180",
+        "from_address": "0045421f",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00454180",
+        "from_address": "004542cd",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046ea40",
+        "from_address": "0046f6ec",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046ea40",
+        "from_address": "0046f8b3",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004752d0",
+        "from_address": "004754e0",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004752d0",
+        "from_address": "00475747",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00476070",
+        "from_address": "004764f4",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00476830",
+        "from_address": "00476a19",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00477280",
+        "from_address": "00477379",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00477280",
+        "from_address": "00477555",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "00443d0b",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "00443d59",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0047b6e0",
+        "from_address": "0047b844",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0047b6e0",
+        "from_address": "0047b94a",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "00457677",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "0045771c",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_004698b0",
+        "from_address": "0046994a",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "0045a54a",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0046c9b0",
+        "from_address": "0046ca2c",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "0045b096",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470420",
+        "from_address": "004704e7",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00470a70",
+        "from_address": "00470b0e",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "0045bd9f",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00478520",
+        "from_address": "00478a16",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00478be0",
+        "from_address": "00479281",
+        "to_address": "004795b0",
+        "type": "UNCONDITIONAL_CALL"
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "event_dispatch",
+    "address": "0x4799b0",
+    "note": "event queue drain/type switch (proven)",
+    "xrefs": [
+      {
+        "function_name": "FUN_0044d4c0",
+        "from_address": "0044d98d",
+        "to_address": "004799b0",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044b6b0",
+        "from_address": "0044b7d1",
+        "to_address": "004799b0",
+        "type": "UNCONDITIONAL_CALL"
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "generate_event",
+    "address": "0x479960",
+    "note": "GENERATE wrapper: door toggle + entity sub-script (proven)",
+    "xrefs": [
+      {
+        "function_name": null,
+        "from_address": "004575bd",
+        "to_address": "00479960",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "00479a85",
+        "to_address": "00479960",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": null,
+        "from_address": "00479aca",
+        "to_address": "00479960",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044f960",
+        "from_address": "0044f9ad",
+        "to_address": "00479960",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_0044f960",
+        "from_address": "0044fa6c",
+        "to_address": "00479960",
+        "type": "UNCONDITIONAL_CALL"
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "generate_runner",
+    "address": "0x45fa00",
+    "note": "GENERATE id -> entity sub-script via VM (proven)",
+    "xrefs": [
+      {
+        "function_name": "FUN_00442ef0",
+        "from_address": "00443253",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442ef0",
+        "from_address": "00443265",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442ef0",
+        "from_address": "00443299",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442ef0",
+        "from_address": "004432ab",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442ef0",
+        "from_address": "004432bc",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442ef0",
+        "from_address": "004432ce",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442ef0",
+        "from_address": "004435db",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "generate_event",
+        "from_address": "0047999c",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442340",
+        "from_address": "00442643",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442340",
+        "from_address": "00442655",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442340",
+        "from_address": "00442683",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442340",
+        "from_address": "00442695",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442340",
+        "from_address": "004426a7",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      },
+      {
+        "function_name": "FUN_00442340",
+        "from_address": "004428c7",
+        "to_address": "0045fa00",
+        "type": "UNCONDITIONAL_CALL"
+      }
+    ],
+    "error": null
   }
 ]

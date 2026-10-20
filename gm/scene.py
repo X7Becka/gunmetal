@@ -249,7 +249,9 @@ class Door:
     #: record's box is ``corner .. corner + size``.  ``0x44e0b1``..``0x44e162``
     #: and ``0x450701``..``0x450787`` interpolate that box and hand it to the
     #: volume query ``0x434887`` and to the obstacle update
-    #: ``0x4795b0(..., -22, box)``: a door is a *moving collision volume*.
+    #: ``event_post(..., -22, box)`` (``0x4795b0``) queues the door collision
+    #: update; the event handler applies it, so a door is a *moving collision
+    #: volume*.
     #:
     #: Neither the record nor the command carries a handle, so no polygon set
     #: is addressed.  The frame of these numbers is **not** the world frame:

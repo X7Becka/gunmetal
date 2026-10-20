@@ -23,6 +23,10 @@ TARGETS = [
     ("thing_target_scan", "0x473a00", "thing/AI target scan (hypothesis)"),
     ("camera_basis", "0x41e025", "camera basis Rz(-yaw)*Rx(-pitch)*Ry(roll) (proven)"),
     ("soo_player", "0x433e00", "SOO/thing animation player (proven)"),
+    ("event_post", "0x4795b0", "event queue writer (proven; not a projectile spawner)"),
+    ("event_dispatch", "0x4799b0", "event queue drain/type switch (proven)"),
+    ("generate_event", "0x479960", "GENERATE wrapper: door toggle + entity sub-script (proven)"),
+    ("generate_runner", "0x45fa00", "GENERATE id -> entity sub-script via VM (proven)"),
 ]
 
 
