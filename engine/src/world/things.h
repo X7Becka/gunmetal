@@ -64,8 +64,10 @@ struct Thing {
     std::array<int, 4> shields{};    // +0x1d8..+0x1e4
     std::array<int, 4> shield_max{}; // +0x1d8..+0x1e4 max copies
     int hits_left = 0;               // +0x1c8 geometry hits
+    std::uint32_t timeout_event = 0; // +0x1c0
     std::uint32_t death_event = 0;   // +0x1c4, fired when hits_left reaches zero
     std::uint32_t expire_event = 0;  // +0x1ec
+    std::uint32_t create_event = 0;  // +0x1f0
     std::uint32_t damaged_event = 0; // +0x1f4
     std::uint32_t destroy_event = 0; // +0x1f8
 

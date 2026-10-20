@@ -158,8 +158,10 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.shields = types.shields[i];
     thing.shield_max = thing.shields;
     thing.hits_left = types.hits[i];
+    thing.timeout_event = types.timeout_events[i];
     thing.death_event = types.death_events[i];
     thing.expire_event = types.expire_events[i];
+    thing.create_event = types.create_events[i];
     thing.damaged_event = types.damaged_events[i];
     thing.destroy_event = types.destroy_events[i];
 }

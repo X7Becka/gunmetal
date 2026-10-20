@@ -144,8 +144,8 @@ struct Thing {
     int movement_type; double search_radius; int target_zone_threshold;
     int target_history_offset; int max_health; int health;
     std::array<int,4> shields; std::array<int,4> shield_max;
-    int hits_left; std::uint32_t death_event, expire_event;
-    std::uint32_t damaged_event, destroy_event;
+    int hits_left; std::uint32_t timeout_event, death_event, expire_event;
+    std::uint32_t create_event, damaged_event, destroy_event;
 };
 ```
 

@@ -51,12 +51,15 @@ struct Weapon {
     double damage; int magazine, reload_ticks;
     bool hitscan; double projectile_speed;
     int thing_type; double projectile_charge; // THING air branch
+    std::vector<Blast> impact_blasts, expire_blasts; // death/expire events
+    std::vector<Blast> select_blasts(bool expired, bool underwater) const;
 };
 
 // CAUSE_BLAST_RADIUS_DAMAGE (op 75): целые сотые, plate < 0 — статус.
 struct Blast {
     int32_t plate, hull; int radius; uint32_t flags, event;
     bool no_direction;
+    bool underwater; // op лежит в IF SOURCE_UNDERWATER; выбрать одну ветку
 };
 
 struct ThingVitals {              // runtime THING +0x7ac418..+0x7ac430
@@ -94,6 +97,7 @@ struct Arsenal {
 | `blast_damage` / `blast_hull_damage` | целочисленный falloff `value*(radius-d)/radius`; `plate < 0` не масштабируется; `radius <= 0` → 0. |
 | `apply_blast` | сферический запрос `0x477280` без LOS; цели-игроки/THING, флаги bit0/2/3, событие на попадание. |
 | `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`. |
+| `Weapon::select_blasts(expired, underwater)` | копия `expire_blasts` или `impact_blasts` только для выбранной среды; рантайм вызывает после попадания/истечения. |
 | `reload(table, arsenal, slot)` | требует `magazine > 0`, бит маски, неполный магазин и резерв. `reload_ticks == 0` — мгновенно. |
 | `tick(table, arsenal, ticks)` | уменьшает кулдауны/таймеры, завершает перезарядку. `ticks == 0` — no-op. |
 | `switch_slot(table, arsenal, slot)` | 0..11 + бит маски; текущий слот — успешный no-op. Перезарядку не отменяет. |

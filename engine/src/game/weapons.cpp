@@ -323,12 +323,31 @@ void scan_blasts(const std::vector<SbtInsn>& insns, std::vector<Blast>& out,
     }
 }
 
+void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
+                          std::vector<Blast>& out, int depth = 0,
+                          bool underwater = false);
+
+void scan_generates(const SbtLevel& level, const std::vector<SbtInsn>& insns,
+                    std::vector<Blast>& out, int depth, bool underwater) {
+    for (const SbtInsn& insn : insns) {
+        const bool branch_water =
+            underwater || insn.condition == "SOURCE_UNDERWATER";
+        if (insn.name == "GENERATE" && !insn.args.empty()) {
+            const std::uint32_t child = as_uint(insn.args[0]);
+            collect_event_blasts(level, child, out, depth + 1, branch_water);
+        }
+        if (!insn.body.empty()) {
+            scan_generates(level, insn.body, out, depth, branch_water);
+        }
+    }
+}
+
 /// Follow ``GENERATE`` once.  Grenade and plasma damage live in the generated
 /// child block (-30093 -> -30096, -30116 -> -30118, ...), while rocket and
 /// bullet impacts already carry their own blast.  Going deeper would pull in
 /// secondary debris effects, so the limit is one child.
 void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
-                          std::vector<Blast>& out, int depth = 0) {
+                          std::vector<Blast>& out, int depth, bool underwater) {
     if (event_id == 0 || event_id == 0xffffffffU || depth > 1) {
         return;
     }
@@ -336,16 +355,8 @@ void collect_event_blasts(const SbtLevel& level, std::uint32_t event_id,
     if (!program) {
         return;
     }
-    scan_blasts(program->insns, out);
-    for (const SbtInsn& insn : program->insns) {
-        if (insn.name != "GENERATE" || insn.args.empty()) {
-            continue;
-        }
-        const std::uint32_t child = as_uint(insn.args[0]);
-        if (child != event_id) {
-            collect_event_blasts(level, child, out, depth + 1);
-        }
-    }
+    scan_blasts(program->insns, out, underwater);
+    scan_generates(level, program->insns, out, depth, underwater);
 }
 
 bool parse_tables(const std::filesystem::path& level_path, std::string* error,

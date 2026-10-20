@@ -676,6 +676,9 @@ void test_real_dm1() {
         CHECK_EQ(first->health, 2000);
         CHECK_EQ(first->hits_left, 0);
         CHECK_EQ(first->shields[0], 0);
+        CHECK_EQ(first->timeout_event, 0u);
+        CHECK_EQ(first->death_event, 0u);
+        CHECK_EQ(first->create_event, 0xffff8a8bu); // -30069
         CHECK_EQ(first->expire_event, 0xffff8a89u); // -30071
         CHECK_EQ(first->damaged_event, 0);
         CHECK_EQ(first->destroy_event, 0xffff8a89u);
