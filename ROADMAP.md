@@ -568,11 +568,15 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > C++ `player/controller.*` (CTest `player_controller`): капсула,
       > гравитация, прыжок, step-up/down, slide, 91 Гц, субшаги; golden
       > `level0` — 100 тиков вперёд `x=91.671875`, глаз `z=58.546876`.
-      > Броня/щиты/оружие/смерть и оригинальные константы — ещё нет.
+      > `game/weapons.*` (CTest `weapons`): DEFINE_WEAPONS/AMMO, сейвовый
+      > loadout, cooldown 2/8 тиков, spread, recoil, hitscan; урон/магазин
+      > и оригинальные скорости снарядов — ещё нет.
 - 🟡 `M2.2.7` AI/things: состояния, path, дети, мораль, оружие, события.
       > C++ `world/things.*` (CTest `things`/`things_full`): top-level 4008,
       > recursive 7563, executed 7617, 391 старт, 2896/2896 model refs;
-      > ADD_THING/ABS/GENERATE, циклы/глубина. AI, движение и респаун — ещё нет.
+      > ADD_THING/ABS/GENERATE, циклы/глубина. `world/ai.*` (CTest `thing_ai`):
+      > idle/patrol/alert/attack/dead, LOS через collide, leash/return;
+      > dm1 5 агентов, level0 6; path/урон/оружие — ещё нет.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
       > ray/sphere vs triangle, floor, AABB broad-phase, double, без аллокаций;
@@ -778,14 +782,16 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > ±30°, roll ±20°. Камера от спавна: `gm.py view --spawn`, C++
       > `--spawn-camera`; кадр level0 200x200 побитово совпадает
       > (FNV `4bb462b101263118`). Тряска/view-pitch разобраны (docs/SHAKE.md);
-> остались третье лицо и cockpit.
+      > C++ `camera/camera.*` (CTest `camera_rig`): first/third (третье лицо —
+      > гипотеза), FOV/focal, shake/recoil, smoothing, golden dm1/level0/level1;
+      > cutscene/cockpit и переходы — ещё нет.
 - 🟡 `M4.3.2` Тряска, отдача, смерть/респавн.
       > `docs/SHAKE.md`: три канала `SET_CAMERA_{PITCH,ROLL,YAW}_SHAKE`
       > (треугольник, пик `amplitude`, период `4·period`), view-pitch
       > `player[0x2E60]` из аналогового ввода (±90°), отдача
       > `SOURCEPLAYER_RECOIL` — горизонтальный импульс скорости. В оружии
-      > полей отдачи нет; в поставочных `.sbt` shake-команд нет. Остались
-      > смерть/респавн и эталонные кадры.
+      > полей отдачи нет; в поставочных `.sbt` shake-команд нет. C++:
+      > `camera_rig` (triangle/decay/recoil golden). Остались смерть/респавн.
 - ⬜ `M4.3.3` Интерфейсные слои: 320×200, апскейл, фильтрация, aspect.
 - ⬜ `M4.3.4` `gl`-бэкенд (после `sw`): те же данные, другая растеризация.
 
