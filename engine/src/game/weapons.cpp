@@ -144,6 +144,8 @@ const char* fire_error_name(FireError error) {
         return "bad origin";
     case FireError::bad_projectile_speed:
         return "bad projectile speed";
+    case FireError::bad_charge:
+        return "bad charge";
     }
     return "unknown";
 }
@@ -892,7 +894,7 @@ bool can_fire(const Weapons& table, const Arsenal& arsenal, int slot,
 }
 
 ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
-                const CollisionWorld& world) {
+                const CollisionWorld& world, double charge) {
     ShotResult result;
     const int slot = arsenal.current;
     result.slot = slot;
@@ -916,9 +918,16 @@ ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
         result.error = FireError::bad_direction;
         return result;
     }
+    if (!std::isfinite(charge) || charge < 0.0) {
+        result.error = FireError::bad_charge;
+        return result;
+    }
+    // 0x46f0f0: speed = THING_TYPES[+0x10] + charge * operand[9], units/tick.
+    // `projectile_speed` is already base*91; `projectile_charge` is operand[9].
+    const double effective_speed =
+        weapon->projectile_speed + charge * weapon->projectile_charge * kWeaponTickHz;
     if (!weapon->hitscan &&
-        (!std::isfinite(weapon->projectile_speed) ||
-         !(weapon->projectile_speed > 0.0))) {
+        (!std::isfinite(effective_speed) || !(effective_speed > 0.0))) {
         result.error = FireError::bad_projectile_speed;
         return result;
     }
@@ -975,7 +984,8 @@ ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
         result.point = origin + shot_dir * max_t;
         result.normal = Vec3d{};
     }
-    result.time = weapon->hitscan ? 0.0 : result.distance / weapon->projectile_speed;
+    result.projectile_speed = effective_speed;
+    result.time = weapon->hitscan ? 0.0 : result.distance / effective_speed;
     result.damage = weapon->damage;
     result.spread_x = spread_x;
     result.spread_y = spread_y;

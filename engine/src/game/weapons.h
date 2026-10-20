@@ -230,6 +230,7 @@ enum class FireError : std::uint8_t {
     bad_direction,      ///< zero, NaN or inf
     bad_origin,
     bad_projectile_speed,
+    bad_charge,
 };
 
 const char* fire_error_name(FireError error);
@@ -253,6 +254,7 @@ struct ShotResult {
     double distance = 0.0; ///< travelled distance (range on a miss)
     double time = 0.0;     ///< seconds; 0 for hitscan, distance/speed otherwise
     double damage = 0.0;   ///< w.damage at the moment of the shot
+    double projectile_speed = 0.0; ///< effective units/s (base + charge*operand[9])
     double spread_x = 0.0; ///< sampled tangent offset, axis 1 (unitless)
     double spread_y = 0.0; ///< sampled tangent offset, axis 2 (unitless)
 
@@ -339,7 +341,7 @@ bool can_fire(const Weapons& table, const Arsenal& arsenal, int slot,
 /// shot reports `distance / projectile_speed`.  The collision filter is the
 /// default one (all surfaces, backfaces accepted), matching `CollisionWorld`.
 ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
-                const CollisionWorld& world);
+                const CollisionWorld& world, double charge = 0.0);
 
 /// Start reloading `slot`.  Requires a magazine capacity > 0, a mask bit, a
 /// non-full magazine and a non-empty reserve.  With `reload_ticks == 0` the

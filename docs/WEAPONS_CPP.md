@@ -28,7 +28,7 @@ std::optional<gm::Weapons> table =
     gm::Weapons::load(state, game / "level0.sbt", &error);
 
 gm::Arsenal arsenal = table->initial();   // ammo/mask/slot из сейва
-gm::ShotResult shot = gm::fire(*table, arsenal, eye, dir, world);
+gm::ShotResult shot = gm::fire(*table, arsenal, eye, dir, world, charge);
 gm::tick(*table, arsenal, 1);              // один тик 1/91 с
 gm::reload(*table, arsenal, arsenal.current);
 gm::switch_slot(*table, arsenal, 1);
@@ -109,7 +109,7 @@ struct Arsenal {
 | `Weapons::load(game, level_path)` | читает `.sbt`, декодирует top-level `DEFINE_WEAPONS`/`DEFINE_AMMO`, копирует `ammo/mask/slot` из `GameState`. Ошибка — `nullopt` + текст (нет файла, нет SCRIPT, нет таблицы, неверная арность/поле). |
 | `Weapons::load(level_path)` | только таблицы; `initial()` пустой. |
 | `can_fire(table, arsenal, slot)` | слот 0..11, запись в таблице, бит маски, не идёт перезарядка, кулдаун 0, есть патроны/магазин. Возвращает `FireError`. |
-| `fire(table, arsenal, origin, dir, world)` | один выстрел. Сначала валидация (ничего не тратится при ошибке), затем списание, кулдаун, разброс, `raycast`, `ShotResult`. |
+| `fire(table, arsenal, origin, dir, world, charge = 0)` | один выстрел. Сначала валидация (ничего не тратится при ошибке), затем списание, кулдаун, разброс, `raycast`, `ShotResult`; для THING скорость = `projectile_speed + charge*projectile_charge*91` (`0x46f0f0`), `charge < 0`/NaN — `bad_charge`. |
 | `blast_damage` / `blast_hull_damage` | целочисленный falloff `value*(radius-d)/radius`; `plate < 0` не масштабируется; `radius <= 0` → 0. |
 | `apply_blast` | сферический запрос `0x477280` без LOS; цели-игроки/THING, флаги bit0/2/3, событие на попадание. |
 | `apply_blast_damage` | `apply_blast` + `apply_damage_gauge` для игроков и `apply_thing_damage` для THING; возвращает hits с результатами. |
@@ -467,7 +467,7 @@ fallback’ом для типа без скорости. `charge*operand[9]` е�
 | hitscan-путь | **доказан и подключён**: BULLET/LASER (`0x478520`/`0x478be0`), THING — объект |
 | магазин/перезарядка | **гипотеза** (в данных и коде не найдено) |
 | урон | BULLET `L2`, LASER `L4` резолвятся (MG 4.00, CANNON 15.00, RAILGUN 60.00); THING/impact — отдельные `apply_blast`/`apply_thing_damage`; загрузчик разворачивает collide/expire-блоки `THING_TYPES` (плюс один GENERATE) в `impact_blasts`/`expire_blasts`, `apply_weapon_blast` применяет выбранную ветку |
-| скорость снаряда | **доказано**: `THING_TYPES +0x10` — ед/тик (`0x4752d0: pos += speed·dt`), C++ `×91`; `charge*operand[9]` — отдельная добавка |
+| скорость снаряда | **доказано**: `THING_TYPES +0x10` — ед/тик (`0x4752d0: pos += speed·dt`), C++ `×91`; `charge*operand[9]` подключён в `fire(..., charge)` |
 | разброс — равномерный квадрат, SplitMix64 | **гипотеза рантайма** |
 | отдача — горизонтальный импульс | **доказано** (`0x459f4d`, `docs/SHAKE.md` §6); поля в оружии нет |
 | урон: плита/корпус, перелив, flags, статусы | **доказано** `0x453b50`; `0x443c7d` — DoT-деградация, а не попадание |

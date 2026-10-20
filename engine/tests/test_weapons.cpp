@@ -498,6 +498,26 @@ void test_projectile() {
     CHECK(bad.error == gm::FireError::bad_projectile_speed);
     CHECK_EQ(frozen_arsenal.ammo[1], std::uint32_t(5));
     CHECK_EQ(frozen_arsenal.cooldown[1], 0);
+
+    // 0x46f0f0: speed = base + charge * operand[9], both in units/tick.
+    gm::Weapon charged = weapon;
+    charged.slot = 1;
+    charged.projectile_charge = 10.0;
+    gm::Weapons charged_table({weapon, charged});
+    gm::Arsenal charged_arsenal = make_arsenal(0x3, 1, 5);
+    const gm::ShotResult powered = gm::fire(
+        charged_table, charged_arsenal, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, world, 0.5);
+    CHECK(powered.ok);
+    CHECK_NEAR(powered.projectile_speed, 100.0 + 0.5 * 10.0 * 91.0, 1e-12);
+    CHECK_NEAR(powered.time, 50.0 / (100.0 + 0.5 * 10.0 * 91.0), 1e-12);
+
+    gm::Arsenal bad_charge_arsenal = make_arsenal(0x3, 1, 5);
+    const gm::ShotResult bad_charge = gm::fire(
+        charged_table, bad_charge_arsenal, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, world, -1.0);
+    CHECK(!bad_charge.ok);
+    CHECK(bad_charge.error == gm::FireError::bad_charge);
+    CHECK_EQ(bad_charge_arsenal.ammo[1], std::uint32_t(5));
+    CHECK_EQ(bad_charge_arsenal.cooldown[1], 0);
 }
 
 void test_recoil() {
