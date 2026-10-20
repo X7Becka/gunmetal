@@ -90,6 +90,17 @@ target_link_libraries(gm_player_controller_tests PRIVATE gm_engine)
 add_test(NAME player_controller COMMAND gm_player_controller_tests)
 gm_label(player_controller quick)
 
+add_executable(gm_camera_tests test_camera.cpp)
+target_link_libraries(gm_camera_tests PRIVATE gm_engine)
+# First/third-person camera rig (docs/CAMERA_CPP.md): the proven 0x41e025
+# basis, eye = pos.z + player[0x2F50], ±π/6 / ±20° / ±π/2 clamps, the
+# SET_CAMERA_*_SHAKE triangle wave and its exact duration table, the dormant
+# view-pitch decay, SOURCEPLAYER_RECOIL, focal 1 / 5/6 (320x200), near/far,
+# third-person occlusion, smoothing, two-run determinism and negatives; real
+# dm1/level0/level1 campaign spawns against gm.scene.first_person goldens.
+add_test(NAME camera_rig COMMAND gm_camera_tests)
+gm_label(camera_rig quick)
+
 add_executable(gm_controls_tests test_controls.cpp)
 target_link_libraries(gm_controls_tests PRIVATE gm_engine)
 # `.key` profiles and controller config (docs/CONTROLS_CPP.md): synthetic
