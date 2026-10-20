@@ -341,8 +341,8 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
 1. **Типы вещей**: `+0x1b4` (movement), `+0x1cc` (attack range), `+0x1c8`
    (hits), `+0x1c4` (collide event), `+0x1ec` (expire event) и `+0x1e8`
    (expire ticks) уже в `AiAgent`; `+0x1d4` (health) и `+0x1d8` (щиты) —
-   зеркало виталов (§1.4). Осталось использовать expire-поля в runtime
-   (spawn/despawn) и отдавать их другим потребителям.
+   зеркало виталов (§1.4). Expire-поля уже используются `Things::tick`
+   (`expired` + один expire-event); осталось spawn/despawn и удаление.
 2. **Принятие решений**: `history_lag` даёт `AiAgent::aim_point`
    (упреждение на N записей), `target` — индекс ближайшего видимого игрока,
    у каждого игрока своё кольцо; вещи сканируются как fallback-цели
