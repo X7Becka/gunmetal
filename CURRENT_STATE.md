@@ -19,7 +19,7 @@ ROADMAP закоммичены следующим docs-коммитом.
 | База сессий OpenCode | 25 проектных сессий, активное время, пик параллельности |
 | `ROADMAP.md` | 54 ✅ / 29 🟡 / 125 ⬜ / 1 ⛔ в этапах `M0…M12` |
 | `python3 regress.py` | 113/113 проверок за ~85 с |
-| `ctest --test-dir build/release` | 28/28 тестов, ~74 с |
+| `ctest --test-dir build/release` | 29/29 тестов, ~75 с |
 
 Активное время считалось по сообщениям ассистента: интервалы с разрывом до
 2 минут склеивались. Это занижает «думание» и завышает ожидание инструментов,
@@ -102,8 +102,8 @@ ROADMAP появился 19.10 в 23:30. После разметки стату�
 ### Проверки
 
 * `regress.py`: **113/113** за ~85 с.
-* CTest: **28/28**, включая `sou1_full`, `sou2_full`, `parity_levels`,
-  `sbtvm`, `fuzz`, `save`, `save_writer`, `sml`, `soe`, `hud`, `hud_player`, `vm`, `vm_full`.
+* CTest: **29/29**, включая `sou1_full`, `sou2_full`, `parity_levels`,
+  `sbtvm`, `fuzz`, `save`, `save_writer`, `sml`, `soe`, `hud`, `hud_player`, `vm`, `vm_full`, `save_blocks`.
 * Release-рендер: `level0` ~250 FPS, `LEVEL10` ~125 FPS в 640×400 (headless).
 
 ---

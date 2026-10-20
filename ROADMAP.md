@@ -476,6 +476,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
 - ✅ C++-писатель `Save::to_bytes`/`rebuild_save`: saved0/saved1 2/2
       byte-exact (FNV `b994929515f53af5`/`0d038197e152cd65`), правка
       position/armor/ammo; CTest `save_writer`; `docs/SAVE_WRITER.md`.
+- ✅ Типизированные блоки 1/2/3/6/7: switches (24), doors (25), things (6
+      present), sprites (4), sounds (6 колонок); byte-exact 2/2, правка полей,
+      CTest `save_blocks`; `docs/SAVE_BLOCKS.md`.
 - ⬜ Решить, может ли оригинал читать наши сейвы (stretch).
 
 **Выход:** сохранение читается и пишется без потерь; diff показывает только

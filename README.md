@@ -92,6 +92,7 @@ docs/SHAKE.md        тряска камеры, view-pitch, отдача
 docs/SAVE_FIELDS.md  сейвы: карта 128 полей (83 proven), xref
 docs/SAVE_CPP.md     C++-читатель сейвов: контейнер, блоки, player 9
 docs/SAVE_WRITER.md  C++-писатель сейвов: 2/2 byte-exact, правка полей
+docs/SAVE_BLOCKS.md  сейв-блоки 1/2/3/6/7: типы, counts, byte-exact
 docs/RECORDS.md       SECTOR_STUFF/ITEM/LIFT: поля, xref, writer
 docs/SOE.md           .soe/THING_TYPES: 77 полей, 36 proven, xref
 docs/SOO.md           .soo: mode/loop, тики 91 Гц, морфинг поз
