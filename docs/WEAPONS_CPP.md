@@ -441,6 +441,10 @@ fallback’ом для типа без скорости. `charge*operand[9]` е�
   `ADD_THING_AT_SOURCE_WEAPON_POINT` с типом 32, а не `FIRE_THING`; после
   исправления `hitscan=false`, `thing_type=32`, `expire_blasts` =
   `0@50` + `15000@256` (вода/воздух), как в таблице §7.
+* CTest `weapons` дополнительно проходит **все 36** `.sbt`: RGM всегда
+  не-hitscan (TT32, пустой impact, 3 expire), ROCKET — 2 blast’а на среду,
+  NUKE — 15/13/16 записей (группы A/C/D) и 3/3, 3/2, 4/4 после guards,
+  PLASMA — три варианта 36/37/38, CANNON — 15.00 и 3 impact-блоба.
 
 ---
 
