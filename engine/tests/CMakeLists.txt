@@ -313,6 +313,14 @@ target_link_libraries(gm_save_blocks_tests PRIVATE gm_engine)
 add_test(NAME save_blocks COMMAND gm_save_blocks_tests)
 gm_label(save_blocks quick)
 
+# Game state bridge (docs/GAME_STATE.md): save block 9/2 -> PlayerState /
+# WorldState, write-back with unknown blocks preserved, shipped saves,
+# byte-exact no-op and negatives.  state.cpp is part of gm_engine.
+add_executable(gm_game_state_tests test_game_state.cpp)
+target_link_libraries(gm_game_state_tests PRIVATE gm_engine)
+add_test(NAME game_state COMMAND gm_game_state_tests)
+gm_label(game_state quick)
+
 find_program(GM_PYTHON3 python3)
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
     add_test(NAME parity_levels
