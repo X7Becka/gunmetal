@@ -34,14 +34,13 @@
         },
         {
             "name": "asan",
-            "displayName": "Debug + ASan/UBSan",
+            "displayName": "Debug + REAL ASan/UBSan (zig + extracted libasan)",
             "inherits": "base",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
-                "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
-                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
-            }
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/zig-asan-toolchain.cmake"
+            },
+            "description": "Requires tools/qa/install-asan-runtime.sh. Never use -fsanitize=address,undefined: zig silently drops ASan."
         },
         {
             "name": "dev",

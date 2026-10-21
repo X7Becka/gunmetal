@@ -20,6 +20,17 @@ endif()
 
 project(gunmetal LANGUAGES C CXX)
 
+# Zig's clang silently drops ASan when the sanitizer list contains a comma
+# (`-fsanitize=address,undefined`), leaving a green build with zero memory
+# checks.  Refuse that spelling instead of pretending the gate works.
+if(CMAKE_CXX_COMPILER MATCHES "zig" AND
+   (CMAKE_CXX_FLAGS MATCHES "fsanitize=[^ ]*," OR
+    CMAKE_C_FLAGS MATCHES "fsanitize=[^ ]*,"))
+    message(FATAL_ERROR
+        "Zig silently ignores ASan with comma-separated -fsanitize flags. "
+        "Use '-fsanitize=address -fsanitize=undefined' (see the asan preset).")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
