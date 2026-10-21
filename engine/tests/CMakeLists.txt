@@ -62,6 +62,17 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbw")
     add_test(NAME cli_level_frames COMMAND gunmetal --headless --level level0 --frames 2)
     set_tests_properties(cli_level_frames PROPERTIES PASS_REGULAR_EXPRESSION "frames=2")
     gm_label(cli_level_frames quick)
+
+    # LIGHT chassis (TICK.sob) at a proven-open level0 hangar bay, camera
+    # behind it.  The spawn alcove itself is too tight for a 140-unit boom,
+    # hence the --third-pos photo override.
+    add_test(NAME cli_third_person COMMAND gunmetal --level level0 --third-person
+        --third-pos 0,-550,11.5 --third-yaw 90 --third-distance 140
+        --third-height 45 --fov 60 --render
+        ${CMAKE_CURRENT_BINARY_DIR}/third_person.png --width 320 --height 200)
+    set_tests_properties(cli_third_person PROPERTIES PASS_REGULAR_EXPRESSION
+        "third-person: model=TICK;output: .*third_person\\.png")
+    gm_label(cli_third_person quick)
 endif()
 
 add_test(NAME cli_dump COMMAND gunmetal --dump ${CMAKE_CURRENT_SOURCE_DIR}/test_main.cpp)
@@ -362,6 +373,14 @@ add_executable(gm_weapons_tests test_weapons.cpp)
 target_link_libraries(gm_weapons_tests PRIVATE gm_engine)
 add_test(NAME weapons COMMAND gm_weapons_tests)
 gm_label(weapons quick)
+
+# The original's CRT `rand()` (docs/RNG.md): MSVC LCG `state*214013+2531011`,
+# output `(state >> 16) & 0x7FFF`, seeded from `time(nullptr)` at init
+# (`0x44A491`).  Goldens are the documented `srand(1)` sequence.
+add_executable(gm_rng_tests test_rng.cpp)
+target_link_libraries(gm_rng_tests PRIVATE gm_engine)
+add_test(NAME rng COMMAND gm_rng_tests)
+gm_label(rng quick)
 
 find_program(GM_PYTHON3 python3)
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
