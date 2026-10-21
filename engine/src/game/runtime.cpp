@@ -227,10 +227,9 @@ void GameRuntime::tick_once() {
     // 1. Things: age, lifetime, expire events (posted once per thing).
     things_.tick(1, &events_.queue());
 
-    // 2. AI: mirror thing vitals first (a thing killed by damage dies here),
-    //    then one fixed 1/91 s state step.
+    // 2. AI: `Ai::tick` mirrors thing vitals internally (a thing killed by
+    //    damage dies here), then runs one fixed 1/91 s state step.
     if (ai_attached_) {
-        ai_.sync_vitals();
         ai_.tick(collision_, kAiTickSeconds);
     }
 

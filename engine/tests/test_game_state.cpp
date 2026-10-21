@@ -1582,6 +1582,9 @@ void test_runtime_ai_shots_default_off() {
 
     const int fired = ai_tick_until_first_shot(runtime, 140);
     CHECK(fired > 0);
+    // `Ai::tick` owns the vital mirror; the runtime must not call it twice.
+    CHECK_EQ(runtime.ai().stats().vitals_syncs,
+             static_cast<std::uint64_t>(fired));
     CHECK_EQ(runtime.ai().stats().weapon_shots, 1u);
     CHECK_EQ(runtime.ai().weapon_shots().size(), std::size_t(1));
     CHECK_EQ(runtime.projectiles().list().size(), std::size_t(0));
@@ -1614,6 +1617,9 @@ void test_runtime_ai_shots_to_projectiles() {
 
     const int fired = ai_tick_until_first_shot(runtime, 140);
     CHECK(fired > 0);
+    // `Ai::tick` owns the vital mirror; the runtime must not call it twice.
+    CHECK_EQ(runtime.ai().stats().vitals_syncs,
+             static_cast<std::uint64_t>(fired));
     CHECK_EQ(runtime.ai().stats().weapon_shots, 1u);
     CHECK_EQ(runtime.ai().weapon_shots().size(), std::size_t(0)); // drained
     CHECK_EQ(runtime.projectiles().list().size(), std::size_t(1));

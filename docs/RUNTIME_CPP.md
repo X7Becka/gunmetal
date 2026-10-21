@@ -91,8 +91,8 @@ for (const gm::ProjectileTickRecord& record : runtime.last_projectile_results())
 
 1. **вещи** — `Things::tick(1, &queue)`: возраст, `+0x1e8` lifetime, событие
    `+0x1ec` один раз на вещь;
-2. **AI** — `Ai::sync_vitals()` (вещь, убитая уроном, умирает здесь), затем
-   `Ai::tick(collision, 1/91 s)`;
+2. **AI** — один `Ai::tick(collision, 1/91 s)`; зеркалирование виталов
+   вещей выполняет сам `Ai::tick` (вещь, убитая уроном, умирает здесь);
 2b. **AI-выстрелы** (opt-in, §6) — при `config.ai_shots_to_projectiles` и
    заданном шаблоне очередь `Ai::take_weapon_shots()` дренируется и каждый
    принятый выстрел спавнится в `Projectiles`; события создания идут в ту же
