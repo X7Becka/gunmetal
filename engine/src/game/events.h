@@ -198,6 +198,8 @@ struct SoundCommand {
 /// queues are rejected as a whole, matching the original.
 struct EventDispatchResult {
     bool ok = true;
+    /// Parse/validation text when `ok == false` (empty on success).
+    std::string error;
     std::vector<Event> generated;
     std::vector<SoundCommand> sounds;
     std::size_t text_posted = 0;

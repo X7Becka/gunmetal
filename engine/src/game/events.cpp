@@ -424,6 +424,7 @@ EventDispatchResult EventDispatcher::dispatch(const EventParseResult& parsed,
     EventDispatchResult result;
     if (!parsed.ok) {
         result.ok = false;
+        result.error = parsed.error;
         return result;
     }
     for (const Event& event : parsed.events) {
@@ -557,6 +558,7 @@ EventDispatchResult EventRuntime::pump_network(std::span<const std::uint8_t> byt
     if (!accepted.ok) {
         EventDispatchResult rejected;
         rejected.ok = false;
+        rejected.error = accepted.error;
         return rejected;
     }
     // The accepted records are already parsed and the queue now holds a copy

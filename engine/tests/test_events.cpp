@@ -734,6 +734,7 @@ void test_runtime_network_blob() {
     CHECK_EQ(recovered.queue().size(), before);
     const gm::EventDispatchResult bad_pump = recovered.pump_network(truncated, 1);
     CHECK(!bad_pump.ok);
+    CHECK(!bad_pump.error.empty());
     CHECK(bad_pump.generated.empty());
     CHECK_EQ(recovered.queue().size(), before);
 

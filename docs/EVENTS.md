@@ -382,3 +382,6 @@ type 1/2/3/4…12, little-endian, i32-координатами, отдельны
 буфера). `EventRuntime::accept_network_blob()` / `pump_network(bytes, now)`
 дают тот же приём на уровне рантайма; `pump_network` заменяет очередь,
 диспетчит и осушает её, а битый блоб оставляет очередь нетронутой.
+
+
+`EventDispatchResult::error` заполняется при `ok=false` (parse/validation).
