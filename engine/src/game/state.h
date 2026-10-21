@@ -80,8 +80,9 @@ struct GameState {
 
     // --- thing block (3) ----------------------------------------------------
     /// Runtime things are opaque in the save format (no proven field map); they
-    /// are loaded and written back verbatim so no record is lost.  There is no
-    /// C++ thing runtime yet, so no `apply_to_things` exists.
+    /// are loaded and written back verbatim so no record is lost.  The runtime
+    /// (`world/things.*`) has no proven save mapping, so no `apply_to_things`
+    /// exists yet.
     std::array<bool, kSaveThingSlots> thing_present{};
     std::vector<SaveThing> things;
 
