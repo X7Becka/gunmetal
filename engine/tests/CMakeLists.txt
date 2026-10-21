@@ -405,3 +405,12 @@ add_custom_target(check
     DEPENDS ${GM_CHECK_DEPENDS}
     USES_TERMINAL
     COMMENT "CTest: all tests")
+
+# SECTOR_STUFF reader (docs/RECORDS.md §2, docs/WORLD_FIELDS.md): typed
+# 256 x 0x58 slots instead of skip(0x5800).  Synthetic bounds/truncation
+# always; with the install, 36/36 levels without type 8 and saved0/saved1
+# block 8 field-for-field against gm/sbt.py SectorSlot.
+add_executable(gm_sector_stuff_tests test_sector_stuff.cpp)
+target_link_libraries(gm_sector_stuff_tests PRIVATE gm_engine)
+add_test(NAME sector_stuff COMMAND gm_sector_stuff_tests)
+gm_label(sector_stuff quick)

@@ -83,7 +83,102 @@ std::string fixed_name(const std::uint8_t* p, std::size_t width) {
     return std::string(reinterpret_cast<const char*>(p), len);
 }
 
+double rdf64(const std::uint8_t* p) {
+    const std::uint64_t bits = rd64(p);
+    double v = 0.0;
+    std::memcpy(&v, &bits, sizeof v);
+    return v;
+}
+
+void wr16(std::uint8_t* p, std::uint16_t v) {
+    p[0] = static_cast<std::uint8_t>(v);
+    p[1] = static_cast<std::uint8_t>(v >> 8);
+}
+
+void wr32(std::uint8_t* p, std::uint32_t v) {
+    for (int i = 0; i < 4; ++i) {
+        p[i] = static_cast<std::uint8_t>(v >> (8 * i));
+    }
+}
+
+void wrf64(std::uint8_t* p, double v) {
+    std::uint64_t bits = 0;
+    std::memcpy(&bits, &v, sizeof bits);
+    wr32(p, static_cast<std::uint32_t>(bits));
+    wr32(p + 4, static_cast<std::uint32_t>(bits >> 32));
+}
+
 } // namespace
+
+bool SbtSectorSlot::empty() const {
+    for (const std::uint8_t b : raw) {
+        if (b != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool parse_sector_stuff(std::span<const std::uint8_t> payload,
+                        std::vector<SbtSectorSlot>& out, std::string& error) {
+    if (payload.size() != kSbtSectorStuffSize) {
+        error = "SECTOR_STUFF payload is " + std::to_string(payload.size()) +
+                " bytes, expected " + std::to_string(kSbtSectorStuffSize);
+        return false;
+    }
+    std::vector<SbtSectorSlot> slots(kSbtSectorSlots);
+    for (std::size_t i = 0; i < kSbtSectorSlots; ++i) {
+        const std::uint8_t* p = payload.data() + i * kSbtSectorSlotSize;
+        SbtSectorSlot& s = slots[i];
+        std::memcpy(s.raw.data(), p, kSbtSectorSlotSize);
+        for (std::size_t k = 0; k < 3; ++k) {
+            s.move[k] = rdf64(p + 0x00 + k * 8);
+            s.extra[k] = rdf64(p + 0x18 + k * 8);
+        }
+        s.sound_param = rdf64(p + 0x30);
+        s.event_a = static_cast<std::int32_t>(rd32(p + 0x38));
+        s.event_b = static_cast<std::int32_t>(rd32(p + 0x3c));
+        s.damage_lo = rd16(p + 0x40);
+        s.pad_42 = {p[0x42], p[0x43]};
+        s.damage_hi = rd16(p + 0x44);
+        s.pad_46 = {p[0x46], p[0x47]};
+        s.sound = static_cast<std::int32_t>(rd32(p + 0x48));
+        s.sound_count = static_cast<std::int32_t>(rd32(p + 0x4c));
+        s.flags = rd32(p + 0x50);
+        s.unused = rd32(p + 0x54);
+    }
+    out = std::move(slots);
+    return true;
+}
+
+std::vector<std::uint8_t> encode_sector_stuff(const std::vector<SbtSectorSlot>& slots) {
+    if (slots.size() != kSbtSectorSlots) {
+        return {};
+    }
+    std::vector<std::uint8_t> out(kSbtSectorStuffSize, 0);
+    for (std::size_t i = 0; i < kSbtSectorSlots; ++i) {
+        std::uint8_t* p = out.data() + i * kSbtSectorSlotSize;
+        const SbtSectorSlot& s = slots[i];
+        for (std::size_t k = 0; k < 3; ++k) {
+            wrf64(p + 0x00 + k * 8, s.move[k]);
+            wrf64(p + 0x18 + k * 8, s.extra[k]);
+        }
+        wrf64(p + 0x30, s.sound_param);
+        wr32(p + 0x38, static_cast<std::uint32_t>(s.event_a));
+        wr32(p + 0x3c, static_cast<std::uint32_t>(s.event_b));
+        wr16(p + 0x40, s.damage_lo);
+        p[0x42] = s.pad_42[0];
+        p[0x43] = s.pad_42[1];
+        wr16(p + 0x44, s.damage_hi);
+        p[0x46] = s.pad_46[0];
+        p[0x47] = s.pad_46[1];
+        wr32(p + 0x48, static_cast<std::uint32_t>(s.sound));
+        wr32(p + 0x4c, static_cast<std::uint32_t>(s.sound_count));
+        wr32(p + 0x50, s.flags);
+        wr32(p + 0x54, s.unused);
+    }
+    return out;
+}
 
 const char* sbt_type_name(std::uint8_t type) {
     switch (type) {
@@ -192,12 +287,19 @@ std::optional<SbtLevel> parse_sbt(std::span<const std::uint8_t> data, std::strin
                 return std::nullopt;
             }
             break;
-        case 8:
-            if (!r.skip(0x5800)) {
-                error = "bad SECTOR_STUFF record";
+        case 8: {
+            if (!r.need(kSbtSectorStuffSize)) {
+                error = "bad SECTOR_STUFF record: " + error;
                 return std::nullopt;
             }
+            std::vector<SbtSectorSlot> slots;
+            if (!parse_sector_stuff(r.data.subspan(r.offset, kSbtSectorStuffSize), slots, error)) {
+                return std::nullopt;
+            }
+            r.offset += kSbtSectorStuffSize;
+            level.sector_stuff = std::move(slots);
             break;
+        }
         case 9: {
             std::uint8_t exists = 0;
             if (!r.u8(exists) || (exists && !r.skip(0x3510))) {
