@@ -1,7 +1,9 @@
 #include "game/runtime.h"
 
 #include <array>
+#include <memory>
 #include <utility>
+#include <vector>
 
 namespace gm {
 
@@ -18,6 +20,27 @@ void clear_error(std::string* out) {
     if (out != nullptr) {
         out->clear();
     }
+}
+
+/// Mirror of the trigger table documented on `apply_projectile_blast()`: the
+/// bridge has to know whether a record is a blast before calling it, because
+/// the call cannot distinguish "no trigger" from "triggered, nothing in range".
+bool blast_trigger(ProjectileStatus status, bool already_spent,
+                   bool allow_proximity) {
+    switch (status) {
+    case ProjectileStatus::bounced:
+        return true;
+    case ProjectileStatus::expired:
+        // A spent state replays `expired` on every step; only the first report
+        // carries the expiry blast.
+        return !already_spent;
+    case ProjectileStatus::proximity:
+        return allow_proximity;
+    case ProjectileStatus::flying:
+    case ProjectileStatus::destroyed:
+        return false;
+    }
+    return false;
 }
 
 } // namespace
@@ -205,6 +228,8 @@ void GameRuntime::tick_once() {
     const ProjectileTargets targets = projectile_targets();
     last_projectile_results_ =
         projectiles_.tick_results(1, targets, collision_, &events_.queue());
+    // New generation: every record may be blasted once by the bridge.
+    blasted_results_.assign(last_projectile_results_.size(), 0);
 
     // 4. Doors/lifts: one fixed world step.
     world_.tick(1);
@@ -270,6 +295,92 @@ ProjectileTargets GameRuntime::projectile_targets() {
     return targets;
 }
 
+ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
+    const Weapon& weapon, const ProjectileBlastContext& context,
+    std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+    bool only_new) {
+    ProjectileBlastBatch batch;
+    const std::size_t count = last_projectile_results_.size();
+    // Defensive: the marks are sized by `tick_once()`; rebuild them if a
+    // caller cleared the result behind the runtime's back.
+    if (blasted_results_.size() != count) {
+        blasted_results_.assign(count, 0);
+    }
+    if (count == 0) {
+        return batch;
+    }
+
+    // Target points: the runtime owns the positions (player eyes and the
+    // world points of its things), so the caller only supplies vitals at the
+    // same indices.  `ProjectileBlastTargets::thing_alive` needs a contiguous
+    // `bool` array (index-stable like `things().things()`, dead and
+    // source-relative things marked absent), which `std::vector<bool>` cannot
+    // provide.
+    const std::vector<Thing>& list = things_.things();
+    const std::size_t thing_count = list.size();
+    std::vector<Vec3d> thing_positions(thing_count);
+    std::unique_ptr<bool[]> thing_alive(new bool[thing_count]);
+    for (std::size_t i = 0; i < thing_count; ++i) {
+        const Thing& thing = list[i];
+        const bool absolute = thing.position.has_value();
+        thing_positions[i] =
+            absolute ? Vec3d{static_cast<double>((*thing.position)[0]),
+                             static_cast<double>((*thing.position)[1]),
+                             static_cast<double>((*thing.position)[2])}
+                     : Vec3d{};
+        thing_alive[i] = thing.alive && absolute;
+    }
+
+    ProjectileBlastTargets targets;
+    targets.player_positions = player_eyes_;
+    targets.player_vitals = player_vitals;
+    targets.thing_positions = thing_positions;
+    targets.thing_alive = std::span<const bool>(thing_alive.get(), thing_count);
+    targets.thing_vitals = thing_vitals;
+
+    for (std::size_t i = 0; i < count; ++i) {
+        const ProjectileTickRecord& record = last_projectile_results_[i];
+        if (!blast_trigger(record.status, record.already_spent,
+                           context.allow_proximity)) {
+            continue;
+        }
+        if (blasted_results_[i] != 0) {
+            if (only_new) {
+                ++batch.already_applied;
+                continue;
+            }
+        }
+
+        BlastDamageResult one;
+        apply_projectile_blast(
+            weapon, projectile_result_of(record),
+            record.status == ProjectileStatus::expired, context, targets, &one);
+
+        // One record per affected target with a non-zero blast event.  The
+        // original per-target coordinates are not proven here, so the record
+        // is posted at the blast centre (the post-step projectile position).
+        for (const AppliedBlastHit& hit : one.hits) {
+            if (hit.hit.event == 0) {
+                continue;
+            }
+            if (events_.queue().post_generate(
+                    static_cast<std::int32_t>(hit.hit.event), 0,
+                    record.position.x, record.position.y, record.position.z,
+                    0)) {
+                ++batch.posted_events;
+            }
+        }
+
+        batch.damage.chain_reaction =
+            batch.damage.chain_reaction || one.chain_reaction;
+        batch.damage.hits.insert(batch.damage.hits.end(), one.hits.begin(),
+                                 one.hits.end());
+        blasted_results_[i] = 1;
+        ++batch.blasts;
+    }
+    return batch;
+}
+
 int GameRuntime::spawn_thing(Thing thing) {
     const int id = things_.spawn(std::move(thing), &events_.queue());
     if (id >= 0) {
@@ -307,6 +418,7 @@ void GameRuntime::reset() {
     things_built_ = false;
     ai_attached_ = false;
     last_projectile_results_.clear();
+    blasted_results_.clear();
     last_events_ = EventDispatchResult{};
 }
 
@@ -315,12 +427,14 @@ void GameRuntime::clear_events() {
     world_.clear_events();
     ai_.clear_events();
     last_projectile_results_.clear();
+    blasted_results_.clear();
     last_events_ = EventDispatchResult{};
 }
 
 void GameRuntime::clear_projectiles() {
     projectiles_ = Projectiles{};
     last_projectile_results_.clear();
+    blasted_results_.clear();
 }
 
 } // namespace gm

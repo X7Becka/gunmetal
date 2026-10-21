@@ -36,6 +36,13 @@
 // Ordering is deterministic: every subsystem walks its own insertion-ordered
 // vector, there is no clock read, no RNG and no map iteration.
 //
+// Blast damage is **not** a tick phase: the weapon that a round carries is
+// chosen by the caller, so `GameRuntime` cannot pick it.
+// `apply_projectile_blasts()` is the explicit bridge over
+// `last_projectile_results()` (see the method and docs/RUNTIME_CPP.md §7).  It
+// is idempotent per tick generation: every result record is blasted at most
+// once until the next `tick()`.
+//
 // Lifetime: `Ai` keeps a pointer to the owned `Things`, and the projectile
 // target spans point into the runtime's scratch arrays.  The class therefore
 // deletes copy/move; build and use it in place.
@@ -102,6 +109,23 @@ struct GameRuntimeConfig {
     /// The shots themselves only exist with `ai.use_weapon_shots` (which
     /// requires `ai.use_weapon_table`).
     bool ai_shots_to_projectiles = false;
+};
+
+/// One `apply_projectile_blasts()` call.  `damage` merges the applied blasts in
+/// result-record order (then blast order), so `damage.hits.size()` is the total
+/// number of target hits and `damage.chain_reaction` is the OR over them.
+struct ProjectileBlastBatch {
+    BlastDamageResult damage;
+    /// Result records whose blast branch actually ran (a trigger, even when
+    /// nothing was inside the radius), i.e. the number of blasts applied.
+    std::size_t blasts = 0;
+    /// Result records skipped because this generation was already blasted
+    /// (`only_new = true` only); flying/destroyed/replayed records are not
+    /// counted here.
+    std::size_t already_applied = 0;
+    /// Blast event records the queue accepted (0 for `event == 0` hits and for
+    /// a full queue, which drops the record like every other runtime post).
+    std::size_t posted_events = 0;
 };
 
 /// Headless owner of one level's runtime.  Build it with `build()` or the two
@@ -227,6 +251,47 @@ public:
     /// after a step that queued nothing.  Valid until the next `tick()/reset()`.
     const EventDispatchResult& last_events() const { return last_events_; }
 
+    // --- projectile -> blast bridge ----------------------------------------
+
+    /// Apply the selected weapon's impact/expire blasts for the projectile
+    /// results of the last step and post the blast events through the runtime
+    /// queue.  This is the explicit weapon seam: the runtime does not choose a
+    /// weapon and does not call this from `tick()`.
+    ///
+    /// Only trigger statuses are blasted: `bounced`, `expired` (unless the
+    /// record is a replay, `already_spent`) and `proximity` only when
+    /// `context.allow_proximity` (the same contract as
+    /// `apply_projectile_blast()`); `flying`/`destroyed` never.  `expired` is
+    /// forwarded as the blast branch, so `expired == true` selects
+    /// `Weapon::expire_blasts` and a bounce selects `Weapon::impact_blasts`.
+    ///
+    /// Targets come from the runtime: the player positions are the
+    /// `set_player_eyes()` points, so `player_vitals[i]` must describe player
+    /// `i` of that list; the thing positions are `things().things()` in
+    /// insertion order (a source-relative thing has no world point and is
+    /// marked not alive), so `thing_vitals[i]` must describe the thing at that
+    /// index -- the same order the projectile target table uses.  A vitals span
+    /// may be shorter than the position span; the extra hits are still counted,
+    /// only their damage is skipped (existing `apply_blast_damage()` rule).  The
+    /// bridge writes only into those spans: call `store_thing_vitals()` yourself
+    /// to copy the result into `Things`.
+    ///
+    /// Every applied hit with a non-zero `BlastHit::event` is posted as a type-3
+    /// record at the blast centre (`extra = 0`); the per-target coordinates of
+    /// the original hit path are not proven here.
+    ///
+    /// Idempotence: each record of the current `tick_results()` generation is
+    /// blasted at most once.  A second call without a new tick applies nothing
+    /// (`already_applied` counts the skipped records); the marks are cleared by
+    /// the next `tick()`, `reset()`, `clear_events()` or `clear_projectiles()`,
+    /// so a new bounce or expiry blasts again.  `only_new = false` re-applies
+    /// the current generation (e.g. after the caller changed its vitals
+    /// spans), but a replayed expiry (`already_spent`) still never blasts.
+    ProjectileBlastBatch apply_projectile_blasts(
+        const Weapon& weapon, const ProjectileBlastContext& context,
+        std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+        bool only_new = true);
+
     // --- spawn --------------------------------------------------------------
 
     /// Append a thing, assign an id when `thing.id < 0` and post its create
@@ -299,6 +364,10 @@ private:
     std::vector<int> target_thing_parent_;
 
     std::vector<ProjectileTickRecord> last_projectile_results_;
+    /// One byte per `last_projectile_results_` record: 1 when the current
+    /// generation was already blasted.  Cleared by every new `tick_results`
+    /// assignment and by the explicit clears.
+    std::vector<std::uint8_t> blasted_results_;
     EventDispatchResult last_events_;
 };
 

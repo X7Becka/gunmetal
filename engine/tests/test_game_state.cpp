@@ -319,6 +319,57 @@ gm::SbwLevel make_runtime_geometry() {
     return geometry;
 }
 
+/// Identity `.sbw` object transform (`test_weapons.cpp`): the header stores
+/// origin/axis as four padded `vec3`s at `8 * i + 4`.
+void write_identity_object_header(std::array<std::uint8_t, 96>& header) {
+    header.fill(0);
+    for (int point = 0; point < 4; ++point) {
+        for (int component = 0; component < 3; ++component) {
+            const float value =
+                (point == 0) ? 0.0f : (component == point - 1 ? 1.0f : 0.0f);
+            std::memcpy(header.data() + 8 * (point * 3 + component) + 4,
+                        &value, sizeof(value));
+        }
+    }
+}
+
+/// Floor at z = 0 (a 400x400 square, two triangles) so a runtime grenade can
+/// bounce; the world itself has no doors/lifts (`blast_runtime_level()`).
+gm::SbwLevel make_runtime_floor_geometry() {
+    gm::SbwLevel geometry;
+    geometry.header.sectors.resize(1);
+    const double s = 200.0;
+    const std::array<gm::Vec3d, 4> corners = {
+        gm::Vec3d{-s, s, 0.0}, gm::Vec3d{-s, -s, 0.0},
+        gm::Vec3d{s, -s, 0.0}, gm::Vec3d{s, s, 0.0}};
+    const int triangles[2][3] = {{0, 1, 2}, {0, 2, 3}};
+    for (const auto& triangle : triangles) {
+        gm::SbwObjectRef object;
+        write_identity_object_header(object.header);
+        geometry.header.sectors[0].objects.push_back(object);
+
+        gm::SbwGeometry floor;
+        for (int corner : triangle) {
+            floor.vertices.push_back(gm::Vec3f{
+                static_cast<float>(corners[static_cast<std::size_t>(corner)].x),
+                static_cast<float>(corners[static_cast<std::size_t>(corner)].y),
+                static_cast<float>(corners[static_cast<std::size_t>(corner)].z)});
+        }
+        floor.n_verts = 3;
+        gm::SbwPoly poly;
+        poly.indices = {0, 1, 2};
+        floor.polys.push_back(poly);
+        floor.n_polys = 1;
+        geometry.geometry.push_back(std::move(floor));
+    }
+    geometry.header.object_count = 2;
+    return geometry;
+}
+
+/// No DOOR/LIFT records, one SWITCH: `WorldState::build` rejects a completely
+/// empty level, and the blast tests do not press anything.
+gm::SbtLevel blast_runtime_level() { return make_runtime_level(999, false); }
+
 // --- synthetic -------------------------------------------------------------
 
 void test_synthetic() {
@@ -1025,6 +1076,244 @@ void test_runtime_projectile_results() {
     CHECK_EQ(runtime.last_projectile_results().size(), std::size_t(0));
 }
 
+/// grenade-like weapon for the blast bridge: the impact branch deals 1000 hull
+/// (event 600), the expire branch 2000 (event 601), so a test can tell which
+/// `Weapon` vector reached `apply_projectile_blast()`.
+gm::Weapon blast_test_weapon() {
+    gm::Weapon weapon;
+    weapon.name = "GRENADE";
+    gm::Blast impact;
+    impact.hull = 1000;
+    impact.radius = 50;
+    impact.event = 600;
+    weapon.impact_blasts.push_back(impact);
+    gm::Blast expire = impact;
+    expire.hull = 2000;
+    expire.event = 601;
+    weapon.expire_blasts.push_back(expire);
+    return weapon;
+}
+
+/// Grenade blast bridge: `expire` blasts the player and the thing exactly once,
+/// a second call without a new tick is a no-op, and the blast events go through
+/// the runtime queue (the next tick dispatches them once).
+void test_runtime_projectile_blasts_expire() {
+    gm::GameRuntime runtime;
+
+    gm::Thing crate;
+    crate.id = -1;
+    crate.position = std::array<int, 3>{0, 0, 20};
+    crate.max_health = 10000;
+    crate.health = 10000;
+    CHECK_EQ(runtime.spawn_thing(crate), 0);
+
+    const gm::Vec3d eye{0.0, 0.0, 20.0};
+    CHECK(runtime.set_player_eyes(std::span<const gm::Vec3d>(&eye, 1)));
+
+    gm::ProjectileSpawn grenade;
+    grenade.thing_id = 40;
+    grenade.position = gm::Vec3d{0.0, 0.0, 20.0};
+    grenade.direction = gm::Vec3d{0.0, 0.0, 1.0};
+    grenade.speed = 0.0;    // stays at the blast centre
+    grenade.life_ticks = 1; // expires on the first step
+    grenade.radius = 0.0;
+    CHECK_EQ(runtime.spawn_projectile(grenade), 0);
+
+    std::vector<gm::Vitals> players(1);
+    players[0].armor = 10000;
+    players[0].armor_max = 10000;
+    std::vector<gm::ThingVitals> things;
+    for (const gm::Thing& thing : runtime.things().things()) {
+        things.push_back(gm::thing_vitals(thing));
+    }
+
+    runtime.tick(1);
+    {
+        const std::span<const gm::ProjectileTickRecord> records =
+            runtime.last_projectile_results();
+        CHECK_EQ(records.size(), std::size_t(1));
+        if (records.size() == 1) {
+            CHECK(records[0].status == gm::ProjectileStatus::expired);
+            CHECK(records[0].spent);
+            CHECK(!records[0].already_spent);
+        }
+    }
+    CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
+
+    const gm::Weapon weapon = blast_test_weapon();
+    const gm::ProjectileBlastContext context;
+    const gm::ProjectileBlastBatch first =
+        runtime.apply_projectile_blasts(weapon, context, players, things);
+    CHECK_EQ(first.blasts, std::size_t(1));
+    CHECK_EQ(first.already_applied, std::size_t(0));
+    CHECK_EQ(first.posted_events, std::size_t(2));
+    CHECK_EQ(first.damage.hits.size(), std::size_t(2)); // player 0 + thing 0
+    if (first.damage.hits.size() == 2) {
+        CHECK(first.damage.hits[0].hit.is_player);
+        CHECK_EQ(first.damage.hits[0].hit.index, 0);
+        CHECK_EQ(first.damage.hits[0].hit.hull, 2000); // expire branch
+        CHECK(!first.damage.hits[1].hit.is_player);
+        CHECK_EQ(first.damage.hits[1].hit.index, 0);
+    }
+    CHECK_EQ(players[0].armor, 8000); // 10000 - 2000
+    CHECK_EQ(things[0].hp, 8000);
+    // Two type-3 records (one per hit) wait for the next tick's dispatch.
+    CHECK_EQ(runtime.events().queue().size(),
+             std::size_t(2) * gm::EventQueue::kType3Size);
+
+    // The same generation is never blasted twice.
+    const gm::ProjectileBlastBatch repeat =
+        runtime.apply_projectile_blasts(weapon, context, players, things);
+    CHECK_EQ(repeat.blasts, std::size_t(0));
+    CHECK_EQ(repeat.already_applied, std::size_t(1));
+    CHECK_EQ(repeat.posted_events, std::size_t(0));
+    CHECK(repeat.damage.hits.empty());
+    CHECK_EQ(players[0].armor, 8000);
+    CHECK_EQ(things[0].hp, 8000);
+    CHECK_EQ(runtime.events().queue().size(),
+             std::size_t(2) * gm::EventQueue::kType3Size);
+
+    // The next tick dispatches the queued blast events exactly once.
+    runtime.tick(1);
+    CHECK_EQ(runtime.clock(), 2u);
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(2));
+    for (const gm::Event& event : runtime.last_events().generated) {
+        CHECK_EQ(event.id, 601);
+    }
+    CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
+
+    // A new generation replays the spent expiry; that is not a trigger, so no
+    // second blast (the mark is fresh but the record is `already_spent`).
+    const std::span<const gm::ProjectileTickRecord> replay_records =
+        runtime.last_projectile_results();
+    CHECK_EQ(replay_records.size(), std::size_t(1));
+    if (replay_records.size() == 1) {
+        CHECK(replay_records[0].already_spent);
+    }
+    const gm::ProjectileBlastBatch replay =
+        runtime.apply_projectile_blasts(weapon, context, players, things);
+    CHECK_EQ(replay.blasts, std::size_t(0));
+    CHECK_EQ(replay.already_applied, std::size_t(0));
+    CHECK(replay.damage.hits.empty());
+    CHECK_EQ(players[0].armor, 8000);
+    CHECK_EQ(things[0].hp, 8000);
+}
+
+/// Grenade bounce: the `impact` branch blasts once per bounce, never while the
+/// round is flying, and a second (new) bounce on a later tick blasts again.
+void test_runtime_projectile_blasts_bounce() {
+    gm::GameRuntime runtime;
+    std::string error;
+    CHECK(runtime.build_world(blast_runtime_level(),
+                              make_runtime_floor_geometry(), &error));
+    CHECK(error.empty());
+
+    gm::Thing crate;
+    crate.id = -1;
+    crate.position = std::array<int, 3>{30, 0, 10};
+    crate.max_health = 10000;
+    crate.health = 10000;
+    CHECK_EQ(runtime.spawn_thing(crate), 0);
+
+    const gm::Vec3d eye{0.0, 0.0, 10.0};
+    CHECK(runtime.set_player_eyes(std::span<const gm::Vec3d>(&eye, 1)));
+
+    gm::ProjectileSpawn grenade;
+    grenade.thing_id = 41;
+    grenade.position = gm::Vec3d{0.0, 0.0, 25.0};
+    grenade.direction = gm::Vec3d{0.0, 0.0, -1.0};
+    grenade.speed = 2.0;
+    grenade.gravity = 1.0;
+    grenade.level_gravity = 1.0;
+    grenade.damping = 0.8;
+    grenade.radius = 10.0; // contacts the floor at centre z = 10
+    CHECK_EQ(runtime.spawn_projectile(grenade), 0);
+
+    std::vector<gm::Vitals> players(1);
+    players[0].armor = 10000;
+    players[0].armor_max = 10000;
+    std::vector<gm::ThingVitals> things;
+    for (const gm::Thing& thing : runtime.things().things()) {
+        things.push_back(gm::thing_vitals(thing));
+    }
+
+    const gm::Weapon weapon = blast_test_weapon();
+    const gm::ProjectileBlastContext context;
+    const auto tick_until_bounce = [&runtime](int max_ticks) {
+        for (int i = 0; i < max_ticks; ++i) {
+            runtime.tick(1);
+            for (const gm::ProjectileTickRecord& record :
+                 runtime.last_projectile_results()) {
+                if (record.status == gm::ProjectileStatus::bounced) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    CHECK(tick_until_bounce(40));
+    {
+        const std::span<const gm::ProjectileTickRecord> records =
+            runtime.last_projectile_results();
+        CHECK_EQ(records.size(), std::size_t(1));
+        if (records.size() == 1) {
+            CHECK(records[0].status == gm::ProjectileStatus::bounced);
+        }
+    }
+
+    const gm::ProjectileBlastBatch first =
+        runtime.apply_projectile_blasts(weapon, context, players, things);
+    CHECK_EQ(first.blasts, std::size_t(1));
+    CHECK_EQ(first.already_applied, std::size_t(0));
+    CHECK_EQ(first.posted_events, std::size_t(2));
+    CHECK_EQ(first.damage.hits.size(), std::size_t(2));
+    if (first.damage.hits.size() == 2) {
+        CHECK_EQ(first.damage.hits[0].hit.hull, 1000); // impact branch, d=0
+        // 30 units from the centre, radius 50: falloff to 1000*(50-30)/50.
+        CHECK_EQ(first.damage.hits[1].hit.hull, 400);
+    }
+    CHECK_EQ(players[0].armor, 9000); // 10000 - 1000
+    CHECK_EQ(things[0].hp, 9600);     // 10000 - 400
+    CHECK_EQ(runtime.events().queue().size(),
+             std::size_t(2) * gm::EventQueue::kType3Size);
+
+    // A flying step between two impacts must not blast.
+    runtime.tick(1);
+    {
+        const std::span<const gm::ProjectileTickRecord> records =
+            runtime.last_projectile_results();
+        CHECK_EQ(records.size(), std::size_t(1));
+        if (records.size() == 1) {
+            CHECK(records[0].status == gm::ProjectileStatus::flying);
+        }
+    }
+    const gm::ProjectileBlastBatch flying =
+        runtime.apply_projectile_blasts(weapon, context, players, things);
+    CHECK_EQ(flying.blasts, std::size_t(0));
+    CHECK(flying.damage.hits.empty());
+    CHECK_EQ(players[0].armor, 9000);
+    CHECK_EQ(things[0].hp, 9600);
+
+    // Gravity brings the round back down: the new bounce of a new tick is a
+    // new generation and blasts again (once).
+    CHECK(tick_until_bounce(200));
+    const gm::ProjectileBlastBatch second =
+        runtime.apply_projectile_blasts(weapon, context, players, things);
+    CHECK_EQ(second.blasts, std::size_t(1));
+    CHECK_EQ(second.already_applied, std::size_t(0));
+    CHECK_EQ(second.damage.hits.size(), std::size_t(2));
+    CHECK_EQ(players[0].armor, 8000);
+    CHECK_EQ(things[0].hp, 9200);
+
+    const gm::ProjectileBlastBatch second_repeat =
+        runtime.apply_projectile_blasts(weapon, context, players, things);
+    CHECK_EQ(second_repeat.blasts, std::size_t(0));
+    CHECK_EQ(second_repeat.already_applied, std::size_t(1));
+    CHECK_EQ(players[0].armor, 8000);
+    CHECK_EQ(things[0].hp, 9200);
+}
+
 /// Filling the staging queue must leave the unposted switch tail in the world
 /// and the next tick must dispatch it exactly once.
 void test_runtime_pending_switch_tail() {
@@ -1402,6 +1691,8 @@ int main() {
     test_vitals_bridge();
     test_runtime_events_not_duplicated();
     test_runtime_projectile_results();
+    test_runtime_projectile_blasts_expire();
+    test_runtime_projectile_blasts_bounce();
     test_runtime_ai_shots_default_off();
     test_runtime_ai_shots_to_projectiles();
     test_runtime_ai_shots_without_template();
