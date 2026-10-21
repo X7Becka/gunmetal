@@ -632,7 +632,10 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > THING_TYPES, `octagonal_distance` и `ai_seek_step` покрыты тестами;
       > `Ai::tick` использует seek при opt-in `use_move_step` (alert/attack →
       > aim_point, patrol/return → home), leash-кламп и stats; default
-      > сохраняет прежнее поведение. Pathfinding и A3 standoff/оружие — нет.
+      > сохраняет прежнее поведение. A3: `move_standoff`/`move_standoff_backoff`,
+      > удержание окна, отход при `d+60 <= standoff`, `standoff_holds`/
+      > `retreat_steps`, столкновение и leash. Реального оружия, pathfinding
+      > и интегратора ω по-прежнему нет.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
       > ray/sphere vs triangle, floor, AABB broad-phase, double, без аллокаций;
