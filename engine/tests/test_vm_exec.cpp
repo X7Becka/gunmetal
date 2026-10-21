@@ -288,6 +288,7 @@ Bytes enc_if(std::string_view condition, std::initializer_list<SbtValue> args,
 struct SyntheticEntity {
     int id = 0;
     std::uint32_t offset = 0;
+    std::uint32_t flags = 0x3FF; // the `VmEntity` default (data: 0/0x1FF/0x3FF)
 };
 
 std::vector<gm::VmPathResult> run_bytes(const Bytes& code, gm::VmOptions options = {},
@@ -305,6 +306,7 @@ std::vector<gm::VmPathResult> run_bytes(const Bytes& code, gm::VmOptions options
         gm::VmEntity entity;
         entity.id = row.id;
         entity.offset = row.offset;
+        entity.flags = row.flags;
         state.entities[row.id] = entity;
         state.order.push_back(row.id);
     }
@@ -484,6 +486,22 @@ void test_synthetic() {
     disable.push_back(0xFF);
     results = run_bytes(disable, {}, {{9, 0}});
     CHECK_EQ(results[0].state.entities.at(9).flags & 0x1FFu, 0u);
+
+    // 13b. SP_ENABLE/SP_DISABLE: source player 3 sets bit 3; a non-player
+    // source sets 0x100 (`0x457c80`, `docs/ENTITY_FIELDS.md`).
+    Bytes sp_enable;
+    cmd(sp_enable, "SOURCEPLAYER_ENABLE", {u(9)});
+    sp_enable.push_back(0xFF);
+    results = run_bytes(sp_enable, {}, {{9, 0, 0}}, 1, 3);
+    CHECK_EQ(results[0].state.entities.at(9).flags, 1u << 3);
+    results = run_bytes(sp_enable, {}, {{9, 0, 0}}, 1, std::nullopt);
+    CHECK_EQ(results[0].state.entities.at(9).flags, 0x100u);
+
+    Bytes sp_disable;
+    cmd(sp_disable, "SOURCEPLAYER_DISABLE", {u(9)});
+    sp_disable.push_back(0xFF);
+    results = run_bytes(sp_disable, {}, {{9, 0, 0}}, 1, 3);
+    CHECK_EQ(results[0].state.entities.at(9).flags & (1u << 3), 0u);
 
     // 14. IF false with size 4 is an idle test (no else code).
     Bytes idle;

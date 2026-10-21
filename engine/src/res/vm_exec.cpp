@@ -1766,7 +1766,9 @@ std::uint32_t source_player_bit(const VmState& state) {
     if (!state.source_player || *state.source_player < 0 || *state.source_player > 7) {
         return 0x100u;
     }
-    return 1u << (9 + *state.source_player);
+    // `0x457c80`/`0x457c49` (`docs/ENTITY_FIELDS.md`): bits 0..7 are the eight
+    // players, 0x100 is a non-player source.  The old `9 + player` was wrong.
+    return 1u << static_cast<unsigned>(*state.source_player);
 }
 } // namespace
 
