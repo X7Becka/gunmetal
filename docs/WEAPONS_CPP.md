@@ -431,6 +431,15 @@ thing[+0x120] = player[+0x2fa0] * FIRE_operand[9] + thing[+0x120]   // 0x46f0f0
 * `charge` не обнуляется выстрелом — живёт до респавна (`0x452730`),
   поэтому «заряженное» оружие продолжает стрелять с полным зарядом.
 
+События заряда идут парой: пока курок удержан, каждый тик сначала
+отправляется отложенное state-событие `player[+0x35c]` (= `weapon[+0x38]`) и
+слот очищается (`0x445a90..0x445a98` — **до** проверки кулдауна), а затем
+ветка накопления снова ставит событие старта `weapon[+0x34]` и взводит
+`+0x35c` (`0x445cdd..0x445ce3`). То есть стартовое событие повторяется каждый
+тик удержания; бит 0x20 в `player+0x3340` подавляет отправку state-события.
+C++ отдаёт это полями `ChargeOutcome::state_event_posted/state_event`, а
+`suppress_state_event` — тот самый бит.
+
 C++: `gm::ChargeState { charge, accumulated, state_event }` и
 `gm::update_charge(weapon, state, ready, trigger_held, trigger_edge, ticks)`
 → `ChargeOutcome { fire, started, start_event, state_value }`. `ready` —
