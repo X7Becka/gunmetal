@@ -352,6 +352,15 @@ void test_synthetic() {
     const gm::EventParseResult after_tick_events = after_tick.drain();
     CHECK_EQ(after_tick_events.events.size(), 1U);
 
+    // Without a failed post the log stays frame-local: an unconsumed event
+    // must not accumulate across ticks.
+    state.tick(1);
+    CHECK(state.interact(0));
+    state.tick(1);
+    CHECK(state.events().empty());
+    gm::EventQueue unposted;
+    CHECK_EQ(state.post_switch_events(unposted, 2), 0U);
+
     // A full queue must leave the pending switch in the log; after draining,
     // the same cursor posts it exactly once.
     state.tick(1);

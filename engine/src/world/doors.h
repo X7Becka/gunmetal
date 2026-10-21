@@ -197,6 +197,7 @@ public:
     void clear_events() {
         events_.clear();
         switch_event_cursor_ = 0;
+        switch_post_blocked_ = false;
     }
 
     Door* find_door(int id);
@@ -225,6 +226,9 @@ private:
     /// because posting is logically const: it does not change the world, only
     /// how far the queue mirror has consumed the event log.
     mutable std::size_t switch_event_cursor_ = 0;
+    /// A full queue left a switch record pending; only then does `tick()` keep
+    /// the unposted tail.  Without a failed post the log is still frame-local.
+    mutable bool switch_post_blocked_ = false;
     WorldStats stats_;
 
     // GENERATE id (any of E1..E3) -> door indices.  A vector keeps the result

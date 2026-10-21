@@ -284,6 +284,7 @@ void WorldState::clear() {
     lifts_.clear();
     events_.clear();
     switch_event_cursor_ = 0;
+    switch_post_blocked_ = false;
     door_targets_.clear();
     lift_targets_.clear();
     stats_ = WorldStats{};
@@ -582,10 +583,14 @@ std::size_t WorldState::post_switch_events(EventQueue& queue,
             continue;
         }
         if (!queue.post_switch(static_cast<std::uint32_t>(event.switch_id), source)) {
+            switch_post_blocked_ = true;
             break; // full queue: keep the cursor on the pending record
         }
         ++posted;
         ++switch_event_cursor_;
+    }
+    if (switch_event_cursor_ >= events_.size()) {
+        switch_post_blocked_ = false;
     }
     return posted;
 }
@@ -742,12 +747,13 @@ void WorldState::tick(std::uint64_t ticks) {
     if (switch_event_cursor_ > events_.size()) {
         switch_event_cursor_ = events_.size();
     }
-    if (switch_event_cursor_ < events_.size()) {
+    if (switch_post_blocked_ && switch_event_cursor_ < events_.size()) {
         events_.erase(events_.begin(),
                       events_.begin() +
                           static_cast<std::ptrdiff_t>(switch_event_cursor_));
     } else {
         events_.clear();
+        switch_post_blocked_ = false;
     }
     switch_event_cursor_ = 0;
     if (ticks == 0) {
