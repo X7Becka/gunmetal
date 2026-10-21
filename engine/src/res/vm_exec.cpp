@@ -1088,7 +1088,29 @@ VmState vm_state_from_level(const SbtLevel& level, const VmContext& context) {
             state.entities[entity.id] = entity;
         }
     }
+    // Levels do not carry SECTOR_STUFF (36/36, docs/RECORDS.md §1), but a
+    // level loaded from a save stream does; keep the same seeding path.
+    vm_load_sector_stuff(state, level.sector_stuff);
     return state;
+}
+
+void vm_load_sector_stuff(VmState& state, std::span<const SbtSectorSlot> slots) {
+    state.sectors = {};
+    const std::size_t n = std::min(slots.size(), state.sectors.size());
+    for (std::size_t i = 0; i < n; ++i) {
+        const SbtSectorSlot& in = slots[i];
+        VmSectorSlot& out = state.sectors[i];
+        out.move = in.move;
+        out.extra = in.extra;
+        out.sound_param = in.sound_param;
+        out.event_a = in.event_a;
+        out.event_b = in.event_b;
+        out.damage_a = in.damage_a;
+        out.damage_b = in.damage_b;
+        out.sound = in.sound;
+        out.sound_count = in.sound_count;
+        out.flags = in.flags;
+    }
 }
 
 VmScene vm_merge_scenes(const std::vector<VmPathResult>& results) {
@@ -1198,6 +1220,14 @@ void VmExecutor::install_handlers() {
     set("DEFINE_VIRUS", &VmExecutor::h_def);
     set("DEFINE_REGENERATION_MARKER", &VmExecutor::h_def);
     set("SOURCE_CLEAR", &VmExecutor::h_source_clear);
+    // SECTOR_STUFF writers: the five commands that touch 0x800b60.  They keep
+    // their "event" classification (vm_command_status), only the handler
+    // differs from the plain event log.
+    set("SET_SECTOR_MOVEMENT", &VmExecutor::h_sector);
+    set("SET_SECTOR_DAMAGE", &VmExecutor::h_sector);
+    set("SET_SECTOR_SOUND", &VmExecutor::h_sector);
+    set("SET_SECTOR_EVENTS", &VmExecutor::h_sector);
+    set("SET_SECTOR_FLAGS", &VmExecutor::h_sector);
     set("SOURCEPLAYER_KILL", &VmExecutor::h_kill);
 
     for (const auto& def : kCommands) {
@@ -1982,6 +2012,82 @@ std::optional<std::size_t> VmExecutor::h_attached(VmState& state, const VmInsn& 
 }
 
 std::optional<std::size_t> VmExecutor::h_event(VmState& state, const VmInsn& insn) {
+    event(state, insn);
+    return std::nullopt;
+}
+
+// SECTOR_STUFF (8/11/12/13/14): the arrays are 256 x 0x58 at 0x800b60, so the
+// slot is index * 0x58 (the handlers compute ``index*11 << 3``).  Evidence:
+//   op  8 0x457815  idx<0 || idx>=0x100 -> "bad set_sector_movement sector"
+//                   (0x4b8600) and skip; 3x fild dword -> +0x00/+0x08/+0x10;
+//                   3x raw 8-byte double -> +0x18/+0x20/+0x28 (0x45786c..ac)
+//   op 11 0x457961  +0x40 = value & 0xffff (dword store 0x45799a, upper half
+//                   0), +0x44 = value >> 16 arithmetic (0x4579a0, sign
+//                   extended); bad index -> silent skip
+//   op 12 0x4579ee  call 0x46b740(idx, V, N, D); helper stores V -> +0x48,
+//                   N -> +0x4c, D -> +0x30/+0x34; bad index -> 0x4ba864 and
+//                   no write, then 0x40c030 restarts the audio voices
+//   op 13 0x4579ab  +0x38 = E1, +0x3c = E2 (0x4579d6/0x4579e0)
+//   op 14 0x457929  +0x50 = value (0x457955, byte-wise 0x800bb0 for slot 0)
+// SET_SECTOR_BRIGHTNESS (0x4578d6) and SET_SECTOR_TYPE (0x457a1c) do *not*
+// touch this array: they write the .sbw sector record (+0x16 light byte via
+// 0x42d8a5, +0x14 type*6 via 0x42d9d5), so they stay plain events here.
+std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& insn) {
+    const std::vector<SbtValue>& args = insn.args;
+    std::size_t wanted = 2; // sector index + at least one operand
+    switch (insn.op) {
+    case 8: wanted = 7; break;               // LLLLAAA: index + 3L + 3A
+    case 11: case 14: wanted = 2; break;     // LL: index + value
+    case 12: wanted = 4; break;              // LVND: index + V + N + D
+    case 13: wanted = 3; break;              // LEE: index + two events
+    default: break;
+    }
+    if (args.size() < wanted) {
+        event(state, insn);
+        note(insn.name + " at " + hexs(insn.pc) + ": truncated operands");
+        return std::nullopt;
+    }
+
+    const int index = arg_i32(args[0]);
+    if (index < 0 || index >= static_cast<int>(kSbtSectorSlots)) {
+        // Original: movement/sound print an error, damage/flags/events consume
+        // the operands and continue; none of them write out of bounds.
+        event(state, insn);
+        note(insn.name + " at " + hexs(insn.pc) + ": sector " +
+             std::to_string(index) + " out of range");
+        return std::nullopt;
+    }
+    VmSectorSlot& slot = state.sectors[static_cast<std::size_t>(index)];
+
+    switch (insn.op) {
+    case 8: // SET_SECTOR_MOVEMENT
+        for (std::size_t k = 0; k < 3; ++k) {
+            slot.move[k] = static_cast<double>(arg_i32(args[1 + k]));
+            slot.extra[k] = arg_f64(args[4 + k]);
+        }
+        break;
+    case 11: { // SET_SECTOR_DAMAGE: one operand split into +0x40/+0x44
+        const std::int32_t value = arg_i32(args[1]);
+        slot.damage_a = static_cast<std::uint32_t>(value) & 0xffffu;
+        slot.damage_b = value >> 16; // arithmetic shift, sign-extended
+        break;
+    }
+    case 12: // SET_SECTOR_SOUND: V -> +0x48, N -> +0x4c, D -> +0x30
+        slot.sound = arg_i32(args[1]);
+        slot.sound_count = arg_i32(args[2]);
+        slot.sound_param = arg_f64(args[3]);
+        break;
+    case 13: // SET_SECTOR_EVENTS
+        slot.event_a = arg_i32(args[1]);
+        slot.event_b = arg_i32(args[2]);
+        break;
+    case 14: // SET_SECTOR_FLAGS
+        slot.flags = arg_u32(args[1]);
+        break;
+    default:
+        break;
+    }
+
     event(state, insn);
     return std::nullopt;
 }
