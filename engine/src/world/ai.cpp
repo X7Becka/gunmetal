@@ -152,6 +152,7 @@ bool TargetHistory::at(int lag, Vec3d& out) const {
 std::size_t Ai::attach(const Things& things) {
     agents_.clear();
     events_.clear();
+    weapon_shots_.clear();
     reset_target_history();
     stats_ = AiStats{};
     things_ = &things;
@@ -853,6 +854,29 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                     ++stats_.weapon_events;
                     log(AiEventType::weapon, agent, weapon_distance, tick,
                         selected.event);
+                    if (config_.use_weapon_shots) {
+                        AiWeaponShot shot;
+                        shot.thing_id = agent.thing_id;
+                        shot.event_id = selected.event;
+                        shot.origin = agent.position + selected.offset;
+                        const Vec3d to_aim = agent.aim_point - shot.origin;
+                        const Vec3d direction = normalized(to_aim);
+                        shot.direction = finite(direction) &&
+                                                 length(direction) > 0.5
+                                             ? direction
+                                             : Vec3d{0.0, 0.0, 1.0};
+                        const double speed = config_.weapon_shot_speed;
+                        shot.speed = std::isfinite(speed) && speed > 0.0
+                                         ? speed
+                                         : 0.0;
+                        shot.target = agent.target;
+                        shot.target_thing = agent.target_thing;
+                        shot.aim = agent.aim_point;
+                        shot.distance = weapon_distance;
+                        shot.tick = tick;
+                        weapon_shots_.push_back(shot);
+                        ++stats_.weapon_shots;
+                    }
                 }
             }
         }
@@ -1070,6 +1094,12 @@ bool Ai::set_path_from_thing(int thing_id) {
     agent->path_waypoints = std::move(points);
     agent->path = AiPathState{};
     return true;
+}
+
+std::vector<AiWeaponShot> Ai::take_weapon_shots() {
+    std::vector<AiWeaponShot> out;
+    out.swap(weapon_shots_);
+    return out;
 }
 
 const AiAgent* Ai::agent(int thing_id) const {

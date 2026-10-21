@@ -9,6 +9,7 @@
 
 #include "game/events.h"
 #include "game/weapons.h"
+#include "world/ai.h"
 #include "world/things.h"
 
 namespace gm {
@@ -662,6 +663,63 @@ std::optional<ProjectileSpawn> projectile_spawn_from_shot(
         spawn.homing = thing.movement_type == 8;
     }
     return spawn;
+}
+
+bool ai_shot_projectile_spawn(const AiWeaponShot& shot,
+                              const Thing* projectile_thing, int owner_player,
+                              ProjectileSpawn& out, double level_gravity) {
+    ShotResult result;
+    result.ok = true;
+    result.projectile = true;
+    result.origin = shot.origin;
+    result.direction = shot.direction;
+    result.projectile_speed = shot.speed;
+
+    Weapon weapon;
+    // The weapon table has no speed field: prefer the shot (units/second),
+    // otherwise take the proven projectile type speed (+0x10 units/tick).
+    if (std::isfinite(shot.speed) && shot.speed > 0.0) {
+        weapon.projectile_speed = shot.speed;
+    } else if (projectile_thing != nullptr &&
+               std::isfinite(projectile_thing->speed) &&
+               projectile_thing->speed > 0.0) {
+        weapon.projectile_speed = projectile_thing->speed * kProjectileTickHz;
+    }
+
+    const std::optional<ProjectileSpawn> spawn = projectile_spawn_from_shot(
+        weapon, result, projectile_thing, owner_player, shot.thing_id,
+        level_gravity);
+    if (!spawn.has_value()) {
+        return false;
+    }
+    out = *spawn;
+    // Homing targets reuse the same data the AI already resolved.  A thing
+    // target has no stable index here, but its aim point does.
+    if (shot.target >= 0 && shot.target < kAiMaxPlayers) {
+        out.target_index = shot.target;
+    }
+    if (finite(shot.aim)) {
+        out.target_point = shot.aim;
+        out.has_target_point = true;
+    }
+    return true;
+}
+
+std::size_t spawn_ai_shots(Ai& ai, Projectiles& projectiles,
+                           EventQueue* events, const Thing* projectile_thing,
+                           int owner_player, double level_gravity) {
+    std::size_t spawned = 0;
+    for (const AiWeaponShot& shot : ai.take_weapon_shots()) {
+        ProjectileSpawn spawn;
+        if (!ai_shot_projectile_spawn(shot, projectile_thing, owner_player,
+                                      spawn, level_gravity)) {
+            continue;
+        }
+        if (projectiles.spawn(std::move(spawn), events) >= 0) {
+            ++spawned;
+        }
+    }
+    return spawned;
 }
 
 int Projectiles::spawn(ProjectileSpawn spawn, EventQueue* events) {

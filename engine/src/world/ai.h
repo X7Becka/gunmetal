@@ -123,6 +123,30 @@ bool ai_weapon_at(const Thing& thing, int index, AiWeapon& out);
 bool ai_weapon_select(const Thing& thing, double distance, bool reverse,
                       AiWeapon& out);
 
+/// One deferred shot produced by an `AiEventType::weapon` event.
+///
+/// This is a plain data record, not a projectile: `Ai` never touches
+/// `Projectiles`, never consumes ammo and never applies damage.  A caller
+/// drains the queue (`take_weapon_shots`) and decides what to spawn; the
+/// `game/projectile.h` bridge (`spawn_ai_shots`) is one such caller.
+///
+/// Units follow the game layer: `origin`/`aim` are world units,
+/// `direction` is a unit vector and `speed` is **world units per second**
+/// (0 = the weapon table carries no speed, so the caller must resolve it from
+/// the projectile type/event).  `tick` is 1-based, like `AiEvent::tick`.
+struct AiWeaponShot {
+    int thing_id = -1;          ///< shooter Thing::id
+    std::uint32_t event_id = 0; ///< weapon table +0x21c (GENERATE/event id)
+    Vec3d origin{};             ///< muzzle: agent.position + AiWeapon::offset
+    Vec3d direction{0.0, 0.0, 1.0}; ///< unit vector origin -> aim_point
+    double speed = 0.0;         ///< world units/second, 0 = unresolved
+    int target = -1;            ///< player slot 0..7, -1 = thing/none
+    int target_thing = -1;      ///< Thing::id, -1 = player/none
+    Vec3d aim{};                ///< aim point at the shot (for homing)
+    double distance = 0.0;      ///< octagonal band distance used to select
+    std::uint64_t tick = 0;     ///< 1-based AI tick that posted the event
+};
+
 /// Tunables.  The shipped `.soe` has fields for search radius (+0x58), target
 /// zone threshold (+0x1cc), target history lag (+0x1d0), max HP (+0x1d4) and
 /// movement type (+0x1b4), but the values below are **not** read from a thing
@@ -147,6 +171,17 @@ struct AiConfig {
     /// damages the player.  `false` keeps A2/A3/A4 and the historical scaffold
     /// byte-for-byte unchanged.
     bool use_weapon_table = false;
+    /// Opt-in: additionally queue one `AiWeaponShot` per `weapon` event
+    /// (requires `use_weapon_table`).  The queue is pure data: the AI still
+    /// does not spawn a projectile or apply damage.  Default `false` keeps
+    /// the A5 event stream and every other counter unchanged.
+    bool use_weapon_shots = false;
+    /// Optional muzzle speed of a queued shot, world units/second.  The AI
+    /// weapon table has no speed field, so the honest default is `0` =
+    /// unresolved: the caller (or `spawn_ai_shots`) takes it from the
+    /// projectile type (`THING_TYPES +0x10 * 91`).  Non-finite/negative
+    /// values are stored as 0.
+    double weapon_shot_speed = 0.0;
     double max_dt = 181.0 / 91.0;      ///< 0x470b20 clamps dt to 181 ticks (~1.99 s)
     double los_skin = 1e-3;            ///< "still visible" tolerance at the target
 
@@ -333,6 +368,7 @@ struct AiStats {
     std::uint64_t retreat_steps = 0;  ///< A3 steps away from the target
     std::uint64_t path_expiries = 0;  ///< A4 `pathexpire` agents turned dead
     std::uint64_t weapon_events = 0;  ///< A5 entries selected and posted
+    std::uint64_t weapon_shots = 0;   ///< A5b shots queued for the caller
     std::size_t typed_agents = 0;   ///< agents with a THING_TYPES record
     std::uint64_t immune_hits = 0;  ///< damage rejected by max_health == 0
 };
@@ -432,6 +468,13 @@ public:
     const AiStats& stats() const { return stats_; }
     const std::vector<AiEvent>& events() const { return events_; }
     void clear_events() { events_.clear(); }
+    /// A5b: shots queued since the last drain, oldest first.  Empty unless
+    /// `AiConfig::use_weapon_shots` is on and a `weapon` event fired.
+    const std::vector<AiWeaponShot>& weapon_shots() const { return weapon_shots_; }
+    /// Move the queued shots out and clear the queue; the caller owns them.
+    std::vector<AiWeaponShot> take_weapon_shots();
+    /// Discard the queued shots without spawning anything.
+    void drain_weapon_shots() { weapon_shots_.clear(); }
     const AiConfig& config() const { return config_; }
 
 private:
@@ -445,6 +488,7 @@ private:
     AiConfig config_;
     std::vector<AiAgent> agents_;
     std::vector<AiEvent> events_;
+    std::vector<AiWeaponShot> weapon_shots_;
     AiStats stats_;
     std::array<TargetHistory, kAiMaxPlayers> histories_{};
     std::array<Vec3d, kAiMaxPlayers> player_eyes_{};

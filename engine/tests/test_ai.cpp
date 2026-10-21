@@ -13,6 +13,7 @@
 #include "world/ai.h"
 #include "world/ai_move.h"
 
+#include "game/projectile.h"
 #include "res/sbt.h"
 #include "res/sbw.h"
 #include "res/vm_exec.h"
@@ -2397,6 +2398,187 @@ void test_weapon_high_gate() {
     CHECK(!has_event(ai, gm::AiEventType::weapon, 0));
 }
 
+// A5b: default off post exactly the historical event stream and queue nothing.
+void test_weapon_shots_default_off() {
+    const gm::Things things = make_weapon_things();
+    gm::AiConfig config;
+    config.use_weapon_table = true; // the event fires; the queue must not fill
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 60.0, 10.0}));
+    const gm::CollisionWorld empty;
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(empty);
+    }
+    CHECK(ai.stats().weapon_events > 0u);
+    CHECK_EQ(ai.stats().weapon_shots, 0u);
+    CHECK(ai.weapon_shots().empty());
+    CHECK(ai.take_weapon_shots().empty());
+    ai.drain_weapon_shots();
+    CHECK(ai.weapon_shots().empty());
+}
+
+// A5b opt-in: one queued shot per `weapon` event, pure data, drain clears.
+void test_weapon_shots_opt_in() {
+    const gm::Things things = make_weapon_things(0, 200, 91);
+    gm::AiConfig config;
+    config.use_weapon_table = true;
+    config.use_weapon_shots = true;
+    config.weapon_shot_speed = 910.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 60.0, 10.0}));
+    const gm::CollisionWorld empty;
+    for (int i = 0; i < 60; ++i) {
+        ai.tick(empty);
+    }
+    CHECK_EQ(ai.stats().weapon_events, 1u);
+    CHECK_EQ(ai.stats().weapon_shots, 1u);
+    CHECK_EQ(ai.weapon_shots().size(), 1u);
+    CHECK_EQ(ai.events().empty(), false);
+
+    const gm::AiWeaponShot& shot = ai.weapon_shots().front();
+    CHECK_EQ(shot.thing_id, 0);
+    CHECK_EQ(shot.event_id, 41u);
+    CHECK_EQ(shot.target, 0);
+    CHECK_EQ(shot.target_thing, -1);
+    CHECK(gm::finite(shot.origin));
+    CHECK(gm::finite(shot.direction));
+    CHECK(gm::finite(shot.aim));
+    CHECK_NEAR(shot.origin.x, 1.0, 0.0); // position (0,0,0) + offset (1,2,3)
+    CHECK_NEAR(shot.origin.y, 2.0, 0.0);
+    CHECK_NEAR(shot.origin.z, 3.0, 0.0);
+    CHECK_NEAR(gm::length(shot.direction), 1.0, 1e-12);
+    CHECK(shot.direction.y > 0.99); // aimed at the player eye y = 60
+    CHECK_NEAR(shot.speed, 910.0, 0.0);
+    CHECK_NEAR(shot.aim.y, 60.0, 0.0);
+    CHECK_NEAR(shot.distance, 62.5, 1e-9); // octagonal 60 + 0.25*10
+    CHECK(shot.tick > 0u);
+
+    // take_weapon_shots moves the record out and clears the queue.
+    const std::vector<gm::AiWeaponShot> taken = ai.take_weapon_shots();
+    CHECK_EQ(taken.size(), 1u);
+    CHECK(ai.weapon_shots().empty());
+    CHECK_EQ(ai.take_weapon_shots().size(), 0u);
+
+    // The cooldown still gates the queue exactly like the event stream.
+    for (int i = 0; i < 100; ++i) {
+        ai.tick(empty);
+    }
+    CHECK(ai.stats().weapon_shots >= 2u);
+    CHECK(!ai.weapon_shots().empty());
+    ai.drain_weapon_shots();
+    CHECK(ai.weapon_shots().empty());
+}
+
+// A5b respects the A3 window: no shot during `alert`, one inside `attack`.
+void test_weapon_shots_a3_window() {
+    const gm::Things things = make_weapon_things(0, 200, 91);
+    gm::AiConfig config;
+    config.use_weapon_table = true;
+    config.use_weapon_shots = true;
+    config.use_move_step = true;
+    config.move_standoff = 200.0;
+    config.weapon_shot_speed = 910.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 150.0, 10.0}));
+    const gm::CollisionWorld empty;
+
+    for (int i = 0; i < 20; ++i) {
+        ai.tick(empty);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK_EQ(agent->state, gm::AiState::alert);
+    }
+    CHECK(ai.weapon_shots().empty());
+    CHECK_EQ(ai.stats().weapon_shots, 0u);
+
+    for (int i = 0; i < 40; ++i) {
+        ai.tick(empty);
+    }
+    agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK_EQ(agent->state, gm::AiState::attack);
+    }
+    CHECK_EQ(ai.stats().weapon_shots, 1u);
+    CHECK_EQ(ai.weapon_shots().size(), 1u);
+    if (!ai.weapon_shots().empty()) {
+        const gm::AiWeaponShot& shot = ai.weapon_shots().front();
+        CHECK_NEAR(shot.origin.x, 1.0, 0.0); // the A3 window holds position
+        CHECK_NEAR(shot.origin.y, 2.0, 0.0);
+        CHECK(shot.direction.y > 0.99);
+        CHECK_NEAR(shot.distance, 152.5, 1e-9);
+    }
+}
+
+// Projectile bridge: factory reuse, per-tick speed, homing target, negatives.
+void test_weapon_shot_spawn_bridge() {
+    gm::AiWeaponShot shot;
+    shot.thing_id = 7;
+    shot.event_id = 41;
+    shot.origin = {10.0, 20.0, 30.0};
+    shot.direction = {0.0, 1.0, 0.0};
+    shot.speed = 910.0; // units/second -> 10 units/tick
+    shot.target = 2;
+    shot.aim = {10.0, 120.0, 30.0};
+
+    gm::ProjectileSpawn spawn;
+    CHECK(gm::ai_shot_projectile_spawn(shot, nullptr, 3, spawn));
+    CHECK_EQ(spawn.owner_player, 3);
+    CHECK_EQ(spawn.owner_thing, 7);
+    CHECK_NEAR(spawn.position.y, 20.0, 0.0);
+    CHECK_NEAR(spawn.direction.y, 1.0, 1e-12);
+    CHECK_NEAR(spawn.speed, 10.0, 1e-12);
+    CHECK_EQ(spawn.target_index, 2);
+    CHECK(spawn.has_target_point);
+    CHECK_NEAR(spawn.target_point.y, 120.0, 0.0);
+
+    // No speed and no projectile type: the factory must reject the shot.
+    shot.speed = 0.0;
+    gm::ProjectileSpawn rejected;
+    CHECK(!gm::ai_shot_projectile_spawn(shot, nullptr, 3, rejected));
+
+    // A movement-type-8 template supplies the proven +0x10 speed and homing.
+    gm::Thing projectile_thing;
+    projectile_thing.id = 500;
+    projectile_thing.speed = 2.0; // units/tick -> 182 units/s
+    projectile_thing.movement_type = 8;
+    CHECK(gm::ai_shot_projectile_spawn(shot, &projectile_thing, 3, spawn));
+    CHECK_EQ(spawn.thing_id, 500);
+    CHECK_NEAR(spawn.speed, 2.0, 1e-12);
+    CHECK(spawn.homing);
+
+    gm::Projectiles projectiles;
+    CHECK_EQ(projectiles.spawn(spawn), 0);
+    CHECK_EQ(projectiles.list().size(), 1u);
+
+    // End-to-end drain: one AI shot -> one projectile, queue empty.
+    const gm::Things things = make_weapon_things(0, 200, 91);
+    gm::AiConfig config;
+    config.use_weapon_table = true;
+    config.use_weapon_shots = true;
+    config.weapon_shot_speed = 910.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 60.0, 10.0}));
+    const gm::CollisionWorld empty;
+    for (int i = 0; i < 60; ++i) {
+        ai.tick(empty);
+    }
+    gm::Projectiles spawned;
+    CHECK_EQ(gm::spawn_ai_shots(ai, spawned), 1u);
+    CHECK_EQ(spawned.list().size(), 1u);
+    CHECK(ai.weapon_shots().empty());
+    if (!spawned.list().empty()) {
+        CHECK_NEAR(spawned.list().front().speed, 10.0, 1e-12);
+        CHECK_EQ(spawned.list().front().spawn.owner_thing, 0);
+    }
+}
+
 int main() {
     test_attach_and_transitions();
     test_line_of_sight_and_loss();
@@ -2435,6 +2617,10 @@ int main() {
     test_weapon_default_off();
     test_weapon_opt_in_window_and_cooldown();
     test_weapon_high_gate();
+    test_weapon_shots_default_off();
+    test_weapon_shots_opt_in();
+    test_weapon_shots_a3_window();
+    test_weapon_shot_spawn_bridge();
     test_dt_and_player_negatives();
     test_two_runs();
     test_target_history();

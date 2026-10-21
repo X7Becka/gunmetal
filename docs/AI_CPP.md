@@ -39,7 +39,7 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 | level0 | attached **6** из 121, первый id **115** `(24, 2708, -92)` |
 | движение | default: только return к `home`; с `use_move_step=true` alert/attack идут к `aim_point`, patrol/return — к `home` через A2 (`world/ai_move.*`); внутри `standoff` стоят и стреляют, внутри `standoff-60` пятятся (A3); с `use_path=true` patrol идёт по `path_waypoints` (`loop`/`path`/`expire`, §8), приоритетнее шага домой; `load_path_from_types=true` сам заполняет маршрут из `THING_TYPES +0x324[]` и таблицы локаций (§8.2) |
 | урон | `damage()` меняет только AI-агента, не `Things`; `sync_vitals()` читает виталы вещи (щиты, hits, HP) и убивает агента вместе с вещью |
-| оружие | opt-in `use_weapon_table=true`: выбор записи `Thing::proximity` (`+0x218`/`+0x474`) по inclusive `[low, high]` и `cooldown`, отдельное событие `weapon`; урона и снаряда нет (§9) |
+| оружие | opt-in `use_weapon_table=true`: выбор записи `Thing::proximity` (`+0x218`/`+0x474`) по inclusive `[low, high]` и `cooldown`, отдельное событие `weapon`; opt-in `use_weapon_shots=true` кладёт чистый `AiWeaponShot` в очередь, снаряд внутри AI не спавнится, урона нет (§9) |
 | история цели | кольцо **240** позиций; `tick` пишет один слот, лаг 0..239 |
 | лаг из данных | `Thing::target_history_offset` (+0x1d0): 0 = текущая, иначе 1..239 |
 
@@ -782,14 +782,78 @@ bool ai_weapon_select(const Thing&, double distance, bool reverse, AiWeapon&);
    `+0x27c / 91` секунд, увеличивает `stats().weapon_events` и пишет
    `AiEvent{type=weapon, event_id=<+0x21c>, value=<distance>}`;
 4. события `attack`/`state` не меняются: `attack` по-прежнему живёт в своей
-   ветке и в A3-окне.
+   ветке и в A3-окне;
+5. A5b (opt-in `use_weapon_shots=true`, требует `use_weapon_table=true`): на
+   том же успешном выборе в очередь добавляется **ровно один** `AiWeaponShot`,
+   `stats().weapon_shots` увеличивается на 1.  Состояние, кулдаун, A3-окно и
+   журнал событий не меняются; при `use_weapon_shots=false` очередь всегда
+   пуста.
 
-Чего нет намеренно: спавна снаряда, урона игроку, `extra`-кодирования
-`target<<16 | 8+thing`, расхода патронов и фронтального гейта оригинала
-(`ABS(local_20)*4 < local_18`) — в каркасе нет ориентации/камеры. `offset`
-загружается, но не применяется: это вход будущего слоя снаряда. `count`
-заполняется уже на `attach` и при `use_weapon_table=false` остаётся данными,
-поведение байт-в-байт прежнее.
+`AiWeaponShot` — чистые данные, не снаряд:
+
+```cpp
+struct AiWeaponShot {
+    int thing_id;               // стрелок, Thing::id
+    std::uint32_t event_id;     // +0x21c записи (GENERATE/event id)
+    Vec3d origin;               // position + AiWeapon::offset (дуло)
+    Vec3d direction;            // единичный вектор origin -> aim_point
+    double speed;               // мировых единиц/секунду; 0 = не разрешена
+    int target;                 // 0..7, -1 = вещь/нет
+    int target_thing;           // Thing::id, -1 = игрок/нет
+    Vec3d aim;                  // точка прицела на момент выстрела
+    double distance;            // октогональная дистанция выбора
+    std::uint64_t tick;         // 1-based тик AI
+};
+
+const std::vector<AiWeaponShot>& ai.weapon_shots();
+std::vector<AiWeaponShot> ai.take_weapon_shots(); // move + clear
+ai.drain_weapon_shots();                          // discard
+```
+
+`origin` — `agent.position + offset` (смещение применяется как дуло;
+гипотеза, исходное поле `+0x29c` — данные).  `direction` нормализуется, при
+нулевом/неконечном векторе берётся `(0,0,1)`.  В таблице оружия нет скорости:
+`AiConfig::weapon_shot_speed` (единицы/секунду) — opt-in подсказка, по
+умолчанию `0` = «пусть решит слой снаряда».  `attach()` очищает очередь.
+
+Мост к `Projectiles` (`game/projectile.h`) переиспользует существующий
+`projectile_spawn_from_shot`:
+
+```cpp
+gm::Projectiles projectiles;
+std::size_t n = gm::spawn_ai_shots(ai, projectiles, events);
+// по одному:
+for (const gm::AiWeaponShot& shot : ai.take_weapon_shots()) {
+    gm::ProjectileSpawn spawn;
+    if (gm::ai_shot_projectile_spawn(shot, projectile_thing, owner_player, spawn)) {
+        projectiles.spawn(std::move(spawn), events);
+    }
+}
+```
+
+`ai_shot_projectile_spawn` переводит `speed` из единиц/секунду в единицы/тик
+(`/91`) через тот же фабричный код, что и выстрел игрока; при `speed == 0`
+берётся проверенная скорость типа снаряда `Thing::speed` (`+0x10`,
+единиц/тик) `* 91`.  `projectile_thing` также поставляет gravity, damping,
+shape/radius, hits, lifetime и event ids, а `shot.thing_id` становится
+`owner_thing`.  Для `movement_type == 8` заполняются `target_index`
+(игрок 0..7) и `target_point` (aim).  `spawn_ai_shots` дренирует очередь,
+дропает выстрелы без скорости и возвращает число реально заспавненных
+снарядов; `Projectiles::spawn` сам постит create-event.
+
+Границы: ни `Ai`, ни мост не расходуют патроны, не наносят урон и не
+резолвят `event_id` в конкретный `THING_TYPES`-тип — это делает игровой слой.
+Один переданный `projectile_thing` имеет один `Thing::id`, поэтому
+`Projectiles` примет с ним только один живой снаряд; для очереди используйте
+`nullptr` и заполняйте id/скорость на стороне игры либо по одному шаблону на
+выстрел.
+
+Чего нет намеренно: спавна снаряда **внутри** `Ai`, урона игроку,
+`extra`-кодирования `target<<16 | 8+thing`, расхода патронов и фронтального
+гейта оригинала (`ABS(local_20)*4 < local_18`) — в каркасе нет
+ориентации/камеры.  `offset` теперь применяется только к `AiWeaponShot.origin`.
+`count` заполняется уже на `attach` и при `use_weapon_table=false` остаётся
+данными, поведение байт-в-байт прежнее.
 
 Тесты (`gm_ai_tests`, label `thing_ai`): `test_weapon_table_load` (clamp 8,
 inactive/inverted/negative/NaN), `test_weapon_selection` (inclusive band,
@@ -797,4 +861,9 @@ inactive/inverted/negative/NaN), `test_weapon_selection` (inclusive band,
 но `weapon_events=0` и `attack` работает), `test_weapon_opt_in_window_and_cooldown`
 (alert не стреляет, первый `weapon` в `attack`, octagonal 152.5, id 41,
 кулдаун 91 тик), `test_weapon_high_gate` (`high` режет событие, `attack`
-остаётся).
+остаётся), `test_weapon_shots_default_off` (событие есть, очередь пуста),
+`test_weapon_shots_opt_in` (ровно один shot на событие, origin/direction/speed,
+drain и кулдаун), `test_weapon_shots_a3_window` (alert не копит, attack даёт
+один shot, позиция в окне) и `test_weapon_shot_spawn_bridge`
+(`ai_shot_projectile_spawn`/`spawn_ai_shots`, единицы/тик, homing target,
+отказ без скорости).

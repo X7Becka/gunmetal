@@ -39,6 +39,9 @@ namespace gm {
 class EventQueue;
 struct Thing;
 struct ShotResult; // game/weapons.h
+struct AiWeaponShot; // world/ai.h
+class Ai;            // world/ai.h
+class Projectiles;   // defined below
 
 /// Fixed 91 Hz tick used by the projectile step (docs/PROJECTILE_CPP.md §2).
 inline constexpr double kProjectileTickHz = 91.0;
@@ -352,6 +355,42 @@ std::optional<ProjectileSpawn> projectile_spawn_from_shot(
     const Weapon& weapon, const ShotResult& shot,
     const Thing* projectile_thing, int owner_player, int owner_thing,
     double level_gravity = 0.0);
+
+/// Bridge one `AiWeaponShot` to a `ProjectileSpawn` through the shot factory
+/// above; this is the AI counterpart of the player FIRE path and adds no new
+/// fields or damage.
+///
+/// `shot.speed` is units/second and becomes the runtime per-tick speed
+/// (`/91`).  When it is 0 (the AI weapon table has no speed field) and
+/// `projectile_thing` is non-null, the type's proven `Thing::speed`
+/// (`THING_TYPES +0x10`, units/tick) is converted with `* 91`.  The
+/// `projectile_thing` also supplies gravity, damping, shape, radius, hits,
+/// lifetime and event ids; `shot.thing_id` becomes `owner_thing`.  The
+/// player/thing target and the aim point are copied into the homing fields
+/// (`target_index`, `target_point`) when the projectile type turns out to be
+/// movement type 8; other rounds ignore them.
+///
+/// Returns false (and leaves `out` untouched) when no usable speed exists or
+/// the factory rejects the shot.
+bool ai_shot_projectile_spawn(const AiWeaponShot& shot,
+                              const Thing* projectile_thing, int owner_player,
+                              ProjectileSpawn& out,
+                              double level_gravity = 0.0);
+
+/// Drain `Ai::take_weapon_shots()` and spawn every accepted shot into
+/// `projectiles` (`Projectiles::spawn` posts the create event when `events` is
+/// non-null).  Shots without a usable speed are dropped.  Returns the number
+/// of projectiles actually spawned; the AI queue is empty afterwards.
+///
+/// `projectile_thing` is one THING_TYPES projectile template for all drained
+/// shots.  Its `id` becomes every `spawn.thing_id`, so a fixed template can
+/// spawn only one live projectile at a time (`Projectiles` rejects duplicate
+/// ids); pass `nullptr` when the caller fills ids/speeds itself.
+std::size_t spawn_ai_shots(Ai& ai, Projectiles& projectiles,
+                           EventQueue* events = nullptr,
+                           const Thing* projectile_thing = nullptr,
+                           int owner_player = -1,
+                           double level_gravity = 0.0);
 
 /// Deterministic owner of a set of projectiles, ordered by spawn index.
 class Projectiles {
