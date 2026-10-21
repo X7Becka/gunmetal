@@ -1933,6 +1933,24 @@ void test_projectile_core() {
     CHECK(projectiles.by_thing_id(5)->dead);
     CHECK(!projectiles.remove(5, &queue));
 
+    // A removed projectile id may be reused by a later spawn; the slot is
+    // recycled instead of growing the vector forever.
+    gm::ProjectileSpawn respawn = spawn;
+    respawn.create_event = 68;
+    respawn.life_ticks = 1;
+    CHECK_EQ(projectiles.spawn(respawn, &queue), 0);
+    const gm::ProjectileState* reused = projectiles.by_thing_id(5);
+    CHECK(reused != nullptr);
+    if (reused != nullptr) {
+        CHECK(!reused->dead);
+        CHECK_EQ(reused->spawn.create_event, 68U);
+    }
+    const gm::EventParseResult reused_event = queue.drain();
+    CHECK_EQ(reused_event.events.size(), 1U);
+    if (reused_event.events.size() == 1) {
+        CHECK_EQ(reused_event.events[0].id, 68);
+    }
+
     // The Thing adapter copies only the proven THING_TYPES fields.
     gm::Thing source;
     source.id = 9;

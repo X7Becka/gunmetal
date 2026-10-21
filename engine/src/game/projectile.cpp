@@ -651,8 +651,18 @@ std::optional<ProjectileSpawn> projectile_spawn_from_shot(
 }
 
 int Projectiles::spawn(ProjectileSpawn spawn, EventQueue* events) {
-    if (spawn.thing_id >= 0 && by_thing_id(spawn.thing_id) != nullptr) {
-        return -1;
+    std::size_t reuse = projectiles_.size();
+    if (spawn.thing_id >= 0) {
+        for (std::size_t i = 0; i < projectiles_.size(); ++i) {
+            if (projectiles_[i].spawn.thing_id != spawn.thing_id) {
+                continue;
+            }
+            if (!projectiles_[i].dead) {
+                return -1;
+            }
+            reuse = i;
+            break;
+        }
     }
     ProjectileState state;
     state.spawn = std::move(spawn);
@@ -675,6 +685,10 @@ int Projectiles::spawn(ProjectileSpawn spawn, EventQueue* events) {
             static_cast<std::int32_t>(state.spawn.create_event), 0,
             state.position.x, state.position.y, state.position.z,
             event_extra(state.spawn.thing_id));
+    }
+    if (reuse < projectiles_.size()) {
+        projectiles_[reuse] = std::move(state);
+        return static_cast<int>(reuse);
     }
     projectiles_.push_back(std::move(state));
     return static_cast<int>(projectiles_.size() - 1);
