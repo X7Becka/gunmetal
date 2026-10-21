@@ -3025,6 +3025,215 @@ void test_projectile_accumulated_dt() {
     CHECK(manual_queue.empty());
 }
 
+void test_projectile_tick_results() {
+    const gm::ProjectileTargets no_targets;
+
+    std::vector<TriSpec> floor;
+    add_quad(floor, {-100.0, 100.0, 0.0}, {-100.0, -100.0, 0.0},
+             {100.0, -100.0, 0.0}, {100.0, 100.0, 0.0});
+    const gm::CollisionWorld world = build_world(floor);
+
+    // Two projectiles in one call: slot 0 bounces off the floor inside the
+    // 5-tick step, slot 1 expires on its lifetime.  Neither has a create
+    // event, so the queue starts empty.
+    gm::ProjectileSpawn bouncer;
+    bouncer.thing_id = 40;
+    bouncer.position = {0.0, 0.0, 25.0};
+    bouncer.direction = {0.0, 0.0, -1.0};
+    bouncer.speed = 18.0;
+    bouncer.damping = 0.8;
+    bouncer.radius = 10.0;
+    bouncer.collide_event = 901;
+    bouncer.destroy_event = 903;
+
+    gm::ProjectileSpawn expiring;
+    expiring.thing_id = 41;
+    expiring.position = {50.0, 0.0, 0.0};
+    expiring.direction = {1.0, 0.0, 0.0};
+    expiring.speed = 1.0;
+    expiring.life_ticks = 2;
+    expiring.expire_event = 902;
+
+    struct Fleet {
+        gm::Projectiles projectiles;
+        gm::EventQueue queue;
+    };
+    auto make_fleet = [&]() {
+        Fleet fleet;
+        CHECK_EQ(fleet.projectiles.spawn(bouncer), 0);
+        CHECK_EQ(fleet.projectiles.spawn(expiring), 1);
+        CHECK(fleet.queue.empty());
+        return fleet;
+    };
+
+    Fleet owner = make_fleet();
+    const std::vector<gm::ProjectileTickRecord> records =
+        owner.projectiles.tick_results(5, no_targets, world, &owner.queue);
+
+    // One record per stored projectile, in spawn order.
+    CHECK_EQ(records.size(), 2U);
+    CHECK_EQ(owner.projectiles.list().size(), 2U);
+    if (records.size() == 2) {
+        CHECK_EQ(records[0].thing_id, 40);
+        CHECK_EQ(records[0].index, 0);
+        CHECK(records[0].status == gm::ProjectileStatus::bounced);
+        CHECK(!records[0].already_spent);
+        CHECK(!records[0].spent);
+        CHECK(!records[0].dead);
+        CHECK_NEAR(records[0].position.z, 10.0, 1e-3);
+        CHECK_EQ(records[0].posted_events, 1U);
+        CHECK_EQ(records[0].events.size(), 1U);
+        if (records[0].events.size() == 1) {
+            CHECK_EQ(records[0].events[0].id, 901U);
+            CHECK_NEAR(records[0].events[0].position.z, 25.0, 1e-12);
+        }
+
+        CHECK_EQ(records[1].thing_id, 41);
+        CHECK_EQ(records[1].index, 1);
+        CHECK(records[1].status == gm::ProjectileStatus::expired);
+        CHECK(!records[1].already_spent);
+        CHECK(records[1].spent);
+        CHECK(!records[1].dead);
+        CHECK_NEAR(records[1].position.x, 50.0, 1e-12);
+        CHECK_EQ(records[1].posted_events, 1U);
+        CHECK_EQ(records[1].events.size(), 1U);
+        if (records[1].events.size() == 1) {
+            CHECK_EQ(records[1].events[0].id, 902U);
+            CHECK_NEAR(records[1].events[0].position.x, 50.0, 1e-12);
+        }
+    }
+
+    // Both events reached the queue exactly once, projectile order first.
+    const gm::EventParseResult posted = owner.queue.drain();
+    CHECK_EQ(posted.events.size(), 2U);
+    if (posted.events.size() == 2) {
+        CHECK_EQ(posted.events[0].id, 901);
+        CHECK_EQ(posted.events[1].id, 902);
+    }
+
+    // `tick()` is the same walk with the records discarded: identical state
+    // and identical queue writes.
+    Fleet legacy = make_fleet();
+    legacy.projectiles.tick(5, no_targets, world, &legacy.queue);
+    const gm::EventParseResult legacy_posted = legacy.queue.drain();
+    CHECK_EQ(legacy_posted.events.size(), posted.events.size());
+    for (std::size_t i = 0;
+         i < legacy_posted.events.size() && i < posted.events.size(); ++i) {
+        CHECK_EQ(legacy_posted.events[i].id, posted.events[i].id);
+        CHECK_EQ(legacy_posted.events[i].x, posted.events[i].x);
+        CHECK_EQ(legacy_posted.events[i].y, posted.events[i].y);
+        CHECK_EQ(legacy_posted.events[i].z, posted.events[i].z);
+        CHECK_EQ(legacy_posted.events[i].extra, posted.events[i].extra);
+    }
+    for (int thing_id : {40, 41}) {
+        const gm::ProjectileState* from_records =
+            owner.projectiles.by_thing_id(thing_id);
+        const gm::ProjectileState* from_tick = legacy.projectiles.by_thing_id(thing_id);
+        CHECK(from_records != nullptr);
+        CHECK(from_tick != nullptr);
+        if (from_records == nullptr || from_tick == nullptr) {
+            continue;
+        }
+        CHECK_NEAR(from_records->position.x, from_tick->position.x, 1e-12);
+        CHECK_NEAR(from_records->position.y, from_tick->position.y, 1e-12);
+        CHECK_NEAR(from_records->position.z, from_tick->position.z, 1e-12);
+        CHECK_NEAR(from_records->direction.x, from_tick->direction.x, 1e-12);
+        CHECK_NEAR(from_records->direction.y, from_tick->direction.y, 1e-12);
+        CHECK_NEAR(from_records->direction.z, from_tick->direction.z, 1e-12);
+        CHECK_NEAR(from_records->speed, from_tick->speed, 1e-12);
+        CHECK_NEAR(from_records->vertical_speed, from_tick->vertical_speed, 1e-12);
+        CHECK_EQ(from_records->hits_left, from_tick->hits_left);
+        CHECK_EQ(from_records->life_left, from_tick->life_left);
+        CHECK_EQ(from_records->spent, from_tick->spent);
+        CHECK_EQ(from_records->dead, from_tick->dead);
+    }
+
+    // A second call after the expiry does not duplicate the event: the spent
+    // record replays its status with no events, and the bouncer is still live
+    // (it now travels upwards, so this step has no contact).
+    const std::vector<gm::ProjectileTickRecord> replay =
+        owner.projectiles.tick_results(5, no_targets, world, &owner.queue);
+    CHECK_EQ(replay.size(), 2U);
+    if (replay.size() == 2) {
+        CHECK(!replay[0].already_spent);
+        CHECK(!replay[0].spent);
+        CHECK(!replay[0].dead);
+        CHECK(replay[0].events.empty());
+        CHECK_EQ(replay[0].posted_events, 0U);
+
+        CHECK_EQ(replay[1].thing_id, 41);
+        CHECK(replay[1].already_spent);
+        CHECK(replay[1].spent);
+        CHECK(replay[1].status == gm::ProjectileStatus::expired);
+        CHECK(replay[1].events.empty());
+        CHECK_EQ(replay[1].posted_events, 0U);
+    }
+    CHECK(owner.queue.empty());
+
+    // A removed (dead) record is a replay too: `remove()` already posted its
+    // destroy event, so the next tick_results() mentions it without events.
+    CHECK(owner.projectiles.remove(40, &owner.queue));
+    const gm::EventParseResult destroy = owner.queue.drain();
+    CHECK_EQ(destroy.events.size(), 1U);
+    if (destroy.events.size() == 1) {
+        CHECK_EQ(destroy.events[0].id, 903);
+    }
+    const std::vector<gm::ProjectileTickRecord> dead_records =
+        owner.projectiles.tick_results(1, no_targets, world, &owner.queue);
+    CHECK_EQ(dead_records.size(), 2U);
+    if (dead_records.size() == 2) {
+        CHECK(dead_records[0].dead);
+        CHECK(dead_records[0].spent);
+        CHECK(dead_records[0].already_spent);
+        CHECK(dead_records[0].status == gm::ProjectileStatus::destroyed);
+        CHECK(dead_records[0].events.empty());
+        CHECK_EQ(dead_records[0].posted_events, 0U);
+        CHECK(dead_records[1].already_spent);
+        CHECK(dead_records[1].events.empty());
+        CHECK_EQ(dead_records[1].posted_events, 0U);
+    }
+    CHECK(owner.queue.empty());
+
+    // Without a queue the records still carry the events for the caller, and
+    // posting each record once reproduces the owner-path queue exactly.
+    Fleet silent = make_fleet();
+    const std::vector<gm::ProjectileTickRecord> silent_records =
+        silent.projectiles.tick_results(5, no_targets, world, nullptr);
+    CHECK_EQ(silent_records.size(), 2U);
+    CHECK(silent.queue.empty());
+    if (silent_records.size() == 2) {
+        CHECK_EQ(silent_records[0].events.size(), 1U);
+        CHECK_EQ(silent_records[0].posted_events, 0U);
+        CHECK_EQ(silent_records[1].events.size(), 1U);
+        CHECK_EQ(silent_records[1].posted_events, 0U);
+    }
+    std::size_t posted_by_caller = 0;
+    for (const gm::ProjectileTickRecord& record : silent_records) {
+        posted_by_caller += gm::post_projectile_events(
+            silent.queue, gm::projectile_result_of(record));
+    }
+    CHECK_EQ(posted_by_caller, 2U);
+    const gm::EventParseResult caller_posted = silent.queue.drain();
+    CHECK_EQ(caller_posted.events.size(), 2U);
+    if (caller_posted.events.size() == 2) {
+        CHECK_EQ(caller_posted.events[0].id, 901);
+        CHECK_EQ(caller_posted.events[1].id, 902);
+    }
+
+    // `projectile_result_of()` keeps the blast-bridge fields of a record.
+    if (silent_records.size() == 2) {
+        const gm::ProjectileTickResult as_result =
+            gm::projectile_result_of(silent_records[1]);
+        CHECK(as_result.status == gm::ProjectileStatus::expired);
+        CHECK(!as_result.already_spent);
+        CHECK_NEAR(as_result.position.x, silent_records[1].position.x, 1e-12);
+        CHECK_EQ(as_result.events.size(), 1U);
+        if (as_result.events.size() == 1) {
+            CHECK_EQ(as_result.events[0].id, 902U);
+        }
+    }
+}
+
 void test_projectile_remove_events() {
     const gm::ProjectileTargets no_targets;
 
@@ -3406,6 +3615,7 @@ int main() {
     test_projectile_floor_bounces();
     test_projectile_rest_contact();
     test_projectile_accumulated_dt();
+    test_projectile_tick_results();
     test_projectile_remove_events();
     test_projectile_blast_bridge();
     test_weapon_impact_event();

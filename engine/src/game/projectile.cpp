@@ -507,6 +507,20 @@ std::size_t post_projectile_events(EventQueue& queue,
     return posted;
 }
 
+ProjectileTickResult projectile_result_of(const ProjectileTickRecord& record) {
+    ProjectileTickResult result;
+    result.status = record.status;
+    result.position = record.position;
+    result.direction = record.direction;
+    result.speed = record.speed;
+    result.vertical_speed = record.vertical_speed;
+    result.hits_left = record.hits_left;
+    result.life_left = record.life_left;
+    result.already_spent = record.already_spent;
+    result.events = record.events;
+    return result;
+}
+
 std::size_t apply_projectile_blast(const Weapon& weapon,
                                    const ProjectileTickResult& result,
                                    bool expired,
@@ -694,18 +708,51 @@ int Projectiles::spawn(ProjectileSpawn spawn, EventQueue* events) {
     return static_cast<int>(projectiles_.size() - 1);
 }
 
+std::vector<ProjectileTickRecord> Projectiles::tick_results(
+    int ticks, const ProjectileTargets& targets, const CollisionWorld& world,
+    EventQueue* events) {
+    std::vector<ProjectileTickRecord> records;
+    records.reserve(projectiles_.size());
+    for (std::size_t i = 0; i < projectiles_.size(); ++i) {
+        ProjectileState& projectile = projectiles_[i];
+        const bool was_dead = projectile.dead;
+        // Every stored record is stepped, including spent/dead ones: the step
+        // is a pure replay there (`expired`/`destroyed`, no events), which
+        // keeps one record per slot and makes a repeated call idempotent for
+        // the queue.  Event posting stays inside this single loop, so a record
+        // can never be posted twice by the owner path.
+        ProjectileTickResult result =
+            projectile_step(projectile, targets, world, ticks);
+
+        ProjectileTickRecord record;
+        record.thing_id = projectile.spawn.thing_id;
+        record.index = static_cast<int>(i);
+        record.status = result.status;
+        record.position = result.position;
+        record.direction = result.direction;
+        record.speed = result.speed;
+        record.vertical_speed = result.vertical_speed;
+        record.hits_left = result.hits_left;
+        record.life_left = result.life_left;
+        // A dead record was already removed (and its destroy event posted by
+        // `remove()`), so its `destroyed` status is a replay too.
+        record.already_spent = result.already_spent || was_dead;
+        record.spent = projectile.spent;
+        record.dead = projectile.dead;
+        if (events != nullptr) {
+            record.posted_events = post_projectile_events(*events, result);
+        }
+        record.events = std::move(result.events);
+        records.push_back(std::move(record));
+    }
+    return records;
+}
+
 void Projectiles::tick(int ticks, const ProjectileTargets& targets,
                        const CollisionWorld& world, EventQueue* events) {
-    for (ProjectileState& projectile : projectiles_) {
-        if (projectile.dead || projectile.spent) {
-            continue;
-        }
-        const ProjectileTickResult result =
-            projectile_step(projectile, targets, world, ticks);
-        if (events != nullptr) {
-            post_projectile_events(*events, result);
-        }
-    }
+    // One implementation, two views: `tick()` keeps the old signature for the
+    // callers that only need the side effects.
+    (void)tick_results(ticks, targets, world, events);
 }
 
 ProjectileState* Projectiles::by_thing_id(int thing_id) {

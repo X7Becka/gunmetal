@@ -162,6 +162,45 @@ struct ProjectileTickResult {
     std::vector<ProjectileEvent> events; ///< original post order
 };
 
+/// One projectile's outcome inside a `Projectiles::tick_results()` call.
+///
+/// This is the per-projectile view the calling layer was missing while
+/// `Projectiles::tick()` returned `void`: the same fields as
+/// `ProjectileTickResult` plus the identity of the record (`thing_id`,
+/// `index`) and the state flags after the step (`spent`, `dead`).
+///
+/// `index` is the spawn slot (`Projectiles::spawn()` return value, i.e. the
+/// position in `Projectiles::list()`); a recycled slot keeps its old index.
+/// `events` holds exactly the non-zero events of this step in original post
+/// order, whether or not an `EventQueue` was supplied.  When a queue was
+/// supplied those records are already posted and `posted_events` is the
+/// number the queue accepted, so the caller must not post them again.
+struct ProjectileTickRecord {
+    int thing_id = -1; ///< `ProjectileSpawn::thing_id` (-1 = anonymous)
+    int index = -1;    ///< spawn slot in `Projectiles::list()`
+    ProjectileStatus status = ProjectileStatus::flying;
+    Vec3d position{};
+    Vec3d direction{};
+    double speed = 0.0;
+    double vertical_speed = 0.0;
+    int hits_left = 0;
+    int life_left = 0;
+    /// The step was a replay of an expiry/destroy already reported earlier;
+    /// such a record never carries events and never blasts again.  True for a
+    /// record that was `spent` at step start (`expired`) and for one that was
+    /// already `dead`/removed (`destroyed`).
+    bool already_spent = false;
+    bool spent = false; ///< `ProjectileState::spent` after the step
+    bool dead = false;  ///< `ProjectileState::dead` after the step
+    std::size_t posted_events = 0; ///< queue records accepted (0 without queue)
+    std::vector<ProjectileEvent> events; ///< original post order
+};
+
+/// Rebuild the plain step result of a record so it can be fed to
+/// `post_projectile_events()`/`apply_projectile_blast()`.  The identity and
+/// the state flags are dropped; `events` are copied.
+ProjectileTickResult projectile_result_of(const ProjectileTickRecord& record);
+
 /// What the projectile may hit through the proximity table.  The spans are
 /// caller-owned and may be shorter than eight / the thing count; missing entries
 /// are treated as absent.  `thing_parent` is -1 for a root; `thing_owner` is the
@@ -322,10 +361,25 @@ public:
     /// non-null and the spawn has a create event, it is posted at `position`.
     int spawn(ProjectileSpawn spawn, EventQueue* events = nullptr);
 
-    /// Advance every live projectile in spawn order by `ticks` using the
-    /// original accumulated-dt semantics (one `0x4752d0` step with `dt=ticks`,
-    /// not N independent one-tick steps).  Events are posted in projectile
-    /// order, then original event order.
+    /// Advance every projectile by `ticks` and return one record per stored
+    /// projectile, in spawn order (index 0..list().size()-1).  Each record is
+    /// built from exactly one `projectile_step()` call, so with a queue the
+    /// events are posted once per record, in projectile order, then original
+    /// event order.  A projectile that was already `spent`/`dead` still gets a
+    /// record (`expired`/`destroyed`, `already_spent`/`dead` set) with no
+    /// events, so a second call after an expiry never duplicates anything.
+    ///
+    /// Passing `events == nullptr` still fills `ProjectileTickRecord::events`;
+    /// the caller then owns posting and must do it exactly once per record.
+    /// For a fresh fleet this is equivalent to `tick()` (same steps, same
+    /// order, same queue writes); `tick()` is the compatibility wrapper that
+    /// discards the records.
+    std::vector<ProjectileTickRecord> tick_results(
+        int ticks, const ProjectileTargets& targets, const CollisionWorld& world,
+        EventQueue* events = nullptr);
+
+    /// Compatibility wrapper around `tick_results()`: advance and post the
+    /// events, discarding the per-projectile records.
     void tick(int ticks, const ProjectileTargets& targets,
               const CollisionWorld& world, EventQueue* events = nullptr);
 

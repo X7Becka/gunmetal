@@ -6,8 +6,10 @@
 `ProjectileSpawn` с полями `Thing`, blast-мост
 `apply_projectile_blast()` (`bounced`/`expired` → `apply_weapon_blast`) и
 отдельный режим RGM/homing (`movement_type == 8`, флаг `ProjectileState::homing`).
-Общий игровой цикл (`Projectiles::tick` в `main.cpp`, хранение per-projectile
-результатов, remove) по-прежнему не подключён.
+Общий игровой цикл (`Projectiles::tick` в `main.cpp`) по-прежнему не подключён,
+но разрыв «`tick` возвращает `void`, у вызывающего нет per-projectile
+результатов» закрыт в ядре: `Projectiles::tick_results()` возвращает запись на
+каждый снаряд (id, слот, статус, позиция, `spent`/`dead`, события).
 
 ## 1. Что доказано
 
@@ -133,6 +135,7 @@ projectiles.tick(1, targets, world, &queue);
 `thing_id` только пока запись **жива** (`dead=false`). После `remove()` тот же
 runtime-id можно переиспользовать: слот перезаписывается, вектор не растёт.
 Уникальность по-прежнему нужна для одновременных снарядов.
+
 `ProjectileSpawn::rest_ticks` (`ProjectileState::rest_left` в рантайме) —
 clean-room ограничитель «отдыха» (§1.7): после стольких подряд rest-тиков
 снаряд получает обычный expire (`expired`, `expire_event`, `spent`, запись не
@@ -146,12 +149,37 @@ clean-room ограничитель «отдыха» (§1.7): после сто�
 `rest_ticks = 0` (в `THING_TYPES` такого поля нет) — конкретное значение
 выбирает игровой слой.
 `ProjectileState::spent` означает, что expire уже постился; `tick` такие записи
-пропускает и событий больше не даёт. `dead` — удаление из мира;
+не двигает и событий больше не даёт (в `tick_results` они видны как
+`already_spent`). `dead` — удаление из мира;
 `Projectiles::remove(id, &queue)` постит `destroy_event` ровно один раз
 (повторный `remove` возвращает `false` и ничего не постит), а expire сам запись
 не удаляет. `ProjectileTickResult::already_spent` отличает первый expire
 (`false`) от повторного шага уже `spent` записи (`true`, статус `expired`,
 событий нет) — по нему blast-мост не взрывает снаряд второй раз.
+
+### Per-projectile результаты
+
+`Projectiles::tick_results(ticks, targets, world, events = nullptr)` делает тот
+же шаг, но возвращает `std::vector<ProjectileTickRecord>` — по одной записи на
+каждый хранимый снаряд, в spawn order (`index` = слот `spawn()` = позиция в
+`list()`). Запись содержит `thing_id`, `index`, `status`, `position`,
+`direction`, `speed`, `vertical_speed`, `hits_left`, `life_left`,
+`already_spent`, `spent`, `dead`, `posted_events` и `events`.
+
+* **События ровно один раз.** Постинг идёт внутри одного прохода
+  `tick_results`: сначала по снарядам в spawn order, внутри снаряда — в
+  порядке оригинала. `posted_events` — сколько записей приняла очередь;
+  `events` — полный список шага. Без очереди (`events == nullptr`) `events`
+  всё равно заполнены, и вызывающий постит их сам ровно один раз:
+  `post_projectile_events(queue, projectile_result_of(record))`.
+* `Projectiles::tick()` — обёртка над `tick_results()`, отбрасывающая записи;
+  на одном и том же наборе оба пути дают одинаковое состояние и одинаковые
+  записи в очередь.
+* Уже `spent`/`dead` снаряд тоже получает запись (`expired`/`destroyed`,
+  `already_spent = true`, `events` пусты), поэтому повторный вызов после
+  expire или `remove()` ничего не дублирует и не меняет слот.
+* `projectile_result_of(record)` восстанавливает обычный
+  `ProjectileTickResult` для `post_projectile_events()` / blast-моста.
 
 `projectile_spawn_from_thing()` копирует только proven-поля; таблица близости
 пока не заполняется в `Things::load` (см. §4).
@@ -261,11 +289,13 @@ bounce-результатом (каждый отскок — отдельный 
    воспроизведена; `homing_turn` задаёт вызывающий слой.
 4. **Игровой слой**: `Weapons::fire` → `projectile_spawn_from_shot` →
    `Projectiles::spawn/tick` и blast-мост `apply_projectile_blast` собраны и
-   покрыты тестами, но в `main.cpp` цикл ещё не вызывает `Projectiles::tick`,
-   не хранит per-projectile результаты (`tick` возвращает `void`) и не
-   применяет blast/remove. Для RGM не подключены поиск реальной цели и blast
-   по `ProjectileStatus::destroyed`; `EventDispatcher` для событий снаряда
-   тоже не подключён.
+   покрыты тестами, но в `main.cpp` цикл ещё не вызывает
+   `Projectiles::tick`/`tick_results` и не применяет blast/remove. Разрыв
+   «`tick` возвращает `void`» закрыт в ядре: `tick_results()` отдаёт запись на
+   снаряд (id, слот, статус, позиция, `spent`/`dead`, события), `tick()`
+   оставлен совместимой обёрткой. Для RGM не подключены поиск реальной цели и
+   blast по `ProjectileStatus::destroyed`; `EventDispatcher` для событий
+   снаряда тоже не подключён.
 5. `collide` при контакте и `expire` при hits/lifetime разделены; не постить
    collide на последнем попадании.
 6. **Условие collide** в C++ — `dt <= |vz_old| + speed_old` (тики слева,
@@ -375,6 +405,27 @@ bounce-результатом (каждый отскок — отдельный 
   повторные `tick` событий не дают;
 * ручной путь: expire-событие в результате одно, `post_projectile_events()`
   постит один record, повторный шаг `spent` даёт пустой список.
+
+`test_projectile_tick_results` (там же) — per-projectile результаты:
+
+* два снаряда в одном вызове: slot 0 — bounce о пол внутри `dt=5`, slot 1 —
+  expire по lifetime; ровно две записи в spawn order (`index` 0/1,
+  `thing_id` 40/41), bounce — `bounced` с одним collide-событием,
+  `posted_events = 1`, expire — `expired`, `spent`, `!dead`, одно
+  expire-событие;
+* очередь получает ровно два события в порядке снарядов (901, 902), без
+  дублей;
+* `tick()` и `tick_results()` одного сценария дают одинаковое состояние
+  (`position/direction/speed/vz/hits/life/spent/dead`) и одинаковые записи
+  очереди;
+* повторный `tick_results` после expire: spent-запись приходит с
+  `already_spent`, пустыми `events` и `posted_events = 0`; bounce-снаряд
+  продолжает жить и на этом шаге событий не даёт;
+* после `remove()` (destroy уже постился) запись `dead` имеет статус
+  `destroyed` и `already_spent`, событий нет — очередь пуста;
+* без очереди записи всё равно содержат события (`posted_events = 0`), а
+  `post_projectile_events(projectile_result_of(record))` по одному разу
+  воспроизводит те же два события.
 
 `test_projectile_remove_events` (там же):
 
