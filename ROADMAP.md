@@ -625,7 +625,10 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > AI-события несут `aim_point`, `target`/`target_thing`;
       > `Things::tick(..., EventQueue*)` постит `expire` при `+0x1e8`;
       > `Things::spawn`/`remove` дают runtime-жизненный цикл с create/destroy.
-      > path/навигация и реальное оружие — ещё нет.
+      > path/навигация и реальное оружие — ещё нет. A1/A2: поля
+      > `turn_accel/turn_max/arrive_radius/leash_distance` читаются из
+      > THING_TYPES, `octagonal_distance` и `ai_seek_step` покрыты тестами;
+      > к `Ai::tick` ещё не подключены.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
       > ray/sphere vs triangle, floor, AABB broad-phase, double, без аллокаций;

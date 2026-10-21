@@ -11,6 +11,7 @@
 // AI never mutates `Things`; `--full` is intentionally not needed here (the
 // thing corpus lives in CTest `things_full`).
 #include "world/ai.h"
+#include "world/ai_move.h"
 
 #include "res/sbt.h"
 #include "res/sbw.h"
@@ -964,12 +965,57 @@ void test_octagonal_distance() {
                4.75, 1e-12);
 }
 
+
+void test_seek_step() {
+    const gm::CollisionWorld empty;
+    gm::AiMoveParams params;
+    params.speed_per_tick = 2.0;
+    params.radius = 0.0;
+    params.arrive_radius = 0.1;
+
+    gm::Vec3d position{0.0, 0.0, 0.0};
+    bool arrived = false;
+    for (int i = 0; i < 91; ++i) {
+        const gm::AiSeekResult step = gm::ai_seek_step(
+            position, {0.0, 182.0, 0.0}, empty, params, 1.0 / 91.0);
+        position = step.position;
+        arrived = step.arrived;
+    }
+    CHECK_NEAR(position.y, 182.0, 1e-9);
+    CHECK(arrived);
+
+    gm::AiMoveParams stop = params;
+    stop.arrive_radius = 50.0;
+    const gm::AiSeekResult stopped =
+        gm::ai_seek_step({0.0, 0.0, 0.0}, {0.0, 100.0, 0.0}, empty, stop,
+                         1.0 / 91.0);
+    CHECK(!stopped.arrived);
+    CHECK_NEAR(stopped.position.y, 2.0, 1e-12);
+
+    const gm::CollisionWorld wall = wall_between(100.0);
+    gm::AiMoveParams blocked_params = params;
+    blocked_params.radius = 10.0;
+    gm::Vec3d blocked_position{0.0, 0.0, 0.0};
+    bool blocked = false;
+    for (int i = 0; i < 91; ++i) {
+        const gm::AiSeekResult step = gm::ai_seek_step(
+            blocked_position, {0.0, 182.0, 0.0}, wall, blocked_params,
+            1.0 / 91.0);
+        blocked_position = step.position;
+        blocked = blocked || step.blocked;
+    }
+    CHECK(blocked);
+    CHECK(blocked_position.y <= 90.0 + 1e-9);
+    CHECK(blocked_position.y > 80.0);
+}
+
 int main() {
     test_attach_and_transitions();
     test_line_of_sight_and_loss();
     test_leash_and_return();
     test_death_and_negatives();
     test_octagonal_distance();
+    test_seek_step();
     test_dt_and_player_negatives();
     test_two_runs();
     test_target_history();

@@ -242,9 +242,12 @@ state machine — следующий шаг. Tunables ниже — **гипот�
 `Thing`/`ThingTypeEvents` уже несут `turn_accel` (`+0x20`), `turn_max`
 (`+0x28`), `arrive_radius` (`+0x70`), `leash_distance` (`+0xd0`), `standoff`
 (`+0x1cc`), `speed` (`+0x10`). `octagonal_distance()` повторяет метрику
-`0x4344df` (`max + 0.25*(mid+min)`, тест `test_octagonal_distance`); текущий
-state machine по-прежнему использует евклидовы расстояния, пока не включён
-следующий этап порта (A2/A3).
+`0x4344df` (`max + 0.25*(mid+min)`, тест `test_octagonal_distance`);
+`world/ai_move.*` (A2) даёт чистый `ai_seek_step()`: один waypoint,
+`arrive_radius` по октогональной метрике, шаг `speed_per_tick*91*dt` и
+swept-сфера радиуса `Thing::radius`. Тесты `test_seek_step`. Текущий
+state machine по-прежнему использует евклидовы расстояния и не вызывает
+`ai_seek_step`; это следующий шаг (A2/A3).
 | `attack_period` | 0.75 | hypothesis | период события атаки; `+0x1d0` — не период, а лаг истории цели, поэтому он не подходит |
 | `return_speed` | 200 | hypothesis | скорость возврата, не ориентация движения `+0x1b4` |
 | `health` | 100 | hypothesis | fallback; при `use_thing_fields=true` берётся `Thing::max_health` (`+0x1d4`), 0 = иммунитет |
