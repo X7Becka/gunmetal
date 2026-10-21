@@ -69,7 +69,8 @@ spawn.collide_event = thing.collide_event;
 spawn.expire_event = thing.expire_event;
 
 gm::Projectiles projectiles;
-projectiles.spawn(spawn, &queue);
+const int index = projectiles.spawn(spawn, &queue);
+if (index < 0) { /* duplicate thing_id: spawn a fresh runtime Thing */ }
 projectiles.tick(1, targets, world, &queue);
 ```
 
@@ -77,7 +78,9 @@ projectiles.tick(1, targets, world, &queue);
 событиями в порядке оригинала. `dt` — накопленные тики: `Projectiles::tick(5)`
 делает один шаг с `dt=5` (как `0x470c70`), а не пять шагов по одному. `post_projectile_events()` — тонкий слой в
 `EventQueue`. `ProjectileTargets` — spans; отсутствующие записи считаются
-отсутствующими. `ProjectileState::spent` означает, что expire уже постился;
+отсутствующими. `Projectiles::spawn` отклоняет повторный `thing_id` (`-1`): каждый снаряд
+должен иметь уникальный runtime-id из `Things::spawn`, а не id шаблона типа.
+`ProjectileState::spent` означает, что expire уже постился;
 `dead` — удаление из мира. `Projectiles::remove(id, &queue)` постит
 `destroy_event` (expire сам запись не удаляет).
 
@@ -95,7 +98,8 @@ if (auto spawn = gm::projectile_spawn_from_shot(weapon, shot, &thing_type,
                                                  /*owner_player=*/0,
                                                  /*owner_thing=*/thing_id,
                                                  level_gravity)) {
-    projectiles.spawn(*spawn, &queue);
+    int index = projectiles.spawn(*spawn, &queue);
+    if (index < 0) { /* unique runtime id required */ }
 }
 ```
 
