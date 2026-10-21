@@ -21,11 +21,13 @@ if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     exit 0
 fi
 
-nohup pyghidra-mcp \
+# setsid is essential: an agent/tool shell reaps its process group on exit,
+# which otherwise kills the long-lived MCP server.
+setsid nohup pyghidra-mcp \
     --transport streamable-http \
     --host 127.0.0.1 --port "$PORT" \
     --project-path "$PROJECT" --project-name gunmetal \
-    --wait-for-analysis "$BINARY" >>"$LOG" 2>&1 &
+    --wait-for-analysis "$BINARY" >>"$LOG" 2>&1 </dev/null &
 echo $! >"$PIDFILE"
 echo "ghidra-mcp started: pid $(cat "$PIDFILE"), http://127.0.0.1:$PORT/mcp"
 echo "log: $LOG"
