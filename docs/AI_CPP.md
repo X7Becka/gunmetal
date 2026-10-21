@@ -268,7 +268,7 @@ state machine — следующий шаг. Tunables ниже — **гипот�
 | `health` | 100 | hypothesis | fallback; при `use_thing_fields=true` берётся `Thing::max_health` (`+0x1d4`), 0 = иммунитет |
 | `use_move_step` | `false` | opt-in | включает A2-движение (§7); `false` сохраняет прежнее поведение байт-в-байт |
 | `move_speed` | 1.0 | fallback | ед./тик; при `use_thing_fields=true` и `Thing::speed > 0` берётся `+0x10` |
-| `move_radius` | 0.0 | fallback | радиус swept-сферы; при `use_thing_fields=true` берётся `Thing::radius` |
+| `move_radius` | 0.0 | fallback | радиус swept-сферы; при `use_thing_fields=true` берётся `Thing::radius`; **0 отключает** проверку стены, поэтому для столкновений задайте радиус или включите `use_thing_fields` |
 | `move_arrive_radius` | 50 | fallback | `+0x70`; при `use_thing_fields=true` берётся `Thing::arrive_radius` |
 | `move_standoff` | 0.0 | fallback | дистанция остановки; при `use_thing_fields=true` берётся `+0x1cc` (`target_zone_threshold`) |
 | `move_leash` | 0.0 | fallback | жёсткий leash `+0xd0`; `0` = выключен. При `use_thing_fields=true` и `Thing::leash_distance > 0` берётся поле |

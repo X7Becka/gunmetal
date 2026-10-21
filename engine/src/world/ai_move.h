@@ -26,7 +26,8 @@ struct AiSeekResult {
 };
 
 /// One seek step. `dt` is seconds (normally 1/91).  The desired displacement
-/// is `speed_per_tick * 91 * dt`; a wall clamps it to the swept-sphere contact.
+/// is `speed_per_tick * 91 * dt`; a wall clamps it to the swept-sphere contact
+/// only when `radius > 0` (radius 0 disables the collision query).
 AiSeekResult ai_seek_step(const Vec3d& from, const Vec3d& target,
                           const CollisionWorld& world, const AiMoveParams& params,
                           double dt);
