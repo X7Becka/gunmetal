@@ -1425,6 +1425,33 @@ void test_move_step_standoff() {
 
 // A3, far side: outside the standoff the agent closes in and stops on the
 // standoff sphere, then fires (the `attack` event) without moving.
+
+// A3 must keep the historical 1.25x exit hysteresis; without it a target
+// hovering on the standoff sphere flips alert/attack every tick.
+void test_move_step_attack_hysteresis() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 1.0;
+    config.move_standoff = 200.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 150.0, 0.0}));
+    // alert_seconds is 0.5 s (~46 ticks), so the first loop must cover it.
+    for (int i = 0; i < 60; ++i) {
+        ai.tick(empty);
+    }
+    CHECK(ai.agent(0)->state == gm::AiState::attack);
+    CHECK(ai.set_player({0.0, 240.0, 0.0})); // inside 200*1.25, outside 200
+    for (int i = 0; i < 150; ++i) {
+        ai.tick(empty);
+    }
+    CHECK(ai.agent(0)->state == gm::AiState::attack);
+    CHECK(ai.stats().attacks > 0u);
+}
+
 void test_move_step_standoff_far() {
     const gm::Things things = make_synthetic_things();
     const gm::CollisionWorld empty;
@@ -1567,6 +1594,7 @@ int main() {
     test_move_step_leash();
     test_move_step_return();
     test_move_step_standoff();
+    test_move_step_attack_hysteresis();
     test_move_step_standoff_far();
     test_move_step_standoff_window();
     test_move_step_standoff_retreat();

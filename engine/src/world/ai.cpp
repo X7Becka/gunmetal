@@ -672,13 +672,12 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         case AiState::attack:
             if (visible) {
                 agent.alertness = 1.0;
-                // `+0x1cc` doubles as the A3 standoff when the move layer is
-                // on; otherwise the historical 1.25x hysteresis stays.
+                // The 1.25x exit hysteresis applies to the A3 standoff path
+                // as well; using the bare standoff boundary made a target
+                // hovering on the sphere flip alert/attack every tick.
                 const double leave_zone =
-                    config_.use_thing_fields
-                        ? engage_range
-                        : std::max(static_cast<double>(agent.target_zone) * 1.25,
-                                   engage_range);
+                    std::max(static_cast<double>(agent.target_zone) * 1.25,
+                             engage_range * 1.25);
                 if (engage_distance > leave_zone) {
                     agent.timer = 0.0;
                     set_state(agent, AiState::alert, tick);
