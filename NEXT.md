@@ -241,5 +241,10 @@
   one-shot `0x200`/дубли id/`SLEEP` (M2.3.6), выгрузка/reload и порталы
   S6/S17 (M2.2.3).
 - Проверки на момент остановки: `weapons`, `mixer`, `doors`, `doors_full`,
-  `soe`, `rng`, `audio_output` — ok; `vm`/`sbtvm`/`core` падают только из-за
-  внешней пары level1/level2; `regress.py --full` — 121/121.
+  `soe`, `rng`, `audio_output`, `game_state` — ok; `vm`, `vm_full`, `sbtvm`,
+  `core`, `core_full`, `camera_rig`, `things_full` падают **только** из-за
+  внешней пары level1/level2 (goldens сняты с неперепутанных файлов);
+  `regress.py --full` — 121/121.
+- `8235fd9` — недостающая реализация `update_charge(..., suppress_state_event)`
+  (объявление в `weapons.h` и тест были в `dd4f3ae`, тело висело
+  незакоммиченным; без него дерево не собиралось).
