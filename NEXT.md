@@ -104,14 +104,21 @@
    proximity-события `+0x21c` с blast (не доказана). Детали —
    `docs/PROJECTILE_CPP.md` §7.
 
-10. **`SECTOR_STUFF` разобран (парсер).** ✅ `engine/src/res/sbt.{h,cpp}`:
-    `SbtSectorSlot` + `parse_sector_stuff`/`encode_sector_stuff` (256 × `0x58`,
-    поля `move/extra/sound_param/event_a/event_b/damage_lo/hi/sound/
-    sound_count/flags/unused` + `raw`), `SbtLevel::sector_stuff`; тест
-    `sector_stuff` — 36/36 уровней без записи 8, `saved0`/`saved1` 13/13
-    слотов против Python-оракула. Осталось: `res/save.cpp` (блок 8 всё ещё
-    сырые `0x5800` байт) и скриптовые `SET_SECTOR_*` (рантайм `0x800b60`) —
-    идут отдельной задачей.
+10. **`SECTOR_STUFF` перенесён полностью.** ✅ `.sbt`-запись 8 —
+    `SbtSectorSlot`/`parse_sector_stuff`/`encode_sector_stuff`; блок 8 сейвов
+    (`res/save.{h,cpp}`) типизирован (`Save::sector_stuff`, 256 слотов),
+    `rebuild_save(verify)` сверяет поле-в-поле; VM пишет слоты
+    (`VmState::sectors[256]`, `h_sector` для опкодов 8/11/12/13/14, засев
+    `vm_load_sector_stuff`). Доказано: таблица диспетчера `0x45c500`
+    (индекс `opcode-1`), `fread/fwrite(0x800b60, 0x5800)`
+    (`0x46b7b0`/`0x46b7f0`), очистка `0x46b1b0`; `+0x40/+0x44` — **два
+    dword'а** (не два u16), `+0x44` читается как знаковый; потребители
+    `0x4713ab` (движение вещей), `0x4450f6` (урон → `0x453b50`),
+    `0x46c5f3` (ambient), `0x44503f`/`0x445095` (`event_post`). Тесты
+    `sector_stuff`, `save_sector_stuff`, `vm`. Осталось: `SET_SOURCE/HANDLE
+    SECTOR_*` (27–31, 40–45) — нужен маппинг «сущность → сектор»;
+    `+0x18`/`+0x54` без читателей; смысл `damage_a` vs `damage_b` не
+    разделён. Карта — `docs/RECORDS.md` §2.
 
 ## Стоп-условия
 
