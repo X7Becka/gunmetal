@@ -116,10 +116,10 @@ struct Arsenal {
 | `apply_weapon_blast` | выбирает `impact_blasts`/`expire_blasts` по контексту (`expired`, вода, земля, DM) и применяет их через `apply_blast_damage`; события остаются в `hits` для `event_post`. |
 | `apply_weapon_inline` | применяет `inline_blasts` (EMP-кольца) в точке выстрела; интервалы `SLEEP 22` остаются вызывающему слою. |
 | `post_weapon_impact` | постит hitscan `impact_event` в `ShotResult.point` (`event_post`) **только при `shot.ok && shot.hit && weapon.hitscan`**; для оружия без события или промаха — `false`. |
-| `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |
+| `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; `max_health == 0` — иммунитет; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |
 | `thing_vitals` / `store_thing_vitals` | мост между runtime `Thing` (`+0x1d4/+0x1d8/+0x1c8`) и `ThingVitals`; позволяет blast’у обновить ту же вещь, которую читает AI/рендер. |
-| `apply_thing_damage(Thing&, ...)` | та же ветка `0x470500`, сразу пишет HP/щиты/статусы обратно в runtime `Thing`; AI видит результат на следующем `sync_vitals`. |
-| `apply_thing_damage(Things&, id, ..., EventQueue*)` | ищет вещь по id, наносит урон и при `EventQueue*` постит `damaged`/`destroy` из THING_TYPES (`gm::post_thing_event`). |
+| `apply_thing_damage(Thing&, ...)` | та же ветка `0x470500`, сразу пишет HP/щиты/статусы обратно в runtime `Thing`; мёртвая (`alive == false`) вещь отклоняется; AI видит результат на следующем `sync_vitals`. |
+| `apply_thing_damage(Things&, id, ..., EventQueue*)` | ищет живую вещь по id, наносит урон и при `EventQueue*` постит `damaged`/`destroy` из THING_TYPES; мёртвая/неизвестная вещь — `ok=false` без событий. |
 | `Weapon::select_blasts(expired, underwater, from_ground, deathmatch)` | копия `expire_blasts` или `impact_blasts` только для выбранного контекста; нейтральные blast’ы проходят всегда. Рантайм вызывает после попадания/истечения. |
 | `Weapon::select_blasts_at_power(power, ...)` | то же для PLASMA: `variant_for_power` выбирает TT36 (>=0.66), TT37 (>=0.33) или TT38. |
 | `reload(table, arsenal, slot)` | требует `magazine > 0`, бит маски, неполный магазин и резерв. `reload_ticks == 0` — мгновенно. |

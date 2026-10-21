@@ -801,6 +801,8 @@ void test_blast_and_thing_damage() {
     CHECK_EQ(runtime_thing.health, 500);
     CHECK_EQ(runtime_thing.shields[0], 0);
     CHECK(runtime_thing.alive);
+    runtime_thing.alive = false;
+    CHECK(!gm::apply_thing_damage(runtime_thing, 1, 0, 0, 0).ok);
 
     // max_health == 0 is the original damage-immune marker.
     gm::ThingVitals immune;

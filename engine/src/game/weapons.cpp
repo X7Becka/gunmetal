@@ -1536,6 +1536,11 @@ void store_thing_vitals(Thing& thing, const ThingVitals& vitals) {
 ThingDamageResult apply_thing_damage(Thing& thing, std::int32_t plate,
                                      std::int32_t hull, std::uint32_t flags,
                                      int side) {
+    if (!thing.alive) {
+        ThingDamageResult dead;
+        dead.ok = false;
+        return dead;
+    }
     ThingVitals vitals = thing_vitals(thing);
     ThingDamageResult result = apply_thing_damage(vitals, plate, hull, flags, side);
     store_thing_vitals(thing, vitals);
