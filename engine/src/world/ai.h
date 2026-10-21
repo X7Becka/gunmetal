@@ -102,6 +102,12 @@ struct AiWeapon {
     }
 };
 
+/// `THING_TYPES +0x1b4` -> A4 route family.  The original's path automaton
+/// (`0x475f10`) handles 9 `path`, 10 `pathloop` and 12 `pathexpire`;
+/// `pathrandom` (11) additionally calls `rand()` (`0x480e30`) and stays
+/// unsupported.  Returns false for every other movement type.
+bool ai_path_mode(int movement_type, AiPathMode& out);
+
 /// Table size clamped to `kAiMaxWeapons`.
 int ai_weapon_count(const Thing& thing);
 
@@ -186,6 +192,11 @@ struct AiConfig {
     /// `THING_TYPES +0x1b4` movement type 9/10/12 (`path`/`pathloop`/
     /// `pathexpire`).  Ignored while `use_path` is false.
     AiPathMode path_mode = AiPathMode::loop;
+    /// Opt-in: fill every agent's route from the type's `+0x324[]` location
+    /// ids through `Things::locations()` (`0x80d8e0`) and let the movement
+    /// type (`+0x1b4`, 9/10/12) override `path_mode` per agent (A6).
+    /// `false` keeps A2/A3/A4 byte-for-byte and leaves routes to `set_path`.
+    bool load_path_from_types = false;
 };
 
 /// One agent, keyed by the runtime `Thing::id` from `Things`.
@@ -245,10 +256,15 @@ struct AiAgent {
 
     // --- path (A4, used by `Ai::tick` when `AiConfig::use_path`) -----------
     /// Resolved location points (`THING_TYPES +0x324[]`), at most
-    /// `kAiPathMaxPoints` (32), filled through `Ai::set_path()`.
+    /// `kAiPathMaxPoints` (32), filled through `Ai::set_path()` or the
+    /// opt-in `Ai::set_path_from_thing()` loader.
     std::vector<Vec3d> path_waypoints;
     /// `+0x4ec` index and `+0x4f4` pending flag of `0x475f10`.
     AiPathState path;
+    /// Movement type 9/10/12 mapped by `ai_path_mode()`; the route family this
+    /// agent walks.  Only used while `AiConfig::load_path_from_types` is set,
+    /// otherwise `AiConfig::path_mode` still drives every agent.
+    AiPathMode path_mode = AiPathMode::loop;
 
     // --- weapon table (A5, used when `AiConfig::use_weapon_table`) ---------
     /// Last selected entry; `count` is filled by `attach()` even when the
@@ -380,6 +396,17 @@ public:
     /// route is walked only while `AiConfig::use_path` is set and the agent is
     /// in `patrol`.
     bool set_path(int thing_id, std::span<const Vec3d> waypoints);
+
+    /// A6: resolve the owning thing's `THING_TYPES +0x324[]` ids through the
+    /// runtime location table (`Things::locations()`, `0x80d8e0`; the linear
+    /// scan of `0x476012`) and install them as the patrol route.  Positions
+    /// are the raw integer operands (`fild` at `0x47602e`), at most 32 points;
+    /// ids missing from the table are skipped, exactly like the original's
+    /// `0x476023` miss branch leaves that point unset.  Movement type 9/10/12
+    /// also sets `AiAgent::path_mode`.  Returns false for an unknown/dead
+    /// agent, a thing without ids, an unattached `Things`, or a route where no
+    /// id resolved; the previous route is untouched then.
+    bool set_path_from_thing(int thing_id);
 
     /// Ring of player 0's world positions.  `tick` appends every live player
     /// eye exactly once per accepted tick; `attach`/`clear_players` reset all

@@ -58,6 +58,24 @@ int ai_history_lag(int raw_offset) {
     return std::min(raw_offset, kAiHistoryMaxLag);
 }
 
+bool ai_path_mode(int movement_type, AiPathMode& out) {
+    switch (movement_type) {
+    case 9:
+        out = AiPathMode::path;
+        return true;
+    case 10:
+        out = AiPathMode::loop;
+        return true;
+    case 12:
+        out = AiPathMode::expire;
+        return true;
+    default:
+        // `pathrandom` (11) needs `rand()` (0x480e30); every other movement
+        // type never enters the 0x475f10 automaton.
+        return false;
+    }
+}
+
 int ai_weapon_count(const Thing& thing) {
     return std::min(kAiMaxWeapons, static_cast<int>(thing.proximity.size()));
 }
@@ -203,8 +221,18 @@ std::size_t Ai::attach(const Things& things) {
         }
         agent.state = thing.alive ? AiState::idle : AiState::dead;
         agent.timer = thing.alive ? config_.patrol_after_seconds : 0.0;
+        agent.path_mode = config_.path_mode;
         agents_.push_back(agent);
         log(AiEventType::attach, agents_.back(), 0.0, 0);
+        // A6 (opt-in): seed the route from the type's location-id list.  Only
+        // movement types 9/10/12 reach the 0x475f10 automaton at all, so a
+        // dormant +0x324[] on any other type is left alone.
+        if (config_.load_path_from_types) {
+            AiPathMode mode;
+            if (ai_path_mode(thing.movement_type, mode)) {
+                set_path_from_thing(thing.id);
+            }
+        }
     }
     stats_.attached = agents_.size();
     refresh_stats();
@@ -467,9 +495,9 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         // clears `+0x4f4` through `path_mark_arrived` so the next tick selects
         // the following point.  `pathexpire` turns the agent dead exactly
         // once, mirroring the original's `0x4703a0` post.
-        auto path_step = [&](AiAgent& walker) {
+        auto path_step = [&](AiAgent& walker, AiPathMode mode) {
             const AiPathStep step = path_advance(
-                walker.path, walker.path_waypoints, config_.path_mode);
+                walker.path, walker.path_waypoints, mode);
             walker.path = step.state;
             if (step.expired) {
                 walker.target = -1;
@@ -834,14 +862,16 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         // aim point (Euclidean target scan is untouched); patrol walks home,
         // or the A4 route when `use_path` is set.  Idle without `returning`
         // stays put.
+        const AiPathMode path_mode =
+            config_.load_path_from_types ? agent.path_mode : config_.path_mode;
         const bool route_patrol =
             config_.use_path && agent.state == AiState::patrol &&
-            (config_.path_mode == AiPathMode::expire ||
+            (path_mode == AiPathMode::expire ||
              !agent.path_waypoints.empty());
         if (route_patrol) {
             // A4 (opt-in): the patrol state walks the route; `alert`/`attack`
             // and `idle(returning)` above/below never select a waypoint.
-            path_step(agent);
+            path_step(agent, path_mode);
         } else if (config_.use_move_step) {
             if (agent.state == AiState::alert || agent.state == AiState::attack) {
                 if (agent.has_aim) {
@@ -989,6 +1019,55 @@ bool Ai::set_path(int thing_id, std::span<const Vec3d> waypoints) {
     agent->path_waypoints.assign(
         waypoints.begin(),
         waypoints.begin() + static_cast<std::ptrdiff_t>(count));
+    agent->path = AiPathState{};
+    return true;
+}
+
+bool Ai::set_path_from_thing(int thing_id) {
+    if (things_ == nullptr) {
+        return false;
+    }
+    const Thing* thing = things_->by_id(thing_id);
+    if (thing == nullptr || thing->path_locations.empty()) {
+        return false;
+    }
+    AiAgent* agent = nullptr;
+    for (AiAgent& candidate : agents_) {
+        if (candidate.thing_id == thing_id) {
+            agent = &candidate;
+            break;
+        }
+    }
+    if (agent == nullptr || agent->state == AiState::dead) {
+        return false;
+    }
+    std::vector<Vec3d> points;
+    points.reserve(std::min(thing->path_locations.size(),
+                            static_cast<std::size_t>(kAiPathMaxPoints)));
+    for (const int id : thing->path_locations) {
+        if (points.size() >= static_cast<std::size_t>(kAiPathMaxPoints)) {
+            break;
+        }
+        const VmLocation* location = things_->location(id);
+        if (location == nullptr) {
+            continue; // 0x476023: the id is not in 0x80d8e0, point unusable
+        }
+        const Vec3d point{static_cast<double>(location->pos[0]),
+                          static_cast<double>(location->pos[1]),
+                          static_cast<double>(location->pos[2])};
+        if (!finite(point)) {
+            continue;
+        }
+        points.push_back(point);
+    }
+    if (points.empty()) {
+        return false;
+    }
+    AiPathMode mode;
+    if (ai_path_mode(thing->movement_type, mode)) {
+        agent->path_mode = mode;
+    }
+    agent->path_waypoints = std::move(points);
     agent->path = AiPathState{};
     return true;
 }

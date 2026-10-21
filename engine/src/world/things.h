@@ -82,6 +82,11 @@ struct Thing {
     int hits_left = 0;               // +0x1c8 geometry hits
     int expire_ticks = 0;            // +0x1e8 lifetime in 91 Hz ticks
     bool expired = false;            // lifetime reached; event posted once
+    // THING_TYPES +0x320 count and +0x324 + 4*i ids.  The ids are location
+    // identifiers, already resolved by the .soe loader (0x47db3d through
+    // 0x460000); `Things::location()` turns them into runtime positions.
+    // Clamped to 32 entries (0x47daea rejects 0x20 < count), data only.
+    std::vector<int> path_locations;
     std::uint32_t timeout_event = 0; // +0x1c0
     std::uint32_t collide_event = 0; // +0x1c4, posted by 0x4752d0 on collision
     std::uint32_t expire_event = 0;  // +0x1ec, 0x4703a0 when hits/lifetime ends
@@ -110,6 +115,7 @@ struct ThingTypeEvents {
     double radius = 0.0; ///< +0xf8, sphere radius
     std::array<double, 3> box{}; ///< +0x100/+0x108/+0x110
     std::vector<ProximityEntry> proximity; ///< THING_TYPES+0x218, up to 8
+    std::vector<int> path_locations; ///< THING_TYPES+0x324[], up to 32 ids
     int expire_ticks = 0; ///< +0x1e8 lifetime in ticks
     std::uint32_t collide_event = 0;
     std::uint32_t expire_event = 0;
@@ -209,6 +215,17 @@ public:
     std::vector<const Thing*> children(int parent) const;
     std::vector<int> child_ids(int parent) const;
 
+    /// The runtime location table (``0x80d8e0``, stride ``0x28``, count
+    /// ``0x80d87c``): every executed ``ADD_LOCATION`` (op 196, handler
+    /// ``0x45bea6``) in execution order, deduplicated by ``(site, occ)`` like
+    /// the thing list.  ``thing_id`` is the location id, ``pos`` the three
+    /// integer operands ``fild``ed by ``0x47602e``.  Empty when ``load`` ran
+    /// with ``execute == false``.
+    const std::vector<VmLocation>& locations() const { return locations_; }
+    /// First table entry with ``thing_id == id`` -- the linear scan of
+    /// ``0x476012``; ``nullptr`` when the id is not in the table.
+    const VmLocation* location(int id) const;
+
     /// Advance the 91 Hz clock.  No AI and no movement yet: every living
     /// instance gets ``age += ticks``; dead instances stay dead.  A living
     /// thing whose +0x1e8 lifetime is reached is marked `expired` and, when
@@ -236,6 +253,7 @@ private:
     std::vector<Thing> things_;
     std::vector<Thing> top_level_;
     std::vector<Thing> recursive_;
+    std::vector<VmLocation> locations_;
     std::map<int, std::size_t> by_id_;
     ThingStats stats_;
     std::uint64_t clock_ = 0;

@@ -104,6 +104,8 @@ struct TypeSpec {
     std::array<int, 4> shields{}; ///< THING_TYPES +0x1d8..+0x1e4
     int hits_left = 0;     ///< THING_TYPES +0x1c8
     double search_radius = 6000.0; ///< THING_TYPES +0x58
+    int movement_type = 0; ///< THING_TYPES +0x1b4
+    std::vector<int> path_locations; ///< THING_TYPES +0x324, at most 32
 };
 
 gm::SbtLevel make_sbt_level(const std::vector<std::uint8_t>& code,
@@ -141,6 +143,16 @@ gm::SbtLevel make_sbt_level(const std::vector<std::uint8_t>& code,
         for (std::size_t s = 0; s < types[i].shields.size(); ++s) {
             put_u32(types_record.payload, base + 0x1D8 + s * 4,
                     static_cast<std::uint32_t>(types[i].shields[s]));
+        }
+        put_u32(types_record.payload, base + 0x1B4,
+                static_cast<std::uint32_t>(types[i].movement_type));
+        const std::size_t path_count =
+            std::min<std::size_t>(types[i].path_locations.size(), 32);
+        put_u32(types_record.payload, base + 0x320,
+                static_cast<std::uint32_t>(path_count));
+        for (std::size_t p = 0; p < path_count; ++p) {
+            put_u32(types_record.payload, base + 0x324 + p * 4,
+                    static_cast<std::uint32_t>(types[i].path_locations[p]));
         }
     }
     level.records.push_back(std::move(types_record));
@@ -180,6 +192,17 @@ void add_thing_at_source(std::vector<std::uint8_t>& code, std::uint32_t type, in
     append_f64(code, 0.0);
 }
 
+void add_location(std::vector<std::uint8_t>& code, int id, int x, int y, int z) {
+    code.push_back(196); // ADD_LOCATION ELLLAAA
+    append_i32(code, id);
+    append_i32(code, x);
+    append_i32(code, y);
+    append_i32(code, z);
+    append_f64(code, 0.0);
+    append_f64(code, 0.0);
+    append_f64(code, 0.0);
+}
+
 gm::Things make_synthetic_things(int history_offset = 0, int max_health = 0,
                                  double search_radius = 6000.0) {
     std::vector<std::uint8_t> code;
@@ -201,8 +224,52 @@ gm::Things make_synthetic_things(int history_offset = 0, int max_health = 0,
     return gm::Things::load(level, vm, options);
 }
 
-gm::SbtLevel load_real(const fs::path& path) {
-    std::ifstream in(path, std::ios::binary);
+/// Synthetic A6 fixture: a location table built by executable ADD_LOCATION
+/// commands plus four things whose types carry path ids.  Type 0 is `pathloop`
+/// with a trailing id that is not in the table, type 1 is `pathexpire`, type 2
+/// has no route, type 3 is `pathrandom` (deliberately unsupported).
+gm::Things make_waypoint_things() {
+    std::vector<std::uint8_t> code;
+    add_location(code, -1001, 30, 0, 0);
+    add_location(code, -1002, 30, 30, 0);
+    add_location(code, -1003, 0, 30, 0);
+    add_location(code, -1004, 0, 0, 0);
+    add_location(code, -1001, 999, 999, 999); // duplicate id: first wins (0x476012)
+    add_location(code, -1007, -3000, 0, 0);
+    add_location(code, -1008, -3000, 1000, 0);
+    add_thing(code, 0, 0, 0, 0);
+    add_thing(code, 1, -2000, 0, 0);
+    add_thing(code, 2, 2000, 0, 0);
+    add_thing(code, 3, 3000, 0, 0);
+    add_thing(code, 4, 4000, 0, 0);
+    code.push_back(0xFF);
+
+    std::vector<Row> rows{{0x3FF, 42, 0}};
+    std::vector<TypeSpec> types(5);
+    types[0].name = "WAY_LOOP";
+    types[0].movement_type = 10;
+    types[0].path_locations = {-1001, -1002, -1003, -9999};
+    types[1].name = "WAY_EXPIRE";
+    types[1].movement_type = 12;
+    types[1].path_locations = {-1007, -1008};
+    types[2].name = "NO_PATH";
+    types[2].movement_type = 10;
+    types[3].name = "WAY_RANDOM";
+    types[3].movement_type = 11; // pathrandom: rand() at 0x480e30, unsupported
+    types[3].path_locations = {-1001, -1002};
+    types[4].name = "WAY_MISSING";
+    types[4].movement_type = 10;
+    types[4].path_locations = {-9998, -9997}; // no such locations in 0x80d8e0
+    const std::vector<std::string> models{"TEST_MODEL"};
+    const gm::SbtLevel level = make_sbt_level(code, rows, types, models);
+    const gm::VmState vm = gm::vm_state_from_level(level);
+
+    gm::ThingsOptions options;
+    options.contexts = {{0, 0}};
+    return gm::Things::load(level, vm, options);
+}
+
+gm::SbtLevel load_real(const fs::path& path) {    std::ifstream in(path, std::ios::binary);
     const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
                                           std::istreambuf_iterator<char>());
     std::string error;
@@ -1465,6 +1532,264 @@ void test_tick_path_alert_ignores_route() {
     CHECK(!ai.agent(0)->path.waiting);
 }
 
+// --- A6: waypoint loading from THING_TYPES +0x324[] ------------------------
+
+void test_path_mode_map() {
+    gm::AiPathMode mode = gm::AiPathMode::loop;
+    CHECK(gm::ai_path_mode(9, mode));
+    CHECK(mode == gm::AiPathMode::path);
+    CHECK(gm::ai_path_mode(10, mode));
+    CHECK(mode == gm::AiPathMode::loop);
+    CHECK(gm::ai_path_mode(12, mode));
+    CHECK(mode == gm::AiPathMode::expire);
+    // `pathrandom` (11) is the rand() branch and is not modelled.
+    CHECK(!gm::ai_path_mode(11, mode));
+    CHECK(!gm::ai_path_mode(0, mode));
+    CHECK(!gm::ai_path_mode(18, mode));
+    CHECK(!gm::ai_path_mode(-1, mode));
+}
+
+// Loader off (default): the type ids and the runtime location table are
+// present, but `attach` must not seed any route.
+void test_path_from_thing_default_off() {
+    gm::Things things = make_waypoint_things();
+    CHECK_EQ(things.locations().size(), 7u); // six ids + the duplicate -1001
+    const gm::VmLocation* first = things.location(-1001);
+    CHECK(first != nullptr);
+    if (first != nullptr) {
+        CHECK_EQ(first->thing_id, -1001);
+        CHECK_EQ(first->pos[0], 30);
+        CHECK_EQ(first->pos[1], 0);
+        CHECK_EQ(first->pos[2], 0);
+    }
+    CHECK(things.location(-9999) == nullptr);
+    CHECK(things.location(-9998) == nullptr);
+
+    const gm::Thing* source = things.by_id(0);
+    CHECK(source != nullptr);
+    if (source != nullptr) {
+        CHECK_EQ(source->path_locations.size(), 4u);
+        CHECK_EQ(source->path_locations[0], -1001);
+        CHECK_EQ(source->path_locations.back(), -9999);
+        CHECK_EQ(source->movement_type, 10);
+    }
+
+    CHECK(!gm::AiConfig{}.load_path_from_types);
+    gm::Ai ai;
+    CHECK_EQ(ai.attach(things), 5u);
+    for (const gm::AiAgent& agent : ai.agents()) {
+        CHECK(agent.path_waypoints.empty());
+        CHECK_EQ(agent.path_mode, gm::AiPathMode::loop); // config default
+        CHECK_EQ(agent.path.index, -1);
+    }
+}
+
+// Opt-in: every 9/10/12 thing gets its resolved route and per-agent mode;
+// missing ids are skipped, an empty list and `pathrandom` stay empty.
+void test_path_from_thing_load() {
+    const gm::Things things = make_waypoint_things();
+    gm::AiConfig config;
+    config.load_path_from_types = true;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 5u);
+
+    const gm::AiAgent* loop = ai.agent(0);
+    CHECK(loop != nullptr);
+    if (loop != nullptr) {
+        CHECK_EQ(loop->path_waypoints.size(), 3u); // -9999 skipped
+        CHECK_EQ(loop->path_mode, gm::AiPathMode::loop);
+        CHECK_NEAR(loop->path_waypoints[0].x, 30.0, 0.0);
+        CHECK_NEAR(loop->path_waypoints[0].y, 0.0, 0.0);
+        CHECK_NEAR(loop->path_waypoints[1].x, 30.0, 0.0);
+        CHECK_NEAR(loop->path_waypoints[1].y, 30.0, 0.0);
+        CHECK_NEAR(loop->path_waypoints[2].x, 0.0, 0.0);
+        CHECK_NEAR(loop->path_waypoints[2].y, 30.0, 0.0);
+        CHECK_EQ(loop->path.index, -1);
+        CHECK(!loop->path.waiting);
+    }
+    const gm::AiAgent* expire = ai.agent(1);
+    CHECK(expire != nullptr);
+    if (expire != nullptr) {
+        CHECK_EQ(expire->path_waypoints.size(), 2u);
+        CHECK_EQ(expire->path_mode, gm::AiPathMode::expire);
+    }
+    // Empty type data and the unsupported pathrandom branch keep no route.
+    CHECK(ai.agent(2) != nullptr && ai.agent(2)->path_waypoints.empty());
+    CHECK(ai.agent(3) != nullptr && ai.agent(3)->path_waypoints.empty());
+    CHECK_EQ(ai.agent(3)->path_mode, gm::AiPathMode::loop);
+    // All ids of WAY_MISSING are absent from 0x80d8e0: no route is invented.
+    CHECK(ai.agent(4) != nullptr && ai.agent(4)->path_waypoints.empty());
+
+    // Explicit loader: unknown/dead/empty/broken ids are rejected and leave
+    // the previous route untouched.
+    CHECK(!ai.set_path_from_thing(99));
+    CHECK(!ai.set_path_from_thing(2)); // type has no +0x324 ids
+    CHECK(!ai.set_path_from_thing(4)); // every id is missing
+    const std::size_t before = ai.agent(0)->path_waypoints.size();
+    CHECK(!ai.set_path_from_thing(4));
+    CHECK_EQ(ai.agent(0)->path_waypoints.size(), before);
+    CHECK(ai.damage(1, 1000.0));
+    CHECK(!ai.set_path_from_thing(1)); // dead agents take no new route
+    CHECK_EQ(ai.agent(1)->path_waypoints.size(), 2u);
+
+    // An unattached Ai has no Things to resolve against.
+    gm::Ai detached;
+    CHECK(!detached.set_path_from_thing(0));
+
+    // 40 raw ids are truncated to kAiPathMaxPoints.
+    gm::Things extended = make_waypoint_things();
+    gm::Thing extra;
+    extra.id = -1;
+    extra.type = 0;
+    extra.position = std::array<int, 3>{0, 0, 0};
+    extra.path_locations.assign(40, -1001);
+    const int extra_id = extended.spawn(extra);
+    CHECK(extra_id >= 0);
+    gm::Ai manual;
+    CHECK_EQ(manual.attach(extended), 6u);
+    CHECK(manual.set_path_from_thing(extra_id));
+    const gm::AiAgent* extra_agent = manual.agent(extra_id);
+    CHECK(extra_agent != nullptr);
+    if (extra_agent != nullptr) {
+        CHECK_EQ(extra_agent->path_waypoints.size(),
+                 static_cast<std::size_t>(gm::kAiPathMaxPoints));
+    }
+}
+
+// The loaded `pathloop` route is actually walked; the `pathexpire` agent dies
+// after its last point, and agents without a route stay home.
+void test_path_from_thing_patrol() {
+    const gm::Things things = make_waypoint_things();
+    const gm::CollisionWorld empty;
+    gm::AiConfig config;
+    config.load_path_from_types = true;
+    config.use_path = true;
+    config.move_speed = 5.0;
+    config.move_arrive_radius = 1.0;
+    config.patrol_after_seconds = 0.01;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 5u);
+
+    std::vector<int> arrived;
+    for (int i = 0; i < 400 && arrived.size() < 4; ++i) {
+        ai.tick(empty);
+        const gm::AiAgent* agent = ai.agent(0);
+        if (agent == nullptr) {
+            break;
+        }
+        if (!agent->path.waiting && agent->path.index >= 0 &&
+            (arrived.empty() || arrived.back() != agent->path.index)) {
+            arrived.push_back(agent->path.index);
+            CHECK(gm::octagonal_distance(
+                      agent->position, agent->path_waypoints[
+                                            static_cast<std::size_t>(agent->path.index)]) <=
+                  1.0 + 1e-9);
+        }
+    }
+    const int expected[] = {0, 1, 2, 0};
+    CHECK_EQ(arrived.size(), 4u);
+    for (std::size_t i = 0; i < arrived.size() && i < 4; ++i) {
+        CHECK_EQ(arrived[i], expected[i]);
+    }
+    CHECK_EQ(ai.agent(0)->state, gm::AiState::patrol);
+    CHECK_EQ(ai.agent(0)->path_mode, gm::AiPathMode::loop);
+    CHECK(ai.stats().move_steps > 0u);
+
+    // pathexpire: reaching the two points kills the agent once.  The loop
+    // above stops when the short loop route is done, so give the longer
+    // expire route its own ticks.
+    for (int i = 0; i < 400 && ai.agent(1)->state != gm::AiState::dead; ++i) {
+        ai.tick(empty);
+    }
+    const gm::AiAgent* expire = ai.agent(1);
+    CHECK(expire != nullptr);
+    if (expire != nullptr) {
+        CHECK_EQ(expire->state, gm::AiState::dead);
+        CHECK(expire->path.expired);
+        CHECK_EQ(expire->path.index, 1);
+        CHECK_EQ(expire->path_mode, gm::AiPathMode::expire);
+    }
+    CHECK_EQ(ai.stats().path_expiries, 1u);
+
+    // No route (empty type data / unsupported pathrandom): the default patrol
+    // path (home) stands still because `use_move_step` is off.
+    CHECK_NEAR(ai.agent(2)->position.x, 2000.0, 0.0);
+    CHECK_NEAR(ai.agent(3)->position.x, 3000.0, 0.0);
+    CHECK_EQ(ai.agent(2)->path.index, -1);
+    CHECK_EQ(ai.agent(3)->path.index, -1);
+    CHECK_EQ(ai.agent(4)->path.index, -1);
+}
+
+// Shipped data: level0's BAGCRTHQ is `pathloop` with nine +0x324 ids that all
+// resolve through the executed location table.
+void test_path_from_thing_real() {
+    if (!fs::exists(kGame / "level0.sbt")) {
+        std::printf("ai: game not installed, waypoint level skipped\n");
+        return;
+    }
+    const gm::SbtLevel level = load_real(kGame / "level0.sbt");
+    const gm::VmState vm = gm::vm_state_from_level(level);
+    gm::ThingsOptions options;
+    options.contexts = {{0, 0}};
+    const gm::Things things = gm::Things::load(level, vm, options);
+    CHECK(!things.locations().empty());
+
+    const gm::Thing* source = nullptr;
+    for (const gm::Thing& thing : things.things()) {
+        if (thing.type_name == "BAGCRTHQ") {
+            source = &thing;
+            break;
+        }
+    }
+    CHECK(source != nullptr);
+    if (source == nullptr) {
+        return;
+    }
+    CHECK_EQ(source->path_locations.size(), 9u);
+    CHECK_EQ(source->movement_type, 10);
+    CHECK_EQ(source->path_locations.front(), -30246);
+    CHECK_EQ(source->path_locations.back(), -30254);
+
+    const auto events = gm::thing_type_events(level, source->type);
+    CHECK(events.has_value());
+    if (events) {
+        CHECK_EQ(events->path_locations.size(), 9u);
+        CHECK_EQ(events->path_locations.front(), -30246);
+    }
+
+    gm::AiConfig config;
+    config.load_path_from_types = true;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 6u);
+    const gm::AiAgent* agent = ai.agent(source->id);
+    CHECK(agent != nullptr);
+    if (agent == nullptr) {
+        return;
+    }
+    CHECK_EQ(agent->path_waypoints.size(), 9u);
+    CHECK_EQ(agent->path_mode, gm::AiPathMode::loop);
+    // Positions are the fild'ed integer operands of 0x47602e.
+    CHECK_NEAR(agent->path_waypoints.front().x, 24.0, 0.0);
+    CHECK_NEAR(agent->path_waypoints.front().y, 1128.0, 0.0);
+    CHECK_NEAR(agent->path_waypoints.front().z, -72.0, 0.0);
+    CHECK_NEAR(agent->path_waypoints.back().x, -360.0, 0.0);
+    CHECK_NEAR(agent->path_waypoints.back().y, 1000.0, 0.0);
+    CHECK_NEAR(agent->path_waypoints.back().z, -80.0, 0.0);
+    for (std::size_t i = 0; i < source->path_locations.size(); ++i) {
+        const gm::VmLocation* location =
+            things.location(source->path_locations[i]);
+        CHECK(location != nullptr);
+        if (location != nullptr) {
+            CHECK_NEAR(agent->path_waypoints[i].x,
+                       static_cast<double>(location->pos[0]), 0.0);
+            CHECK_NEAR(agent->path_waypoints[i].y,
+                       static_cast<double>(location->pos[1]), 0.0);
+            CHECK_NEAR(agent->path_waypoints[i].z,
+                       static_cast<double>(location->pos[2]), 0.0);
+        }
+    }
+}
+
 // A2 wiring: `use_move_step` is opt-in, so the default scaffold must not move.
 void test_move_step_opt_in() {
     const gm::Things things = make_synthetic_things();
@@ -2089,6 +2414,11 @@ int main() {
     test_tick_path_expire();
     test_tick_path_wall();
     test_tick_path_alert_ignores_route();
+    test_path_mode_map();
+    test_path_from_thing_default_off();
+    test_path_from_thing_load();
+    test_path_from_thing_patrol();
+    test_path_from_thing_real();
     test_move_step_opt_in();
     test_move_step_seek();
     test_move_step_wall();

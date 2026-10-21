@@ -17,8 +17,9 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 `thing_ai` (quick, **0.39 с**) проходит, `python3 regress.py` — **113/113**
 (скрипт не менялся). Игра только читается; `Things` AI не мутирует.
 Навигация — A2 (один waypoint, столкновения, leash) плюс A3
-(`standoff`-окно: seek / hold+fire / retreat, §7) и opt-in A4
-(`patrol` по списку точек, §8); `pathrandom`, реального оружия и решений
+(`standoff`-окно: seek / hold+fire / retreat, §7), opt-in A4
+(`patrol` по списку точек, §8) и A6 (маршрут из `THING_TYPES +0x324[]`
+через таблицу локаций, §8.2); `pathrandom`, реального оружия и решений
 по истории по-прежнему нет, см. §6.
 
 ---
@@ -36,7 +37,7 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 | `dead` | не тикает: ни таймеров, ни LOS, ни событий |
 | dm1 | attached **5** из 141, первый id **115** `(-350, 1304, 40)` |
 | level0 | attached **6** из 121, первый id **115** `(24, 2708, -92)` |
-| движение | default: только return к `home`; с `use_move_step=true` alert/attack идут к `aim_point`, patrol/return — к `home` через A2 (`world/ai_move.*`); внутри `standoff` стоят и стреляют, внутри `standoff-60` пятятся (A3); с `use_path=true` patrol идёт по `path_waypoints` (`loop`/`path`/`expire`, §8), приоритетнее шага домой |
+| движение | default: только return к `home`; с `use_move_step=true` alert/attack идут к `aim_point`, patrol/return — к `home` через A2 (`world/ai_move.*`); внутри `standoff` стоят и стреляют, внутри `standoff-60` пятятся (A3); с `use_path=true` patrol идёт по `path_waypoints` (`loop`/`path`/`expire`, §8), приоритетнее шага домой; `load_path_from_types=true` сам заполняет маршрут из `THING_TYPES +0x324[]` и таблицы локаций (§8.2) |
 | урон | `damage()` меняет только AI-агента, не `Things`; `sync_vitals()` читает виталы вещи (щиты, hits, HP) и убивает агента вместе с вещью |
 | оружие | opt-in `use_weapon_table=true`: выбор записи `Thing::proximity` (`+0x218`/`+0x474`) по inclusive `[low, high]` и `cooldown`, отдельное событие `weapon`; урона и снаряда нет (§9) |
 | история цели | кольцо **240** позиций; `tick` пишет один слот, лаг 0..239 |
@@ -58,6 +59,7 @@ ai.tick(world, dt);              // dt зажимается до config().max_dt
 ai.damage(id, 25.0);             // true, если агент жив и урон принят
 ai.place(id, {x, y, z});         // только тест/отладка, без навигации
 ai.set_path(id, waypoints);      // A4: маршрут patrol (до 32 точек)
+ai.set_path_from_thing(id);      // A6: маршрут из THING_TYPES +0x324[]
 ai.sync_vitals();                // зеркалить здоровье/щиты/hits вещи в агента
 // A5: таблица оружия уже загружена из Thing::proximity; выбор — только
 // при AiConfig::use_weapon_table == true (событие weapon, без урона).
@@ -382,6 +384,11 @@ SBT/SCRIPT: два абсолютных `ADD_THING` в `(0,0,0)` и `(1000,0,0)`
 | A4: expire | 2 точки `10/20` → на следующем advance после `(20,0)` `state=dead`, `path.expired`, `path_expiries=1`, один `death`, дальше тишина |
 | A4: стена | маршрут `(0,182,0)`, низкая стена `y=100`, radius 10 → `position.y=90`, `path.waiting`, `blocked_steps>0` |
 | A4: alert | `use_path=true`, маршрут в `-y`, игрок `(0,300,0)` → `alert`, 1-й тик `y=2`, `path.index=-1` (маршрут не выбран) |
+| A6: режимы | `ai_path_mode(9/10/12)` → `path/loop/expire`; 11 (`pathrandom`) и прочие → `false` |
+| A6: default | таблица локаций (7 записей, дубликат id → первая) и `+0x324[]` (4 id) на месте, но `load_path_from_types=false` → маршрут пуст у всех 5 агентов |
+| A6: load | `load_path_from_types=true` → loop-агент 3 точки (битый id пропущен), expire-агент 2 точки, `NO_PATH`/`pathrandom`/«все id битые» пусты; неизвестный/мёртвый id → `false`; 40 id → 32 |
+| A6: patrol | loop идёт `0,1,2,0`; expire доходит до последней и умирает (`path_expiries=1`); агенты без маршрута стоят |
+| A6: level0 | `BAGCRTHQ`, 9 id → 9 точек, первая `(24,1128,-72)`, последняя `(-360,1000,-80)`, `path_mode=loop` |
 
 ### 4.2. Поставочные уровни
 
@@ -449,7 +456,9 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    подключены opt-in'ом (§7); A4 `path_advance` (§8) подключён вторым
    opt-in'ом: `patrol` идёт по `path_waypoints` в режимах
    `path`/`loop`/`expire`, `expire` убивает агента. Остались `pathrandom`,
-   waypoint'ы из таблицы локаций, высота/пол через `floor_at` и гравитация.
+   высота/пол через `floor_at` и гравитация. Маршрут из
+   `THING_TYPES +0x324[]` через таблицу локаций подключён третьим opt-in'ом
+   (`load_path_from_types`, §8.2).
 4. **Бой**: оружие из таблицы `+0x21c` уже выбирается и постит событие
    `weapon` (§9), но без снаряда и урона; остались спавн снаряда по
    `event`/`offset`, урон игроку, звук (`+0x1fc`), анимация.
@@ -594,9 +603,13 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
 Чего здесь нет намеренно:
 
 * `pathrandom` (тип 11) — вызывает `rand()` (`0x480e30`), а детерминизм для
-  каркаса обязателен; для него нужен `AiConfig::rng_seed` и собственный ГПСЧ;
-* разрешения id точки через таблицу локаций `0x80d8e0` — примитив работает с
-  уже разрешёнными `Vec3d`; загрузка `+0x324[]` остаётся слою спавна/типов.
+  каркаса обязателен; для него нужен `AiConfig::rng_seed` и собственный ГПСЧ.
+  Загрузчик (§8.2) не берёт маршрут у типа 11 вовсе, чтобы не подменить
+  случайный старт детерминированным.
+
+Разрешение id в координаты живёт отдельно от примитива: `path_advance`
+работает с готовыми `Vec3d`, а загрузчик `+0x324[]` через таблицу локаций —
+это A6 (§8.2).
 
 ### 8.1. Подключение к `Ai::tick`
 
@@ -604,9 +617,8 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
 агента. Маршрут задаётся `Ai::set_path(thing_id, span<const Vec3d>)`:
 обрезается до 32 точек, сбрасывает `path.index`/`waiting`/`expired`,
 отклоняет неизвестный/мёртвый id и NaN/inf без изменения прежнего маршрута;
-пустой span очищает маршрут. Это единственный способ заполнить
-`path_waypoints` — слой спавна/типов (`+0x324[]`, таблица локаций) ещё не
-подключён.
+пустой span очищает маршрут. Второй источник — A6
+`Ai::set_path_from_thing(thing_id)` / `AiConfig::load_path_from_types` (§8.2).
 
 За тик, **после** восприятия и `switch` состояний:
 
@@ -652,6 +664,70 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
 `test_tick_path_stand` (`path` замирает на последней), `test_tick_path_expire`
 (один `death`, `path_expiries=1`), `test_tick_path_wall` (стена урезает шаг),
 `test_tick_path_alert_ignores_route` (alert идёт к цели, не по маршруту).
+
+### 8.2. A6: маршрут из `THING_TYPES +0x324[]`
+
+Формат доказан по загрузчику и потребителю (все адреса — `gundx.exe`,
+`docs/SOE.md` §3):
+
+| что | адрес | смысл |
+|---|---|---|
+| `+0x320` | `0x47daea` | `path_count`; `cmp eax,0x20; jg error`, т.е. **0..32** |
+| `+0x324 + 4*i` | `0x47db3d` | `path_point[i]`; загрузчик резолвит токен через `0x460000` и пишет **числовой id локации** |
+| таблица локаций | `0x80d8e0`, счётчик `0x80d87c`, шаг `0x28` | запись `{int id, int x, int y, int z, double orient[3]}` |
+| `ADD_LOCATION` | handler `0x45bea6` | добавляет операнды `ELLLAAA` дословно, максимум `0xc8` = 200 |
+| разрешение | `0x476008`..`0x476052` | линейный поиск `entry.id == path_point[i]`; `fild +0x04/+0x08/+0x0c` → x/y/z, затем `+0x4f4`/таймер |
+
+Ключевые следствия, заложенные в C++:
+
+* координаты точки — **целые** операнды `ADD_LOCATION`, а не double;
+* id ищется с начала таблицы, поэтому при дубликате id побеждает **первая**
+  запись (`0x476012`), а отсутствующий id не даёт точки (`0x476023` —
+  ранний `ret`, позиция и таймер не обновляются);
+* `+0x324[]` — это id, а не координаты и не индекс в массиве локаций;
+  `pathrandom` (11) к этому массиву тоже обращается, но выбирает стартовый
+  индекс через `rand()` и намеренно не поддержан.
+
+`Things` собирает таблицу локаций из **выполненной** сцены VM
+(`VmScene::locations`, `h_location`/`0x45bea6`) в порядке выполнения,
+дедуп по `(site, occ)` — так же, как список вещей. Публичный доступ:
+
+```cpp
+const std::vector<VmLocation>& Things::locations() const;
+const VmLocation* Things::location(int id) const; // first match, 0x476012
+```
+
+Загрузчик в `Ai`:
+
+```cpp
+bool Ai::set_path_from_thing(int thing_id); // resolves +0x324[] via Things
+// AiConfig::load_path_from_types = false по умолчанию
+```
+
+`set_path_from_thing` обрезает до `kAiPathMaxPoints` (32), пропускает id,
+которых нет в таблице (как miss-ветка `0x476023`), отклоняет неизвестный/
+мёртвый id, пустой список и маршрут, где не разрешилась ни одна точка, не
+трогая прежний маршрут. При `load_path_from_types=true` `attach` сам вызывает
+загрузчик для типов движения 9/10/12 и выставляет **per-agent**
+`AiAgent::path_mode` (9 `path`, 10 `loop`, 12 `expire`); при `false`
+поведение A2/A3/A4 прежнее, а `path_mode` остаётся глобальным
+`AiConfig::path_mode`. Тип 11 и все прочие типы движения route не получают.
+
+Ограничения A6: маршрут по-прежнему проходят только `patrol`; `expire`
+убивает агента, но не мутирует `Things`; отсутствующие id **выбрасываются**
+из маршрута (индексы последующих точек сдвигаются — оригинал в этом случае
+оставляет точку невыбранной и ждёт, что для детерминированного каркаса
+равносильно застреванию); `pathrandom`, случайный старт и `DELETE_LOCATION`
+во время игры не моделируются.
+
+Тесты: `test_path_mode_map` (9/10/12, отказ 11), `test_path_from_thing_default_off`
+(таблица локаций и `+0x324[]` есть, но `attach` не заполняет маршрут;
+first-match дубликата id), `test_path_from_thing_load` (loop/expire, пропуск
+неизвестного id, пустой тип, `pathrandom`, «все id битые», мёртвый агент,
+обрезка 40 → 32), `test_path_from_thing_patrol` (loop 0,1,2,0; expire →
+`dead`/`path_expiries=1`; агенты без маршрута стоят) и
+`test_path_from_thing_real` (level0 `BAGCRTHQ`: 9 точек, первая
+`(24,1128,-72)`, последняя `(-360,1000,-80)`).
 
 ---
 

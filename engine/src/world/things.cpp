@@ -71,6 +71,7 @@ struct TypeTable {
     std::vector<double> radii;
     std::vector<std::array<double, 3>> boxes;
     std::vector<std::vector<ProximityEntry>> proximities;
+    std::vector<std::vector<int>> path_locations;
     std::vector<double> search_radii;
     std::vector<int> target_zone_thresholds;
     std::vector<int> target_history_offsets;
@@ -118,6 +119,7 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.radii.reserve(count);
         table.boxes.reserve(count);
         table.proximities.reserve(count);
+        table.path_locations.reserve(count);
         table.search_radii.reserve(count);
         table.target_zone_thresholds.reserve(count);
         table.target_history_offsets.reserve(count);
@@ -177,6 +179,18 @@ TypeTable resolve_types(const SbtLevel& level) {
                 proximity.push_back(item);
             }
             table.proximities.push_back(std::move(proximity));
+            // +0x320 count (loader rejects >32, 0x47daea) and the +0x324 ids
+            // resolved by 0x47db3d; the runtime copy keeps the ids only.
+            const std::int32_t path_count =
+                static_cast<std::int32_t>(rd32(entry + 0x320));
+            std::vector<int> path_locations;
+            const int clamped_paths = std::max(0, std::min(32, path_count));
+            path_locations.reserve(static_cast<std::size_t>(clamped_paths));
+            for (int p = 0; p < clamped_paths; ++p) {
+                path_locations.push_back(
+                    static_cast<std::int32_t>(rd32(entry + 0x324 + p * 4)));
+            }
+            table.path_locations.push_back(std::move(path_locations));
             table.search_radii.push_back(std::bit_cast<double>(rd64(entry + 0x58)));
             table.target_zone_thresholds.push_back(
                 static_cast<std::int32_t>(rd32(entry + 0x1cc)));
@@ -221,6 +235,7 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.radius = types.radii[i];
     thing.box = types.boxes[i];
     thing.proximity = types.proximities[i];
+    thing.path_locations = types.path_locations[i];
     thing.search_radius = types.search_radii[i];
     thing.target_zone_threshold = types.target_zone_thresholds[i];
     thing.target_history_offset = types.target_history_offsets[i];
@@ -464,6 +479,7 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     out.radius = types.radii[index];
     out.box = types.boxes[index];
     out.proximity = types.proximities[index];
+    out.path_locations = types.path_locations[index];
     out.expire_ticks = types.expire_ticks[index];
     out.collide_event = types.collide_events[index];
     out.expire_event = types.expire_events[index];
@@ -633,6 +649,7 @@ Things Things::load(const SbtLevel& level, const VmState& vm,
 
     std::set<std::uint64_t> seen_things;
     std::set<std::uint64_t> seen_spawns;
+    std::set<std::uint64_t> seen_locations;
 
     // Python _block_offsets: entity-table order, first row wins.
     std::vector<std::pair<int, std::uint32_t>> blocks;
@@ -660,6 +677,17 @@ Things Things::load(const SbtLevel& level, const VmState& vm,
             for (const VmSpawn& spawn : merged.spawns) {
                 if (seen_spawns.insert(site_occ_key(spawn.site, spawn.occ)).second) {
                     ++out.stats_.spawns_executed;
+                }
+            }
+            // The runtime location table 0x80d8e0 is a global array of the
+            // executed ADD_LOCATION commands (0x45bea6); the AI resolves
+            // THING_TYPES +0x324[] against it (0x476012).  Keep the same
+            // per-site dedup as things/spawns so the sweep stays deterministic.
+            for (const VmLocation& location : merged.locations) {
+                if (seen_locations
+                        .insert(site_occ_key(location.site, location.occ))
+                        .second) {
+                    out.locations_.push_back(location);
                 }
             }
             for (const VmThing& source : merged.things) {
@@ -741,6 +769,15 @@ const Thing* Things::by_id(int id) const {
 Thing* Things::by_id(int id) {
     const auto found = by_id_.find(id);
     return found == by_id_.end() ? nullptr : &things_[found->second];
+}
+
+const VmLocation* Things::location(int id) const {
+    for (const VmLocation& entry : locations_) {
+        if (entry.thing_id == id) {
+            return &entry;
+        }
+    }
+    return nullptr;
 }
 
 std::vector<const Thing*> Things::children(int parent) const {
