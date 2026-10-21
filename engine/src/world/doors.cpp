@@ -1,5 +1,7 @@
 #include "world/doors.h"
 
+#include "game/events.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -561,6 +563,20 @@ void WorldState::start_lift(Lift& lift) {
     lift.stop_index = static_cast<int>(next);
     lift.target = lift.stops[next].height;
     lift.moving = lift.target != lift.height;
+}
+
+std::size_t WorldState::post_switch_events(EventQueue& queue,
+                                           std::int16_t source) const {
+    std::size_t posted = 0;
+    for (const WorldEvent& event : events_) {
+        if (event.kind != WorldEvent::Kind::SwitchPressed || event.switch_id < 0) {
+            continue;
+        }
+        if (queue.post_switch(static_cast<std::uint32_t>(event.switch_id), source)) {
+            ++posted;
+        }
+    }
+    return posted;
 }
 
 bool WorldState::interact(int switch_id) {

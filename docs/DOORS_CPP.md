@@ -105,12 +105,20 @@ std::string error;
 if (!state.build(sbt_level, sbw_level, &error)) { /* нет источников */ }
 
 state.interact(51);        // нажать переключатель №51 (индекс)
+gm::EventQueue queue;
+state.post_switch_events(queue, /*source=*/3); // SwitchPressed -> type-2
 state.tick();              // один тик 91 Гц
 state.tick(44);            // сразу 44 тика (O(1))
 
 const gm::WorldStats& st = state.stats();
 auto objects = state.apply_to_objects();   // door_id, sector, object, fraction
 ```
+
+`post_switch_events(queue, source)` постит по одному type-2 `Trigger Switch`
+на каждый ранее случившийся `WorldEvent::SwitchPressed`; `source` — id
+источника (игрок/сущность), `switch_index` — индекс переключателя. Повторный
+вызов постит события заново, поэтому вызывающий слой очищает `events()` через
+`clear_events()` после обработки.
 
 ### 2.1. Типы
 

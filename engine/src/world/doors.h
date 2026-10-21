@@ -154,6 +154,8 @@ struct WorldStats {
 /// Headless doors/switches/lifts for one level.  ``build`` reads door and
 /// switch records directly when the ``.sbt`` contains them (save-like files)
 /// and otherwise falls back to the ``SCRIPT`` bytecode (shipped levels).
+class EventQueue;
+
 class WorldState {
 public:
     /// Rebuild from *level* and bind every door to ``(sector, object)`` in
@@ -169,6 +171,11 @@ public:
     /// when no such switch exists; locked doors are skipped, unmatched targets
     /// only bump the stats.
     bool interact(int switch_id);
+
+    /// Post the type-2 `Trigger Switch` records for every SwitchPressed event
+    /// produced so far.  `source` is copied to the record (the original takes
+    /// it from the calling entity); returns the number posted.
+    std::size_t post_switch_events(EventQueue& queue, std::int16_t source = 0) const;
 
     /// Door state mapped onto the level objects it owns.  ``bound`` is false
     /// for a door whose ``(sector, object)`` does not exist in the ``.sbw``.

@@ -10,6 +10,8 @@
 // corpus totals 1779 / 3964 / 45 and 1779/1779 object bindings.
 #include "world/doors.h"
 
+#include "game/events.h"
+
 #include "res/sbt.h"
 #include "res/sbw.h"
 
@@ -328,6 +330,19 @@ void test_synthetic() {
     CHECK_EQ(again.find_door(100)->phase, twice.find_door(100)->phase);
     CHECK_NEAR(again.find_door(100)->open_fraction,
                twice.find_door(100)->open_fraction, 0.0);
+
+    // SwitchPressed -> type-2 Trigger Switch record.
+    state.clear_events();
+    CHECK(state.interact(0));
+    gm::EventQueue switch_queue;
+    CHECK_EQ(state.post_switch_events(switch_queue, 7), 1U);
+    const gm::EventParseResult switch_event = switch_queue.drain();
+    CHECK_EQ(switch_event.events.size(), 1U);
+    if (switch_event.events.size() == 1) {
+        CHECK(switch_event.events[0].type == gm::EventType::trigger_switch);
+        CHECK_EQ(switch_event.events[0].switch_index, 0U);
+        CHECK_EQ(switch_event.events[0].source, 7);
+    }
 }
 
 void test_negatives() {
