@@ -96,6 +96,43 @@ loopback; `opencode.json` подключает его как remote MCP без O
 ~/.local/share/uv/tools/pyghidra-mcp/bin/python tools/ghidra/export.py
 ```
 
+## 4.1. CLI без зависимостей: `tools/ghidra/mcp.py`
+
+Агентские оболочки не всегда имеют пакет `mcp` (он живёт только в
+venv `pyghidra-mcp`), поэтому в проект добавлен CLI на голом `urllib` —
+он говорит с тем же сервером по streamable-HTTP JSON-RPC:
+
+```sh
+python3 tools/ghidra/mcp.py tools                 # список MCP-инструментов
+python3 tools/ghidra/mcp.py decompile 0x444476    # псевдо-C (в т.ч. внутрь функции)
+python3 tools/ghidra/mcp.py decompile 0x451c20 0x452020   # пачкой
+python3 tools/ghidra/mcp.py disasm 0x4444c0 --count 40 --bytes
+python3 tools/ghidra/mcp.py xrefs 0x81c290        # кто ссылается на адрес
+python3 tools/ghidra/mcp.py strings PLAYER_ --limit 50
+python3 tools/ghidra/mcp.py search "player armor" --limit 3
+python3 tools/ghidra/mcp.py bytes 0x4b53e8 --size 64
+python3 tools/ghidra/mcp.py callgraph 0x451c20 --direction called
+python3 tools/ghidra/mcp.py raw list_xrefs '{"name_or_address":"0x81bd00"}'
+```
+
+Пакетный режим держит одну MCP-сессию на файл запросов (так быстрее и не
+плодит сессии в логе сервера):
+
+```sh
+cat > /tmp/opencode/req.jsonl <<'EOF'
+{"tool":"decompile_function","args":{"name_or_address":"0x451c20"},"label":"status_load"}
+{"tool":"list_xrefs","args":{"name_or_address":"0x81c290"}}
+EOF
+python3 tools/ghidra/mcp.py batch /tmp/opencode/req.jsonl
+```
+
+Настройки: `GM_GHIDRA_URL` (по умолчанию `http://127.0.0.1:8765/mcp`),
+`GM_GHIDRA_BINARY` (по умолчанию `/gundx.exe-902b77`). Если сервер не поднят,
+ошибка прямо говорит запустить `tools/ghidra/start.sh`. Инструменты,
+которые меняют проект (`rename_function`, `set_comment`, …), доступны через
+`raw`/`batch`; помни, что проект общий для всех сабагентов — переименования
+делает только основной агент.
+
 ## 5. Правила доказательности
 
 1. Декомпилятор — **инструмент гипотез**, не доказательство. x87, union,
