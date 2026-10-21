@@ -351,6 +351,23 @@ void test_synthetic() {
     CHECK_EQ(state.post_switch_events(after_tick, 1), 1U);
     const gm::EventParseResult after_tick_events = after_tick.drain();
     CHECK_EQ(after_tick_events.events.size(), 1U);
+
+    // A full queue must leave the pending switch in the log; after draining,
+    // the same cursor posts it exactly once.
+    state.tick(1);
+    CHECK(state.interact(0));
+    gm::EventQueue full;
+    while (full.post_switch(0, 0)) {
+    }
+    CHECK_EQ(state.post_switch_events(full, 2), 0U);
+    const gm::EventParseResult full_events = full.drain();
+    CHECK(!full_events.events.empty()); // queue was reset by drain
+    CHECK_EQ(state.post_switch_events(full, 2), 1U);
+    const gm::EventParseResult retried = full.drain();
+    CHECK_EQ(retried.events.size(), 1U);
+    if (retried.events.size() == 1) {
+        CHECK_EQ(retried.events[0].source, 2);
+    }
 }
 
 void test_negatives() {
