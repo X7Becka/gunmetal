@@ -372,7 +372,8 @@ void test_synthetic() {
     state.tick(1); // pending tail survives the tick
     const gm::EventParseResult full_events = full.drain();
     CHECK(!full_events.events.empty()); // queue was reset by drain
-    CHECK_EQ(state.post_switch_events(full, 2), 1U);
+    // A retry from another caller keeps the source of the original attempt.
+    CHECK_EQ(state.post_switch_events(full, 3), 1U);
     const gm::EventParseResult retried = full.drain();
     CHECK_EQ(retried.events.size(), 1U);
     if (retried.events.size() == 1) {

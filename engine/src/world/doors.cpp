@@ -285,6 +285,7 @@ void WorldState::clear() {
     events_.clear();
     switch_event_cursor_ = 0;
     switch_post_blocked_ = false;
+    switch_event_source_valid_ = false;
     door_targets_.clear();
     lift_targets_.clear();
     stats_ = WorldStats{};
@@ -572,6 +573,15 @@ std::size_t WorldState::post_switch_events(EventQueue& queue,
     if (switch_event_cursor_ > events_.size()) {
         switch_event_cursor_ = events_.size();
     }
+    if (switch_event_cursor_ >= events_.size()) {
+        switch_post_blocked_ = false;
+        switch_event_source_valid_ = false;
+        return 0;
+    }
+    if (!switch_event_source_valid_) {
+        switch_event_source_ = source;
+        switch_event_source_valid_ = true;
+    }
     std::size_t posted = 0;
     while (switch_event_cursor_ < events_.size()) {
         const WorldEvent& event = events_[switch_event_cursor_];
@@ -582,7 +592,8 @@ std::size_t WorldState::post_switch_events(EventQueue& queue,
             ++switch_event_cursor_;
             continue;
         }
-        if (!queue.post_switch(static_cast<std::uint32_t>(event.switch_id), source)) {
+        if (!queue.post_switch(static_cast<std::uint32_t>(event.switch_id),
+                               switch_event_source_)) {
             switch_post_blocked_ = true;
             break; // full queue: keep the cursor on the pending record
         }
@@ -591,6 +602,7 @@ std::size_t WorldState::post_switch_events(EventQueue& queue,
     }
     if (switch_event_cursor_ >= events_.size()) {
         switch_post_blocked_ = false;
+        switch_event_source_valid_ = false;
     }
     return posted;
 }
@@ -754,6 +766,7 @@ void WorldState::tick(std::uint64_t ticks) {
     } else {
         events_.clear();
         switch_post_blocked_ = false;
+        switch_event_source_valid_ = false;
     }
     switch_event_cursor_ = 0;
     if (ticks == 0) {

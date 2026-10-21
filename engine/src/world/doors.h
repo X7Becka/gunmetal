@@ -198,6 +198,7 @@ public:
         events_.clear();
         switch_event_cursor_ = 0;
         switch_post_blocked_ = false;
+        switch_event_source_valid_ = false;
     }
 
     Door* find_door(int id);
@@ -229,6 +230,9 @@ private:
     /// A full queue left a switch record pending; only then does `tick()` keep
     /// the unposted tail.  Without a failed post the log is still frame-local.
     mutable bool switch_post_blocked_ = false;
+    /// First caller's source for the pending tail; a retry must not rewrite it.
+    mutable std::int16_t switch_event_source_ = 0;
+    mutable bool switch_event_source_valid_ = false;
     WorldStats stats_;
 
     // GENERATE id (any of E1..E3) -> door indices.  A vector keeps the result
