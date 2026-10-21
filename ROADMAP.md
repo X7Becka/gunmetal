@@ -760,9 +760,12 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > `0x40` (`0x5670e4 = 0x1e`), индекс `style*6+kind`, `+0x00` бит 0 =
       > второй проход. `SECTOR_STUFF` (256 × `0x58` в `0x800b60`) разобран:
       > `sbt.{h,cpp}` даёт `SbtSectorSlot`/`parse_sector_stuff`/
-      > `encode_sector_stuff`, тест `sector_stuff` сверяет блок 8 сейвов с
-      > Python-оракулом (13/13 слотов). Осталось: типизировать блок 8 в
-      > `res/save.cpp`, `SET_SECTOR_*` в VM; семантика материалов,
+      > `encode_sector_stuff`, блок 8 сейвов типизирован (`Save::sector_stuff`),
+      > `SET_SECTOR_*` (8/11/12/13/14) пишут `VmState::sectors`; потребители —
+      > движение вещей `0x4713ab`, урон `0x4450f6` → `0x453b50`, ambient
+      > `0x46c5f3`, `event_post` `0x44503f`/`0x445095`. Тесты `sector_stuff`
+      > (13/13 слотов против оракула), `save_sector_stuff`, `vm`. Осталось:
+      > `SET_SOURCE/HANDLESECTOR_*` (27–31, 40–45); семантика материалов,
       > overlay/scroll/anim/links, флаги `obj+0x70/0x80/0x90`, конверсия
       > `f32`-заголовка в `f64`-трансформ (адрес прохода не найден; кадр
       > `origin + 1.875·local` подтверждён данными).
