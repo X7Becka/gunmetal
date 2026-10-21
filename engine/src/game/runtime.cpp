@@ -134,6 +134,44 @@ bool GameRuntime::press_switch(int switch_id, std::int16_t source) {
     return true;
 }
 
+void GameRuntime::set_ai_projectile_template(Thing projectile) {
+    ai_projectile_template_ = std::move(projectile);
+}
+
+void GameRuntime::clear_ai_projectile_template() {
+    ai_projectile_template_.reset();
+}
+
+int GameRuntime::take_ai_projectile_id() {
+    const int id = next_ai_projectile_id_;
+    ++next_ai_projectile_id_;
+    return id;
+}
+
+std::size_t GameRuntime::bridge_ai_shots() {
+    if (!ai_projectile_template_.has_value()) {
+        // No template: keep the queue so a later tick (after the template is
+        // set) can still spawn these shots.  Nothing is dropped silently.
+        return 0;
+    }
+    std::size_t spawned = 0;
+    // `spawn_ai_shots()` would hand the same template id to every shot, and
+    // `Projectiles::spawn()` rejects a live duplicate, so the bridge allocates
+    // a fresh runtime id per round and calls the single-shot factory instead.
+    for (const AiWeaponShot& shot : ai_.take_weapon_shots()) {
+        Thing projectile = *ai_projectile_template_;
+        projectile.id = take_ai_projectile_id();
+        ProjectileSpawn spawn;
+        if (!ai_shot_projectile_spawn(shot, &projectile, -1, spawn)) {
+            continue; // no usable speed: dropped, like `spawn_ai_shots()`
+        }
+        if (projectiles_.spawn(std::move(spawn), &events_.queue()) >= 0) {
+            ++spawned;
+        }
+    }
+    return spawned;
+}
+
 void GameRuntime::tick(std::uint64_t ticks) {
     for (std::uint64_t i = 0; i < ticks; ++i) {
         tick_once();
@@ -149,6 +187,16 @@ void GameRuntime::tick_once() {
     if (ai_attached_) {
         ai_.sync_vitals();
         ai_.tick(collision_, kAiTickSeconds);
+    }
+
+    // 2b. AI shots -> projectiles (opt-in).  The queue is drained exactly once
+    //     per tick, after the AI step and before the projectile step, so a
+    //     round spawned here already appears in this tick's
+    //     `last_projectile_results()` and its create event is dispatched by
+    //     this tick's events phase.  With the bridge off (or no template) the
+    //     queue is left untouched: the caller owns it.
+    if (config_.ai_shots_to_projectiles) {
+        bridge_ai_shots();
     }
 
     // 3. Projectiles: one `tick_results` pass, with the queue, so every event
@@ -252,6 +300,9 @@ void GameRuntime::reset() {
     player_eyes_.clear();
     switch_source_ = 0;
     clock_ = 0;
+    // The template belongs to the configuration side and is kept (like
+    // `config()`); the id counter restarts with the empty projectile fleet.
+    next_ai_projectile_id_ = kAiProjectileRuntimeIdBase;
     world_built_ = false;
     things_built_ = false;
     ai_attached_ = false;

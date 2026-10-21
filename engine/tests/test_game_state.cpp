@@ -1070,6 +1070,204 @@ void test_runtime_pending_switch_tail() {
     CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
 }
 
+/// One AI agent that can fire: its thing carries a single weapon table entry
+/// (event 41, band 0..200, 91-tick cooldown) and the player eye stands 60
+/// units away.  The agent itself never moves (A2/A3 off).
+gm::Thing make_ai_shooter() {
+    gm::Thing shooter;
+    shooter.id = -1;
+    shooter.position = std::array<int, 3>{0, 0, 0};
+    shooter.radius = 4.0;
+    shooter.model = "Cultist.sob";
+    shooter.proximity.push_back(
+        gm::ProximityEntry{41, 0, 200, 91, {1.0, 2.0, 3.0}});
+    return shooter;
+}
+
+/// Movement-type 6 projectile type used as the AI bridge template.  Its `id`
+/// is deliberately a value the runtime must not reuse.
+gm::Thing ai_projectile_template() {
+    gm::Thing projectile;
+    projectile.id = 7;
+    projectile.movement_type = 6;
+    projectile.speed = 10.0;
+    projectile.radius = 0.0;
+    projectile.hits_left = 0;
+    projectile.expire_ticks = 0;
+    projectile.create_event = 900;
+    projectile.expire_event = 901;
+    projectile.destroy_event = 902;
+    projectile.collide_event = 903;
+    return projectile;
+}
+
+/// AI config of the bridge tests: weapon table + shot queue on, 910 units/s
+/// (10 units/tick after the /91 conversion), bridge flag from the argument.
+gm::GameRuntimeConfig ai_bridge_config(bool bridge) {
+    gm::GameRuntimeConfig config;
+    config.ai.use_weapon_table = true;
+    config.ai.use_weapon_shots = true;
+    config.ai.weapon_shot_speed = 910.0;
+    config.ai_shots_to_projectiles = bridge;
+    return config;
+}
+
+/// Spawn the shooter, attach the AI and put the player 60 units in front.
+void ai_bridge_setup(gm::GameRuntime& runtime) {
+    CHECK_EQ(runtime.spawn_thing(make_ai_shooter()), 0);
+    CHECK_EQ(runtime.attach_ai(), std::size_t(1));
+    const gm::Vec3d eye{0.0, 60.0, 10.0};
+    CHECK(runtime.set_player_eyes(std::span<const gm::Vec3d>(&eye, 1)));
+}
+
+/// Tick until the AI queues its first weapon shot; returns the 1-based tick
+/// number or 0 when none appeared within `max_ticks`.
+int ai_tick_until_first_shot(gm::GameRuntime& runtime, int max_ticks) {
+    for (int i = 0; i < max_ticks; ++i) {
+        runtime.tick(1);
+        if (runtime.ai().stats().weapon_shots > 0) {
+            return i + 1;
+        }
+    }
+    return 0;
+}
+
+/// Default `ai_shots_to_projectiles = false`: the AI still queues shots, but
+/// the runtime spawns nothing and does not consume the queue (the caller owns
+/// it), and the template is not applied.
+void test_runtime_ai_shots_default_off() {
+    gm::GameRuntime runtime(ai_bridge_config(false));
+    ai_bridge_setup(runtime);
+    runtime.set_ai_projectile_template(ai_projectile_template());
+    CHECK(!runtime.config().ai_shots_to_projectiles);
+    CHECK(runtime.ai_projectile_template().has_value());
+
+    const int fired = ai_tick_until_first_shot(runtime, 140);
+    CHECK(fired > 0);
+    CHECK_EQ(runtime.ai().stats().weapon_shots, 1u);
+    CHECK_EQ(runtime.ai().weapon_shots().size(), std::size_t(1));
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(0));
+    CHECK_EQ(runtime.last_projectile_results().size(), std::size_t(0));
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+    for (const gm::Event& event : runtime.last_events().generated) {
+        CHECK(event.id != 900); // no projectile create event either
+    }
+
+    // A following tick without a new weapon event is still a no-op.
+    runtime.tick(1);
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(0));
+}
+
+/// Opt-in bridge: one round per weapon event, spawned in the same tick, with a
+/// runtime id, its create event dispatched once and no duplicate on re-ticks.
+void test_runtime_ai_shots_to_projectiles() {
+    gm::GameRuntime runtime(ai_bridge_config(true));
+    ai_bridge_setup(runtime);
+    runtime.set_ai_projectile_template(ai_projectile_template());
+    CHECK(runtime.config().ai_shots_to_projectiles);
+    const gm::Thing* stored = runtime.ai_projectile_template().has_value()
+                                  ? &*runtime.ai_projectile_template()
+                                  : nullptr;
+    CHECK(stored != nullptr);
+    if (stored != nullptr) {
+        CHECK_EQ(stored->id, 7); // the setter keeps the value; spawns override it
+        CHECK_EQ(stored->create_event, 900u);
+    }
+
+    const int fired = ai_tick_until_first_shot(runtime, 140);
+    CHECK(fired > 0);
+    CHECK_EQ(runtime.ai().stats().weapon_shots, 1u);
+    CHECK_EQ(runtime.ai().weapon_shots().size(), std::size_t(0)); // drained
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(1));
+
+    // The round was spawned after the AI phase and before the projectile
+    // phase of the same tick, so it is already in the last results.
+    {
+        const std::span<const gm::ProjectileTickRecord> records =
+            runtime.last_projectile_results();
+        CHECK_EQ(records.size(), std::size_t(1));
+        if (records.size() == 1) {
+            CHECK(records[0].thing_id != 7);
+            CHECK(records[0].thing_id >= gm::kAiProjectileRuntimeIdBase);
+            CHECK(records[0].status == gm::ProjectileStatus::flying);
+            CHECK(!records[0].spent);
+            CHECK(!records[0].dead);
+            CHECK_NEAR(records[0].speed, 10.0, 1e-12); // 910 / 91
+        }
+    }
+    // Exactly one create event (900) of the round: the queue is empty after
+    // the same tick's dispatch.
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(1));
+    if (runtime.last_events().generated.size() == 1) {
+        CHECK_EQ(runtime.last_events().generated[0].id, 900);
+    }
+    CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
+
+    // A tick without a weapon event spawns nothing and replays no event.
+    runtime.tick(1);
+    CHECK_EQ(runtime.ai().stats().weapon_shots, 1u);
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(1));
+    CHECK_EQ(runtime.last_projectile_results().size(), std::size_t(1));
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+    CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
+
+    // The second weapon event (91-tick cooldown) spawns a second round: the
+    // template id is never reused, so both rounds stay alive and distinct.
+    int second = 0;
+    for (int i = 0; i < 200 && second == 0; ++i) {
+        runtime.tick(1);
+        if (runtime.ai().stats().weapon_shots >= 2) {
+            second = i + 1;
+        }
+    }
+    CHECK(second > 0);
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(2));
+    CHECK_EQ(runtime.ai().weapon_shots().size(), std::size_t(0));
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(1));
+    if (!runtime.last_events().generated.empty()) {
+        CHECK_EQ(runtime.last_events().generated[0].id, 900);
+    }
+    CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
+    const std::vector<gm::ProjectileState>& fleet = runtime.projectiles().list();
+    if (fleet.size() == 2) {
+        CHECK(fleet[0].spawn.thing_id != fleet[1].spawn.thing_id);
+        CHECK(fleet[0].spawn.thing_id >= gm::kAiProjectileRuntimeIdBase);
+        CHECK(fleet[1].spawn.thing_id >= gm::kAiProjectileRuntimeIdBase);
+        CHECK(!fleet[0].dead);
+        CHECK(!fleet[1].dead);
+    }
+    CHECK_EQ(runtime.last_projectile_results().size(), std::size_t(2));
+}
+
+/// Bridge flag on but no template: nothing spawns and the queue is kept, so
+/// setting the template later still turns the pending shot into a round.
+void test_runtime_ai_shots_without_template() {
+    gm::GameRuntime runtime(ai_bridge_config(true));
+    ai_bridge_setup(runtime);
+    CHECK(!runtime.ai_projectile_template().has_value());
+
+    const int fired = ai_tick_until_first_shot(runtime, 140);
+    CHECK(fired > 0);
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(0));
+    CHECK_EQ(runtime.last_projectile_results().size(), std::size_t(0));
+    CHECK_EQ(runtime.ai().weapon_shots().size(), std::size_t(1));
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+
+    // The pending shot is not lost: the next tick with a template spawns it.
+    runtime.set_ai_projectile_template(ai_projectile_template());
+    runtime.tick(1);
+    CHECK_EQ(runtime.ai().weapon_shots().size(), std::size_t(0));
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(1));
+    CHECK_EQ(runtime.last_projectile_results().size(), std::size_t(1));
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(1));
+
+    // Clearing the template stops the bridge again.
+    runtime.clear_ai_projectile_template();
+    CHECK(!runtime.ai_projectile_template().has_value());
+    runtime.tick(1);
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(1));
+}
+
 /// Build one runtime with a door, two things, a player eye and a projectile,
 /// then press the door switch.
 void runtime_setup(gm::GameRuntime& runtime, const gm::SbtLevel& level,
@@ -1204,6 +1402,9 @@ int main() {
     test_vitals_bridge();
     test_runtime_events_not_duplicated();
     test_runtime_projectile_results();
+    test_runtime_ai_shots_default_off();
+    test_runtime_ai_shots_to_projectiles();
+    test_runtime_ai_shots_without_template();
     test_runtime_pending_switch_tail();
     test_runtime_determinism();
 

@@ -23,6 +23,9 @@
 //
 //   1. things      `Things::tick(1, queue)`
 //   2. AI          `Ai::sync_vitals()` + `Ai::tick(collision, 1/91 s)`
+//   2b. AI shots   opt-in: drain `Ai::take_weapon_shots()` and spawn one
+//                  `Projectiles` round per accepted shot (create events go to
+//                  the same queue)
 //   3. projectiles `Projectiles::tick_results(1, targets, collision, queue)`
 //   4. doors/world `WorldState::tick(1)`
 //   5. events      pending switch tail + `EventRuntime::pump(now)`
@@ -46,6 +49,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -62,8 +66,14 @@
 
 namespace gm {
 
+/// First runtime id handed out to a projectile spawned by the AI bridge
+/// (`GameRuntime::set_ai_projectile_template`).  The ids are allocated from
+/// this base upwards, so they never collide with the small `Things` instance
+/// ids (0..n-1) of the same runtime.  The template's own `id` is not used.
+inline constexpr int kAiProjectileRuntimeIdBase = 0x10000;
+
 /// Value configuration of a `GameRuntime`.  Only plain values: `AiConfig`,
-/// `ThingsOptions` and three build/selection flags.  The defaults build AI
+/// `ThingsOptions` and the build/selection flags below.  The defaults build AI
 /// agents for every absolute-position thing and install the level's
 /// `ADD_SWITCH` table.
 struct GameRuntimeConfig {
@@ -84,6 +94,14 @@ struct GameRuntimeConfig {
     /// (`ProjectileSpawn::proximity`).  The engine has no per-player collision
     /// radius here; 0 keeps the players at the eye points as points.
     double player_radius = 0.0;
+    /// Opt-in bridge from the AI shot queue to `Projectiles`.  When `true` and
+    /// a template is set (`set_ai_projectile_template()`), every tick drains
+    /// `Ai::take_weapon_shots()` right after the AI phase and spawns one round
+    /// per accepted shot; the spawn's create event goes to the runtime queue.
+    /// `false` (default) spawns nothing and leaves the queue to the caller.
+    /// The shots themselves only exist with `ai.use_weapon_shots` (which
+    /// requires `ai.use_weapon_table`).
+    bool ai_shots_to_projectiles = false;
 };
 
 /// Headless owner of one level's runtime.  Build it with `build()` or the two
@@ -141,6 +159,27 @@ public:
     /// the world; the next tick's events phase retries it.  Returns false for
     /// an unknown switch (the world is then untouched).
     bool press_switch(int switch_id, std::int16_t source = 0);
+
+    // --- AI shot template ---------------------------------------------------
+
+    /// Set the projectile template of the AI->projectile bridge: a `Thing`
+    /// filled like a movement-type 6 projectile type (speed/gravity/damping/
+    /// shape/radius/hits/lifetime/events, see `docs/PROJECTILE_CPP.md`).  The
+    /// template is plain runtime state, not a global.
+    ///
+    /// Every spawned round gets a fresh runtime id from
+    /// `kAiProjectileRuntimeIdBase` upwards instead of `Thing::id`, so several
+    /// AI rounds can be alive at once (`Projectiles::spawn` rejects duplicate
+    /// `thing_id`s and its reuse semantics stay untouched).  A template with no
+    /// usable speed yields no spawns; the shot is dropped.
+    void set_ai_projectile_template(Thing projectile);
+    /// Remove the template; the bridge then leaves the AI queue alone.
+    void clear_ai_projectile_template();
+    /// The template, if one was set; `reset()` keeps it (it belongs to the
+    /// configuration side of the runtime, like `config()`).
+    const std::optional<Thing>& ai_projectile_template() const {
+        return ai_projectile_template_;
+    }
 
     // --- driving ------------------------------------------------------------
 
@@ -223,6 +262,12 @@ public:
 
 private:
     void tick_once();
+    /// Drain the AI shot queue through `ai_shot_projectile_spawn()` with a
+    /// fresh runtime id per shot.  Returns the number of spawned rounds.
+    std::size_t bridge_ai_shots();
+    /// Next unique projectile id of this runtime (see
+    /// `kAiProjectileRuntimeIdBase`).
+    int take_ai_projectile_id();
     ProjectileTargets projectile_targets();
 
     GameRuntimeConfig config_;
@@ -232,9 +277,11 @@ private:
     Projectiles projectiles_;
     EventRuntime events_;
     CollisionWorld collision_;
+    std::optional<Thing> ai_projectile_template_;
     std::vector<Vec3d> player_eyes_;
     std::int16_t switch_source_ = 0;
     std::uint64_t clock_ = 0;
+    int next_ai_projectile_id_ = kAiProjectileRuntimeIdBase;
     bool world_built_ = false;
     bool things_built_ = false;
     bool ai_attached_ = false;
