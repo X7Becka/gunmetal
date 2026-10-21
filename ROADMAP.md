@@ -648,7 +648,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > (`pathrandom`) пока не загружается.
       > A5: `AiWeapon` читает таблицу `THING_TYPES+0x218`, выбор по
       > inclusive `[low,high]` и кулдаун `+0x27c`; opt-in `use_weapon_table`
-      > постит отдельный `weapon`-event. Снаряд/урон/патроны не подключены,
+      > постит отдельный `weapon`-event. A5b: `AiWeaponShot` очередь
+      > (`take/drain_weapon_shots`) и `spawn_ai_shots` → `Projectiles`;
+      > урон/патроны и привязка `event_id` к типу остаются игровому слою.
       > pathfinding/RNG и интегратор ω по-прежнему отсутствуют.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
