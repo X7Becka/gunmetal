@@ -64,6 +64,8 @@ tools/re/             инструментарий реверса exe (PE-кар
 tools/fuzz_formats.py фазз-матрица парсеров (пустые/битые/мутированные файлы)
 tools/parity_sou2.py  Python↔C++ паритет SOU2 (--fast/--quick/полный архив)
 tools/gen_sou2_table.py  извлечение gain-таблицы 0x852340 из sou2.cpp
+tools/re/render_sou2.py  SOU2 → WAV через настоящий 0x8534c0 (32000 Гц)
+                      см. docs/SOU2.md
 tools/parity_config.py   round-trip GUNMETAL.CFG/CONTROLS.CFG + сверка .key
 tools/parity_mip.py      golden-хеши рендера + mip/bilinear/alpha-режимы
 tools/parity_film.py     .sof/.fdx round-trip, тайлы, палитра, привязка
@@ -78,6 +80,7 @@ docs/PLAYER.md        спавн игрока, DM-респавн, высота �
 docs/CAMERA.md        базис первого лица, проекция, xref 0x41e025
 docs/SAVE.md          сейвы: контейнер, блоки, byte-exact rebuild
 docs/SOU_CONTAINER.md .sou: статистика, 4091/4091 rebuild, аномалии
+docs/SOU2.md         SOU2: PCM через 0x8534c0, 32000 Гц, шов, правый канал, M/S
 docs/VM_EXEC.md      SCRIPT-VM: исполнение 199 опкодов, 36/36
 docs/VM_CPP.md       C++ SCRIPT-VM: 199 опкодов, 36/36, 391 spawns
 docs/NESTED_THINGS.md сцена: 4008 top-level / 7563 recursive / 7617 executed

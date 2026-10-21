@@ -57,6 +57,7 @@ objdump -D -M intel "/mnt/d/games/Gunmetal 3dfx/gundx.exe" > /tmp/opencode/gundx
 | `copy_trace.py` | трассировка блока «копирование записи A в запись B» (напр. шасси → игрок): `copy_trace.py 0x47ac1a 0x47af3e --src 0x7995e0 --stride 0x1cc --dst 0x81bd00 --map "0x47a170 0x7995e0 0x47a730 0x1cc"` |
 | `emu.py` | минимальный интерпретатор x86 (по тексту objdump) — оракул для кодека `.sbv`; требует `objdump` |
 | `x86mini.py` | мини-интерпретатор x86 по **реальным байтам** exe — исполняет самомодифицирующиеся декодеры `SOU1`/`SOU2` |
+| `render_sou2.py` | `SOU2` → слышимый PCM: `0x852d80` → история 413 / lookahead 388 → настоящий `0x8534c0`; `--out-rate 32000`, `--loop` (шов на 2.072 с). Грабли — `docs/SOU2.md` |
 | `sou_decode.py` | декод `SOU1` через `x86mini` (эталон): `sou_decode.py INTRO out.wav`, `--list` |
 | `sou1_model.py` | независимая модель SOU1 (4-битный ADPCM), `--verify`/`--check` на 983 записях |
 | `spawn.py` | `SET_PLAYER_START`/`SET_DEATHMATCH_START` по 36 уровням, высота глаза шасси |

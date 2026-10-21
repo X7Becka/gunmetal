@@ -14,8 +14,20 @@ Container (all 3092 entries of ``MUSIC/SOU.DAT``)::
     u32  units           payload = units * 4 bytes
     u8   payload[units * 4]
 
-Every 1024-frame block is split into 13 interleaved sub-streams.  Sub-stream
-``c`` owns frame positions ``off + k * esi``::
+The two 16000 headers (``L01BONUS``, ``LOADSCRN``) are **not** the playback
+rate of the original music mixer: its DirectSound buffer is 32000 Hz and
+``FUN_00409330`` feeds 1024 decoded frames per callback without using the
+loader's rate step.  Play those tracks at 32000 too (``L01BONUS`` is 2.072 s,
+not 4.144 s); ``tools/re/render_sou2.py`` now defaults to 32000.
+
+**The decoder output is not PCM.**  Every 1024-frame block is split into 13
+interleaved *sub-band* streams.  The game's mixer then reloads a 413-sample
+history and calls the synthesis filter ``0x8534c0`` (see
+``tools/re/render_sou2.py``); playing the raw accumulators sounds like noise.
+The functions below intentionally stop at the sub-band stream because the
+corpus parity tests use it.  For listenable audio use the renderer tool.
+
+Sub-stream ``c`` owns frame positions ``off + k * esi``::
 
     esi = 8 << (c >> 2)                              (c == 12: 8)
     off = ((c & 3) << ((c >> 2) + 1)) + (1 << (c >> 2)) - 1   (c == 12: 7)
@@ -437,7 +449,11 @@ def decode_sou2_raw(blob: bytes, volume: int = MAX_VOLUME) -> tuple[int, array]:
 
 
 def decode_sou2(blob: bytes, volume: int = MAX_VOLUME) -> tuple[int, bytes]:
-    """Decode to little-endian interleaved 16-bit stereo PCM."""
+    """Legacy ``clamp(raw >> 1)`` view: 16-bit sub-band data, **not PCM**.
+
+    This is kept for the corpus FNV tests.  It sounds like noise; use
+    :mod:`tools.re.render_sou2` for playback.
+    """
     rate, raw = decode_sou2_raw(blob, volume)
     out = array("h", bytes(2 * len(raw)))
     for i, v in enumerate(raw):

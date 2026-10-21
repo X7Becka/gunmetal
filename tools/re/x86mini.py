@@ -169,6 +169,65 @@ class CPU:
 
         if op == 0x90:  # nop
             pass
+        elif 0xB8 <= op <= 0xBF:  # mov r32, imm32
+            self._set_reg(op - 0xB8, self.rd32(eip + 1))
+            n += 4
+        elif op == 0x8D:  # lea r32, m
+            kind, reg, where, mlen = self._modrm(eip + 1)
+            n += mlen
+            if kind != "mem":
+                raise UnknownOpcode("lea with register operand at %08x" % eip)
+            self._set_reg(reg, where)
+        elif op == 0xF7:  # group 3: test/not/neg/mul/imul/div/idiv
+            kind, reg, where, mlen = self._modrm(eip + 1)
+            n += mlen
+            value = self.rd32(where) if kind == "mem" else self._reg(where)
+            if reg == 2:  # not
+                result = (~value) & 0xFFFFFFFF
+                self._set_flags_zn(result)
+            elif reg == 3:  # neg
+                result = (-value) & 0xFFFFFFFF
+                self.eflags["cf"] = 1 if value != 0 else 0
+                self._set_flags_zn(result)
+            elif reg == 4:  # mul r/m32
+                prod = self.get("eax") * value
+                self.set("eax", prod & 0xFFFFFFFF)
+                self.set("edx", (prod >> 32) & 0xFFFFFFFF)
+                self.eflags["cf"] = self.eflags["of"] = 1 if prod >> 32 else 0
+            elif reg == 5:  # imul r/m32
+                prod = _s32(self.get("eax")) * _s32(value)
+                self.set("eax", prod & 0xFFFFFFFF)
+                self.set("edx", (prod >> 32) & 0xFFFFFFFF)
+                self.eflags["cf"] = self.eflags["of"] = 1 if prod != _s32(prod & 0xFFFFFFFF) else 0
+            else:
+                raise UnknownOpcode("group3 /%d at %08x" % (reg, eip))
+            if reg in (2, 3):
+                if kind == "mem":
+                    self.wr32(where, result)
+                else:
+                    self._set_reg(where, result)
+        elif op in (0x69, 0x6B):  # imul r32, r/m32, imm
+            kind, reg, where, mlen = self._modrm(eip + 1)
+            n += mlen
+            value = self.rd32(where) if kind == "mem" else self._reg(where)
+            if op == 0x69:
+                imm = _s32(self.rd32(eip + n))
+                n += 4
+            else:
+                imm = _s8(self.rd8(eip + n))
+                n += 1
+            prod = _s32(value) * imm
+            result = prod & 0xFFFFFFFF
+            self._set_reg(reg, result)
+            self.eflags["cf"] = self.eflags["of"] = 1 if prod != _s32(result) else 0
+        elif op == 0x0F and self.rd8(eip + 1) == 0xAF:  # imul r32, r/m32
+            kind, reg, where, mlen = self._modrm(eip + 2)
+            n += mlen + 1
+            value = self.rd32(where) if kind == "mem" else self._reg(where)
+            prod = _s32(self._reg(reg)) * _s32(value)
+            result = prod & 0xFFFFFFFF
+            self._set_reg(reg, result)
+            self.eflags["cf"] = self.eflags["of"] = 1 if prod != _s32(result) else 0
         elif 0x50 <= op <= 0x57:  # push r32
             self.set("esp", self.get("esp") - 4)
             self.wr32(self.get("esp"), self._reg(op - 0x50))
