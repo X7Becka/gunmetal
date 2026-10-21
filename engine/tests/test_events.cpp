@@ -818,6 +818,18 @@ void test_event_runtime() {
                  static_cast<std::uint32_t>(7 - 0x10000));
     }
     CHECK(runtime.queue().empty());
+
+    // The runtime pump is a frame: stale text must expire before new text is
+    // accepted, otherwise the ten-slot registry latches forever.
+    for (int i = 0; i < 10; ++i) {
+        CHECK(runtime.text().post("old" + std::to_string(i), 1, -1, 10));
+    }
+    CHECK_EQ(runtime.text().size(), 10U);
+    CHECK(runtime.pump(100).ok);
+    CHECK(runtime.text().empty());
+    CHECK(runtime.queue().post_text(0, 0, "fresh"));
+    CHECK(runtime.pump(100).ok);
+    CHECK_EQ(runtime.text().size(), 1U);
 }
 
 int main() {

@@ -357,8 +357,10 @@ void TextRegistry::expire(std::uint32_t now) {
         if (messages_[index].deadline < now) {
             messages_[index] = messages_.back();
             messages_.pop_back();
+            // The replacement occupies the same slot and may be expired too.
+        } else {
+            ++index;
         }
-        ++index;
     }
 }
 
@@ -427,6 +429,10 @@ EventDispatchResult EventDispatcher::dispatch(const EventParseResult& parsed,
         result.error = parsed.error;
         return result;
     }
+    // `event_dispatch` runs on the frame clock: drop messages whose deadline
+    // has passed before reporting new text.  Without this a full registry
+    // would keep stale messages forever and silently drop every new one.
+    registry.expire(now);
     for (const Event& event : parsed.events) {
         const std::uint8_t type = static_cast<std::uint8_t>(event.type);
         if (type == static_cast<std::uint8_t>(EventType::generate_short) ||
