@@ -488,6 +488,8 @@ void test_death_and_negatives() {
         CHECK_EQ(agent->state, gm::AiState::dead);
         CHECK_NEAR(agent->health, 0.0, 0.0);
         CHECK_EQ(agent->target, -1);
+        CHECK_EQ(agent->target_thing, -1);
+        CHECK(!agent->target_is_thing);
         CHECK_NEAR(agent->timer, 0.0, 0.0);
     }
     CHECK_EQ(ai.stats().deaths, 1u);

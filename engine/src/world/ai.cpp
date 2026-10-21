@@ -601,6 +601,8 @@ std::size_t Ai::sync_vitals() {
                           (config_.use_thing_fields && !agent.immune && agent.health <= 0.0);
         if (dead && agent.state != AiState::dead) {
             agent.target = -1;
+            agent.target_thing = -1;
+            agent.target_is_thing = false;
             agent.alertness = 0.0;
             agent.timer = 0.0;
             agent.returning = false;
@@ -642,6 +644,8 @@ bool Ai::damage(int thing_id, double amount) {
     if (agent->health <= 0.0) {
         agent->health = 0.0;
         agent->target = -1;
+        agent->target_thing = -1;
+        agent->target_is_thing = false;
         agent->alertness = 0.0;
         agent->timer = 0.0;
         agent->returning = false;
