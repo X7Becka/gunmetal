@@ -1902,6 +1902,229 @@ void test_projectile_core() {
     CHECK_EQ(from_thing.life_left, 20);
 }
 
+
+void test_projectile_shot_bridge() {
+    const gm::CollisionWorld empty_world;
+    const gm::ProjectileTargets no_targets;
+
+    // Charged projectile shot: 182 u/s base + 0.5 * 10 * 91 u/s.
+    gm::Weapon weapon = make_weapon(0, 1, false);
+    weapon.projectile_speed = 182.0;   // 2 units/tick
+    weapon.projectile_charge = 10.0;   // operand[9]
+    weapon.range = 0.0;                // unlimited: the shot itself misses
+    gm::Weapons table({weapon});
+    gm::Arsenal arsenal = make_arsenal(0x1, 0, 5);
+    const gm::ShotResult shot = gm::fire(
+        table, arsenal, {10.0, 20.0, 30.0}, {0.0, 1.0, 0.0}, empty_world, 0.5);
+    CHECK(shot.ok);
+    CHECK(shot.projectile);
+    CHECK_NEAR(shot.projectile_speed, 182.0 + 0.5 * 10.0 * 91.0, 1e-12);
+
+    gm::Thing grenade;
+    grenade.id = 42;
+    grenade.type = 28;
+    grenade.movement_type = 6;
+    grenade.gravity = 1.0;
+    grenade.damping = 0.8;
+    grenade.collision_shape = 1;
+    grenade.radius = 10.0;
+    grenade.hits_left = 3;
+    grenade.expire_ticks = 364;
+    grenade.collide_event = 71;
+    grenade.expire_event = 72;
+    grenade.destroy_event = 73;
+    grenade.timeout_event = 74;
+    grenade.create_event = 75;
+
+    const std::optional<gm::ProjectileSpawn> spawn =
+        gm::projectile_spawn_from_shot(weapon, shot, &grenade, 0, 42, 1.0);
+    CHECK(spawn.has_value());
+    if (spawn) {
+        CHECK_EQ(spawn->thing_id, 42);
+        CHECK_EQ(spawn->owner_player, 0);
+        CHECK_EQ(spawn->owner_thing, 42);
+        // 637 u/s / 91 Hz == 7 units/tick.
+        CHECK_NEAR(spawn->speed, 7.0, 1e-12);
+        CHECK_NEAR(spawn->position.x, 10.0, 0.0);
+        CHECK_NEAR(spawn->position.y, 20.0, 0.0);
+        CHECK_NEAR(spawn->position.z, 30.0, 0.0);
+        CHECK_NEAR(spawn->direction.y, 1.0, 1e-12);
+        CHECK_NEAR(spawn->gravity, 1.0, 0.0);
+        CHECK_NEAR(spawn->damping, 0.8, 0.0);
+        CHECK_NEAR(spawn->level_gravity, 1.0, 0.0);
+        CHECK_EQ(spawn->shape, 1);
+        CHECK_NEAR(spawn->radius, 10.0, 0.0);
+        CHECK_EQ(spawn->hits_left, 3);
+        CHECK_EQ(spawn->life_ticks, 364);
+        CHECK_EQ(spawn->collide_event, 71U);
+        CHECK_EQ(spawn->expire_event, 72U);
+        CHECK_EQ(spawn->destroy_event, 73U);
+        CHECK_EQ(spawn->timeout_event, 74U);
+        CHECK_EQ(spawn->create_event, 75U);
+    }
+
+    // Without a Thing the factory still works: straight flight, no events.
+    const std::optional<gm::ProjectileSpawn> bare =
+        gm::projectile_spawn_from_shot(weapon, shot, nullptr, -1, -1);
+    CHECK(bare.has_value());
+    if (bare) {
+        CHECK_EQ(bare->thing_id, -1);
+        CHECK_EQ(bare->owner_player, -1);
+        CHECK_EQ(bare->owner_thing, -1);
+        CHECK_NEAR(bare->speed, 7.0, 1e-12);
+        CHECK_EQ(bare->shape, 1);
+        CHECK_NEAR(bare->radius, 0.0, 0.0);
+        CHECK_NEAR(bare->box[0], 0.0, 0.0);
+        CHECK_NEAR(bare->gravity, 0.0, 0.0);
+        CHECK_NEAR(bare->damping, 0.0, 0.0);
+        CHECK_NEAR(bare->level_gravity, 0.0, 0.0);
+        CHECK_EQ(bare->hits_left, 0);
+        CHECK_EQ(bare->life_ticks, 0);
+        CHECK_EQ(bare->collide_event, 0U);
+        CHECK_EQ(bare->expire_event, 0U);
+        CHECK_EQ(bare->destroy_event, 0U);
+        CHECK_EQ(bare->timeout_event, 0U);
+        CHECK_EQ(bare->create_event, 0U);
+    }
+
+    // Box shape and zero direction sanitisation.
+    gm::Thing rocket = grenade;
+    rocket.id = 43;
+    rocket.collision_shape = 2;
+    rocket.radius = 0.0;
+    rocket.box = {4.0, 18.0, 6.0};
+    gm::ShotResult odd = shot;
+    odd.direction = {0.0, 0.0, 0.0};
+    const std::optional<gm::ProjectileSpawn> boxed =
+        gm::projectile_spawn_from_shot(weapon, odd, &rocket, 1, 43);
+    CHECK(boxed.has_value());
+    if (boxed) {
+        CHECK_EQ(boxed->shape, 2);
+        CHECK_NEAR(boxed->box[1], 18.0, 0.0);
+        CHECK_NEAR(boxed->direction.z, 1.0, 1e-12); // safe default
+    }
+
+    // Speed fallback to the weapon when the shot carries none.
+    gm::ShotResult no_shot_speed = shot;
+    no_shot_speed.projectile_speed = 0.0;
+    const std::optional<gm::ProjectileSpawn> fallback =
+        gm::projectile_spawn_from_shot(weapon, no_shot_speed, nullptr, 0, -1);
+    CHECK(fallback.has_value());
+    if (fallback) {
+        CHECK_NEAR(fallback->speed, 2.0, 1e-12);
+    }
+
+    // Negatives: rejected shot, hitscan shot, no usable speed anywhere.
+    gm::ShotResult rejected = shot;
+    rejected.ok = false;
+    CHECK(!gm::projectile_spawn_from_shot(weapon, rejected, &grenade, 0, 42)
+               .has_value());
+    gm::ShotResult hitscan = shot;
+    hitscan.projectile = false;
+    CHECK(!gm::projectile_spawn_from_shot(weapon, hitscan, &grenade, 0, 42)
+               .has_value());
+    gm::Weapon frozen = weapon;
+    frozen.projectile_speed = 0.0;
+    gm::ShotResult nan_speed = shot;
+    nan_speed.projectile_speed = std::numeric_limits<double>::quiet_NaN();
+    CHECK(!gm::projectile_spawn_from_shot(frozen, nan_speed, &grenade, 0, 42)
+               .has_value());
+
+    // --- runtime scenario: spawn -> bounce -> expire, posted exactly once ---
+    std::vector<TriSpec> floor;
+    add_quad(floor, {-100.0, 100.0, 0.0}, {-100.0, -100.0, 0.0},
+             {100.0, -100.0, 0.0}, {100.0, 100.0, 0.0});
+    const gm::CollisionWorld world = build_world(floor);
+
+    gm::Weapon dropper = make_weapon(0, 1, false);
+    dropper.projectile_speed = 182.0; // 2 units/tick
+    dropper.range = 0.0;
+    gm::Weapons drop_table({dropper});
+    gm::Arsenal drop_arsenal = make_arsenal(0x1, 0, 1);
+    const gm::ShotResult down =
+        gm::fire(drop_table, drop_arsenal, {0.0, 0.0, 25.0}, {0.0, 0.0, -1.0},
+                 empty_world);
+    CHECK(down.ok);
+
+    gm::Thing bouncy;
+    bouncy.id = 100;
+    bouncy.type = 28;
+    bouncy.movement_type = 6;
+    bouncy.damping = 0.8;
+    bouncy.collision_shape = 1;
+    bouncy.radius = 10.0;
+    bouncy.hits_left = 0;
+    bouncy.expire_ticks = 10;
+    bouncy.collide_event = 501;
+    bouncy.expire_event = 502;
+
+    const std::optional<gm::ProjectileSpawn> drop_spawn =
+        gm::projectile_spawn_from_shot(dropper, down, &bouncy, 0, 100);
+    CHECK(drop_spawn.has_value());
+    if (drop_spawn) {
+        gm::Projectiles projectiles;
+        gm::EventQueue queue;
+        CHECK_EQ(projectiles.spawn(*drop_spawn, &queue), 0);
+        CHECK(queue.empty()); // create_event is 0
+        std::size_t collide_events = 0;
+        std::size_t expire_events = 0;
+        for (int tick = 0; tick < 20; ++tick) {
+            projectiles.tick(1, no_targets, world, &queue);
+            const gm::EventParseResult drained = queue.drain();
+            for (const gm::Event& event : drained.events) {
+                if (event.id == 501) {
+                    ++collide_events;
+                } else if (event.id == 502) {
+                    ++expire_events;
+                }
+            }
+        }
+        CHECK_EQ(collide_events, 1U);
+        CHECK_EQ(expire_events, 1U);
+        const gm::ProjectileState* state = projectiles.by_thing_id(100);
+        CHECK(state != nullptr);
+        if (state != nullptr) {
+            CHECK(state->spent);
+            CHECK_EQ(state->life_left, 0);
+            CHECK_NEAR(state->position.z, 10.0, 1e-9);
+        }
+        // A spent projectile is skipped: no re-tick, no second expire.
+        projectiles.tick(5, no_targets, world, &queue);
+        CHECK(queue.empty());
+    }
+
+    // Manual path: projectile_step + post_projectile_events, still one expiry.
+    if (drop_spawn) {
+        gm::ProjectileState manual;
+        manual.spawn = *drop_spawn;
+        manual.spawn.hits_left = 0;
+        manual.spawn.life_ticks = 2;
+        manual.position = {0.0, 0.0, 0.0};
+        manual.direction = {1.0, 0.0, 0.0};
+        manual.speed = 0.0;
+        manual.life_left = 2;
+        gm::EventQueue manual_queue;
+        gm::ProjectileTickResult result = gm::projectile_step(
+            manual, no_targets, gm::CollisionWorld{}, 1);
+        CHECK(result.status == gm::ProjectileStatus::flying);
+        CHECK_EQ(gm::post_projectile_events(manual_queue, result), 0U);
+        result = gm::projectile_step(manual, no_targets, gm::CollisionWorld{}, 1);
+        CHECK(result.status == gm::ProjectileStatus::expired);
+        CHECK_EQ(result.events.size(), 1U);
+        CHECK_EQ(gm::post_projectile_events(manual_queue, result), 1U);
+        result = gm::projectile_step(manual, no_targets, gm::CollisionWorld{}, 1);
+        CHECK(result.status == gm::ProjectileStatus::expired);
+        CHECK(result.events.empty());
+        CHECK_EQ(gm::post_projectile_events(manual_queue, result), 0U);
+        const gm::EventParseResult drained = manual_queue.drain();
+        CHECK_EQ(drained.events.size(), 1U);
+        if (drained.events.size() == 1) {
+            CHECK_EQ(drained.events[0].id, 502);
+        }
+    }
+}
+
+
 int main() {
     test_fire_rate_quantisation();
     test_single_and_auto();
@@ -1916,6 +2139,7 @@ int main() {
     test_damage_gauge();
     test_negatives_synthetic();
     test_projectile_core();
+    test_projectile_shot_bridge();
     test_weapon_impact_event();
     test_spawned_thing_damage();
 

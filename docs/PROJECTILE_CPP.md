@@ -1,8 +1,10 @@
 # Снаряды: `movement_type == 6`
 
 Статус: ядро `game/projectile.*` реализовано и покрыто синтетическими тестами;
-загрузка полей `Thing` из `THING_TYPES` подключена. Игровой слой (спавн из
-`FIRE_*`, `Projectiles::tick` в общем цикле, blast/RGM) ещё не подключён.
+загрузка полей `Thing` из `THING_TYPES` подключена, и есть чистый мост
+`projectile_spawn_from_shot()`: успешный `ShotResult` (включая заряд) →
+`ProjectileSpawn` с полями `Thing`. Общий игровой цикл (`Projectiles::tick` в
+`main.cpp`, blast/RGM) по-прежнему не подключён.
 
 ## 1. Что доказано
 
@@ -78,6 +80,40 @@ projectiles.tick(1, targets, world, &queue);
 `projectile_spawn_from_thing()` копирует только proven-поля; таблица близости
 пока не заполняется в `Things::load` (см. §4).
 
+### Мост из оружия
+
+```cpp
+#include "game/projectile.h"
+#include "game/weapons.h"
+
+gm::ShotResult shot = gm::fire(table, arsenal, eye, dir, world, charge);
+if (auto spawn = gm::projectile_spawn_from_shot(weapon, shot, &thing_type,
+                                                 /*owner_player=*/0,
+                                                 /*owner_thing=*/thing_id,
+                                                 level_gravity)) {
+    projectiles.spawn(*spawn, &queue);
+}
+```
+
+`projectile_spawn_from_shot()` — чистая функция, ничего не тратит и не постит:
+
+* `speed = shot.projectile_speed / 91` (ед/тик): в `ShotResult` скорость уже
+  включает `charge*operand[9]*91`; если там 0/NaN, берётся
+  `weapon.projectile_speed`; если и он невалиден — `nullopt`;
+* `position = shot.origin` (дуло), а не `shot.point` (точка попадания луча);
+  `direction` — направление после разброса, нормализуется, нулевое заменяется
+  на `(0,0,1)`;
+* из `Thing` копируются `gravity`, `damping`, `collision_shape` (1/2),
+  `radius`, `box`, `hits_left`, `expire_ticks` и события `collide/expire/
+  destroy/timeout/create`;
+* без `Thing` действуют безопасные defaults: `thing_id = -1`, события 0,
+  сфера радиуса 0, `hits_left = 0` (без лимита), `life_ticks = 0` (без
+  lifetime), `gravity = damping = 0` — снаряд просто летит прямо;
+* `nullopt` для отклонённого выстрела, hitscan и отсутствия скорости.
+
+Мост не проверяет `movement_type`: вызывающий слой обязан брать снарядный тип
+(6), а RGM/homing (8) в него не входит.
+
 ## 4. Ограничения / что осталось
 
 1. **Таблица близости** (`THING_TYPES+0x218`): API и фильтры готовы, но
@@ -88,9 +124,11 @@ projectiles.tick(1, targets, world, &queue);
    приближение; точного box-sweep в `CollisionWorld` нет.
 3. **RGM / homing** (`movement_type == 8`) не реализован: другой финал
    (destroy), угол поворота и `+0x130`.
-4. **Игровой слой**: `Weapons::fire` пока возвращает `ShotResult`, но не
-   создаёт `ProjectileState`; `EventDispatcher`/blast нужно вызывать после
-   `ProjectileStatus::expired`/`bounced`.
+4. **Игровой слой**: `Weapons::fire` → `projectile_spawn_from_shot` →
+   `Projectiles::spawn/tick` собрано и покрыто тестом, но в `main.cpp` цикл
+   ещё не вызывает `Projectiles::tick`, а blast по `ProjectileStatus::bounced/
+   expired` и удаление (`Projectiles::remove`) остаются за вызывающим слоем.
+   `EventDispatcher` для событий снаряда тоже не подключён.
 5. `collide` при контакте и `expire` при hits/lifetime разделены; не постить
    collide на последнем попадании.
 
@@ -107,3 +145,17 @@ projectiles.tick(1, targets, world, &queue);
   отменяется;
 * `Projectiles::spawn/tick` и create/expire-события;
 * `projectile_spawn_from_thing` копирует speed/gravity/damping/shape/box.
+
+`test_projectile_shot_bridge` (там же):
+
+* `fire(..., charge)` → `projectile_spawn_from_shot`: `speed = 637/91 = 7`
+  ед/тик, позиция дула, нормализованное направление, `life_ticks/hits/events`
+  из `Thing`, `shape`/`box`, `level_gravity`;
+* без `Thing` — безопасные defaults (`thing_id=-1`, события 0, сфера r=0,
+  без hits/lifetime);
+* fallback скорости на `weapon.projectile_speed`, фолбэк направления на
+  `(0,0,1)`; `nullopt` для `!ok`, hitscan и невалидной скорости;
+* сценарий `Projectiles` + `EventQueue`: spawn → отскок (один collide) →
+  expire (один expire), повторные тики после `spent` событий не дают;
+* ручной путь `projectile_step` + `post_projectile_events`: expire постится
+  ровно один раз, повторный шаг возвращает пустой список событий.

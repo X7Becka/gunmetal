@@ -20,6 +20,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -29,7 +30,11 @@ namespace gm {
 
 class EventQueue;
 struct Thing;
+struct Weapon;     // game/weapons.h
+struct ShotResult; // game/weapons.h
 
+/// Fixed 91 Hz tick used by the projectile step (docs/PROJECTILE_CPP.md §2).
+inline constexpr double kProjectileTickHz = 91.0;
 inline constexpr double kProjectileGravityScale = 0.2; // 0x4752d0
 inline constexpr int kProjectileProximitySlots = 8;
 
@@ -148,6 +153,34 @@ ProjectileState projectile_spawn_from_thing(const Thing& thing,
                                             int owner_player,
                                             int owner_thing,
                                             double level_gravity = 0.0);
+
+/// Bridge one successful projectile shot to a `ProjectileSpawn` (the missing
+/// `FIRE_SOURCEPLAYER_THING` -> `0x46ea40` -> `0x46d8b0` -> `0x4752d0` link).
+///
+/// `shot.projectile_speed` is units/second (`THING_TYPES +0x10 * 91` plus
+/// `charge * operand[9] * 91`), while the runtime steps at 91 Hz, so
+/// `spawn.speed = shot.projectile_speed / 91` in units/tick.  When the shot
+/// carries no usable speed the weapon's `projectile_speed` is used instead.
+/// `spawn.position` is the shot origin (the muzzle), not the ray impact
+/// `shot.point`; `spawn.direction` is the post-spread direction, normalised.
+///
+/// `projectile_thing` is the `THING_TYPES` instance selected by the FIRE
+/// sub-script (`movement_type == 6`); it supplies the proven gravity, damping,
+/// collision shape/radius/box, hits, lifetime and event ids.  Its `id` becomes
+/// `spawn.thing_id` (the event `extra` field), so pass the runtime instance
+/// that will be registered in `Things`; `Projectiles::spawn` rejects a
+/// duplicate non-negative id.  Passing `nullptr` is legal and yields safe
+/// defaults: no events, sphere shape, radius 0, unlimited hits and no
+/// lifetime, so the projectile just flies straight until the caller removes
+/// it.  RGM/homing (`movement_type == 8`) is not part of this bridge.
+///
+/// Returns `nullopt` when the shot was rejected, was hitscan, or neither the
+/// shot nor the weapon provides a finite positive projectile speed.  The
+/// factory is pure: it consumes no ammo, posts no events and changes nothing.
+std::optional<ProjectileSpawn> projectile_spawn_from_shot(
+    const Weapon& weapon, const ShotResult& shot,
+    const Thing* projectile_thing, int owner_player, int owner_thing,
+    double level_gravity = 0.0);
 
 /// Deterministic owner of a set of projectiles, ordered by spawn index.
 class Projectiles {

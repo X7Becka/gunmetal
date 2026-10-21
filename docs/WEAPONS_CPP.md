@@ -110,6 +110,7 @@ struct Arsenal {
 | `Weapons::load(level_path)` | только таблицы; `initial()` пустой. |
 | `can_fire(table, arsenal, slot)` | слот 0..11, запись в таблице, бит маски, не идёт перезарядка, кулдаун 0, есть патроны/магазин. Возвращает `FireError`. |
 | `fire(table, arsenal, origin, dir, world, charge = 0)` | один выстрел. Сначала валидация (ничего не тратится при ошибке), затем списание, кулдаун, разброс, `raycast`, `ShotResult`; для THING скорость = `projectile_speed + charge*projectile_charge*91` (`0x46f0f0`), `charge < 0`/NaN — `bad_charge`. |
+| `projectile_spawn_from_shot(weapon, shot, thing, owner_player, owner_thing, level_gravity)` | чистый мост `game/projectile.h`: успешный снарядный `ShotResult` → `ProjectileSpawn`, `speed = shot.projectile_speed/91` ед/тик, позиция `origin`, направление после разброса; из `Thing` — gravity/damping/shape/box/hits/lifetime/события; без `Thing` — безопасные defaults; `nullopt` для отказа, hitscan и невалидной скорости. |
 | `blast_damage` / `blast_hull_damage` | целочисленный falloff `value*(radius-d)/radius`; `plate < 0` не масштабируется; `radius <= 0` → 0. |
 | `apply_blast` | сферический запрос `0x477280` без LOS; цели-игроки/THING, флаги bit0/2/3, событие на попадание. |
 | `apply_blast_damage` | `apply_blast` + `apply_damage_gauge` для игроков и `apply_thing_damage` для THING; возвращает hits с результатами. |
@@ -480,8 +481,10 @@ fallback’ом для типа без скорости. `fire(..., charge)` у�
 1. **Скорость и тип снаряда.** Цепочка `FIRE_SOURCEPLAYER_THING` →
    `0x46ea40` → `0x46d8b0` найдена; базовая скорость
    `THING_TYPES[type].+0x10 × 91` уже в `projectile_speed`, а
-   `fire(..., charge)` применяет `charge*operand[9]`. Осталось передать
-   заряд из игрового слоя.
+   `fire(..., charge)` применяет `charge*operand[9]`. Мост
+   `projectile_spawn_from_shot` переводит `ShotResult` в `ProjectileSpawn`
+   (`/91`, поля `Thing`). Осталось вызвать его из игрового слоя и завести
+   `Projectiles::tick` в общий цикл.
 2. **Hitscan.** Режим выбирается по первому условию подскрипта:
    BULLET/LASER → hitscan, THING → объект. Для BULLET/LASER найдены
    `0x478520`/`0x478be0`, дистанция, impact event, урон `L2`/`L4` и конус

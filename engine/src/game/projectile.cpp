@@ -8,10 +8,16 @@
 #include <utility>
 
 #include "game/events.h"
+#include "game/weapons.h"
 #include "world/things.h"
 
 namespace gm {
 namespace {
+
+// The projectile bridge converts Weapon units/second with this constant; keep
+// it in lockstep with the two other 91 Hz clocks.
+static_assert(kProjectileTickHz == kWeaponTickHz);
+static_assert(kProjectileTickHz == static_cast<double>(kThingTickHz));
 
 double finite_or(double value, double fallback) {
     return std::isfinite(value) ? value : fallback;
@@ -330,6 +336,57 @@ ProjectileState projectile_spawn_from_thing(const Thing& thing,
     state.hits_left = thing.hits_left;
     state.life_left = thing.expire_ticks;
     return state;
+}
+
+std::optional<ProjectileSpawn> projectile_spawn_from_shot(
+    const Weapon& weapon, const ShotResult& shot,
+    const Thing* projectile_thing, int owner_player, int owner_thing,
+    double level_gravity) {
+    if (!shot.ok || !shot.projectile) {
+        return std::nullopt;
+    }
+    // ShotResult.speed is units/second; the runtime steps in units/tick.
+    double speed_per_second = shot.projectile_speed;
+    if (!std::isfinite(speed_per_second) || !(speed_per_second > 0.0)) {
+        speed_per_second = weapon.projectile_speed;
+    }
+    if (!std::isfinite(speed_per_second) || !(speed_per_second > 0.0)) {
+        return std::nullopt;
+    }
+
+    ProjectileSpawn spawn;
+    spawn.owner_player = owner_player;
+    spawn.owner_thing = owner_thing;
+    spawn.position = shot.origin;
+    spawn.direction = safe_direction(shot.direction);
+    spawn.speed = speed_per_second / kProjectileTickHz;
+    spawn.level_gravity = finite_or(level_gravity, 0.0);
+    // Safe defaults: a pure flying point with no events and no lifetime.
+    spawn.shape = 1;
+    spawn.radius = 0.0;
+    spawn.box = {0.0, 0.0, 0.0};
+    spawn.hits_left = 0;
+    spawn.life_ticks = 0;
+
+    if (projectile_thing != nullptr) {
+        const Thing& thing = *projectile_thing;
+        spawn.thing_id = thing.id;
+        spawn.gravity = finite_or(thing.gravity, 0.0);
+        spawn.damping = finite_or(thing.damping, 0.0);
+        spawn.shape = thing.collision_shape == 2 ? 2 : 1;
+        spawn.radius = std::max(0.0, finite_or(thing.radius, 0.0));
+        spawn.box = {std::max(0.0, finite_or(thing.box[0], 0.0)),
+                     std::max(0.0, finite_or(thing.box[1], 0.0)),
+                     std::max(0.0, finite_or(thing.box[2], 0.0))};
+        spawn.hits_left = std::max(0, thing.hits_left);
+        spawn.life_ticks = std::max(0, thing.expire_ticks);
+        spawn.collide_event = thing.collide_event;
+        spawn.expire_event = thing.expire_event;
+        spawn.destroy_event = thing.destroy_event;
+        spawn.timeout_event = thing.timeout_event;
+        spawn.create_event = thing.create_event;
+    }
+    return spawn;
 }
 
 int Projectiles::spawn(ProjectileSpawn spawn, EventQueue* events) {
