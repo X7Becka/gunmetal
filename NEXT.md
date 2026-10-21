@@ -76,12 +76,20 @@
    шасси model index `+0x154` (не `+0x28`), `charge_rate × 0.91`,
    `muzzle = -1`, `THING_TYPES+0x010 = speed`, §12.4 — биты флагов
    сущностей 0..7 (игроки), 0x100 (не-игрок), 0x200 (one-shot).
-8. **Ввод игрока → выстрел.** API сквозной: `update_charge` → `fire(...,
-   state.charge)` → `GameRuntime::spawn_player_shot` (create-событие, id
-   `0x10000+`, CTest `weapons` проверяет 7 ед/тик и сдвиг). Осталось только
-   прочитать курок/слот из `input/controls.*` в игровом цикле и передать
-   направление/шаблон снаряда.
-
+8. **Ввод игрока → выстрел.** ✅ `game/trigger.{h,cpp}` (`PlayerWeaponInput`,
+   `update_player_weapon`) + `GameRuntime::update_player_weapon`; выстрел идёт
+   через `spawn_player_shot`. Доказано байтами: курок — действие 5 (`0x4bc558`
+   → `0x4bc8ec` `"Fire"`), маска `0x61f1e8[player]`, `FUN_004650a0` пишет
+   удержание в `player+0x3340` и фронт в `+0x3344`; кулдаун `+0x3318`
+   (`0x4453f8..0x445410`, гейт `0x445aa2`); подавление state-события
+   `0x445a4a` (`TEST [player+0x3340],0x20`); полуавтомат `0x445d85`
+   (фронт), автомат `0x445d64` (удержание); слот — биты `0x2000/0x4000` в
+   `+0x3344` (`0x445547`/`0x44564a`), `FUN_00445300` пишет `+0x3294` и
+   обнуляет `+0x2fa8`; заряд `0x445af6..0x445c63`, граница `1.0`
+   `0x445cf1`; патроны `0x445dfb/0x445e98`; muzzle `0x4458c4`. CTest
+   `player_trigger`. Гипотезы: сканирование соседних слотов, кулдаун по слотам
+   (в оригинале один `+0x3318`), mode 4/5 как непрерывный огонь. Детали —
+   `docs/WEAPONS_CPP.md` §3.6.
 9. **Урон через события, а не через `Weapons`.** ✅ Реестр
    `gm::EventBlastRegistry` (`events.{h,cpp}`) + `gm::apply_event_blast`;
    `ProjectileTickRecord` несёт `collide/expire/destroy_event`;
