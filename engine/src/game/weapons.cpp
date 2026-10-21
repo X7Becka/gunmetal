@@ -856,6 +856,85 @@ std::optional<Weapons> Weapons::load(const std::filesystem::path& level_path,
     return table;
 }
 
+ChargeOutcome update_charge(const Weapon& weapon, ChargeState& state,
+                            bool trigger_held, bool trigger_edge, int ticks) {
+    ChargeOutcome out;
+    if (ticks < 0) {
+        ticks = 0;
+    }
+    auto fire_now = [&out] { out.fire = true; };
+
+    // Mode 0 (0x445d85): cooldown is cleared by the caller; a shot happens only
+    // on the trigger edge.  Mode 1 (0x445d64) is the automatic one.
+    if (weapon.fire_mode == 0) {
+        if (trigger_edge) {
+            fire_now();
+        }
+        return out;
+    }
+    if (weapon.fire_mode == 1) {
+        if (trigger_held || trigger_edge) {
+            fire_now();
+        }
+        return out;
+    }
+
+    // Modes 2..6 (0x445adb..0x445d60).  Release latches the accumulated charge
+    // and resolves the shot (0x445af6..0x445b0e -> 0x445d43).
+    if (!trigger_held && !trigger_edge) {
+        state.charge = state.accumulated;
+        state.accumulated = 0.0;
+        if (state.charge > 0.0) {
+            fire_now();
+        }
+        return out;
+    }
+
+    // Already at or over full: `FCOMP 1.0` + `TEST AH,0x41` means "less or
+    // equal" is the safe branch, so exactly 1.0 does not fire (0x445cf1).
+    if (state.accumulated >= 1.0) {
+        if (state.accumulated == 1.0) {
+            return out;
+        }
+        state.accumulated = 1.0;
+        if (weapon.fire_mode == 3 || weapon.fire_mode == 5) {
+            state.charge = 1.0; // 0x445d37: full charge auto-shot
+        }
+        state.accumulated = 0.0; // 0x445d43
+        if (state.charge > 0.0) {
+            fire_now();
+        }
+        return out;
+    }
+
+    // Hold: `accumulated += dt * weapon[+0x00]` (0x445c43).
+    state.accumulated += static_cast<double>(ticks) * weapon.charge_rate;
+
+    // First accumulating tick posts the charge-start event (weapon[+0x34]) and
+    // mirrors weapon[+0x38] into player[+0x35c].
+    if (ticks > 0 && state.state_event == 0) {
+        out.started = true;
+        out.start_event = weapon.projectile_alt;
+        out.state_value = weapon.state;
+        state.state_event = weapon.state;
+    }
+
+    if (state.accumulated <= 1.0) {
+        return out;
+    }
+
+    // Overflow: clamp to full, auto-fire for modes 3/5, reset the accumulator.
+    state.accumulated = 1.0;
+    if (weapon.fire_mode == 3 || weapon.fire_mode == 5) {
+        state.charge = 1.0;
+    }
+    state.accumulated = 0.0;
+    if (state.charge > 0.0) {
+        fire_now();
+    }
+    return out;
+}
+
 bool can_fire(const Weapons& table, const Arsenal& arsenal, int slot,
               FireError* why) {
     auto fail = [why](FireError error) {

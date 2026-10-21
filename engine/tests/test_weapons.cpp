@@ -464,6 +464,121 @@ void test_spread_determinism() {
     CHECK_NEAR(straight.spread_y, 0.0, 0.0);
 }
 
+void test_charge_state() {
+    // 0x445d85: mode 0 ignores the hold, fires on the edge only.
+    gm::Weapon single = make_weapon(0, 1, false);
+    single.fire_mode = 0;
+    gm::ChargeState single_state;
+    CHECK(!gm::update_charge(single, single_state, true, false, 1).fire);
+    CHECK(gm::update_charge(single, single_state, true, true, 1).fire);
+    CHECK(!gm::update_charge(single, single_state, false, false, 1).fire);
+
+    // 0x445d64: mode 1 is automatic, fires on every held tick.
+    gm::Weapon automatic = make_weapon(0, 1, false);
+    automatic.fire_mode = 1;
+    gm::ChargeState auto_state;
+    CHECK(gm::update_charge(automatic, auto_state, true, false, 1).fire);
+    CHECK(gm::update_charge(automatic, auto_state, true, false, 1).fire);
+    CHECK(!gm::update_charge(automatic, auto_state, false, false, 1).fire);
+
+    // Modes 2..6: accumulation = ticks * charge_rate, no shot while charging.
+    // The charge-start event (weapon[+0x34]) is posted once and mirrors
+    // weapon[+0x38] into the dedup slot.
+    gm::Weapon charged = make_weapon(0, 1, false);
+    charged.fire_mode = 2;
+    charged.charge_rate = 0.05;
+    charged.state = 77;
+    charged.projectile_alt = 555;
+    gm::ChargeState state;
+    int shots = 0;
+    int starts = 0;
+    for (int tick = 0; tick < 10; ++tick) {
+        const gm::ChargeOutcome outcome =
+            gm::update_charge(charged, state, true, tick == 0, 1);
+        shots += outcome.fire ? 1 : 0;
+        if (outcome.started) {
+            ++starts;
+            CHECK_EQ(outcome.start_event, std::uint32_t(555));
+            CHECK_EQ(outcome.state_value, std::uint32_t(77));
+        }
+    }
+    CHECK_EQ(shots, 0);
+    CHECK_EQ(starts, 1);
+    CHECK_NEAR(state.accumulated, 0.5, 1e-15);
+    CHECK_NEAR(state.charge, 0.0, 0.0);
+    CHECK_EQ(state.state_event, std::uint32_t(77));
+
+    // Release latches the charge and resolves the shot.
+    const gm::ChargeOutcome release = gm::update_charge(charged, state, false, false, 1);
+    CHECK(release.fire);
+    CHECK_NEAR(state.charge, 0.5, 1e-15);
+    CHECK_NEAR(state.accumulated, 0.0, 0.0);
+
+    // The latched value is what `fire(..., charge)` turns into projectile speed
+    // (`0x46f0f0`): base + charge * operand[9] * 91.
+    charged.projectile_charge = 10.0;
+    gm::Weapons table({charged});
+    gm::CollisionWorld world = build_world(wall_x(50.0));
+    gm::Arsenal arsenal = make_arsenal(0x1, 0, 5);
+    const gm::ShotResult shot = gm::fire(table, arsenal, {0.0, 0.0, 0.0},
+                                         {1.0, 0.0, 0.0}, world, state.charge);
+    CHECK(shot.ok);
+    CHECK_NEAR(shot.projectile_speed, 100.0 + 0.5 * 10.0 * 91.0, 1e-12);
+
+    // Mode 3 auto-fires when accumulation overshoots 1.0; landing on exactly
+    // 1.0 stalls the charge in the original (`FCOMP` + `TEST AH,0x41` takes
+    // the "less or equal" branch, and the next tick hits the same compare).
+    // 0.25 is exact in binary, so four ticks land on 1.0 with no rounding.
+    gm::Weapon auto_charge = make_weapon(0, 1, false);
+    auto_charge.fire_mode = 3;
+    auto_charge.charge_rate = 0.25;
+    auto_charge.state = 9;
+    auto_charge.projectile_alt = 556;
+    gm::ChargeState full_state;
+    int full_shots = 0;
+    for (int tick = 0; tick < 4; ++tick) {
+        full_shots += gm::update_charge(auto_charge, full_state, true, tick == 0, 1).fire;
+    }
+    CHECK_EQ(full_shots, 0);
+    CHECK_NEAR(full_state.accumulated, 1.0, 0.0);
+    CHECK(!gm::update_charge(auto_charge, full_state, true, false, 1).fire);
+    CHECK_NEAR(full_state.accumulated, 1.0, 0.0);
+
+    // A rate that overshoots does fire: 0.3 + 0.3 + 0.3 + 0.3 = 1.2.
+    gm::Weapon overshoot = auto_charge;
+    overshoot.charge_rate = 0.3;
+    gm::ChargeState over_state;
+    int over_shots = 0;
+    for (int tick = 0; tick < 4; ++tick) {
+        over_shots += gm::update_charge(overshoot, over_state, true, tick == 0, 1).fire;
+    }
+    CHECK_EQ(over_shots, 1);
+    CHECK_NEAR(over_state.charge, 1.0, 0.0);
+    CHECK_NEAR(over_state.accumulated, 0.0, 0.0);
+    // After the auto-shot the accumulator restarts from zero; another hold
+    // tick only accumulates (the latched charge is not consumed by the shot).
+    const gm::ChargeOutcome next =
+        gm::update_charge(overshoot, over_state, true, false, 1);
+    CHECK(!next.fire);
+    CHECK_NEAR(over_state.charge, 1.0, 0.0);
+    CHECK_NEAR(over_state.accumulated, 0.3, 1e-15);
+
+    // A charged mode also fires on a held tick if a previous release latched a
+    // charge (player[+0x2fa0] is not cleared by the shot itself).
+    gm::ChargeState latched;
+    latched.charge = 1.0;
+    latched.accumulated = 1.5;
+    CHECK(gm::update_charge(charged, latched, true, false, 1).fire);
+    CHECK_NEAR(latched.accumulated, 0.0, 0.0);
+
+    // Negative ticks are clamped, charge rate 0 never charges.
+    gm::Weapon flat = charged;
+    flat.charge_rate = 0.0;
+    gm::ChargeState flat_state;
+    CHECK(!gm::update_charge(flat, flat_state, true, false, -5).fire);
+    CHECK_NEAR(flat_state.accumulated, 0.0, 0.0);
+}
+
 void test_projectile() {
     gm::Weapon weapon = make_weapon(0, 1, false);
     weapon.projectile_speed = 100.0;
@@ -1405,8 +1520,23 @@ void test_real_tables(const gm::Weapons& table) {
     CHECK(grenade != nullptr);
     if (grenade != nullptr) {
         CHECK(!grenade->hitscan);
+        CHECK_EQ(grenade->fire_mode, 2); // charge, fire on release
+        CHECK_EQ(grenade->fire_ticks, 40);
+        CHECK_NEAR(grenade->charge_rate, 0.015, 0.0); // 66.7 ticks to full
         CHECK_EQ(grenade->thing_type, 28);
         CHECK_NEAR(grenade->projectile_charge, 16.0, 0.0); // air, not water 12
+        // Real charge cycle: 66 held ticks reach 0.99, the release fires and
+        // `fire()` turns the latched value into +0.99*16*91 = +1441.4 units/s.
+        gm::ChargeState state;
+        int charged_shots = 0;
+        for (int tick = 0; tick < 66; ++tick) {
+            charged_shots +=
+                gm::update_charge(*grenade, state, true, tick == 0, 1).fire;
+        }
+        CHECK_EQ(charged_shots, 0);
+        CHECK_NEAR(state.accumulated, 0.99, 1e-12);
+        CHECK(gm::update_charge(*grenade, state, false, false, 1).fire);
+        CHECK_NEAR(state.charge, 0.99, 1e-12);
         CHECK(grenade->impact_blasts.empty());
         CHECK_EQ(grenade->expire_blasts.size(), 2U);
         if (grenade->expire_blasts.size() == 2) {
@@ -3605,6 +3735,7 @@ int main() {
     test_hitscan_hit_miss();
     test_spread_determinism();
     test_projectile();
+    test_charge_state();
     test_recoil();
     test_damage_and_armor();
     test_damage_gauge();

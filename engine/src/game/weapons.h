@@ -265,7 +265,42 @@ struct ShotResult {
     int cooldown_left = 0;       ///< fire_ticks of the shot
 };
 
+/// Charge accumulator for the charge-capable fire modes (`0x4453d0`).
+///
+/// Original fields: player `+0x2fa0` (`charge`, latched value consumed by the
+/// projectile spawner `0x46f0f0` as `speed = THING_TYPES[+0x10] +
+/// charge * operand[9]`) and `+0x2fa8` (`accumulated`, grows while the trigger
+/// is held by `dt * weapon[+0x00]`).  `state_event` is player `+0x35c`, the
+/// dedup slot for the charge-start event (`weapon[+0x34]`) and its state value
+/// (`weapon[+0x38]`).  The reset path `0x452730` (respawn) zeroes all three.
+struct ChargeState {
+    double charge = 0.0;      ///< player `+0x2fa0`, feed it to `fire(..., charge)`
+    double accumulated = 0.0; ///< player `+0x2fa8`, 0..1
+    std::uint32_t state_event = 0; ///< player `+0x35c`, 0 = not started
+};
+
+/// What one input tick of the charge state machine produced.
+struct ChargeOutcome {
+    bool fire = false;      ///< the trigger resolves into a shot this tick
+    bool started = false;   ///< charge-start event posted (`weapon[+0x34]`)
+    std::uint32_t start_event = 0;
+    std::uint32_t state_value = 0; ///< `weapon[+0x38]`, mirrors to `+0x35c`
+};
+
+/// One tick of `0x4453d0`'s charge branch.
+///
+/// `fire_mode` comes from `weapon.fire_mode` (`DEFINE_WEAPONS` d0 -> `+0x24`):
+/// 0 fires on the trigger edge, 1 fires every tick while held, 2..6 charge.
+/// Charged modes accumulate `ticks * weapon.charge_rate` while held and latch
+/// `charge = accumulated` on release; modes 3 and 5 additionally auto-fire at
+/// full charge with `charge = 1`.  Modes 2/4/6 only fire on release.  The
+/// 1.0 boundary is exact in the original (`FCOMP` against `1.0`, equal is
+/// "not yet over"), so a tick that lands on exactly 1.0 does not fire.
+ChargeOutcome update_charge(const Weapon& weapon, ChargeState& state,
+                            bool trigger_held, bool trigger_edge, int ticks);
+
 /// Immutable weapon/ammo tables plus the initial loadout from `GameState`.
+
 ///
 /// Typical load:
 ///
