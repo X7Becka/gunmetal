@@ -94,6 +94,11 @@
    (`apply_blast_damage` уже готов). Адреса полей — `docs/THING_FIELDS.md`,
    события — `docs/EVENTS.md` (`event_post 0x4795b0`, `generate_runner 0x45fa00`).
 
+10. **`SECTOR_STUFF` не перенесён.** `engine/src/res/sbt.cpp` делает
+    `skip(0x5800)` (256 × `0x58`, база `0x800b60`); `+0x50` — flags сектора.
+    Карта полей — `docs/THING_FIELDS.md`/`docs/WORLD_FIELDS.md`; нужен парсер
+    в `SbtLevel` + тест, затем использование в `WorldState`/рендере.
+
 ## Стоп-условия
 
 - Пользователь написал `STOP`/`пауза`.
