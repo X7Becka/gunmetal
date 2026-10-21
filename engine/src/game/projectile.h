@@ -1,8 +1,10 @@
 #pragma once
 
-// Clean-room runtime for movement-type 6 projectiles (`0x4752d0`).
+// Clean-room runtime for movement-type 6 projectiles (`0x4752d0`) plus a
+// separate minimal RGM/homing mode for movement-type 8 (`0x475930`).
 //
-// The original moves one SoA record with a semi-implicit Euler step:
+// The original moves one movement-type 6 SoA record with a semi-implicit
+// Euler step:
 //
 //     vz += 0.2 * type.gravity * level_gravity * dt
 //     desired = pos + speed*dt*dir;  desired.z -= vz*dt
@@ -13,9 +15,14 @@
 // player/thing hit check is the proximity table (`THING_TYPES+0x218`), done
 // before movement and only for grenade-like types (docs/PROJECTILE_CPP.md).
 //
+// The RGM branch is opt-in through `ProjectileState::homing`.  It has no
+// gravity, damping, hits counter or proximity table: it turns toward a
+// caller-supplied target, steps `speed * dt` and destroys (never expires) on
+// world contact or when the target is reached (docs/PROJECTILE_CPP.md §6).
+//
 // Units: `speed` is world units per 91 Hz tick, `vertical_speed` is units per
-// tick, `dt` is an integer tick count.  The layer above converts to/from
-// units/second when talking to Weapon.
+// tick, `homing_turn` is radians per tick, `dt` is an integer tick count.  The
+// layer above converts to/from units/second when talking to Weapon.
 
 #include <array>
 #include <cstddef>
@@ -70,6 +77,18 @@ struct ProjectileSpawn {
     std::uint32_t timeout_event = 0;
     std::uint32_t create_event = 0;
     std::vector<ProximityEntry> proximity; ///< 0x4752d0 reads entry 0 only
+
+    // RGM / homing branch (`movement_type == 8`, `0x475930`).  The target is
+    // supplied by the calling layer: `target_index` uses the same slot scheme
+    // as ProjectileTargets (players 0..7, things 8+index), while
+    // `target_point` is a caller-managed world position.  When both are set
+    // the index wins; `target_point` is the fallback.
+    bool homing = false;                ///< select the separate homing step
+    int target_index = -1;              ///< 0..7 player, 8+index thing, -1 none
+    Vec3d target_point{};               ///< fallback target position
+    bool has_target_point = false;      ///< `target_point` is valid
+    bool destroy_on_contact = true;     ///< destroy on impact/target (never expire)
+    double homing_turn = 0.0;           ///< max turn, radians per tick (0 = snap)
 };
 
 struct ProjectileState {
@@ -86,6 +105,17 @@ struct ProjectileState {
     int last_target = -1;          ///< +0x460
     bool spent = false;            ///< expire/destroy already emitted
     bool dead = false;             ///< removed from the world
+
+    // Runtime copy of the RGM/homing configuration.  `target_point` may be
+    // refreshed by the caller between ticks (Projectiles::by_thing_id) so a
+    // homing round can track a moving point; a target index is resolved from
+    // ProjectileTargets on every step instead.
+    bool homing = false;
+    int target_index = -1;
+    Vec3d target_point{};
+    bool has_target_point = false;
+    bool destroy_on_contact = true;
+    double homing_turn = 0.0;
 };
 
 enum class ProjectileStatus : std::uint8_t {
@@ -135,6 +165,13 @@ struct ProjectileTargets {
 /// Advance one projectile by `dt` ticks.  The state is updated in place; the
 /// result mirrors the observable fields and carries the events in post order.
 ///
+/// When `state.homing` is set, the separate RGM step is used: lifetime and
+/// timeout still run first, then the heading turns toward `target_index`
+/// (players 0..7, things 8+index from `targets`) or `target_point`, capped at
+/// `homing_turn * dt` radians, and the round moves `speed * dt`.  Reaching the
+/// target or touching the world with `destroy_on_contact` emits the destroy
+/// event once and marks the state `dead`; the expire event is not used.
+///
 /// A floor contact that cannot separate within one gravity step is a rest, not
 /// a hit (docs/PROJECTILE_CPP.md §1.7): the centre is pushed out along the
 /// normal, the vertical speed is cleared and the status is `flying`, so the
@@ -177,7 +214,9 @@ ProjectileState projectile_spawn_from_thing(const Thing& thing,
 /// duplicate non-negative id.  Passing `nullptr` is legal and yields safe
 /// defaults: no events, sphere shape, radius 0, unlimited hits and no
 /// lifetime, so the projectile just flies straight until the caller removes
-/// it.  RGM/homing (`movement_type == 8`) is not part of this bridge.
+/// it.  `movement_type == 8` sets `spawn.homing`; the target and turn rate are
+/// still supplied by the calling layer, and the round flies straight until
+/// they are.
 ///
 /// Returns `nullopt` when the shot was rejected, was hitscan, or neither the
 /// shot nor the weapon provides a finite positive projectile speed.  The

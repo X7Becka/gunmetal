@@ -173,6 +173,120 @@ ProjectileTickResult expire(ProjectileState& state) {
     return result;
 }
 
+/// Resolve the caller-supplied RGM target.  A live target index wins over the
+/// point; an index that is not present in `targets` falls back to the point.
+bool homing_target(const ProjectileState& state, const ProjectileTargets& targets,
+                   Vec3d& out) {
+    if (state.target_index >= 0) {
+        if (state.target_index < 8) {
+            const auto slot = static_cast<std::size_t>(state.target_index);
+            if (slot < targets.player_positions.size() &&
+                finite(targets.player_positions[slot])) {
+                out = targets.player_positions[slot];
+                return true;
+            }
+        } else {
+            const auto slot = static_cast<std::size_t>(state.target_index - 8);
+            if (slot < targets.thing_positions.size() &&
+                finite(targets.thing_positions[slot])) {
+                out = targets.thing_positions[slot];
+                return true;
+            }
+        }
+    }
+    if (state.has_target_point && finite(state.target_point)) {
+        out = state.target_point;
+        return true;
+    }
+    return false;
+}
+
+/// Rotate `from` toward `to` by at most `max_angle` radians (Rodrigues).
+/// The shortest arc is used; an antiparallel pair gets a deterministic
+/// perpendicular axis so the result never depends on floating-point noise.
+Vec3d turn_toward(Vec3d from, Vec3d to, double max_angle) {
+    from = safe_direction(from);
+    to = safe_direction(to);
+    const double cos_angle = std::clamp(dot(from, to), -1.0, 1.0);
+    const double angle = std::acos(cos_angle);
+    if (angle <= 1e-12 || max_angle >= angle) {
+        return to;
+    }
+    if (!(max_angle > 0.0)) {
+        return from;
+    }
+    Vec3d axis = cross(from, to);
+    if (length(axis) < 1e-12) {
+        const Vec3d reference =
+            std::abs(from.z) < 0.9 ? Vec3d{0.0, 0.0, 1.0}
+                                   : Vec3d{0.0, 1.0, 0.0};
+        axis = cross(from, reference);
+    }
+    axis = safe_direction(axis);
+    const double c = std::cos(max_angle);
+    const double s = std::sin(max_angle);
+    return safe_direction(from * c + cross(axis, from) * s +
+                          axis * (dot(axis, from) * (1.0 - c)));
+}
+
+/// RGM final (`0x475930`): destroy, never expire, and post +0x1f8 once.
+ProjectileTickResult homing_destroy(ProjectileState& state, const Vec3d& position) {
+    state.position = position;
+    state.spent = true;
+    state.dead = true;
+    ProjectileTickResult result = make_result(state, ProjectileStatus::destroyed);
+    add_event(result, state.spawn.destroy_event, state.position,
+              event_extra(state.spawn.thing_id));
+    return result;
+}
+
+/// One homing tick.  Unlike 0x4752d0 this branch has no gravity, damping,
+/// hits counter or proximity table: it turns toward the target (instantly when
+/// `homing_turn <= 0`, otherwise by at most `homing_turn * dt` radians), steps
+/// `speed * dt` along the new heading and destroys on world contact or when
+/// the target is reached.  Without a target it keeps flying straight.
+ProjectileTickResult homing_step(ProjectileState& state,
+                                 const ProjectileTargets& targets,
+                                 const CollisionWorld& world, int dt) {
+    const double ticks = static_cast<double>(dt);
+    Vec3d target{};
+    const bool has_target = homing_target(state, targets, target);
+    double distance = 0.0;
+    if (has_target) {
+        const Vec3d to_target = target - state.position;
+        distance = length(to_target);
+        const Vec3d desired = safe_direction(to_target);
+        state.direction = state.homing_turn > 0.0
+                              ? turn_toward(state.direction, desired,
+                                            state.homing_turn * ticks)
+                              : desired;
+
+        const double travel = std::max(0.0, state.speed) * ticks;
+        const bool aligned = distance <= 1e-9 ||
+                             (travel > 0.0 &&
+                              dot(state.direction, desired) > 0.0);
+        if (aligned && (distance <= 1e-9 || distance <= travel)) {
+            return homing_destroy(state, target);
+        }
+    }
+
+    const Vec3d displacement = state.direction * (state.speed * ticks);
+    const double travel = length(displacement);
+    const double radius = collision_radius(state.spawn);
+    if (state.destroy_on_contact && travel > 1e-12 && radius > 0.0 &&
+        std::isfinite(travel)) {
+        const std::optional<SphereHit> hit =
+            world.sphere_cast(state.position, displacement, radius, travel);
+        if (hit.has_value()) {
+            // 0x475930 advances to the contact point and calls the destroy
+            // record (`0x470290`); it does not run the 0x4703a0 expire path.
+            return homing_destroy(state, hit->centre);
+        }
+    }
+    state.position = state.position + displacement;
+    return make_result(state, ProjectileStatus::flying);
+}
+
 } // namespace
 
 ProjectileTickResult projectile_step(ProjectileState& state,
@@ -206,6 +320,12 @@ ProjectileTickResult projectile_step(ProjectileState& state,
                       event_extra(state.spawn.thing_id));
             return result;
         }
+    }
+
+    // RGM (`movement_type == 8`) is a separate movement branch in 0x470c70:
+    // it does not consult the proximity table and never expires on a hit.
+    if (state.homing) {
+        return homing_step(state, targets, world, dt);
     }
 
     // Proximity is checked at the current position, before any movement.
@@ -364,6 +484,12 @@ ProjectileState projectile_spawn_from_thing(const Thing& thing,
     state.damping = thing.damping;
     state.hits_left = thing.hits_left;
     state.life_left = thing.expire_ticks;
+    // 0x475930 is selected by movement_type 8.  The target itself is still
+    // the caller's job; until it is supplied the round flies straight.
+    state.spawn.homing = thing.movement_type == 8;
+    state.homing = state.spawn.homing;
+    state.spawn.destroy_on_contact = true;
+    state.destroy_on_contact = true;
     return state;
 }
 
@@ -415,6 +541,10 @@ std::optional<ProjectileSpawn> projectile_spawn_from_shot(
         spawn.destroy_event = thing.destroy_event;
         spawn.timeout_event = thing.timeout_event;
         spawn.create_event = thing.create_event;
+        // RGM is launched through ADD_THING type 32; its movement_type is the
+        // selector for the separate 0x475930 step.  The target (and an
+        // optional turn rate) still comes from the calling layer.
+        spawn.homing = thing.movement_type == 8;
     }
     return spawn;
 }
@@ -431,6 +561,12 @@ int Projectiles::spawn(ProjectileSpawn spawn, EventQueue* events) {
     state.damping = finite_or(state.spawn.damping, 0.0);
     state.hits_left = state.spawn.hits_left;
     state.life_left = state.spawn.life_ticks;
+    state.homing = state.spawn.homing;
+    state.target_index = state.spawn.target_index;
+    state.target_point = state.spawn.target_point;
+    state.has_target_point = state.spawn.has_target_point;
+    state.destroy_on_contact = state.spawn.destroy_on_contact;
+    state.homing_turn = state.spawn.homing_turn;
     if (events != nullptr && state.spawn.create_event != 0) {
         events->post_generate(
             static_cast<std::int32_t>(state.spawn.create_event), 0,

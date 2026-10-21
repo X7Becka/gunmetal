@@ -1,16 +1,19 @@
-# Снаряды: `movement_type == 6`
+# Снаряды: `movement_type == 6` и RGM (`8`)
 
 Статус: ядро `game/projectile.*` реализовано и покрыто синтетическими тестами;
 загрузка полей `Thing` из `THING_TYPES` подключена, и есть чистый мост
 `projectile_spawn_from_shot()`: успешный `ShotResult` (включая заряд) →
-`ProjectileSpawn` с полями `Thing`. Общий игровой цикл (`Projectiles::tick` в
-`main.cpp`, blast/RGM) по-прежнему не подключён.
+`ProjectileSpawn` с полями `Thing`. Отдельный минимальный режим RGM/homing
+(`movement_type == 8`) реализован в `projectile_step` и включается флагом
+`ProjectileState::homing`; цель задаёт вызывающий слой. Общий игровой цикл
+(`Projectiles::tick` в `main.cpp`, blast, наведение на реальную цель) по-прежнему
+не подключён.
 
 ## 1. Что доказано
 
-Снаряд — запись `Thing`, которую двигает `0x470c70` → `switch(+0x1b4)` →
-`case 6` → `0x4752d0`. Ветка RGM (`movement_type == 8`, `0x475930`), дроны и
-общая объектная система сюда не входят.
+Снаряд типа 6 — запись `Thing`, которую двигает `0x470c70` → `switch(+0x1b4)` →
+`case 6` → `0x4752d0`. Ветка RGM (`movement_type == 8`, `0x475930`) — отдельный
+шаг, описанный в §6; дроны и общая объектная система сюда не входят.
 
 Алгоритм одного тика (`dt` — целое число тиков 91 Гц):
 
@@ -140,8 +143,27 @@ if (auto spawn = gm::projectile_spawn_from_shot(weapon, shot, &thing_type,
   lifetime), `gravity = damping = 0` — снаряд просто летит прямо;
 * `nullopt` для отклонённого выстрела, hitscan и отсутствия скорости.
 
-Мост не проверяет `movement_type`: вызывающий слой обязан брать снарядный тип
-(6), а RGM/homing (8) в него не входит.
+Мост смотрит только на `movement_type`: для 8 он выставляет `spawn.homing`, но
+не ищет цель. Цель (`target_index` или `target_point`), `homing_turn` и
+`destroy_on_contact` задаёт вызывающий слой; без цели RGM летит прямо.
+
+### RGM / homing
+
+```cpp
+gm::ProjectileSpawn spawn = /* ... из projectile_spawn_from_shot ... */;
+spawn.homing = true;             // или movement_type == 8 в Thing
+spawn.target_index = 0;          // игрок 0; вещь = 8 + index
+// либо: spawn.target_point = aim; spawn.has_target_point = true;
+spawn.homing_turn = 0.2;         // радиан за тик; 0 = мгновенный разворот
+spawn.destroy_on_contact = true; // контакт с миром = destroy, не expire
+int index = projectiles.spawn(spawn, &queue);
+```
+
+`target_index` разрешается из `ProjectileTargets` на каждом шаге (игроки
+`0..7`, вещи `8+index`), поэтому движущаяся цель подхватывается, если вызывающий
+слой обновляет spans. `target_point` — снимок, его можно обновлять между
+тиками через `Projectiles::by_thing_id(...)`. Если заданы оба, побеждает
+индекс; если индекс отсутствует в `targets`, используется точка.
 
 ## 4. Ограничения / что осталось
 
@@ -151,13 +173,18 @@ if (auto spawn = gm::projectile_spawn_from_shot(weapon, shot, &thing_type,
    гранаты 28 тест фиксирует `event=-30095, high=20`; у ракеты таблица пуста.
 2. **Shape 2**: `sphere_cast` с радиусом `max(box)` — консервативное
    приближение; точного box-sweep в `CollisionWorld` нет.
-3. **RGM / homing** (`movement_type == 8`) не реализован: другой финал
-   (destroy), угол поворота и `+0x130`.
+3. **RGM / homing** (`movement_type == 8`) реализован минимально (§6):
+   наведение на точку/индекс, плавный или мгновенный поворот, destroy на
+   контакте/достижении. Точная x87-математика `0x475930` (yaw/pitch-клэмп,
+   `+0x130`, проверка видимости цели, финальный `FUN_00456de0`) не
+   воспроизведена; `homing_turn` задаёт вызывающий слой.
 4. **Игровой слой**: `Weapons::fire` → `projectile_spawn_from_shot` →
    `Projectiles::spawn/tick` собрано и покрыто тестом, но в `main.cpp` цикл
    ещё не вызывает `Projectiles::tick`, а blast по `ProjectileStatus::bounced/
    expired` и удаление (`Projectiles::remove`) остаются за вызывающим слоем.
-   `EventDispatcher` для событий снаряда тоже не подключён.
+   Для RGM не подключены поиск реальной цели (`weapons.cpp`/AI) и blast по
+   `ProjectileStatus::destroyed`. `EventDispatcher` для событий снаряда тоже
+   не подключён.
 5. `collide` при контакте и `expire` при hits/lifetime разделены; не постить
    collide на последнем попадании.
 6. **Условие collide** в C++ — `dt <= |vz_old| + speed_old` (тики слева,
@@ -228,3 +255,69 @@ if (auto spawn = gm::projectile_spawn_from_shot(weapon, shot, &thing_type,
 * `remove(…, &queue)` постит destroy ровно один раз, второй `remove` —
   `false` и без событий, `tick` после `dead` ничего не постит;
 * удаление до истечения lifetime — тоже ровно один destroy.
+
+`test_projectile_rgm_homing` (там же):
+
+* цель сбоку (`target_point = (40,20,0)`), `speed=2`, `homing_turn=0.2`:
+  уже на первом тике `direction` уходит от `+x` к `+y`, расстояние до цели
+  не растёт, за 100 тиков наступает `destroyed`;
+* при достижении позиция равна цели, `dead && spent`, ровно одно событие
+  `destroy_event` (не `expire_event`), повторный шаг молчит;
+* `target_index = 8` берёт позицию вещи из `ProjectileTargets` и игнорирует
+  ложный `target_point` позади;
+* без цели — прямое движение (`x += speed*dt`), без событий;
+* при `homing == false` поля наведения инертны: тип 6 летит по-старому;
+* контакт со стеной через `Projectiles::tick`: destroy в точке контакта
+  (`x ≈ 19` при стене `x=20`, радиусе 1), один destroy, `remove()` — `false`;
+* `projectile_spawn_from_thing` включает `homing` для `movement_type == 8`,
+  но не выдумывает цель (`target_index == -1`, `has_target_point == false`).
+
+## 6. RGM / homing (`movement_type == 8`, `0x475930`)
+
+Это отдельная функция, а не `case 6`; всё ниже — из декомпиляции `0x475930` и
+её вызовов. Цель хранится в runtime-поле `+0xa4` (`DAT_007ac460`), её позиция
+берётся через `FUN_004277cd`; индекс игрока — `0..7`, вещи — `8+index`
+(допустимый диапазон оригинала `0..0x10b`). При `param_4 != 0` сначала
+выполняется проверка видимости (`FUN_0043c51f`): если цель перекрыта,
+направление на этом тике не обновляется.
+
+Наведение: `dir = normalize(target - pos)`, затем два угла (yaw/pitch)
+плавно подтягиваются к углам этого вектора с шагом `dt * turn_rate`; разница
+нормализуется через π, после чего направление пересобирается
+(`FUN_0041e360`). Шаг: `desired = pos + speed*dt*dir + accumulated_offset`
+(накопленные смещения обнуляются), затем swept-запрос `FUN_0043c51f`. Если
+параметр контакта меньше `speed*dt`, оригинал делает `pos += dir*t`,
+вызывает `FUN_00470290` (**destroy**) и возвращает 0; иначе синхронизирует
+ориентацию/позицию и возвращает 1. Гравитации, `damping`, `hits` и таблицы
+близости в этой ветке нет; финал — destroy (`0x470290`), а не expire
+(`0x4703a0`).
+
+Минимальная C++-реализация:
+
+* поля `homing`, `target_index`, `target_point`, `has_target_point`,
+  `destroy_on_contact`, `homing_turn` есть в `ProjectileSpawn` и
+  `ProjectileState`; `Projectiles::spawn` копирует их, адаптеры
+  `projectile_spawn_from_thing`/`projectile_spawn_from_shot` включают
+  `homing` при `Thing::movement_type == 8`;
+* `homing_step` вызывается после lifetime/timeout и до proximity; таблица
+  близости, `hits_left` и `collide_event` не используются;
+* `target_index` разрешается из `ProjectileTargets` каждый тик (игроки
+  `0..7`, вещи `8+index`), `target_point` — запасная цель/снимок; если
+  индекс задан, но отсутствует в `targets`, берётся точка;
+* `homing_turn > 0` — максимум `homing_turn*dt` радиан за шаг (Родриг,
+  кратчайшая дуга, детерминированная ось для антипараллельных векторов);
+  `homing_turn <= 0` — мгновенный разворот на цель;
+* шаг `speed*dt`; при `distance <= speed*dt` и совпадении направления
+  (или `distance == 0`) — destroy в целевой точке; без цели — прямое
+  движение;
+* при `destroy_on_contact` контакт `CollisionWorld::sphere_cast` даёт destroy
+  в `hit->centre` (радиус сферы/`max(box)`); `false` означает «пролетать
+  сквозь уровень», достижение цели всё равно уничтожает;
+* destroy ставит `spent` и `dead`, постит только `+0x1f8`; `Projectiles::tick`
+  дальше запись пропускает, `Projectiles::remove` возвращает `false`.
+
+Отличия от оригинала (осознанные упрощения): нет проверки видимости цели,
+точной x87-математики yaw/pitch (включая поле `+0x130`), `FUN_00456de0` и
+накопленных смещений; поворот считается по вектору, а не по двум углам, поэтому
+на больших `dt` дуга может отличаться. Цель и `homing_turn` в игре пока никто
+не заполняет — это работа следующего слоя.

@@ -1961,6 +1961,176 @@ void test_projectile_core() {
 }
 
 
+void test_projectile_rgm_homing() {
+    const gm::ProjectileTargets no_targets;
+    const gm::CollisionWorld empty_world;
+
+    // RGM (`movement_type == 8`): the target is to the side, so the round has
+    // to turn.  A 0.2 rad/tick cap gives a visible arc, and the reach ends in
+    // destroy (the +0x1f8 record), never expire (+0x1ec).
+    gm::ProjectileState rgm;
+    rgm.spawn.thing_id = 77;
+    rgm.spawn.destroy_event = 501;
+    rgm.spawn.expire_event = 502;
+    rgm.homing = true;
+    rgm.destroy_on_contact = true;
+    rgm.homing_turn = 0.2;
+    rgm.target_point = {40.0, 20.0, 0.0};
+    rgm.has_target_point = true;
+    rgm.position = {0.0, 0.0, 0.0};
+    rgm.direction = {1.0, 0.0, 0.0};
+    rgm.speed = 2.0;
+
+    double previous_distance = 44.721359549995796; // |(40,20,0)|
+    bool destroyed = false;
+    gm::ProjectileTickResult last;
+    for (int tick = 0; tick < 100; ++tick) {
+        last = gm::projectile_step(rgm, no_targets, empty_world, 1);
+        const double distance =
+            gm::length(gm::Vec3d{40.0, 20.0, 0.0} - rgm.position);
+        CHECK(distance <= previous_distance + 1e-9);
+        previous_distance = distance;
+        if (tick == 0) {
+            // The first tick already rotates toward +y instead of flying
+            // straight along +x.
+            CHECK(rgm.direction.x < 1.0);
+            CHECK(rgm.direction.x > 0.0);
+            CHECK(rgm.direction.y > 0.0);
+        }
+        if (last.status == gm::ProjectileStatus::destroyed) {
+            destroyed = true;
+            break;
+        }
+        CHECK(last.status == gm::ProjectileStatus::flying);
+        CHECK(last.events.empty());
+    }
+    CHECK(destroyed);
+    CHECK(rgm.dead);
+    CHECK(rgm.spent);
+    CHECK_NEAR(rgm.position.x, 40.0, 1e-9);
+    CHECK_NEAR(rgm.position.y, 20.0, 1e-9);
+    CHECK_NEAR(rgm.position.z, 0.0, 1e-12);
+    CHECK_EQ(last.events.size(), 1U);
+    if (last.events.size() == 1) {
+        CHECK_EQ(last.events[0].id, 501U); // destroy, not 502 (expire)
+    }
+    // Once dead, further steps are silent and produce no second destroy.
+    const gm::ProjectileTickResult after =
+        gm::projectile_step(rgm, no_targets, empty_world, 1);
+    CHECK(after.status == gm::ProjectileStatus::destroyed);
+    CHECK(after.events.empty());
+
+    // target_index resolves through ProjectileTargets (things start at slot
+    // 8).  The decoy target_point is behind the round, so using it instead of
+    // the index would immediately turn the direction to -x.
+    const std::array<gm::Vec3d, 1> thing_pos = {{gm::Vec3d{0.0, 30.0, 0.0}}};
+    gm::ProjectileTargets targets;
+    targets.thing_positions = thing_pos;
+    gm::ProjectileState indexed;
+    indexed.homing = true;
+    indexed.homing_turn = 0.2;
+    indexed.target_index = 8;
+    indexed.target_point = {-100.0, 0.0, 0.0};
+    indexed.has_target_point = true;
+    indexed.position = {0.0, 0.0, 0.0};
+    indexed.direction = {1.0, 0.0, 0.0};
+    indexed.speed = 2.0;
+    const gm::ProjectileTickResult index_tick =
+        gm::projectile_step(indexed, targets, empty_world, 1);
+    CHECK(index_tick.status == gm::ProjectileStatus::flying);
+    CHECK(indexed.direction.x > 0.0);
+    CHECK(indexed.direction.y > 0.0);
+    CHECK(indexed.position.y > 0.0);
+
+    // Without a target the same branch keeps the current heading: straight
+    // flight, no events, no contact.
+    gm::ProjectileState lost;
+    lost.spawn.destroy_event = 503;
+    lost.spawn.expire_event = 504;
+    lost.homing = true;
+    lost.destroy_on_contact = true;
+    lost.target_index = -1;
+    lost.homing_turn = 0.5;
+    lost.position = {0.0, 0.0, 0.0};
+    lost.direction = {1.0, 0.0, 0.0};
+    lost.speed = 2.0;
+    for (int tick = 0; tick < 10; ++tick) {
+        const gm::ProjectileTickResult r =
+            gm::projectile_step(lost, no_targets, empty_world, 1);
+        CHECK(r.status == gm::ProjectileStatus::flying);
+        CHECK(r.events.empty());
+    }
+    CHECK_NEAR(lost.position.x, 20.0, 1e-12);
+    CHECK_NEAR(lost.position.y, 0.0, 1e-12);
+    CHECK_NEAR(lost.position.z, 0.0, 1e-12);
+
+    // The homing fields are inert without `homing`: movement_type 6 keeps the
+    // old straight/gravity/hits behavior even when a target is present.
+    gm::ProjectileState legacy;
+    legacy.homing = false;
+    legacy.homing_turn = 1.0;
+    legacy.has_target_point = true;
+    legacy.target_point = {0.0, 50.0, 0.0};
+    legacy.position = {0.0, 0.0, 0.0};
+    legacy.direction = {1.0, 0.0, 0.0};
+    legacy.speed = 2.0;
+    const gm::ProjectileTickResult legacy_tick =
+        gm::projectile_step(legacy, no_targets, empty_world, 1);
+    CHECK(legacy_tick.status == gm::ProjectileStatus::flying);
+    CHECK_NEAR(legacy.position.x, 2.0, 1e-12);
+    CHECK_NEAR(legacy.position.y, 0.0, 1e-12);
+
+    // World contact: destroy at the contact point, not expire, and exactly
+    // one destroy record through the owner.
+    const gm::CollisionWorld wall = build_world(wall_x(20.0));
+    gm::ProjectileSpawn spawn;
+    spawn.thing_id = 31;
+    spawn.position = {0.0, 0.0, 0.0};
+    spawn.direction = {1.0, 0.0, 0.0};
+    spawn.speed = 5.0;
+    spawn.radius = 1.0;
+    spawn.homing = true;
+    spawn.target_point = {100.0, 0.0, 0.0};
+    spawn.has_target_point = true;
+    spawn.destroy_on_contact = true;
+    spawn.collide_event = 603;
+    spawn.expire_event = 602;
+    spawn.destroy_event = 601;
+    gm::Projectiles projectiles;
+    gm::EventQueue queue;
+    CHECK_EQ(projectiles.spawn(spawn, &queue), 0);
+    CHECK(queue.empty());
+    projectiles.tick(10, no_targets, wall, &queue);
+    const gm::EventParseResult contact = queue.drain();
+    CHECK_EQ(contact.events.size(), 1U);
+    if (contact.events.size() == 1) {
+        CHECK_EQ(contact.events[0].id, 601); // neither expire nor collide
+    }
+    gm::ProjectileState* hit = projectiles.by_thing_id(31);
+    CHECK(hit != nullptr);
+    if (hit != nullptr) {
+        CHECK(hit->dead);
+        CHECK(hit->spent);
+        CHECK_NEAR(hit->position.x, 19.0, 1e-6);
+    }
+    CHECK(!projectiles.remove(31, &queue)); // destroy already posted once
+    CHECK(queue.empty());
+    projectiles.tick(1, no_targets, wall, &queue);
+    CHECK(queue.empty());
+
+    // The Thing adapter selects the homing branch from movement_type 8; the
+    // target still has to come from the caller.
+    gm::Thing rgm_type;
+    rgm_type.id = 78;
+    rgm_type.movement_type = 8;
+    rgm_type.destroy_event = 505;
+    const gm::ProjectileState from_type = gm::projectile_spawn_from_thing(
+        rgm_type, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 2.0, 0, -1);
+    CHECK(from_type.homing);
+    CHECK(!from_type.has_target_point);
+    CHECK(from_type.target_index == -1);
+}
+
 void test_projectile_shot_bridge() {
     const gm::CollisionWorld empty_world;
     const gm::ProjectileTargets no_targets;
@@ -2653,6 +2823,7 @@ int main() {
     test_damage_gauge();
     test_negatives_synthetic();
     test_projectile_core();
+    test_projectile_rgm_homing();
     test_projectile_shot_bridge();
     test_projectile_floor_bounces();
     test_projectile_accumulated_dt();
