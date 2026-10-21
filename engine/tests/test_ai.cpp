@@ -1864,6 +1864,217 @@ void test_move_step_standoff_retreat_wall() {
     CHECK_EQ(ai.stats().retreat_steps, 20u); // 0 -> -40 at 2/tick, then blocked
 }
 
+// --- A5: AI weapon table ----------------------------------------------------
+
+gm::Things make_weapon_things(int low = 0, int high = 200, int cooldown = 91) {
+    gm::Things things = make_synthetic_things();
+    gm::Thing* owner = things.by_id(0);
+    CHECK(owner != nullptr);
+    if (owner != nullptr) {
+        owner->proximity.push_back(
+            gm::ProximityEntry{41, low, high, cooldown, {1.0, 2.0, 3.0}});
+    }
+    return things;
+}
+
+const gm::AiEvent* last_event(const gm::Ai& ai, gm::AiEventType type, int thing_id) {
+    const gm::AiEvent* found = nullptr;
+    for (const gm::AiEvent& event : ai.events()) {
+        if (event.type == type && event.thing_id == thing_id) {
+            found = &event;
+        }
+    }
+    return found;
+}
+
+// Entry validation and the 8-slot clamp; no Ai involved.
+void test_weapon_table_load() {
+    gm::Thing thing;
+    CHECK_EQ(gm::ai_weapon_count(thing), 0);
+    gm::AiWeapon weapon;
+    CHECK(!gm::ai_weapon_at(thing, 0, weapon));
+    CHECK(!weapon.valid());
+
+    // +0x218 counts weapons, but the runtime table has only 8 slots.
+    for (int i = 0; i < 9; ++i) {
+        thing.proximity.push_back(gm::ProximityEntry{
+            static_cast<std::uint32_t>(100 + i), i * 10, 100 + i * 10, i, {}});
+    }
+    CHECK_EQ(gm::ai_weapon_count(thing), gm::kAiMaxWeapons);
+    CHECK(gm::ai_weapon_at(thing, 0, weapon));
+    if (weapon.valid()) {
+        CHECK_EQ(weapon.count, gm::kAiMaxWeapons);
+        CHECK_EQ(weapon.event, 100u);
+        CHECK_EQ(weapon.low, 0);
+        CHECK_EQ(weapon.high, 100);
+        CHECK_EQ(weapon.cooldown, 0);
+        CHECK_NEAR(weapon.offset.x, 0.0, 0.0);
+    }
+    CHECK(!gm::ai_weapon_at(thing, 8, weapon)); // beyond the runtime clamp
+    CHECK(!gm::ai_weapon_at(thing, -1, weapon));
+
+    // Inactive entry (event 0), inverted band, negative cooldown, NaN offset.
+    thing.proximity = {gm::ProximityEntry{0, 0, 100, 0, {}}};
+    CHECK(!gm::ai_weapon_at(thing, 0, weapon));
+    thing.proximity = {gm::ProximityEntry{7, 100, 10, 0, {}}};
+    CHECK(!gm::ai_weapon_at(thing, 0, weapon));
+    thing.proximity = {gm::ProximityEntry{7, 0, 100, -1, {}}};
+    CHECK(!gm::ai_weapon_at(thing, 0, weapon));
+    thing.proximity = {gm::ProximityEntry{
+        7, 0, 100, 0,
+        {std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0}}};
+    CHECK(!gm::ai_weapon_at(thing, 0, weapon));
+
+    // Valid entry with an offset (data only, not used by the event yet).
+    thing.proximity = {gm::ProximityEntry{7, 10, 20, 3, {1.0, -2.0, 0.5}}};
+    CHECK(gm::ai_weapon_at(thing, 0, weapon));
+    CHECK(weapon.valid());
+    if (weapon.valid()) {
+        CHECK_EQ(weapon.count, 1);
+        CHECK_EQ(weapon.event, 7u);
+        CHECK_EQ(weapon.low, 10);
+        CHECK_EQ(weapon.high, 20);
+        CHECK_EQ(weapon.cooldown, 3);
+        CHECK_NEAR(weapon.offset.y, -2.0, 0.0);
+    }
+}
+
+// Inclusive band, scan direction (+0x468) and "no match".
+void test_weapon_selection() {
+    gm::Thing thing;
+    thing.proximity = {
+        gm::ProximityEntry{11, 0, 100, 10, {}},
+        gm::ProximityEntry{0, 0, 300, 0, {}}, // inactive: never selected
+        gm::ProximityEntry{12, 0, 200, 20, {}},
+    };
+    gm::AiWeapon weapon;
+    CHECK(gm::ai_weapon_select(thing, 75.0, false, weapon));
+    CHECK_EQ(weapon.event, 11u);
+    CHECK(gm::ai_weapon_select(thing, 75.0, true, weapon));
+    CHECK_EQ(weapon.event, 12u);
+    // The band is inclusive at both ends.
+    CHECK(gm::ai_weapon_select(thing, 100.0, false, weapon));
+    CHECK_EQ(weapon.event, 11u);
+    CHECK(gm::ai_weapon_select(thing, 200.0, true, weapon));
+    CHECK_EQ(weapon.event, 12u);
+    // Below every band, above every band and non-finite distance.
+    CHECK(!gm::ai_weapon_select(thing, -1.0, false, weapon));
+    CHECK(!gm::ai_weapon_select(thing, 250.0, false, weapon));
+    CHECK(!gm::ai_weapon_select(
+        thing, std::numeric_limits<double>::quiet_NaN(), false, weapon));
+}
+
+// Default `use_weapon_table=false`: the table is loaded, but no event is posted
+// and the attack/state stream is exactly the historical one.
+void test_weapon_default_off() {
+    const gm::Things things = make_weapon_things();
+    gm::Ai ai;
+    CHECK_EQ(ai.attach(things), 2u);
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK_EQ(agent->weapon.count, 1);
+        CHECK_EQ(agent->weapon.event, 0u); // no selection yet
+        CHECK_NEAR(agent->weapon_cooldown, 0.0, 0.0);
+    }
+
+    CHECK(ai.set_player({0.0, 60.0, 10.0}));
+    const gm::CollisionWorld empty;
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(empty);
+    }
+    CHECK(ai.stats().attacks > 0u);
+    CHECK_EQ(ai.stats().weapon_events, 0u);
+    CHECK(!has_event(ai, gm::AiEventType::weapon, 0));
+    agent = ai.agent(0);
+    if (agent != nullptr) {
+        CHECK_EQ(agent->weapon.event, 0u);
+        CHECK(agent->weapon_reverse); // untouched
+    }
+}
+
+// Opt-in: alert before the A3 window posts nothing; the first `attack` tick
+// posts one `weapon` event with the table id, and `+0x27c` gates the next one.
+void test_weapon_opt_in_window_and_cooldown() {
+    const gm::Things things = make_weapon_things(0, 200, 91);
+    gm::AiConfig config;
+    config.use_weapon_table = true;
+    config.use_move_step = true;
+    config.move_standoff = 200.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 150.0, 10.0}));
+    const gm::CollisionWorld empty;
+
+    // 20 ticks of `alert`: the band already contains the target, but the A3
+    // window is not `attack` yet, so no weapon event is allowed.
+    for (int i = 0; i < 20; ++i) {
+        ai.tick(empty);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK_EQ(agent->state, gm::AiState::alert);
+    }
+    CHECK_EQ(ai.stats().weapon_events, 0u);
+
+    for (int i = 0; i < 40; ++i) {
+        ai.tick(empty);
+    }
+    agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK_EQ(agent->state, gm::AiState::attack);
+        CHECK_EQ(agent->weapon.count, 1);
+        CHECK_EQ(agent->weapon.event, 41u);
+        CHECK(!agent->weapon_reverse); // toggled after the first shot
+        CHECK(agent->weapon_cooldown > 0.0);
+    }
+    CHECK_EQ(ai.stats().weapon_events, 1u);
+    const gm::AiEvent* event =
+        last_event(ai, gm::AiEventType::weapon, 0);
+    CHECK(event != nullptr);
+    if (event != nullptr) {
+        CHECK_EQ(event->event_id, 41u);
+        CHECK_EQ(event->target, 0);
+        CHECK_EQ(event->target_thing, -1);
+        // Octagonal metric: 150 + 0.25 * 10 = 152.5.
+        CHECK_NEAR(event->value, 152.5, 1e-9);
+        CHECK_NEAR(event->aim.y, 150.0, 0.0);
+    }
+
+    // The cooldown is 91 ticks = 1 s; 50 more ticks are not enough ...
+    for (int i = 0; i < 50; ++i) {
+        ai.tick(empty);
+    }
+    CHECK_EQ(ai.stats().weapon_events, 1u);
+    // ... 45 more pass the 1 s boundary and post exactly one more.
+    for (int i = 0; i < 45; ++i) {
+        ai.tick(empty);
+    }
+    CHECK_EQ(ai.stats().weapon_events, 2u);
+    // A3 still posts its own `attack` event inside the window.
+    CHECK(has_event(ai, gm::AiEventType::attack, 0));
+}
+
+// `high` is a hard gate: the attack event still appears, the weapon does not.
+void test_weapon_high_gate() {
+    const gm::Things things = make_weapon_things(0, 50, 0);
+    gm::AiConfig config;
+    config.use_weapon_table = true;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 60.0, 10.0})); // octagonal 62.5 > high 50
+    const gm::CollisionWorld empty;
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(empty);
+    }
+    CHECK(ai.stats().attacks > 0u);
+    CHECK(has_event(ai, gm::AiEventType::attack, 0));
+    CHECK_EQ(ai.stats().weapon_events, 0u);
+    CHECK(!has_event(ai, gm::AiEventType::weapon, 0));
+}
+
 int main() {
     test_attach_and_transitions();
     test_line_of_sight_and_loss();
@@ -1892,6 +2103,11 @@ int main() {
     test_move_step_standoff_window();
     test_move_step_standoff_retreat();
     test_move_step_standoff_retreat_wall();
+    test_weapon_table_load();
+    test_weapon_selection();
+    test_weapon_default_off();
+    test_weapon_opt_in_window_and_cooldown();
+    test_weapon_high_gate();
     test_dt_and_player_negatives();
     test_two_runs();
     test_target_history();

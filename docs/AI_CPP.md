@@ -38,6 +38,7 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 | level0 | attached **6** из 121, первый id **115** `(24, 2708, -92)` |
 | движение | default: только return к `home`; с `use_move_step=true` alert/attack идут к `aim_point`, patrol/return — к `home` через A2 (`world/ai_move.*`); внутри `standoff` стоят и стреляют, внутри `standoff-60` пятятся (A3); с `use_path=true` patrol идёт по `path_waypoints` (`loop`/`path`/`expire`, §8), приоритетнее шага домой |
 | урон | `damage()` меняет только AI-агента, не `Things`; `sync_vitals()` читает виталы вещи (щиты, hits, HP) и убивает агента вместе с вещью |
+| оружие | opt-in `use_weapon_table=true`: выбор записи `Thing::proximity` (`+0x218`/`+0x474`) по inclusive `[low, high]` и `cooldown`, отдельное событие `weapon`; урона и снаряда нет (§9) |
 | история цели | кольцо **240** позиций; `tick` пишет один слот, лаг 0..239 |
 | лаг из данных | `Thing::target_history_offset` (+0x1d0): 0 = текущая, иначе 1..239 |
 
@@ -58,6 +59,10 @@ ai.damage(id, 25.0);             // true, если агент жив и урон
 ai.place(id, {x, y, z});         // только тест/отладка, без навигации
 ai.set_path(id, waypoints);      // A4: маршрут patrol (до 32 точек)
 ai.sync_vitals();                // зеркалить здоровье/щиты/hits вещи в агента
+// A5: таблица оружия уже загружена из Thing::proximity; выбор — только
+// при AiConfig::use_weapon_table == true (событие weapon, без урона).
+gm::AiWeapon weapon;
+gm::ai_weapon_select(*things.by_id(id), distance, false, weapon);
 
 const auto& agents = ai.agents();
 const gm::AiAgent* a = ai.agent(id);
@@ -115,6 +120,11 @@ struct AiAgent {
     // A4-path — маршрут patrol; читается при AiConfig::use_path.
     std::vector<Vec3d> path_waypoints; // +0x324[], до 32 точек (set_path)
     AiPathState path;                  // +0x4ec index / +0x4f4 waiting
+
+    // A5-оружие; читается при AiConfig::use_weapon_table.
+    AiWeapon weapon;           // +0x218/+0x474: count + последняя выбранная запись
+    double weapon_cooldown;    // секунды из +0x27c (тики / 91)
+    bool weapon_reverse;       // +0x468: следующее сканирование с конца
 };
 ```
 
@@ -133,11 +143,13 @@ struct AiAgent {
 `blocked_steps` (шаги, урезанные стеной), `leash_clamps` (шаги, отменённые
 жёстким leash), `standoff_holds` (тики A3-стояния в окне),
 `retreat_steps` (A3-шаги назад) и `path_expiries` (агенты, завершённые
-`pathexpire`, — один инкремент на агента).
+`pathexpire`, — один инкремент на агента), `weapon_events` (A5: выбранная
+запись и отправленное событие `weapon`).
 
 `events()` возвращает упорядоченный журнал `AiEvent { type, thing_id, from, to,
-target, target_thing, aim, value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
-`lost_sight`, `state`, `attack`, `damage`, `death`, `leash`, `arrived`.
+target, target_thing, aim, value, event_id, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
+`lost_sight`, `state`, `attack`, `weapon`, `damage`, `death`, `leash`, `arrived`.
+`event_id` заполняется только у `weapon` (id из `+0x21c`).
 `clear_events()` очищает только журнал, не состояние.
 
 ### 1.3. История позиции цели
@@ -284,6 +296,7 @@ state machine — следующий шаг. Tunables ниже — **гипот�
 | `health` | 100 | hypothesis | fallback; при `use_thing_fields=true` берётся `Thing::max_health` (`+0x1d4`), 0 = иммунитет |
 | `use_move_step` | `false` | opt-in | включает A2/A3-движение (§7); `false` сохраняет прежнее поведение байт-в-байт |
 | `use_path` | `false` | opt-in | включает A4-маршрут `patrol` (§8); не зависит от `use_move_step`, `false` сохраняет A2/A3 байт-в-байт |
+| `use_weapon_table` | `false` | opt-in | включает A5-выбор оружия (§9); `false` не меняет A2/A3/A4 и исторический каркас |
 | `path_mode` | `loop` | opt-in | `+0x1b4` типы 9/10/12: `path` (стоять на последней), `loop` (по кругу), `expire` (умереть на последней); читается только при `use_path=true` |
 | `move_speed` | 1.0 | fallback | ед./тик; при `use_thing_fields=true` и `Thing::speed > 0` берётся `+0x10` |
 | `move_radius` | 0.0 | fallback | радиус swept-сферы; при `use_thing_fields=true` берётся `Thing::radius`; **0 отключает** проверку стены, поэтому для столкновений задайте радиус или включите `use_thing_fields` |
@@ -437,8 +450,9 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    opt-in'ом: `patrol` идёт по `path_waypoints` в режимах
    `path`/`loop`/`expire`, `expire` убивает агента. Остались `pathrandom`,
    waypoint'ы из таблицы локаций, высота/пол через `floor_at` и гравитация.
-4. **Бой**: урон игроку, оружие (`+0x21c`), снаряды, звук (`+0x1fc`),
-   анимация; сейчас `attack` — только событие.
+4. **Бой**: оружие из таблицы `+0x21c` уже выбирается и постит событие
+   `weapon` (§9), но без снаряда и урона; остались спавн снаряда по
+   `event`/`offset`, урон игроку, звук (`+0x1fc`), анимация.
 5. **Оригинальный AI**: разобрать `0x473eed`/`0x473f07`/`0x475615`, leash,
    состояния и переходы движка; сверить с `.soe`-типами на dm1/level0.
    В частности, подтвердить, что `lag = N` — это ровно N тиков (§3).
@@ -638,3 +652,73 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
 `test_tick_path_stand` (`path` замирает на последней), `test_tick_path_expire`
 (один `death`, `path_expiries=1`), `test_tick_path_wall` (стена урезает шаг),
 `test_tick_path_alert_ignores_route` (alert идёт к цели, не по маршруту).
+
+---
+
+## 9. A5: оружейная таблица (`AiConfig::use_weapon_table`)
+
+Таблица оружия вещи — те же 8 слотов, что `Thing::proximity`:
+`THING_TYPES +0x218` (count), `+0x21c[i]` event, `+0x23c[i]` low,
+`+0x25c[i]` high, `+0x27c[i]` cooldown, `+0x29c/+0x2bc/+0x2dc[i]` offset.
+Загрузчик уже копирует её в `Thing`, поля загрузчика/рантайма описаны в
+`docs/SOE.md`. `ProximityEntry` — общий тип с `game/projectile.h`, поэтому
+`AiWeapon` не дублирует поля в `Thing` и не заводит вторую таблицу.
+
+`AiWeapon` — **одна** провалидированная запись плюс размер таблицы:
+
+```cpp
+struct AiWeapon {
+    int count;              // 0..8, clamp 0x47dc2c
+    std::uint32_t event;    // +0x21c, 0 = inactive
+    int low, high;          // +0x23c/+0x25c, inclusive band
+    int cooldown;           // +0x27c, тики 91 Гц (0.91*token)
+    Vec3d offset;           // +0x29c.., данные для будущего спавна
+    bool valid() const;
+};
+int ai_weapon_count(const Thing&);
+bool ai_weapon_at(const Thing&, int index, AiWeapon&);
+bool ai_weapon_select(const Thing&, double distance, bool reverse, AiWeapon&);
+```
+
+Валидация: `event != 0`, `high >= low`, `cooldown >= 0`, конечный `offset`;
+индекс вне `0..min(8, proximity.size())-1` отклоняется. `ai_weapon_select`
+берёт **первую** запись, у которой `low <= distance <= high`; `reverse=true`
+сканирует с конца, иначе с начала.
+
+Оригинал (`0x473a00`, после выбора цели): per-agent блок `+0x474` (count),
+`+0x478` event[8], `+0x498` low[8], `+0x4b8` high[8], `+0x4d8` cooldown[8],
+`+0x4f8/+0x518/+0x538` offset x/y/z[8]. Условие записи —
+`event != 0 && low <= d && d <= high`; при `+0x468 == 0` скан идёт с конца,
+иначе с начала, а после выстрела направление переключается. `event_post`
+получает id записи, `+0x464 += +0x4d8[i]`; сам `0x473a00` снаряд не спавнит и
+урон не наносит. C++ повторяет выбор, inclusive-полосу, направление
+(`AiAgent::weapon_reverse`, стартует с конца) и кулдаун; `d` — октогональная
+дистанция `agent.position → aim_point`, как `local_60` оригинала.
+
+Подключение в `Ai::tick` (только при `use_weapon_table=true`):
+
+1. кулдаун `AiAgent::weapon_cooldown` уменьшается на `dt` каждый живой тик;
+2. событие `weapon` разрешено только в `state == attack`, при `visible` и
+   `has_aim`; при активном A3 дополнительно требуется
+   `engage_distance <= engage_range`, то есть **внутри окна** `standoff`;
+3. при `weapon_cooldown <= 0` вызывается `ai_weapon_select`; успешный выбор
+   пишет `AiAgent::weapon`, переключает `weapon_reverse`, ставит кулдаун
+   `+0x27c / 91` секунд, увеличивает `stats().weapon_events` и пишет
+   `AiEvent{type=weapon, event_id=<+0x21c>, value=<distance>}`;
+4. события `attack`/`state` не меняются: `attack` по-прежнему живёт в своей
+   ветке и в A3-окне.
+
+Чего нет намеренно: спавна снаряда, урона игроку, `extra`-кодирования
+`target<<16 | 8+thing`, расхода патронов и фронтального гейта оригинала
+(`ABS(local_20)*4 < local_18`) — в каркасе нет ориентации/камеры. `offset`
+загружается, но не применяется: это вход будущего слоя снаряда. `count`
+заполняется уже на `attach` и при `use_weapon_table=false` остаётся данными,
+поведение байт-в-байт прежнее.
+
+Тесты (`gm_ai_tests`, label `thing_ai`): `test_weapon_table_load` (clamp 8,
+inactive/inverted/negative/NaN), `test_weapon_selection` (inclusive band,
+направление, нет совпадения), `test_weapon_default_off` (таблица загружена,
+но `weapon_events=0` и `attack` работает), `test_weapon_opt_in_window_and_cooldown`
+(alert не стреляет, первый `weapon` в `attack`, octagonal 152.5, id 41,
+кулдаун 91 тик), `test_weapon_high_gate` (`high` режет событие, `attack`
+остаётся).

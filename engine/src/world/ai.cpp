@@ -37,6 +37,8 @@ const char* ai_event_name(AiEventType type) {
         return "state";
     case AiEventType::attack:
         return "attack";
+    case AiEventType::weapon:
+        return "weapon";
     case AiEventType::damage:
         return "damage";
     case AiEventType::death:
@@ -54,6 +56,52 @@ int ai_history_lag(int raw_offset) {
         return 0; // no lag: the live target position is used
     }
     return std::min(raw_offset, kAiHistoryMaxLag);
+}
+
+int ai_weapon_count(const Thing& thing) {
+    return std::min(kAiMaxWeapons, static_cast<int>(thing.proximity.size()));
+}
+
+bool ai_weapon_at(const Thing& thing, int index, AiWeapon& out) {
+    if (index < 0 || index >= ai_weapon_count(thing)) {
+        return false;
+    }
+    const ProximityEntry& entry = thing.proximity[static_cast<std::size_t>(index)];
+    if (entry.event == 0 || entry.high < entry.low || entry.cooldown < 0 ||
+        !finite(entry.offset)) {
+        return false;
+    }
+    AiWeapon weapon;
+    weapon.count = ai_weapon_count(thing);
+    weapon.event = entry.event;
+    weapon.low = entry.low;
+    weapon.high = entry.high;
+    weapon.cooldown = entry.cooldown;
+    weapon.offset = entry.offset;
+    out = weapon;
+    return true;
+}
+
+bool ai_weapon_select(const Thing& thing, double distance, bool reverse,
+                      AiWeapon& out) {
+    if (!std::isfinite(distance)) {
+        return false;
+    }
+    const int count = ai_weapon_count(thing);
+    for (int step = 0; step < count; ++step) {
+        const int index = reverse ? count - 1 - step : step;
+        AiWeapon weapon;
+        if (!ai_weapon_at(thing, index, weapon)) {
+            continue;
+        }
+        if (distance < static_cast<double>(weapon.low) ||
+            distance > static_cast<double>(weapon.high)) {
+            continue;
+        }
+        out = weapon;
+        return true;
+    }
+    return false;
 }
 
 void TargetHistory::reset() {
@@ -104,6 +152,8 @@ std::size_t Ai::attach(const Things& things) {
         agent.leash = config_.leash;
         agent.has_home = true;
         agent.thing_type = thing.type;
+        // A5: the weapon table is data only until `use_weapon_table` is set.
+        agent.weapon.count = ai_weapon_count(thing);
         // A2 movement defaults; `use_thing_fields` overwrites them from the
         // THING_TYPES copy below.  Zero type values keep the fallbacks so a
         // synthetic record (all zeros) still moves.
@@ -272,7 +322,8 @@ double octagonal_distance(const Vec3d& a, const Vec3d& b) {
     return d[2] + 0.25 * (d[1] + d[0]);
 }
 
-void Ai::log(AiEventType type, const AiAgent& agent, double value, std::uint64_t tick) {
+void Ai::log(AiEventType type, const AiAgent& agent, double value, std::uint64_t tick,
+             std::uint32_t event_id) {
     AiEvent event;
     event.type = type;
     event.thing_id = agent.thing_id;
@@ -282,6 +333,7 @@ void Ai::log(AiEventType type, const AiAgent& agent, double value, std::uint64_t
     event.target_thing = agent.target_is_thing ? agent.target_thing : -1;
     event.aim = agent.aim_point;
     event.value = value;
+    event.event_id = event_id;
     event.tick = tick;
     events_.push_back(event);
 }
@@ -348,6 +400,12 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         }
         if (!agent.has_home) {
             continue;
+        }
+
+        // A5 (opt-in): the weapon cooldown counts down on every live tick,
+        // independent of the state, like the original's +0x464 timer.
+        if (config_.use_weapon_table && agent.weapon_cooldown > 0.0) {
+            agent.weapon_cooldown = std::max(0.0, agent.weapon_cooldown - dt);
         }
 
         // One A2 seek step (`ai_seek_step`, docs/AI_CPP.md §7): octagonal
@@ -741,6 +799,34 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             break;
         case AiState::dead:
             break;
+        }
+
+        // A5 (opt-in): a separate `weapon` event next to `attack`; the state
+        // machine and the A3 window above are untouched.  The band uses the
+        // original's octagonal metric (`local_60` of 0x473a00) over the agent
+        // position and the aim point.  No projectile is spawned and the player
+        // is not damaged here.
+        if (config_.use_weapon_table && things_ != nullptr &&
+            agent.state == AiState::attack && agent.visible && agent.has_aim &&
+            agent.weapon_cooldown <= 0.0 &&
+            (!standoff_window || engage_distance <= engage_range)) {
+            const Thing* owner = things_->by_id(agent.thing_id);
+            if (owner != nullptr) {
+                const double weapon_distance =
+                    octagonal_distance(agent.position, agent.aim_point);
+                AiWeapon selected;
+                if (ai_weapon_select(*owner, weapon_distance,
+                                     agent.weapon_reverse, selected)) {
+                    agent.weapon = selected;
+                    agent.weapon_reverse = !agent.weapon_reverse;
+                    agent.weapon_cooldown =
+                        static_cast<double>(std::max(0, selected.cooldown)) /
+                        static_cast<double>(kAiTickHz);
+                    ++stats_.weapon_events;
+                    log(AiEventType::weapon, agent, weapon_distance, tick,
+                        selected.event);
+                }
+            }
         }
 
         // A2/A3 movement runs after perception/state so the same tick that

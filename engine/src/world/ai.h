@@ -76,6 +76,47 @@ enum class AiState : std::uint8_t {
 
 const char* ai_state_name(AiState state);
 
+/// Maximum entries of the AI weapon table (`THING_TYPES +0x218`, runtime
+/// `+0x474`): `0x47dc2c` clamps the loaded count to 8.
+inline constexpr int kAiMaxWeapons = 8;
+
+/// One validated entry of the AI weapon table.  The source is the already
+/// loaded `Thing::proximity` (`THING_TYPES +0x218`), which is the same table
+/// the projectile proximity check uses; no fields are duplicated in `Thing`.
+///
+/// `count` is the table size (0..8), the remaining fields describe one entry
+/// selected by `ai_weapon_select()`.  The ids and bands are data only: the AI
+/// posts `AiEventType::weapon` with `event`, it never spawns a projectile or
+/// applies damage.
+struct AiWeapon {
+    int count = 0;           ///< entries in `Thing::proximity`, clamped to 0..8
+    std::uint32_t event = 0; ///< +0x21c, 0 = inactive entry
+    int low = 0;             ///< +0x23c, inclusive lower distance band
+    int high = 0;            ///< +0x25c, inclusive upper distance band
+    int cooldown = 0;        ///< +0x27c, 91 Hz ticks (loader already ×0.91)
+    Vec3d offset{};          ///< +0x29c/+0x2bc/+0x2dc, data only
+
+    bool valid() const {
+        return count > 0 && count <= kAiMaxWeapons && event != 0 && low <= high &&
+               cooldown >= 0 && finite(offset);
+    }
+};
+
+/// Table size clamped to `kAiMaxWeapons`.
+int ai_weapon_count(const Thing& thing);
+
+/// Load and validate entry `index` of `thing.proximity`.  Returns false for an
+/// out-of-range index, `event == 0` (inactive), `high < low`, a negative
+/// cooldown or a non-finite offset; `out` is untouched then.
+bool ai_weapon_at(const Thing& thing, int index, AiWeapon& out);
+
+/// Select an active entry whose inclusive `[low, high]` band contains
+/// `distance`.  `reverse` scans from the last entry down (the original's first
+/// direction, `+0x468 == 0`), otherwise from the first entry up.  Returns
+/// false when no entry matches; `out` is untouched then.
+bool ai_weapon_select(const Thing& thing, double distance, bool reverse,
+                      AiWeapon& out);
+
 /// Tunables.  The shipped `.soe` has fields for search radius (+0x58), target
 /// zone threshold (+0x1cc), target history lag (+0x1d0), max HP (+0x1d4) and
 /// movement type (+0x1b4), but the values below are **not** read from a thing
@@ -93,6 +134,13 @@ struct AiConfig {
     double return_speed = 200.0;       ///< world units / second while returning
     double health = 100.0;             ///< per-agent hit points; original max is +0x1d4 (0 = immune)
     bool use_thing_fields = false;     ///< opt-in: use Thing's THING_TYPES copy
+    /// Opt-in: while in `attack`, select a weapon from `Thing::proximity`
+    /// (the `+0x218`/`+0x474` table) by the inclusive `[low, high]` distance
+    /// band and the `cooldown` gate, then log `AiEventType::weapon`.  The
+    /// event carries the table's `event` id; it never spawns a projectile or
+    /// damages the player.  `false` keeps A2/A3/A4 and the historical scaffold
+    /// byte-for-byte unchanged.
+    bool use_weapon_table = false;
     double max_dt = 181.0 / 91.0;      ///< 0x470b20 clamps dt to 181 ticks (~1.99 s)
     double los_skin = 1e-3;            ///< "still visible" tolerance at the target
 
@@ -201,6 +249,15 @@ struct AiAgent {
     std::vector<Vec3d> path_waypoints;
     /// `+0x4ec` index and `+0x4f4` pending flag of `0x475f10`.
     AiPathState path;
+
+    // --- weapon table (A5, used when `AiConfig::use_weapon_table`) ---------
+    /// Last selected entry; `count` is filled by `attach()` even when the
+    /// opt-in is off (data only, no behaviour change).
+    AiWeapon weapon;
+    double weapon_cooldown = 0.0; ///< seconds left from the `+0x27c` ticks
+    /// Scan direction of the next selection: `true` = last..first, matching
+    /// the original's `+0x468 == 0` branch; toggled after every weapon event.
+    bool weapon_reverse = true;
 };
 
 enum class AiEventType : std::uint8_t {
@@ -209,6 +266,7 @@ enum class AiEventType : std::uint8_t {
     lost_sight,
     state,
     attack,
+    weapon,
     damage,
     death,
     leash,
@@ -227,6 +285,8 @@ struct AiEvent {
     int target_thing = -1;    ///< Thing::id at the event, -1 for a player
     Vec3d aim{};              ///< aim point at the event (see AiAgent::aim_point)
     double value = 0.0;       ///< distance, damage amount or health after damage
+    /// `AiEventType::weapon`: the table's `+0x21c` event id, 0 otherwise.
+    std::uint32_t event_id = 0;
     std::uint64_t tick = 0;
 };
 
@@ -256,6 +316,7 @@ struct AiStats {
     std::uint64_t standoff_holds = 0; ///< A3 ticks standing inside the window
     std::uint64_t retreat_steps = 0;  ///< A3 steps away from the target
     std::uint64_t path_expiries = 0;  ///< A4 `pathexpire` agents turned dead
+    std::uint64_t weapon_events = 0;  ///< A5 entries selected and posted
     std::size_t typed_agents = 0;   ///< agents with a THING_TYPES record
     std::uint64_t immune_hits = 0;  ///< damage rejected by max_health == 0
 };
@@ -350,7 +411,8 @@ private:
     static bool line_of_sight(const CollisionWorld& world, const Vec3d& from_eye,
                               const Vec3d& to_eye, double distance, double skin);
     void set_state(AiAgent& agent, AiState next, std::uint64_t tick);
-    void log(AiEventType type, const AiAgent& agent, double value, std::uint64_t tick);
+    void log(AiEventType type, const AiAgent& agent, double value, std::uint64_t tick,
+             std::uint32_t event_id = 0);
     void refresh_stats();
 
     AiConfig config_;
