@@ -885,7 +885,9 @@ void test_spawn_remove() {
     prototype.destroy_event = 701;
 
     gm::EventQueue queue;
+    const std::size_t executed_before = things.stats().executed;
     const int id = things.spawn(prototype, &queue);
+    CHECK_EQ(things.stats().executed, executed_before + 1);
     CHECK_EQ(id, 0);
     const gm::Thing* spawned = things.by_id(id);
     CHECK(spawned != nullptr);

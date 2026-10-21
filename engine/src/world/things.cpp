@@ -803,6 +803,7 @@ int Things::spawn(Thing thing, EventQueue* events) {
     thing.expired = false;
     things_.push_back(std::move(thing));
     by_id_.emplace(id, things_.size() - 1);
+    ++stats_.executed;
     if (events != nullptr) {
         post_thing_event(*events, things_.back(), ThingEventKind::create);
     }
