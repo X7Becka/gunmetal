@@ -430,3 +430,13 @@ add_executable(gm_sector_stuff_tests test_sector_stuff.cpp)
 target_link_libraries(gm_sector_stuff_tests PRIVATE gm_engine)
 add_test(NAME sector_stuff COMMAND gm_sector_stuff_tests)
 gm_label(sector_stuff quick)
+
+# Save block 8 as a typed, writable block (docs/RECORDS.md §2): saved0/saved1
+# field-for-field against gm/sbt.py SectorSlot / tools/re/records.py, the
+# 0x5800 payload re-encoded from the typed fields, one-field edits at exact
+# byte offsets, an all-zero block and truncation negatives.
+add_executable(gm_save_sector_stuff_tests test_save_sector_stuff.cpp
+    ${CMAKE_SOURCE_DIR}/engine/src/res/save.cpp)
+target_link_libraries(gm_save_sector_stuff_tests PRIVATE gm_engine)
+add_test(NAME save_sector_stuff COMMAND gm_save_sector_stuff_tests)
+gm_label(save_sector_stuff quick)

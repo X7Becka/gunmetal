@@ -90,11 +90,6 @@ double rdf64(const std::uint8_t* p) {
     return v;
 }
 
-void wr16(std::uint8_t* p, std::uint16_t v) {
-    p[0] = static_cast<std::uint8_t>(v);
-    p[1] = static_cast<std::uint8_t>(v >> 8);
-}
-
 void wr32(std::uint8_t* p, std::uint32_t v) {
     for (int i = 0; i < 4; ++i) {
         p[i] = static_cast<std::uint8_t>(v >> (8 * i));
@@ -138,10 +133,8 @@ bool parse_sector_stuff(std::span<const std::uint8_t> payload,
         s.sound_param = rdf64(p + 0x30);
         s.event_a = static_cast<std::int32_t>(rd32(p + 0x38));
         s.event_b = static_cast<std::int32_t>(rd32(p + 0x3c));
-        s.damage_lo = rd16(p + 0x40);
-        s.pad_42 = {p[0x42], p[0x43]};
-        s.damage_hi = rd16(p + 0x44);
-        s.pad_46 = {p[0x46], p[0x47]};
+        s.damage_a = rd32(p + 0x40);
+        s.damage_b = static_cast<std::int32_t>(rd32(p + 0x44));
         s.sound = static_cast<std::int32_t>(rd32(p + 0x48));
         s.sound_count = static_cast<std::int32_t>(rd32(p + 0x4c));
         s.flags = rd32(p + 0x50);
@@ -166,12 +159,8 @@ std::vector<std::uint8_t> encode_sector_stuff(const std::vector<SbtSectorSlot>& 
         wrf64(p + 0x30, s.sound_param);
         wr32(p + 0x38, static_cast<std::uint32_t>(s.event_a));
         wr32(p + 0x3c, static_cast<std::uint32_t>(s.event_b));
-        wr16(p + 0x40, s.damage_lo);
-        p[0x42] = s.pad_42[0];
-        p[0x43] = s.pad_42[1];
-        wr16(p + 0x44, s.damage_hi);
-        p[0x46] = s.pad_46[0];
-        p[0x47] = s.pad_46[1];
+        wr32(p + 0x40, s.damage_a);
+        wr32(p + 0x44, static_cast<std::uint32_t>(s.damage_b));
         wr32(p + 0x48, static_cast<std::uint32_t>(s.sound));
         wr32(p + 0x4c, static_cast<std::uint32_t>(s.sound_count));
         wr32(p + 0x50, s.flags);

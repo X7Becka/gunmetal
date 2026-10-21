@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "res/sbt.h"
+
 namespace gm {
 
 /// Gunmetal save container (``SAVEGAME/saved<N>.sbt``), see docs/SAVE.md.
@@ -59,12 +61,13 @@ struct SaveBlock {
     /// Records for blocks with an explicit u32 count (1,2,4,5,6,7,15,16,
     /// 17,18,20), present player slots for block 9, present slots for block 3,
     /// referenced samples for block 12 (non-zero counts).
-    /// 0 for the fixed-size raw blocks (8,19).
+    /// 0 for the fixed-size blocks (8 is typed as 256 slots, 19 stays raw).
     std::uint32_t count = 0;
-    /// Verbatim payload bytes (everything after the id byte).  The writer
-    /// copies these for every block except 9, so untouched blocks round-trip
-    /// byte-for-byte even when their bodies are still opaque.  ``size`` is
-    /// ``raw.size() + 1`` for every block produced by parse_save().
+    /// Verbatim payload bytes (everything after the id byte).  The writer uses
+    /// them for every block it has no typed vector for (and as the fallback of
+    /// blocks 1/2/3/6/7/8), so untouched blocks round-trip byte-for-byte even
+    /// when their bodies are still opaque.  ``size`` is ``raw.size() + 1`` for
+    /// every block produced by parse_save().
     std::vector<std::uint8_t> raw;
 };
 
@@ -221,7 +224,7 @@ struct Save {
     std::vector<SaveBlock> blocks;
     std::optional<SavePlayer> player; ///< set when block 9 is present
 
-    /// Typed blocks 1/2/3/6/7 (docs/SAVE_BLOCKS.md).  parse_save fills them
+    /// Typed blocks 1/2/3/6/7/8 (docs/SAVE_BLOCKS.md).  parse_save fills them
     /// from the payload; to_bytes re-encodes a block from these vectors when
     /// they are non-empty (block 3: when any presence flag is set) and falls
     /// back to SaveBlock::raw otherwise, so an all-zero count still round-trips.
@@ -231,6 +234,12 @@ struct Save {
     std::vector<SaveThing> things;    ///< block 3 present slots, ascending
     std::vector<SaveSprite> sprites;  ///< block 6, file order
     std::vector<SaveSound> sounds;    ///< block 7, file order
+    /// Block 8 SECTOR_STUFF: exactly kSbtSectorSlots (256) slots when the block
+    /// is present, empty otherwise.  The block is the verbatim runtime array
+    /// 0x800b60 (256 x 0x58, saver 0x46b7f0 / loader 0x46b7b0 write and read
+    /// it as one blob), so the typed view is the same one the VM uses:
+    /// docs/RECORDS.md §2, gm/sbt.py ``SectorSlot``.
+    std::vector<SbtSectorSlot> sector_stuff;
 
     std::size_t size = 0;
 
@@ -246,10 +255,12 @@ struct Save {
     /// Serialise the header and the block chain (``docs/SAVE_WRITER.md``).
     ///
     /// The header is rebuilt from the typed fields; every block body except 9
-    /// is copied from ``SaveBlock::raw`` (without its id byte), and block 9 is
-    /// rebuilt from ``player`` when present (otherwise its raw bytes are
-    /// used).  Blocks are emitted in vector order and ``0xff`` is appended, so
-    /// a parsed, unmodified save reproduces the input byte-for-byte.
+    /// is re-encoded from its typed vector when that vector is non-empty
+    /// (blocks 1/2/3/6/7/8) and copied from ``SaveBlock::raw`` otherwise, and
+    /// block 9 is rebuilt from ``player`` when present (otherwise its raw
+    /// bytes are used).  Blocks are emitted in vector order and ``0xff`` is
+    /// appended, so a parsed, unmodified save reproduces the input
+    /// byte-for-byte.
     ///
     /// Returns nullopt and fills ``error`` when a field cannot be represented
     /// (title/level too long, invalid player gauges, missing raw payload,

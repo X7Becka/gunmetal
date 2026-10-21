@@ -95,13 +95,13 @@ void fill_slot(std::uint8_t* p, std::uint32_t seed) {
     put32(p + 0x38, static_cast<std::uint32_t>(-30233));
     put32(p + 0x3c, 302);
     p[0x40] = 0x34;
-    p[0x41] = 0xff; // damage_lo = 0xff34
+    p[0x41] = 0xff;
     p[0x42] = 0xaa;
-    p[0x43] = 0xbb;
+    p[0x43] = 0xbb; // damage_a = 0xbbaaff34
     p[0x44] = 0x01;
-    p[0x45] = 0x80; // damage_hi = 0x8001
+    p[0x45] = 0x80;
     p[0x46] = 0xcc;
-    p[0x47] = 0xdd;
+    p[0x47] = 0xdd; // damage_b = 0xddcc8001
     put32(p + 0x48, 130);
     put32(p + 0x4c, static_cast<std::uint32_t>(-1));
     put32(p + 0x50, 0x1f + seed);
@@ -118,12 +118,8 @@ void check_filled(const gm::SbtSectorSlot& s, std::uint32_t seed) {
     CHECK_EQ(s.sound_param, 0.05);
     CHECK_EQ(s.event_a, -30233);
     CHECK_EQ(s.event_b, 302);
-    CHECK_EQ(s.damage_lo, std::uint16_t(0xff34));
-    CHECK_EQ(s.pad_42[0], std::uint8_t(0xaa));
-    CHECK_EQ(s.pad_42[1], std::uint8_t(0xbb));
-    CHECK_EQ(s.damage_hi, std::uint16_t(0x8001));
-    CHECK_EQ(s.pad_46[0], std::uint8_t(0xcc));
-    CHECK_EQ(s.pad_46[1], std::uint8_t(0xdd));
+    CHECK_EQ(s.damage_a, 0xbbaaff34u);
+    CHECK_EQ(s.damage_b, static_cast<std::int32_t>(0xddcc8001u));
     CHECK_EQ(s.sound, 130);
     CHECK_EQ(s.sound_count, -1);
     CHECK_EQ(s.flags, 0x1fu + seed);
@@ -310,10 +306,8 @@ void check_save(const fs::path& path) {
         const bool ok = s.sound_param == g->sound_param && s.event_a == g->event_a &&
                         s.event_b == g->event_b && s.sound == g->sound &&
                         s.sound_count == g->sound_count && s.move == std::array<double, 3>{} &&
-                        s.extra == std::array<double, 3>{} && s.damage_lo == 0 &&
-                        s.damage_hi == 0 && s.flags == 0 && s.unused == 0 &&
-                        s.pad_42 == std::array<std::uint8_t, 2>{} &&
-                        s.pad_46 == std::array<std::uint8_t, 2>{};
+                        s.extra == std::array<double, 3>{} && s.damage_a == 0 &&
+                        s.damage_b == 0 && s.flags == 0 && s.unused == 0;
         CHECK(ok);
         matched += ok ? 1 : 0;
     }

@@ -246,6 +246,38 @@ struct VmLift {
     int occ = 0;
 };
 
+/// One SECTOR_STUFF slot as the VM sees it: the runtime array 0x800b60,
+/// 256 x 0x58 (docs/RECORDS.md §2).  Only the fields the SET_SECTOR_* handlers
+/// write are modelled; ``vm_load_sector_stuff`` seeds the whole view from a
+/// parsed block 8 / record 8, whose ``res::SbtSectorSlot`` types every byte.
+struct VmSectorSlot {
+    /// +0x00..+0x10: three *integer* operands of SET_SECTOR_MOVEMENT (the
+    /// handler sign-extends them with ``fild`` at 0x457834/0x45784c/0x45785c).
+    std::array<double, 3> move{};
+    /// +0x18..+0x2c: the three ``A`` operands, copied as raw 8-byte doubles
+    /// (0x45786c..0x4578ac); no reader found in the build.
+    std::array<double, 3> extra{};
+    /// +0x30: SET_SECTOR_SOUND ``D`` operand (0x46b774/0x46b77a).
+    double sound_param = 0.0;
+    /// +0x38/+0x3c: SET_SECTOR_EVENTS ``E`` operands (0x4579d6/0x4579e0).
+    int event_a = 0;
+    int event_b = 0;
+    /// +0x40/+0x44: SET_SECTOR_DAMAGE.  The handler splits one 32-bit operand
+    /// (0x457961): ``+0x40 = value & 0xffff`` (dword store at 0x45799a) and
+    /// ``+0x44 = value >> 16`` arithmetic (0x4579a0).  Both are read back as
+    /// dwords and multiplied by dt at 0x4450f6..0x445105, then handed to the
+    /// damage function 0x453b50 as two separate amounts.
+    std::uint32_t damage_a = 0;
+    std::int32_t damage_b = 0;
+    /// +0x48: SET_SECTOR_SOUND ``V``, a SOUND_SAMPLE_TABLE index (0x46b76a).
+    int sound = 0;
+    /// +0x4c: SET_SECTOR_SOUND ``N``; ``> 0`` means the loop is playing
+    /// (0x46b760 stores it, 0x46c5c0 tests it).
+    int sound_count = 0;
+    /// +0x50: SET_SECTOR_FLAGS (0x457955).
+    std::uint32_t flags = 0;
+};
+
 struct VmSpawn {
     int index = 0;
     std::array<int, 3> pos{};
@@ -324,6 +356,14 @@ struct VmState {
     VmScene scene;
     std::vector<VmEvent> events;
 
+    /// SECTOR_STUFF runtime array 0x800b60 (256 x 0x58): the state the
+    /// SET_SECTOR_* commands write and the sector update (0x470c70 movement,
+    /// 0x46c5c0 ambient sound, 0x444166/0x444767 flags) reads.  Seeded from
+    /// block 8 by ``vm_load_sector_stuff``; the shipped level files carry no
+    /// SECTOR_STUFF record, so a level starts with 256 cleared slots, exactly
+    /// like loader 0x46b1b0 followed by a no-op 0x46b7b0.
+    std::array<VmSectorSlot, kSbtSectorSlots> sectors{};
+
     std::vector<VmStackFrame> stack;
     std::vector<std::size_t> active;
 
@@ -359,6 +399,15 @@ struct VmContext {
 /// State for a ``.sbt`` level: players plus the entity table
 /// (``n`` rows of flags/id/offset, ``gm.scene.entities``).
 VmState vm_state_from_level(const SbtLevel& level, const VmContext& context = {});
+
+/// Seed the SECTOR_STUFF view of *state* from a parsed block 8 / record 8.
+///
+/// Every byte of a ``res::SbtSectorSlot`` is typed (the dead +0x54 word
+/// included), so this is lossless; only the fields the VM can address are kept
+/// in ``VmSectorSlot``.  Fewer than 256 entries leave the
+/// remaining slots cleared, an empty vector clears all of them — the state
+/// loader 0x46b1b0 produces before 0x46b7b0 reads the block.
+void vm_load_sector_stuff(VmState& state, std::span<const SbtSectorSlot> slots);
 
 struct VmPathResult {
     VmReason reason = VmReason::End;
@@ -473,6 +522,8 @@ private:
     std::optional<std::size_t> h_spawn(VmState&, const VmInsn&);
     std::optional<std::size_t> h_attached(VmState&, const VmInsn&);
     std::optional<std::size_t> h_event(VmState&, const VmInsn&);
+    // SECTOR_STUFF writes (SET_SECTOR_MOVEMENT/DAMAGE/SOUND/EVENTS/FLAGS)
+    std::optional<std::size_t> h_sector(VmState&, const VmInsn&);
     // state
     std::optional<std::size_t> h_level(VmState&, const VmInsn&);
     std::optional<std::size_t> h_add_ammo(VmState&, const VmInsn&);

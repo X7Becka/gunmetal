@@ -45,20 +45,22 @@ inline constexpr std::size_t kSbtSectorSlots = 256;
 inline constexpr std::size_t kSbtSectorSlotSize = 0x58;
 inline constexpr std::size_t kSbtSectorStuffSize = kSbtSectorSlots * kSbtSectorSlotSize;
 
-/// One 0x58-byte SECTOR_STUFF slot.  Field names follow gm/sbt.py; every
-/// field is decoded verbatim (no normalisation) and the slot's original
-/// bytes are kept in ``raw`` so the two 16-bit gaps and the dead +0x54 word
-/// survive unchanged.
+/// One 0x58-byte SECTOR_STUFF slot.  Field names follow gm/sbt.py with one
+/// correction: ``+0x40`` and ``+0x44`` are two 32-bit values, not two u16 plus
+/// padding — the consumer loads them as dwords (0x4450f6/0x4450fc) and
+/// multiplies both by dt.  ``SET_SECTOR_DAMAGE`` (0x457961) fills them from one
+/// operand: ``+0x40 = value & 0xffff`` (dword store at 0x45799a zeroes the
+/// upper half) and ``+0x44 = value >> 16`` arithmetic (0x4579a0 sign-extends).
+/// Every byte of the slot is typed, so the two "gaps" older maps mentioned do
+/// not exist; ``raw`` still keeps the verbatim bytes for debugging.
 struct SbtSectorSlot {
     std::array<double, 3> move{};  ///< +0x00 SET_SECTOR_MOVEMENT dx,dy,dz per tick
     std::array<double, 3> extra{}; ///< +0x18 SET_SECTOR_MOVEMENT tail (no reader found)
     double sound_param = 0.0;      ///< +0x30 SET_SECTOR_SOUND ``D`` operand
     std::int32_t event_a = 0;      ///< +0x38 SET_SECTOR_EVENTS, signed id
     std::int32_t event_b = 0;      ///< +0x3c SET_SECTOR_EVENTS, signed id
-    std::uint16_t damage_lo = 0;   ///< +0x40 SET_SECTOR_DAMAGE low half
-    std::array<std::uint8_t, 2> pad_42{}; ///< +0x42 gap, kept raw
-    std::uint16_t damage_hi = 0;   ///< +0x44 SET_SECTOR_DAMAGE high half
-    std::array<std::uint8_t, 2> pad_46{}; ///< +0x46 gap, kept raw
+    std::uint32_t damage_a = 0;    ///< +0x40 damage dword 1 (low operand half)
+    std::int32_t damage_b = 0;     ///< +0x44 damage dword 2 (high half, sign-extended)
     std::int32_t sound = 0;        ///< +0x48 SOUND_SAMPLE_TABLE index
     std::int32_t sound_count = 0;  ///< +0x4c ``N`` operand, >0 = sound active
     std::uint32_t flags = 0;       ///< +0x50 SET_SECTOR_FLAGS (0x800bb0 for slot 0)

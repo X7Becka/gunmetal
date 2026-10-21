@@ -12,6 +12,7 @@
 //   python3 tools/re/vm_exec.py --level <l> --script all --json
 //   (one campaign context, difficulty 1, seed 0x12345678, follow=False)
 // and, for the corpus totals, by summing the same run over all 36 levels.
+#include "res/save.h"
 #include "res/sbt.h"
 #include "res/vm_exec.h"
 
@@ -742,6 +743,228 @@ void test_corpus() {
                 blocks, paths, steps, commands, conditions);
 }
 
+// ---------------------------------------------------------------------------
+// SECTOR_STUFF writes (docs/RECORDS.md §2, docs/VM_EXEC.md)
+// ---------------------------------------------------------------------------
+
+std::uint64_t dbits(double value) {
+    std::uint64_t out = 0;
+    static_assert(sizeof(out) == sizeof(value));
+    std::memcpy(&out, &value, sizeof(out));
+    return out;
+}
+
+/// Run *code* over a caller-prepared state (the sector view has to survive
+/// into the executor, so run_bytes() cannot be used).
+std::vector<gm::VmPathResult> run_state(gm::VmState state, const Bytes& code) {
+    gm::VmOptions options;
+    options.max_time = 0.0;
+    state.code = code;
+    state.difficulty = 1;
+    state.rng = 1;
+    state.players[0] = gm::VmPlayer{};
+    gm::VmExecutor executor(std::move(state), options);
+    return executor.run(0);
+}
+
+bool same_slot(const gm::VmSectorSlot& a, const gm::VmSectorSlot& b) {
+    return dbits(a.move[0]) == dbits(b.move[0]) && dbits(a.move[1]) == dbits(b.move[1]) &&
+           dbits(a.move[2]) == dbits(b.move[2]) &&
+           dbits(a.extra[0]) == dbits(b.extra[0]) &&
+           dbits(a.extra[1]) == dbits(b.extra[1]) &&
+           dbits(a.extra[2]) == dbits(b.extra[2]) &&
+           dbits(a.sound_param) == dbits(b.sound_param) && a.event_a == b.event_a &&
+           a.event_b == b.event_b && a.damage_a == b.damage_a &&
+           a.damage_b == b.damage_b && a.sound == b.sound &&
+           a.sound_count == b.sound_count && a.flags == b.flags;
+}
+
+void test_sector_stuff() {
+    // Operand signatures and sizes: the handlers consume exactly these bytes
+    // (0x457815 advances 0x28, 0x457961/0x457929 0x8, 0x4579ab 0xc,
+    // 0x4579ee 0x14 after the opcode).
+    struct SigCase {
+        const char* name;
+        std::size_t bytes; // operand bytes, opcode excluded
+    };
+    for (const SigCase& item : {SigCase{"SET_SECTOR_MOVEMENT", 0x28},
+                                SigCase{"SET_SECTOR_DAMAGE", 0x8},
+                                SigCase{"SET_SECTOR_SOUND", 0x14},
+                                SigCase{"SET_SECTOR_EVENTS", 0xc},
+                                SigCase{"SET_SECTOR_FLAGS", 0x8}}) {
+        const auto info = gm::vm_command_info(item.name);
+        CHECK(info.has_value());
+        if (info) {
+            Bytes code;
+            code.push_back(info->op);
+            for (std::size_t k = 0; k < item.bytes; ++k) {
+                code.push_back(0);
+            }
+            std::string error;
+            const auto insn = gm::vm_decode_at(code, 0, error);
+            CHECK(insn.has_value());
+            if (insn) {
+                CHECK_EQ(insn->next, 1 + item.bytes);
+            }
+        }
+    }
+
+    // 1. MOVEMENT: three integer operands sign-extended into +0x00/+0x08/+0x10
+    // and three raw doubles into +0x18/+0x20/+0x28 (0x457834..0x4578ac).
+    {
+        Bytes code;
+        cmd(code, "SET_SECTOR_MOVEMENT",
+            {u(34), u(7), u(-3), u(2), d(1.5), d(-0.0), d(4096.5)});
+        code.push_back(0xFF);
+        const auto results = run_bytes(code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const gm::VmSectorSlot& slot = results[0].state.sectors[34];
+            CHECK_EQ(slot.move[0], 7.0);
+            CHECK_EQ(slot.move[1], -3.0);
+            CHECK_EQ(slot.move[2], 2.0);
+            CHECK_EQ(dbits(slot.extra[0]), dbits(1.5));
+            CHECK_EQ(dbits(slot.extra[1]), dbits(-0.0));
+            CHECK_EQ(dbits(slot.extra[2]), dbits(4096.5));
+            // Nothing else was touched, and no other slot has data.
+            for (std::size_t i = 0; i < results[0].state.sectors.size(); ++i) {
+                if (i != 34) {
+                    CHECK(same_slot(results[0].state.sectors[i], gm::VmSectorSlot{}));
+                }
+            }
+            CHECK_EQ(slot.event_a, 0);
+            CHECK_EQ(slot.flags, 0u);
+        }
+    }
+
+    // 2. DAMAGE/SOUND/EVENTS/FLAGS on one slot, then a second DAMAGE that
+    // overwrites both halves (arithmetic shift: 0xfffffffe -> 0xfffe/0xffff).
+    {
+        Bytes code;
+        cmd(code, "SET_SECTOR_DAMAGE", {u(5), u(0x12345678)});
+        cmd(code, "SET_SECTOR_SOUND", {u(5), u(130), u(10), d(0.03)});
+        cmd(code, "SET_SECTOR_EVENTS", {u(5), u(606), u(-30234)});
+        cmd(code, "SET_SECTOR_FLAGS", {u(5), u(0x10)});
+        code.push_back(0xFF);
+        auto results = run_bytes(code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const gm::VmSectorSlot& slot = results[0].state.sectors[5];
+            CHECK_EQ(slot.damage_a, 0x5678u);
+            CHECK_EQ(slot.damage_b, 0x1234);
+            CHECK_EQ(slot.sound, 130);
+            CHECK_EQ(slot.sound_count, 10);
+            CHECK_EQ(dbits(slot.sound_param), dbits(0.03));
+            CHECK_EQ(slot.event_a, 606);
+            CHECK_EQ(slot.event_b, -30234);
+            CHECK_EQ(slot.flags, 0x10u);
+        }
+
+        Bytes second;
+        cmd(second, "SET_SECTOR_DAMAGE", {u(5), u(0xfffffffe)});
+        second.push_back(0xFF);
+        results = run_bytes(second);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            // 0xfffffffe: +0x40 = 0xfffe (upper half zero), +0x44 = -1.
+            CHECK_EQ(results[0].state.sectors[5].damage_a, 0xfffeu);
+            CHECK_EQ(results[0].state.sectors[5].damage_b, -1);
+        }
+    }
+
+    // 3. Out-of-range indices: the command is still consumed (an event is
+    // recorded) but no slot is written, and the run reaches END.
+    {
+        Bytes code;
+        cmd(code, "SET_SECTOR_FLAGS", {u(256), u(0x1f)});
+        cmd(code, "SET_SECTOR_DAMAGE", {u(-1), u(1)});
+        cmd(code, "SET_SECTOR_SOUND", {u(1000), u(1), u(1), d(0.5)});
+        cmd(code, "SET_SECTOR_EVENTS", {u(300), u(1), u(2)});
+        cmd(code, "SET_SECTOR_MOVEMENT",
+            {u(-5), u(1), u(2), u(3), d(1.0), d(1.0), d(1.0)});
+        code.push_back(0xFF);
+        const auto results = run_bytes(code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            CHECK(results[0].reason == gm::VmReason::End);
+            CHECK_EQ(results[0].state.events.size(), std::size_t{5});
+            for (const gm::VmSectorSlot& slot : results[0].state.sectors) {
+                CHECK(same_slot(slot, gm::VmSectorSlot{}));
+            }
+        }
+    }
+
+    // 4. SET_SECTOR_BRIGHTNESS/TYPE write the .sbw sector record, not this
+    // array (0x4578f8 stores sector+0x16, 0x42d9d5 stores sector+0x14=value*6).
+    {
+        Bytes code;
+        cmd(code, "SET_SECTOR_BRIGHTNESS", {u(9), u(200)});
+        cmd(code, "SET_SECTOR_TYPE", {u(9), u(3)});
+        code.push_back(0xFF);
+        const auto results = run_bytes(code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            CHECK_EQ(results[0].state.events.size(), std::size_t{2});
+            for (const gm::VmSectorSlot& slot : results[0].state.sectors) {
+                CHECK(same_slot(slot, gm::VmSectorSlot{}));
+            }
+        }
+    }
+
+    // 5. Seed from a parsed save block 8 and then write through the VM: the
+    // loaded fields survive, only the written ones change.  Needs the install.
+    if (fs::exists(fs::path(kGameDir) / "SAVEGAME" / "saved0.sbt")) {
+        std::ifstream in(fs::path(kGameDir) / "SAVEGAME" / "saved0.sbt",
+                         std::ios::binary);
+        const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                              std::istreambuf_iterator<char>());
+        std::string error;
+        const auto save = gm::parse_save(bytes, error);
+        CHECK(save.has_value());
+        if (save && save->sector_stuff.size() == gm::kSbtSectorSlots) {
+            gm::VmState state;
+            gm::vm_load_sector_stuff(state, save->sector_stuff);
+            CHECK_EQ(state.sectors[9].sound, 130);
+            CHECK_EQ(state.sectors[9].sound_count, 10);
+            CHECK_EQ(dbits(state.sectors[9].sound_param), dbits(0.03));
+            CHECK_EQ(state.sectors[9].event_a, 40);
+            CHECK_EQ(state.sectors[34].event_b, -30234);
+            CHECK_EQ(state.sectors[34].damage_a, 0u);
+            CHECK_EQ(state.sectors[34].damage_b, 0);
+            CHECK(same_slot(state.sectors[10], gm::VmSectorSlot{}));
+
+            Bytes code;
+            cmd(code, "SET_SECTOR_FLAGS", {u(9), u(0x18)});
+            cmd(code, "SET_SECTOR_SOUND", {u(9), u(-1), u(0), d(0.0)});
+            cmd(code, "SET_SECTOR_DAMAGE", {u(34), u(0x00010002)});
+            code.push_back(0xFF);
+            const auto results = run_state(std::move(state), code);
+            CHECK_EQ(results.size(), std::size_t{1});
+            if (results.size() == 1) {
+                const gm::VmSectorSlot& nine = results[0].state.sectors[9];
+                CHECK_EQ(nine.flags, 0x18u);
+                CHECK_EQ(nine.sound, -1);
+                CHECK_EQ(nine.sound_count, 0);
+                CHECK_EQ(dbits(nine.sound_param), dbits(0.0));
+                CHECK_EQ(nine.event_a, 40); // untouched by the writes above
+                const gm::VmSectorSlot& thirtyfour = results[0].state.sectors[34];
+                CHECK_EQ(thirtyfour.damage_a, 0x0002u);
+                CHECK_EQ(thirtyfour.damage_b, 0x0001);
+                CHECK_EQ(thirtyfour.event_a, -30233);
+                CHECK_EQ(thirtyfour.sound, 129);
+            }
+
+            // An empty vector is the cleared array (loader 0x46b1b0).
+            gm::VmState cleared;
+            gm::vm_load_sector_stuff(cleared, save->sector_stuff);
+            gm::vm_load_sector_stuff(cleared, {});
+            for (const gm::VmSectorSlot& slot : cleared.sectors) {
+                CHECK(same_slot(slot, gm::VmSectorSlot{}));
+            }
+        }
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -753,6 +976,7 @@ int main(int argc, char** argv) {
     }
 
     test_synthetic();
+    test_sector_stuff();
 
     std::error_code ec;
     if (!fs::is_directory(kGameDir, ec)) {

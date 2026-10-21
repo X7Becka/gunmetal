@@ -50,7 +50,7 @@ constexpr std::size_t kBlockStrideScriptHandle = 12;
 constexpr std::size_t kThingSlots = kSaveThingSlots;
 constexpr std::size_t kThingRecord = kSaveThingRecordSize;
 constexpr std::size_t kItemSize = 0x7080;
-constexpr std::size_t kSectorStuffSize = 0x5800;
+constexpr std::size_t kSectorStuffSize = kSbtSectorStuffSize;
 constexpr std::size_t kSampleCountsSize = 300 * 4;
 constexpr std::size_t kSampleNamesSize = 300 * 9;
 constexpr std::size_t kScriptTablesSize = 9 * 0x400;
@@ -810,6 +810,19 @@ bool same_sound(const SaveSound& a, const SaveSound& b) {
            a.sample == b.sample && same_double(a.pitch, b.pitch);
 }
 
+bool same_sector_slot(const SbtSectorSlot& a, const SbtSectorSlot& b) {
+    for (std::size_t i = 0; i < 3; ++i) {
+        if (!same_double(a.move[i], b.move[i]) || !same_double(a.extra[i], b.extra[i])) {
+            return false;
+        }
+    }
+    return same_double(a.sound_param, b.sound_param) && a.event_a == b.event_a &&
+           a.event_b == b.event_b && a.damage_a == b.damage_a &&
+           a.damage_b == b.damage_b && a.sound == b.sound &&
+           a.sound_count == b.sound_count && a.flags == b.flags &&
+           a.unused == b.unused;
+}
+
 bool same_things(const Save& a, const Save& b) {
     if (a.thing_present != b.thing_present || a.things.size() != b.things.size()) {
         return false;
@@ -839,7 +852,8 @@ bool same_typed_blocks(const Save& a, const Save& b) {
     return same_vector(a.switches, b.switches, same_switch) &&
            same_vector(a.doors, b.doors, same_door) && same_things(a, b) &&
            same_vector(a.sprites, b.sprites, same_sprite) &&
-           same_vector(a.sounds, b.sounds, same_sound);
+           same_vector(a.sounds, b.sounds, same_sound) &&
+           same_vector(a.sector_stuff, b.sector_stuff, same_sector_slot);
 }
 
 bool same_player(const SavePlayer& a, const SavePlayer& b) {
@@ -1054,8 +1068,18 @@ bool parse_block(Reader& r, Save& save, std::uint8_t id, std::size_t offset,
         decode_sounds(body, count, save.sounds);
         return true;
     }
-    case 8: // SECTOR_STUFF, fixed 256 x 0x58
-        return r.skip(kSectorStuffSize, "sector stuff");
+    case 8: { // SECTOR_STUFF: fixed 256 x 0x58 (docs/RECORDS.md §2)
+        std::span<const std::uint8_t> body;
+        if (!r.bytes(kSectorStuffSize, body, "sector stuff")) {
+            return false;
+        }
+        std::string detail;
+        if (!parse_sector_stuff(body, save.sector_stuff, detail)) {
+            r.fail("sector stuff: " + detail);
+            return false;
+        }
+        return true;
+    }
     case 9: // player
         return parse_player_block(r, save, offset, count, error);
     case 11: { // SCRIPT runtime form: things, handles, code, tables
@@ -1378,6 +1402,18 @@ std::optional<std::vector<std::uint8_t>> Save::to_bytes(std::string& error) cons
             case 7:
                 if (!sounds.empty()) {
                     if (!encode_sounds(sounds, payload, error)) {
+                        return std::nullopt;
+                    }
+                    have_payload = true;
+                }
+                break;
+            case 8:
+                if (!sector_stuff.empty()) {
+                    payload = encode_sector_stuff(sector_stuff);
+                    if (payload.size() != kSectorStuffSize) {
+                        error = "sector stuff: need exactly " +
+                                std::to_string(kSbtSectorSlots) + " slots, have " +
+                                std::to_string(sector_stuff.size());
                         return std::nullopt;
                     }
                     have_payload = true;
