@@ -574,7 +574,10 @@ std::size_t WorldState::post_switch_events(EventQueue& queue,
     std::size_t posted = 0;
     while (switch_event_cursor_ < events_.size()) {
         const WorldEvent& event = events_[switch_event_cursor_];
-        if (event.kind != WorldEvent::Kind::SwitchPressed || event.switch_id < 0) {
+        if (event.kind != WorldEvent::Kind::SwitchPressed || event.switch_id < 0 ||
+            event.switch_id >= 0x200) {
+            // Invalid ids are never postable: advance instead of treating the
+            // permanent rejection as a full queue and stalling the cursor.
             ++switch_event_cursor_;
             continue;
         }
