@@ -374,6 +374,13 @@ target_link_libraries(gm_weapons_tests PRIVATE gm_engine)
 add_test(NAME weapons COMMAND gm_weapons_tests)
 gm_label(weapons quick)
 
+# Player input -> weapon tick seam (docs/WEAPONS_CPP.md §3.6): trigger
+# hold/edge, slot request, charge threshold and the runtime spawn/event bridge.
+add_executable(gm_player_trigger_tests test_player_trigger.cpp)
+target_link_libraries(gm_player_trigger_tests PRIVATE gm_engine)
+add_test(NAME player_trigger COMMAND gm_player_trigger_tests)
+gm_label(player_trigger quick)
+
 # The original's CRT `rand()` (docs/RNG.md): MSVC LCG `state*214013+2531011`,
 # output `(state >> 16) & 0x7FFF`, seeded from `time(nullptr)` at init
 # (`0x44A491`).  Goldens are the documented `srand(1)` sequence.
