@@ -127,7 +127,14 @@ bool GameRuntime::set_player_eyes(std::span<const Vec3d> eyes) {
             return false;
         }
     }
+    const std::size_t previous_count = player_eyes_.size();
     player_eyes_.assign(eyes.begin(), eyes.end());
+    // The vitals are index-aligned with this list; a different player count
+    // makes the old gauges describe the wrong players, so they are dropped
+    // instead of being silently re-mapped.
+    if (player_eyes_.size() != previous_count) {
+        player_vitals_.clear();
+    }
     if (ai_attached_) {
         if (player_eyes_.empty()) {
             ai_.clear_players();
@@ -138,8 +145,23 @@ bool GameRuntime::set_player_eyes(std::span<const Vec3d> eyes) {
     return true;
 }
 
+bool GameRuntime::set_player_vitals(std::span<const Vitals> vitals) {
+    if (vitals.size() > static_cast<std::size_t>(kAiMaxPlayers)) {
+        return false;
+    }
+    // Index alignment is the whole contract of the owned vitals: a span of a
+    // different size is rejected before anything is written, so a rejected
+    // call cannot corrupt the previous gauges or the eye list.
+    if (vitals.size() != player_eyes_.size()) {
+        return false;
+    }
+    player_vitals_.assign(vitals.begin(), vitals.end());
+    return true;
+}
+
 void GameRuntime::clear_players() {
     player_eyes_.clear();
+    player_vitals_.clear();
     target_player_radii_.clear();
     if (ai_attached_) {
         ai_.clear_players();
@@ -381,6 +403,16 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
     return batch;
 }
 
+ProjectileBlastBatch GameRuntime::apply_projectile_blasts_to_players(
+    const Weapon& weapon, const ProjectileBlastContext& context,
+    std::span<ThingVitals> thing_vitals, bool only_new) {
+    // Same marks and the same per-record loop: a caller may alternate the two
+    // entry points and still blast each generation of records at most once.
+    return apply_projectile_blasts(weapon, context,
+                                   std::span<Vitals>(player_vitals_),
+                                   thing_vitals, only_new);
+}
+
 int GameRuntime::spawn_thing(Thing thing) {
     const int id = things_.spawn(std::move(thing), &events_.queue());
     if (id >= 0) {
@@ -409,6 +441,7 @@ void GameRuntime::reset() {
     events_ = EventRuntime{};
     collision_.clear();
     player_eyes_.clear();
+    player_vitals_.clear();
     switch_source_ = 0;
     clock_ = 0;
     // The template belongs to the configuration side and is kept (like

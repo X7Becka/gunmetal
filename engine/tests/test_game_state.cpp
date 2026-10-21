@@ -1314,6 +1314,155 @@ void test_runtime_projectile_blasts_bounce() {
     CHECK_EQ(things[0].hp, 9200);
 }
 
+/// Player blast with both plate and hull damage.  The bridge uses the
+/// non-directional gauge path (`side = -1`, blast flags 0), so a 400 plate is
+/// quartered to 100 per shield; the plate of an empty quadrant spills on top
+/// of the 1000 hull.  Event 0 keeps the queue out of the assertions.
+gm::Weapon vitals_test_weapon() {
+    gm::Weapon weapon;
+    weapon.name = "PLATE";
+    gm::Blast expire;
+    expire.plate = 400;
+    expire.hull = 1000;
+    expire.radius = 50;
+    weapon.expire_blasts.push_back(expire);
+    return weapon;
+}
+
+/// Owned player vitals: `set_player_vitals()` only accepts the eye count, the
+/// span-free bridge damages those gauges once per generation, a rejected size
+/// never writes, and `clear_players()`/`reset()` drop them.
+void test_runtime_player_vitals() {
+    const gm::Vec3d eye{0.0, 0.0, 20.0};
+    const gm::Weapon weapon = vitals_test_weapon();
+    const gm::ProjectileBlastContext context;
+
+    gm::GameRuntime runtime;
+    CHECK(runtime.set_player_eyes(std::span<const gm::Vec3d>(&eye, 1)));
+
+    gm::Vitals vitals;
+    vitals.armor = 10000;
+    vitals.armor_max = 10000;
+    vitals.shield_max = 500;
+    vitals.shields[0] = 500; // front quadrant only
+    gm::Vitals two[2] = {vitals, vitals};
+
+    // A size that does not match the eye list is rejected before any write.
+    CHECK(!runtime.set_player_vitals(two));
+    CHECK_EQ(runtime.player_vitals().size(), std::size_t(0));
+
+    CHECK(runtime.set_player_vitals(std::span<const gm::Vitals>(&vitals, 1)));
+    CHECK_EQ(runtime.player_vitals().size(), std::size_t(1));
+    CHECK_EQ(runtime.player_vitals()[0].armor, 10000);
+
+    // The mutable accessor edits the owned entries; the size stays tied to the
+    // player list.
+    runtime.player_vitals()[0].hitstun = 7;
+    CHECK_EQ(runtime.player_vitals()[0].hitstun, 7);
+
+    gm::ProjectileSpawn grenade;
+    grenade.thing_id = 50;
+    grenade.position = gm::Vec3d{0.0, 0.0, 20.0};
+    grenade.direction = gm::Vec3d{0.0, 0.0, 1.0};
+    grenade.speed = 0.0;    // stays at the blast centre
+    grenade.life_ticks = 1; // expires on the first step
+    grenade.radius = 0.0;
+    CHECK_EQ(runtime.spawn_projectile(grenade), 0);
+
+    runtime.tick(1);
+    {
+        const std::span<const gm::ProjectileTickRecord> records =
+            runtime.last_projectile_results();
+        CHECK_EQ(records.size(), std::size_t(1));
+        if (records.size() == 1) {
+            CHECK(records[0].status == gm::ProjectileStatus::expired);
+            CHECK(!records[0].already_spent);
+        }
+    }
+
+    // The span-free bridge hits the owned vitals: shield 500 - (400 >> 2) and
+    // armor 10000 - (1000 hull + 3 * 100 spilled plate).
+    const gm::ProjectileBlastBatch first =
+        runtime.apply_projectile_blasts_to_players(weapon, context);
+    CHECK_EQ(first.blasts, std::size_t(1));
+    CHECK_EQ(first.already_applied, std::size_t(0));
+    CHECK_EQ(first.posted_events, std::size_t(0)); // event 0: no type-3 record
+    CHECK_EQ(first.damage.hits.size(), std::size_t(1));
+    if (first.damage.hits.size() == 1) {
+        CHECK(first.damage.hits[0].hit.is_player);
+        CHECK_EQ(first.damage.hits[0].hit.index, 0);
+        CHECK_EQ(first.damage.hits[0].hit.plate, 400);
+        CHECK_EQ(first.damage.hits[0].player_damage.plate_absorbed, 100);
+        CHECK_EQ(first.damage.hits[0].player_damage.hull_absorbed, 1300);
+    }
+    CHECK_EQ(runtime.player_vitals()[0].shields[0], 400);
+    CHECK_EQ(runtime.player_vitals()[0].armor, 8700);
+    CHECK(runtime.player_vitals()[0].hitstun >= 0x10000);
+
+    // No new tick -> no second application, and the gauges stay where they were.
+    const gm::ProjectileBlastBatch repeat =
+        runtime.apply_projectile_blasts_to_players(weapon, context);
+    CHECK_EQ(repeat.blasts, std::size_t(0));
+    CHECK_EQ(repeat.already_applied, std::size_t(1));
+    CHECK(repeat.damage.hits.empty());
+    CHECK_EQ(runtime.player_vitals()[0].shields[0], 400);
+    CHECK_EQ(runtime.player_vitals()[0].armor, 8700);
+
+    // Mixing the two entry points shares the marks: the explicit-span call for
+    // the same generation is skipped as well.
+    const gm::ProjectileBlastBatch mixed = runtime.apply_projectile_blasts(
+        weapon, context, runtime.player_vitals(), {});
+    CHECK_EQ(mixed.blasts, std::size_t(0));
+    CHECK_EQ(mixed.already_applied, std::size_t(1));
+    CHECK_EQ(runtime.player_vitals()[0].armor, 8700);
+
+    // A rejected size leaves the gauges and the eye list intact.
+    CHECK(!runtime.set_player_vitals(two));
+    CHECK_EQ(runtime.player_vitals().size(), std::size_t(1));
+    CHECK_EQ(runtime.player_vitals()[0].armor, 8700);
+
+    // Re-setting the same eye count keeps the gauges; a new count drops them
+    // (they describe the old list).
+    CHECK(runtime.set_player_eyes(std::span<const gm::Vec3d>(&eye, 1)));
+    CHECK_EQ(runtime.player_vitals().size(), std::size_t(1));
+    const gm::Vec3d eyes2[2] = {eye, gm::Vec3d{100.0, 0.0, 20.0}};
+    CHECK(runtime.set_player_eyes(eyes2));
+    CHECK_EQ(runtime.player_vitals().size(), std::size_t(0));
+    CHECK(runtime.set_player_vitals(two));
+
+    // `clear_players()` drops the eyes and the gauges together.
+    runtime.clear_players();
+    CHECK_EQ(runtime.player_vitals().size(), std::size_t(0));
+    CHECK(!runtime.set_player_vitals(two)); // no eye list left to align with
+
+    // `reset()` clears them as well; the empty eye list also rejects a set
+    // (index alignment needs the player list, see `set_player_vitals()`).
+    CHECK(runtime.set_player_eyes(eyes2));
+    CHECK(runtime.set_player_vitals(two));
+    runtime.reset();
+    CHECK_EQ(runtime.player_vitals().size(), std::size_t(0));
+    CHECK(!runtime.set_player_vitals(two));
+
+    // Without owned vitals the bridge still reports the player hit but applies
+    // no damage (the short-span rule of `apply_blast_damage()`).
+    gm::GameRuntime bare;
+    CHECK(bare.set_player_eyes(std::span<const gm::Vec3d>(&eye, 1)));
+    gm::ProjectileSpawn bare_grenade = grenade;
+    bare_grenade.thing_id = 51;
+    CHECK_EQ(bare.spawn_projectile(bare_grenade), 0);
+    bare.tick(1);
+    const gm::ProjectileBlastBatch no_vitals =
+        bare.apply_projectile_blasts_to_players(weapon, context);
+    CHECK_EQ(no_vitals.blasts, std::size_t(1));
+    CHECK_EQ(no_vitals.damage.hits.size(), std::size_t(1));
+    if (no_vitals.damage.hits.size() == 1) {
+        CHECK(no_vitals.damage.hits[0].hit.is_player);
+        CHECK(!no_vitals.damage.hits[0].player_damage.ok);
+        CHECK_EQ(no_vitals.damage.hits[0].hit.hull, 1000);
+    }
+    CHECK(bare.player_vitals().empty());
+}
+
 /// Filling the staging queue must leave the unposted switch tail in the world
 /// and the next tick must dispatch it exactly once.
 void test_runtime_pending_switch_tail() {
@@ -1693,6 +1842,7 @@ int main() {
     test_runtime_projectile_results();
     test_runtime_projectile_blasts_expire();
     test_runtime_projectile_blasts_bounce();
+    test_runtime_player_vitals();
     test_runtime_ai_shots_default_off();
     test_runtime_ai_shots_to_projectiles();
     test_runtime_ai_shots_without_template();

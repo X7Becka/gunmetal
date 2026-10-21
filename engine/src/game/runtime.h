@@ -43,6 +43,12 @@
 // is idempotent per tick generation: every result record is blasted at most
 // once until the next `tick()`.
 //
+// The runtime can also own the player gauges: `set_player_vitals()` stores one
+// `Vitals` per `set_player_eyes()` point, and
+// `apply_projectile_blasts_to_players()` blasts those without any caller-side
+// vitals span.  Ownership is optional (`player_vitals()` empty): a blast then
+// counts the player hit but applies no damage, the `apply_blast_damage()` rule.
+//
 // Lifetime: `Ai` keeps a pointer to the owned `Things`, and the projectile
 // target spans point into the runtime's scratch arrays.  The class therefore
 // deletes copy/move; build and use it in place.
@@ -175,7 +181,29 @@ public:
     /// Players' eye points for the AI (1..8, world units).  An empty span
     /// means "no players"; more than eight entries or a non-finite value is
     /// rejected and leaves the previous set untouched.  Never builds anything.
+    ///
+    /// The owned player vitals (`set_player_vitals()`) are index-aligned with
+    /// this list, so a change of the player count drops them; re-setting the
+    /// same count keeps the gauges.  `player_vitals()` therefore has either the
+    /// same size as the eye list or is empty.
     bool set_player_eyes(std::span<const Vec3d> eyes);
+
+    /// Replace the owned player vitals (0..8 entries, save units: integer
+    /// hundredths).  The size must equal the `set_player_eyes()` list -- a
+    /// mismatch (including a non-empty span before any eyes were set) is
+    /// rejected and leaves both lists untouched.  These gauges never feed `Ai`
+    /// (the scaffold has no player gauges); they are the targets of
+    /// `apply_projectile_blasts_to_players()`.
+    bool set_player_vitals(std::span<const Vitals> vitals);
+    /// Owned player vitals, index-aligned with the `set_player_eyes()` points;
+    /// empty when none were set.  The span is invalidated by the next
+    /// `set_player_eyes()`/`set_player_vitals()`/`clear_players()`/`reset()`.
+    std::span<const Vitals> player_vitals() const { return player_vitals_; }
+    /// Mutable view of the same entries: contents may be edited in place, the
+    /// size stays tied to the player list.  Same lifetime as the const view.
+    std::span<Vitals> player_vitals() { return player_vitals_; }
+
+    /// Drop the eye list and the owned player vitals.
     void clear_players();
 
     /// Press switch `switch_id` (index into `world().switches()`) and mirror it
@@ -292,6 +320,20 @@ public:
         std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
         bool only_new = true);
 
+    /// The same bridge, with the runtime-owned player vitals: `player_vitals_`
+    /// (see `set_player_vitals()`) is blasted instead of a caller span, so a
+    /// runtime configured once with eyes + vitals needs no vitals plumbing.
+    /// Thing vitals stay caller-owned (the runtime does not shadow `Things`);
+    /// an empty span counts thing hits but applies no thing damage, the usual
+    /// `apply_blast_damage()` rule.
+    ///
+    /// Both entry points share the per-generation marks, so mixing them cannot
+    /// double-blast a record: a second call of either kind without a new
+    /// `tick()` applies nothing (`already_applied` counts the skipped records).
+    ProjectileBlastBatch apply_projectile_blasts_to_players(
+        const Weapon& weapon, const ProjectileBlastContext& context,
+        std::span<ThingVitals> thing_vitals = {}, bool only_new = true);
+
     // --- spawn --------------------------------------------------------------
 
     /// Append a thing, assign an id when `thing.id < 0` and post its create
@@ -312,8 +354,8 @@ public:
     // --- clear --------------------------------------------------------------
 
     /// Drop everything and start from scratch with the same configuration:
-    /// empty world/things/AI/projectiles/events/collision, no players, clock 0.
-    /// Does not touch `config()`.
+    /// empty world/things/AI/projectiles/events/collision, no players (eyes and
+    /// vitals), clock 0.  Does not touch `config()`.
     void reset();
 
     /// Drop the queued records, the world switch mirror, the AI event log and
@@ -344,6 +386,9 @@ private:
     CollisionWorld collision_;
     std::optional<Thing> ai_projectile_template_;
     std::vector<Vec3d> player_eyes_;
+    /// One gauge set per eye point (same size or empty); see
+    /// `set_player_vitals()`.
+    std::vector<Vitals> player_vitals_;
     std::int16_t switch_source_ = 0;
     std::uint64_t clock_ = 0;
     int next_ai_projectile_id_ = kAiProjectileRuntimeIdBase;

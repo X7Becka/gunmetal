@@ -14,12 +14,13 @@
 
 | что | значение |
 |---|---|
-| владеет | `WorldState`, `Things`, `Ai`, `Projectiles`, `EventRuntime`, `CollisionWorld` |
+| владеет | `WorldState`, `Things`, `Ai`, `Projectiles`, `EventRuntime`, `CollisionWorld`, точки глаз и виталы игроков |
 | конфиг | `GameRuntimeConfig{ AiConfig, ThingsOptions, build_ai, install_switches, projectiles_use_things, player_radius, ai_shots_to_projectiles }` |
 | шаблон снаряда | `set_ai_projectile_template(Thing)` / `clear_ai_projectile_template()` |
+| игроки | `set_player_eyes(span)` + `set_player_vitals(span)` (размеры совпадают), `player_vitals()` |
 | тик | 91 Гц, `tick(n)` = ровно `n` проходов тела |
 | порядок | вещи → AI → AI-выстрелы (opt-in) → снаряды → двери/мир → события |
-| blast | `apply_projectile_blasts(weapon, …)` — явный мост, не фаза тика; идемпотентен на генерацию `tick_results` |
+| blast | `apply_projectile_blasts(weapon, …)` — явный мост, не фаза тика; идемпотентен на генерацию `tick_results`; `apply_projectile_blasts_to_players()` — то же по собственным виталам |
 | события | очередь опустошается в том же тике, повторного dispatch нет |
 | снаряды | один `Projectiles::tick_results(1, …)`; записи отдаются как есть |
 | ввод | `press_switch()` (не `world().interact()` напрямую) |
@@ -48,6 +49,7 @@ if (!runtime.build(level, vm, geometry, &error)) {
 }
 
 runtime.set_player_eyes(eyes);     // 0..8 точек глаз
+runtime.set_player_vitals(gauges); // те же 0..8 записей Vitals, см. §7
 runtime.press_switch(0, 0);        // вход через шов, см. §4
 runtime.tick(10);
 
@@ -69,6 +71,16 @@ for (const gm::ProjectileTickRecord& record : runtime.last_projectile_results())
 
 Шаблон снаряда для AI-моста — не поле конфига, а значение рантайма:
 `set_ai_projectile_template(Thing)`, см. §6.
+
+Виталы игроков (`Vitals`, единицы сейва — сотые) рантайм хранит рядом с точками
+глаз: `set_player_vitals(span)` принимает ровно столько записей, сколько точек в
+`set_player_eyes()`, иначе возвращает `false`, ничего не записав. Смена числа
+точек сбрасывает виталы (они привязаны к индексам списка), повторная установка
+того же числа их сохраняет; `clear_players()` и `reset()` очищают и точки, и
+виталы. Пустой `player_vitals()` — «гейджи неизвестны»: blast считает попадание,
+но урон не применяет (правило короткого спана в `apply_blast_damage()`).
+Аксессор `player_vitals()` отдаёт спаны (const и mutable): менять содержимое
+можно, размер при этом остаётся привязан к списку игроков.
 
 ---
 
@@ -124,6 +136,9 @@ Blast/урон в тело тика не входит: оружие снаряд
 * `apply_projectile_blasts()` — не аксессор, а явный мост снаряды → blast; его
   результат `ProjectileBlastBatch` действителен сразу после вызова, отметки
   «уже взорвано» живут до следующего `tick()`/сброса (§7).
+* `player_vitals()` — принадлежащие рантайму гейджи игроков, индекс в индекс с
+  `set_player_eyes()`; спаны живут до следующей установки игроков/виталов,
+  `clear_players()` или `reset()`.
 
 Счётчики подсистем остаются их собственными: `world().stats()`,
 `things().stats()`, `ai().stats()`, `clock()`.
@@ -160,7 +175,8 @@ Blast/урон в тело тика не входит: оружие снаряд
 
 * игроки: точки `set_player_eyes()` + `config.player_radius` (по умолчанию 0,
   то есть точки); `player_kind`/`player_has_object` не задаются — отсутствующие
-  спаны `projectile_step` трактует как «нет данных»;
+  спаны `projectile_step` трактует как «нет данных»; виталы игроков в
+  `ProjectileTargets` не входят (это цель blast-моста, §7);
 * вещи: позиция (только absolute, source-relative получают `alive = 0` и
   нулевую точку, чтобы индексы совпадали с `Things::things()`), радиус,
   `alive`, `movement_type`, `owner`, `parent`; `flags2 = 0` (у `Thing` нет
@@ -259,6 +275,27 @@ for (std::size_t i = 0; i < things.size(); ++i) {
 }
 ```
 
+Если виталы игроков принадлежат рантайму (§1), хватает короткой формы: она
+берёт `player_vitals()` и пишет урон прямо в них.
+
+```cpp
+runtime.set_player_eyes(eyes);
+gm::Vitals gauges;                 // индекс 0 = первая точка глаз
+gauges.armor = gauges.armor_max = 10000;
+runtime.set_player_vitals(std::span<const gm::Vitals>(&gauges, 1));
+
+const gm::ProjectileBlastBatch batch =
+    runtime.apply_projectile_blasts_to_players(weapon, context /*, thing_vitals */);
+// новые значения — в runtime.player_vitals()
+```
+
+Виталы вещей по-прежнему не принадлежат рантайму: `thing_vitals` остаётся
+необязательным параметром (пустой спан — попадания считаются, урон по вещам
+пропускается), и после вызова нужен `store_thing_vitals()`. Оба входа
+(`apply_projectile_blasts()` и `apply_projectile_blasts_to_players()`) делят
+одни и те же отметки генерации, поэтому смешивать их безопасно: запись
+взрывается не более одного раза до следующего `tick()`.
+
 Что делает вызов:
 
 1. идёт по `last_projectile_results()` (только последний шаг `tick()`);
@@ -270,7 +307,8 @@ for (std::size_t i = 0; i < things.size(); ++i) {
 3. цели берёт из рантайма: `player_positions` — точки `set_player_eyes()`,
    `thing_positions`/`thing_alive` — `things().things()` по индексу
    (source-relative вещь без мировой точки помечается «не живой»);
-   `player_vitals[i]`/`thing_vitals[i]` должны описывать те же индексы. Если
+   `player_vitals[i]`/`thing_vitals[i]` должны описывать те же индексы (у
+   короткой формы `player_vitals` — собственные виталы рантайма). Если
    спана vitals короче спана позиций, попадание считается, но урон по этому
    индексу пропускается (правило `apply_blast_damage()`);
 4. каждое попадание с ненулевым `BlastHit::event` постит type-3 запись в
@@ -307,9 +345,9 @@ Blast пишет только в переданные спаны vitals: `Things
 
 ## 8. Сброс
 
-* `reset()` — пустые мир/вещи/AI/снаряды/события/коллизия, нет игроков,
-  `clock() == 0`; `config()` не меняется. Используется тестом детерминизма
-  как «второй прогон с нуля».
+* `reset()` — пустые мир/вещи/AI/снаряды/события/коллизия, нет игроков
+  (точки глаз и виталы), `clock() == 0`; `config()` не меняется. Используется
+  тестом детерминизма как «второй прогон с нуля».
 * `clear_events()` — очередь, лог свитчей мира, лог AI и last-результаты;
   реестр текста (у него свои дедлайны по кадрам) остаётся. Часы не сбрасываются.
 * `clear_projectiles()` — флот снарядов и `last_projectile_results()`.
@@ -332,6 +370,7 @@ Blast пишет только в переданные спаны vitals: `Things
 | `test_runtime_pending_switch_tail` | 4300 нажатий переполняют очередь (0x7526 / 7 байт); тик 1 отдаёт часть, тик 2 — остаток, сумма ровно 4300, третий тик пуст |
 | `test_runtime_projectile_blasts_expire` | expire-снаряд в центре игрока и вещи: один blast (`expire_blasts`, hull 2000 → armor/hp 8000), 2 попадания, 2 type-3 записи в очереди; повторный вызов без тика — `blasts == 0`, `already_applied == 1`, урон не меняется; на следующем тике события уезжают в `generated` ровно один раз, а `already_spent`-повтор expiry не бьёт |
 | `test_runtime_projectile_blasts_bounce` | пол из двух треугольников: bounce бьёт по `impact_blasts` (hull 1000 у игрока, 400 у вещи на d=30 при радиусе 50), `flying` между bounce'ами не бьёт, второй bounce нового тика бьёт ещё раз, повтор вызова — 0 |
+| `test_runtime_player_vitals` | собственные виталы: размер не равен списку глаз → `false` без записи; blast через `apply_projectile_blasts_to_players()` снимает 100 щита (400 plate >> 2) и 1300 брони (1000 hull + 300 пролитого plate), повтор без тика — 0, смешанный вызов с явным спаном тоже 0; смена числа глаз сбрасывает виталы, `clear_players()`/`reset()` очищают; без виталов попадание считается, урон не применяется |
 | `test_runtime_determinism` | 12 тиков с дверью, вещами, AI и снарядом: хеши состояний двух рантаймов совпадают, `reset()` + повторная сборка дают тот же поток; дверь за 12 тиков уходит на `phase = 18000` |
 
 Фикстуры синтетические (SWITCH/DOOR-записи + `.sbw` из одного объекта или пола
@@ -369,8 +408,13 @@ ctest --test-dir build/dev -R '^game_state$' --output-on-failure
   поэтому они не цели proximity-таблицы снарядов.
 * Blast-мост (§7) — чистая сферическая проверка `apply_blast` без LOS и без
   геометрии; он пишет только в переданные спаны vitals (вещи — через
-  `store_thing_vitals()`), а события попаданий постятся в центре взрыва,
+  `store_thing_vitals()`, игроки — либо в собственные `player_vitals_`, либо в
+  спан вызывающего), а события попаданий постятся в центре взрыва,
   потому что координаты цели в оригинальном пути не доказаны.
+* `player_vitals_` — только цель blast-моста: `Ai` их не читает (у scaffold нет
+  гейджей игроков), в сейв/`GameState` они не переносятся (этот слой не
+  владеет `GameState`), а смена числа точек глаз сбрасывает их, чтобы индексы
+  не разъехались.
 * `reset()` не трогает `config()` и шаблон снаряда, но стирает текст-реестр,
   таблицу свитчей и счётчик runtime-id снарядов.
 * Точный порядок фаз — контракт этого слоя, а не доказанный порядок оригинала;
