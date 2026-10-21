@@ -12,6 +12,7 @@
 // Negatives: a broken container, a save without block 9, a missing present
 // slot, a foreign level, and out-of-range player/door values.
 #include "game/state.h"
+#include "game/runtime.h"
 
 #include <algorithm>
 #include <array>
@@ -255,6 +256,67 @@ std::optional<gm::Save> parse_bytes(const std::vector<std::uint8_t>& bytes,
         ++g_failures;
     }
     return save;
+}
+
+// --- runtime fixtures ------------------------------------------------------
+// Raw runtime arrays of the `.sbt` (docs/RECORDS.md §3/§4): a 0x20-byte
+// SWITCH record and a 0xB8-byte DOOR record, with only the fields
+// `WorldState::build` reads pinned.  They keep the runtime tests independent
+// of the shipped game data.
+
+std::vector<std::uint8_t> make_switch_payload(const std::vector<int>& targets) {
+    std::vector<std::uint8_t> payload(4 + targets.size() * 0x20, 0);
+    put_u32(payload, 0, static_cast<std::uint32_t>(targets.size()));
+    for (std::size_t k = 0; k < targets.size(); ++k) {
+        const std::size_t base = 4 + k * 0x20;
+        put_i32(payload, base, 259); // kind, transformed like dm1 (>= 0x101)
+        put_i32(payload, base + 4, targets[k]);
+        put_i32(payload, base + 8, 128);
+        put_i32(payload, base + 12, static_cast<int>(k));
+    }
+    return payload;
+}
+
+std::vector<std::uint8_t> make_runtime_door_payload(int id) {
+    constexpr std::size_t kRecord = 0xB8;
+    std::vector<std::uint8_t> payload(4 + kRecord, 0);
+    put_u32(payload, 0, 1);
+    const std::size_t base = 4;
+    put_i32(payload, base + 0x68, 1);   // flags
+    put_i32(payload, base + 0x6c, id);  // ids[0] = the GENERATE key
+    put_i32(payload, base + 0x80, 0);   // state: closed
+    put_i32(payload, base + 0x84, 0);   // sector
+    put_i32(payload, base + 0x88, 0);   // object
+    put_u32(payload, base + 0x8c, 0);   // phase
+    put_i32(payload, base + 0x94, 1500); // phase units per tick
+    return payload;
+}
+
+gm::SbtLevel make_runtime_level(int switch_target, bool with_door) {
+    gm::SbtLevel level;
+    if (with_door) {
+        gm::SbtRecord doors;
+        doors.type = 2;
+        doors.payload = make_runtime_door_payload(100);
+        level.records.push_back(std::move(doors));
+    }
+    gm::SbtRecord switches;
+    switches.type = 1;
+    switches.payload = make_switch_payload({switch_target});
+    level.records.push_back(std::move(switches));
+    return level;
+}
+
+/// One sector, one object: enough for the runtime door to bind.  The object
+/// needs an empty `.sbw` geometry block because `CollisionWorld::build`
+/// requires one geometry per object reference.
+gm::SbwLevel make_runtime_geometry() {
+    gm::SbwLevel geometry;
+    geometry.header.sectors.resize(1);
+    geometry.header.sectors[0].objects.resize(1);
+    geometry.header.object_count = 1;
+    geometry.geometry.push_back(gm::SbwGeometry{});
+    return geometry;
 }
 
 // --- synthetic -------------------------------------------------------------
@@ -829,6 +891,309 @@ void test_vitals_bridge() {
     CHECK_EQ(state.armor, 2500); // rejected update leaves the state intact
 }
 
+namespace {
+
+// --- fixed-tick runtime (docs/RUNTIME_CPP.md) ------------------------------
+
+// The runtime tests stay self-contained: synthetic SWITCH/DOOR records above,
+// things spawned directly through `GameRuntime::spawn_thing`, no game data.
+
+void hash_u64(std::uint64_t& hash, std::uint64_t value) {
+    hash ^= value;
+    hash *= 0x100000001b3ULL;
+}
+
+void hash_double(std::uint64_t& hash, double value) {
+    hash_u64(hash, std::bit_cast<std::uint64_t>(value));
+}
+
+/// One thing expires at tick 1 with event 77; a second tick must not replay it.
+void test_runtime_events_not_duplicated() {
+    gm::GameRuntime runtime;
+    gm::Thing thing;
+    thing.id = -1;
+    thing.position = std::array<int, 3>{12, -34, 56};
+    thing.expire_ticks = 1;
+    thing.expire_event = 77;
+    const int id = runtime.spawn_thing(thing);
+    CHECK_EQ(id, 0);
+
+    runtime.tick(1);
+    CHECK_EQ(runtime.clock(), 1u);
+    const gm::EventDispatchResult& first = runtime.last_events();
+    CHECK(first.ok);
+    CHECK_EQ(first.generated.size(), std::size_t(1));
+    CHECK_EQ(first.sounds.size(), std::size_t(0));
+    if (first.generated.size() == 1) {
+        CHECK_EQ(first.generated[0].id, 77);
+        CHECK_EQ(first.generated[0].x, 12);
+        CHECK_EQ(first.generated[0].y, -34);
+        CHECK_EQ(first.generated[0].z, 56);
+        CHECK_EQ(first.generated[0].extra,
+                 static_cast<std::uint32_t>(id - 0xfff8));
+    }
+
+    // The queue is drained by the same tick; tick 2 posts and dispatches
+    // nothing, the expiry latch is still set.
+    runtime.tick(1);
+    CHECK_EQ(runtime.clock(), 2u);
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+    CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
+    const gm::Thing* stored = runtime.things().by_id(id);
+    CHECK(stored != nullptr);
+    if (stored != nullptr) {
+        CHECK(stored->expired);
+        CHECK_EQ(stored->age, 2u);
+    }
+
+    // A zero-tick call is a no-op, not an extra pass.
+    runtime.tick(0);
+    CHECK_EQ(runtime.clock(), 2u);
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+}
+
+/// Expire and remove of a projectile both reach `last_projectile_results()`;
+/// the dispatch sees the expire event exactly once.
+void test_runtime_projectile_results() {
+    gm::GameRuntime runtime;
+    gm::ProjectileSpawn spawn;
+    spawn.thing_id = 5;
+    spawn.position = gm::Vec3d{0.0, 0.0, 100.0};
+    spawn.direction = gm::Vec3d{1.0, 0.0, 0.0};
+    spawn.speed = 1.0;
+    spawn.life_ticks = 1;
+    spawn.expire_event = 500;
+    spawn.radius = 0.0; // no collision world, no sweep
+    CHECK_EQ(runtime.spawn_projectile(spawn), 0);
+
+    runtime.tick(1);
+    {
+        const std::span<const gm::ProjectileTickRecord> records =
+            runtime.last_projectile_results();
+        CHECK_EQ(records.size(), std::size_t(1));
+        if (records.size() == 1) {
+            CHECK(records[0].status == gm::ProjectileStatus::expired);
+            CHECK(records[0].spent);
+            CHECK(!records[0].dead);
+            CHECK(!records[0].already_spent);
+            CHECK_EQ(records[0].posted_events, std::size_t(1));
+            CHECK_EQ(records[0].events.size(), std::size_t(1));
+            if (records[0].events.size() == 1) {
+                CHECK_EQ(records[0].events[0].id, 500u);
+            }
+        }
+        CHECK_EQ(runtime.last_events().generated.size(), std::size_t(1));
+        if (!runtime.last_events().generated.empty()) {
+            CHECK_EQ(runtime.last_events().generated[0].id, 500);
+        }
+    }
+
+    // The spent record is stepped again but reports a replay and posts nothing.
+    runtime.tick(1);
+    {
+        const std::span<const gm::ProjectileTickRecord> records =
+            runtime.last_projectile_results();
+        CHECK_EQ(records.size(), std::size_t(1));
+        if (records.size() == 1) {
+            CHECK(records[0].already_spent);
+            CHECK(records[0].events.empty());
+            CHECK_EQ(records[0].posted_events, std::size_t(0));
+        }
+        CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+    }
+
+    // Removal marks the slot destroyed; the spawn has no destroy event.
+    CHECK(runtime.remove_projectile(5));
+    runtime.tick(1);
+    {
+        const std::span<const gm::ProjectileTickRecord> records =
+            runtime.last_projectile_results();
+        CHECK_EQ(records.size(), std::size_t(1)); // the slot is kept
+        if (records.size() == 1) {
+            CHECK(records[0].status == gm::ProjectileStatus::destroyed);
+            CHECK(records[0].dead);
+            CHECK(records[0].already_spent);
+            CHECK(records[0].events.empty());
+        }
+        CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+    }
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(1));
+
+    // `clear_projectiles()` drops the fleet and the last result.
+    runtime.clear_projectiles();
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(0));
+    CHECK_EQ(runtime.last_projectile_results().size(), std::size_t(0));
+}
+
+/// Filling the staging queue must leave the unposted switch tail in the world
+/// and the next tick must dispatch it exactly once.
+void test_runtime_pending_switch_tail() {
+    const gm::SbtLevel level = make_runtime_level(999, false);
+    const gm::SbwLevel geometry;
+    gm::GameRuntime runtime;
+    std::string error;
+    CHECK(runtime.build_world(level, geometry, &error));
+    CHECK(error.empty());
+    CHECK(runtime.has_world());
+    CHECK_EQ(runtime.world().switches().size(), std::size_t(1));
+
+    // Type-2 records are 7 bytes and the queue threshold is 0x7526, so the
+    // 4280th press fills it and every later record stays pending.
+    constexpr int kPresses = 4300;
+    for (int i = 0; i < kPresses; ++i) {
+        CHECK(runtime.press_switch(0, 7));
+    }
+    CHECK_EQ(runtime.world().stats().switch_interactions, std::size_t(kPresses));
+    CHECK(runtime.events().queue().size() > 0);
+
+    runtime.tick(1);
+    const std::size_t first = runtime.last_events().generated.size();
+    CHECK(first > 0);
+    CHECK(first < static_cast<std::size_t>(kPresses)); // a tail is pending
+    for (const gm::Event& event : runtime.last_events().generated) {
+        CHECK_EQ(event.id, 999);
+        CHECK_EQ(event.extra, static_cast<std::uint32_t>(-0x10000 + 7));
+    }
+
+    // `WorldState::tick` keeps the blocked tail; the second dispatch carries
+    // the rest, so no press is lost and none is duplicated.
+    runtime.tick(1);
+    const std::size_t second = runtime.last_events().generated.size();
+    CHECK(second > 0);
+    CHECK_EQ(first + second, static_cast<std::size_t>(kPresses));
+    for (const gm::Event& event : runtime.last_events().generated) {
+        CHECK_EQ(event.id, 999);
+    }
+
+    runtime.tick(1);
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+    CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
+}
+
+/// Build one runtime with a door, two things, a player eye and a projectile,
+/// then press the door switch.
+void runtime_setup(gm::GameRuntime& runtime, const gm::SbtLevel& level,
+                   const gm::SbwLevel& geometry) {
+    std::string error;
+    CHECK(runtime.build_world(level, geometry, &error));
+    CHECK(error.empty());
+
+    gm::Thing expiring;
+    expiring.id = -1;
+    expiring.position = std::array<int, 3>{10, 20, 30};
+    expiring.radius = 4.0;
+    expiring.expire_ticks = 5;
+    expiring.expire_event = 42;
+    CHECK_EQ(runtime.spawn_thing(expiring), 0);
+
+    gm::Thing idle;
+    idle.id = -1;
+    idle.position = std::array<int, 3>{110, 20, 30};
+    idle.radius = 4.0;
+    idle.model = "Cultist.sob";
+    CHECK_EQ(runtime.spawn_thing(idle), 1);
+
+    CHECK_EQ(runtime.attach_ai(), std::size_t(2));
+    const gm::Vec3d eye{11.0, 21.0, 31.0};
+    CHECK(runtime.set_player_eyes(std::span<const gm::Vec3d>(&eye, 1)));
+
+    gm::ProjectileSpawn spawn;
+    spawn.thing_id = 9;
+    spawn.position = gm::Vec3d{0.0, 0.0, 64.0};
+    spawn.direction = gm::Vec3d{1.0, 0.0, 0.0};
+    spawn.speed = 2.0;
+    spawn.life_ticks = 7;
+    spawn.expire_event = 500;
+    CHECK_EQ(runtime.spawn_projectile(spawn), 0);
+
+    CHECK(runtime.press_switch(0, 3));
+}
+
+/// Per-tick hash of everything the runtime owns that this slice changes.
+/// Doubles are hashed by their bit pattern, so the comparison is exact.
+std::vector<std::uint64_t> runtime_trace(gm::GameRuntime& runtime, int ticks) {
+    std::vector<std::uint64_t> trace;
+    trace.reserve(static_cast<std::size_t>(ticks));
+    for (int i = 0; i < ticks; ++i) {
+        runtime.tick(1);
+        std::uint64_t hash = 0xcbf29ce484222325ULL;
+        hash_u64(hash, runtime.clock());
+        hash_u64(hash, runtime.last_events().generated.size());
+        for (const gm::Event& event : runtime.last_events().generated) {
+            hash_u64(hash, static_cast<std::uint32_t>(event.id));
+            hash_u64(hash, event.extra);
+        }
+        hash_u64(hash, runtime.last_projectile_results().size());
+        for (const gm::ProjectileTickRecord& record : runtime.last_projectile_results()) {
+            hash_u64(hash, static_cast<std::uint64_t>(record.status));
+            hash_u64(hash, record.spent ? 1u : 0u);
+            hash_u64(hash, record.dead ? 1u : 0u);
+            hash_double(hash, record.position.x);
+            hash_double(hash, record.position.y);
+            hash_double(hash, record.position.z);
+            hash_double(hash, record.speed);
+            hash_u64(hash, static_cast<std::uint64_t>(record.life_left));
+        }
+        for (const gm::Thing& thing : runtime.things().things()) {
+            hash_u64(hash, thing.age);
+            hash_u64(hash, thing.expired ? 1u : 0u);
+            hash_u64(hash, thing.alive ? 1u : 0u);
+        }
+        for (const gm::Door& door : runtime.world().doors()) {
+            hash_u64(hash, door.phase);
+            hash_u64(hash, static_cast<std::uint64_t>(static_cast<int>(door.state)));
+            hash_double(hash, door.open_fraction);
+        }
+        hash_u64(hash, runtime.world().stats().ticks);
+        hash_u64(hash, runtime.ai().agents().size());
+        for (const gm::AiAgent& agent : runtime.ai().agents()) {
+            hash_u64(hash, static_cast<std::uint64_t>(agent.state));
+            hash_double(hash, agent.position.x);
+            hash_double(hash, agent.position.y);
+            hash_double(hash, agent.position.z);
+            hash_double(hash, agent.timer);
+        }
+        trace.push_back(hash);
+    }
+    return trace;
+}
+
+/// Same build + same steps -> the same per-tick state hash, and `reset()`
+/// reproduces the run from scratch.
+void test_runtime_determinism() {
+    const gm::SbtLevel level = make_runtime_level(100, true);
+    const gm::SbwLevel geometry = make_runtime_geometry();
+
+    gm::GameRuntime first;
+    runtime_setup(first, level, geometry);
+    const std::vector<std::uint64_t> run_a = runtime_trace(first, 12);
+    CHECK_EQ(first.world().doors().size(), std::size_t(1));
+    if (!first.world().doors().empty()) {
+        // The switch opened the door; 12 ticks move it by 12 * 1500.
+        CHECK_EQ(first.world().doors()[0].phase, 18000u);
+    }
+
+    gm::GameRuntime second;
+    runtime_setup(second, level, geometry);
+    const std::vector<std::uint64_t> run_b = runtime_trace(second, 12);
+    CHECK(run_a == run_b);
+
+    first.reset();
+    CHECK_EQ(first.clock(), 0u);
+    CHECK(!first.has_world());
+    CHECK(!first.has_things());
+    CHECK_EQ(first.world().doors().size(), std::size_t(0));
+    CHECK_EQ(first.things().things().size(), std::size_t(0));
+    CHECK_EQ(first.projectiles().list().size(), std::size_t(0));
+    CHECK_EQ(first.last_projectile_results().size(), std::size_t(0));
+
+    runtime_setup(first, level, geometry);
+    const std::vector<std::uint64_t> run_c = runtime_trace(first, 12);
+    CHECK(run_a == run_c);
+}
+
+} // namespace
+
 int main() {
     test_synthetic();
     for (const GoldenSave& golden : kSaves) {
@@ -837,6 +1202,10 @@ int main() {
     test_real_doors(kSaves[0]);
     test_negatives();
     test_vitals_bridge();
+    test_runtime_events_not_duplicated();
+    test_runtime_projectile_results();
+    test_runtime_pending_switch_tail();
+    test_runtime_determinism();
 
     if (g_failures != 0) {
         std::fprintf(stderr, "game_state: %d failure(s)\n", g_failures);
