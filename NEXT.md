@@ -84,6 +84,15 @@
    прочитать курок/слот из `input/controls.*` в игровом цикле и передать
    направление/шаблон снаряда.
 
+9. **Урон вещей/игроку через события, а не через `Weapons`.** Проверено:
+   `AiWeaponShot.event_id` — это `THING_TYPES+0x21c` (GENERATE-событие), а не
+   индекс `DEFINE_WEAPONS`; поэтому привязывать AI-снаряды к
+   `Weapon::impact_blasts` **неверно**. Правильный путь: реестр
+   «event id → THING_TYPES[].collide/expire (+0x1c4/+0x1ec) → blast» и
+   применение его в `Projectiles`/`GameRuntime` к игрокам и вещам
+   (`apply_blast_damage` уже готов). Адреса полей — `docs/THING_FIELDS.md`,
+   события — `docs/EVENTS.md` (`event_post 0x4795b0`, `generate_runner 0x45fa00`).
+
 ## Стоп-условия
 
 - Пользователь написал `STOP`/`пауза`.
