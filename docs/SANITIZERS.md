@@ -39,6 +39,10 @@ nm build/asan/engine/tests/gm_ai_tests | grep -c __asan_report   # > 0
 ldd build/asan/engine/tests/gm_ai_tests | grep libasan
 ```
 
+`ctest --test-dir build/asan -R '^sanitizer_selfcheck$'` — негативный гейт:
+тест обязан аварийно завершиться из-за намеренного OOB и помечен `WILL_FAIL`.
+Чистый exit 0 означает, что ASan снова не инструментирует код.
+
 `ASAN_OPTIONS`/`UBSAN_OPTIONS` можно взять из
 `/tmp/opencode/san/sanitizer-env.sh` (временный QA-каталог) или задать
 `detect_leaks=1:halt_on_error=1`, `print_stacktrace=1`.

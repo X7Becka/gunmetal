@@ -6,6 +6,7 @@
 # Set GM_SAN_ROOT to relocate the extracted runtimes.
 
 set(CMAKE_SYSTEM_NAME Linux)
+set(GM_SANITIZE ON CACHE BOOL "Enable the negative ASan self-check test" FORCE)
 
 set(GM_SAN_ROOT "$ENV{HOME}/tools/sanitizers" CACHE PATH "Prefix holding usr/lib/x86_64-linux-gnu/libasan.so.8")
 set(GM_SAN_LIB "${GM_SAN_ROOT}/usr/lib/x86_64-linux-gnu")

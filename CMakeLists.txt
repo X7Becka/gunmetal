@@ -50,4 +50,11 @@ add_subdirectory(engine)
 if(GM_BUILD_TESTS)
     enable_testing()
     add_subdirectory(engine/tests)
+    if(GM_SANITIZE)
+        # A clean exit here means ASan is not live; WILL_FAIL turns the
+        # expected abort into a passing check.
+        add_executable(gm_asan_selfcheck cmake/asan_selfcheck.cpp)
+        add_test(NAME sanitizer_selfcheck COMMAND gm_asan_selfcheck)
+        set_tests_properties(sanitizer_selfcheck PROPERTIES WILL_FAIL TRUE)
+    endif()
 endif()
