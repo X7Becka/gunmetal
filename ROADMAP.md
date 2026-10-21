@@ -643,7 +643,10 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > `retreat_steps`, столкновение и leash. A4: автомат (`path`/`loop`/`expire`,
       > 32 точки) подключён к patrol через `use_path`/`set_path`; expire
       > завершает агента, wall-шаг урезается, alert/attack не затронуты.
-      > Реального оружия, pathfinding/RNG и интегратора ω по-прежнему нет.
+      > A5: `AiWeapon` читает таблицу `THING_TYPES+0x218`, выбор по
+      > inclusive `[low,high]` и кулдаун `+0x27c`; opt-in `use_weapon_table`
+      > постит отдельный `weapon`-event. Снаряд/урон/патроны не подключены,
+      > pathfinding/RNG и интегратор ω по-прежнему отсутствуют.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
       > ray/sphere vs triangle, floor, AABB broad-phase, double, без аллокаций;
