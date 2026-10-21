@@ -98,7 +98,9 @@ struct AiConfig {
     // --- A2 movement (`world/ai_move.h`), opt-in -------------------------
     /// When `true`, `alert`/`attack` seek `AiAgent::aim_point` and
     /// `patrol`/`return` seek `home` through `ai_seek_step()` (octagonal
-    /// arrival, swept-sphere wall clamp, hard leash clamp).  When `false`
+    /// arrival, swept-sphere wall clamp, hard leash clamp).  Inside
+    /// `AiAgent::standoff` the agent stops and fires, and inside
+    /// `standoff - move_standoff_backoff` it backs off (A3).  When `false`
     /// the historical scaffold runs unchanged: `position` only moves on the
     /// leash/return path.
     bool use_move_step = false;
@@ -108,9 +110,14 @@ struct AiConfig {
     double move_speed = 1.0;
     double move_radius = 0.0;          ///< swept-sphere radius (Thing::radius)
     double move_arrive_radius = 50.0;  ///< +0x70, octagonal distance
-    /// Stop distance (`+0x1cc`); `0` walks all the way to `move_arrive_radius`.
-    /// The original also backs off inside `standoff - 60` (A3, not done).
-    double move_standoff = 0.0;
+    /// Stop distance (`+0x1cc`, report §3/§6.2): the shipped records default to
+    /// 200.  `0` walks all the way to `move_arrive_radius`.  Opt-in only, like
+    /// the rest of this block; with `use_thing_fields` the per-type
+    /// `target_zone_threshold` wins.
+    double move_standoff = 200.0;
+    /// The proven -60 band of `0x473a00`: inside `standoff - backoff` the agent
+    /// backs off, between that and `standoff` it stands and fires (A3).
+    double move_standoff_backoff = 60.0;
     /// Hard leash radius (`+0xd0`, report §9); `0` disables the clamp.  The
     /// anchor is `AiAgent::leash_anchor`, which `attach` sets to `home`.
     double move_leash = 0.0;
@@ -141,7 +148,10 @@ struct AiAgent {
     double speed = 0.0;          ///< +0x10, world units per 91 Hz tick
     double radius = 0.0;         ///< swept-sphere radius (Thing::radius)
     double arrive_radius = 50.0; ///< +0x70, octagonal distance
-    double standoff = 0.0;       ///< +0x1cc stop distance, 0 = none
+    /// +0x1cc target zone.  With `use_move_step` this is the A3 engagement
+    /// window: `> standoff` seek, `standoff - 60 < d <= standoff` stand and
+    /// fire, `d + 60 <= standoff` retreat.  `0` disables the window.
+    double standoff = 0.0;
     Vec3d leash_anchor{};        ///< hard-leash centre, `home` after attach
     double leash_distance = 0.0; ///< +0xd0, 0 = no clamp
     double heading = 0.0;        ///< atan2 of the last `move_delta`, radians
@@ -219,6 +229,8 @@ struct AiStats {
     std::uint64_t move_steps = 0;    ///< A2 steps that changed `position`
     std::uint64_t blocked_steps = 0; ///< A2 steps clamped by a wall
     std::uint64_t leash_clamps = 0;  ///< A2 steps cancelled by the hard leash
+    std::uint64_t standoff_holds = 0; ///< A3 ticks standing inside the window
+    std::uint64_t retreat_steps = 0;  ///< A3 steps away from the target
     std::size_t typed_agents = 0;   ///< agents with a THING_TYPES record
     std::uint64_t immune_hits = 0;  ///< damage rejected by max_health == 0
 };

@@ -355,19 +355,17 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         // `0x470c70` (report §9).  Returns `true` when the target is inside
         // `arrive_radius`.  Only reached with `AiConfig::use_move_step`, so
         // the default scaffold stays byte-for-byte unchanged.
-        auto move_step = [&](AiAgent& walker, const Vec3d& target,
-                             double standoff) -> bool {
-            if (standoff > 0.0 &&
-                octagonal_distance(walker.position, target) <= standoff) {
-                walker.move_delta = Vec3d{};
-                return false;
-            }
+        auto move_params = [](const AiAgent& walker) {
             AiMoveParams params;
             params.speed_per_tick = walker.speed;
             params.radius = walker.radius;
             params.arrive_radius = walker.arrive_radius;
-            const AiSeekResult step =
-                ai_seek_step(walker.position, target, world, params, dt);
+            return params;
+        };
+
+        // Shared tail of the seek and retreat steps: wall statistics, the hard
+        // leash clamp (+0xd0) and the `move_delta`/`heading` writes.
+        auto commit_step = [&](AiAgent& walker, const AiSeekResult& step) -> bool {
             if (step.blocked) {
                 ++stats_.blocked_steps;
             }
@@ -392,6 +390,29 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                 ++stats_.move_steps;
             }
             return step.arrived;
+        };
+
+        auto move_step = [&](AiAgent& walker, const Vec3d& target,
+                             double standoff) -> bool {
+            if (standoff > 0.0 &&
+                octagonal_distance(walker.position, target) <= standoff) {
+                walker.move_delta = Vec3d{};
+                return false;
+            }
+            const AiSeekResult step = ai_seek_step(
+                walker.position, target, world, move_params(walker), dt);
+            return commit_step(walker, step);
+        };
+
+        // A3: one step straight away from the target (`retreat` branch of
+        // `0x473240`), clamped by the same sweep and leash rules.
+        auto retreat_step = [&](AiAgent& walker, const Vec3d& threat) {
+            const AiSeekResult step = ai_retreat_step(
+                walker.position, threat, world, move_params(walker), dt);
+            commit_step(walker, step);
+            if (length(walker.move_delta) > 1e-12) {
+                ++stats_.retreat_steps;
+            }
         };
 
         // One return step (also used right after a leash break below).
@@ -560,6 +581,25 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         agent.distance = distance;
         agent.visible = visible;
 
+        // A3 (opt-in): `+0x1cc` is the original's target zone, not a weapon
+        // radius.  With `use_move_step` the agent stands and fires inside it,
+        // so the alert -> attack gate and the attack zone widen to the
+        // standoff.  The original compares a *planar* metric to `+0x1cc`
+        // (`0x436774` in `0x473a00`, report §6.2), while `distance` above is
+        // 3D eye-to-eye; using the planar distance to the aim point keeps the
+        // "stop on the standoff sphere" and "fire inside it" boundaries equal.
+        // `use_move_step == false` leaves both gates at `target_zone`.
+        const bool standoff_window = config_.use_move_step && agent.standoff > 0.0;
+        const double engage_distance =
+            standoff_window && agent.has_aim
+                ? std::hypot(agent.aim_point.x - agent.position.x,
+                             agent.aim_point.y - agent.position.y)
+                : distance;
+        const double engage_range =
+            standoff_window
+                ? std::max(static_cast<double>(agent.target_zone), agent.standoff)
+                : static_cast<double>(agent.target_zone);
+
         // Leash: engaged agents too far from home drop the target and walk
         // back.  The radius is measured in the home frame; no navigation mesh
         // is involved.
@@ -612,7 +652,7 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                 if (agent.timer > 0.0) {
                     agent.timer -= dt;
                 }
-                if (agent.timer <= 0.0 && distance <= static_cast<double>(agent.target_zone)) {
+                if (agent.timer <= 0.0 && engage_distance <= engage_range) {
                     agent.timer = attack_period;
                     set_state(agent, AiState::attack, tick);
                 }
@@ -632,10 +672,14 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         case AiState::attack:
             if (visible) {
                 agent.alertness = 1.0;
-                const double leave_zone = config_.use_thing_fields
-                                             ? static_cast<double>(agent.target_zone)
-                                             : static_cast<double>(agent.target_zone) * 1.25;
-                if (distance > leave_zone) {
+                // `+0x1cc` doubles as the A3 standoff when the move layer is
+                // on; otherwise the historical 1.25x hysteresis stays.
+                const double leave_zone =
+                    config_.use_thing_fields
+                        ? engage_range
+                        : std::max(static_cast<double>(agent.target_zone) * 1.25,
+                                   engage_range);
+                if (engage_distance > leave_zone) {
                     agent.timer = 0.0;
                     set_state(agent, AiState::alert, tick);
                 } else {
@@ -666,15 +710,30 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             break;
         }
 
-        // A2 movement runs after perception/state so the same tick that
+        // A2/A3 movement runs after perception/state so the same tick that
         // acquires a target already takes a step.  Alert/attack pursue the
         // aim point (Euclidean target scan is untouched); patrol walks home.
-        // Idle without `returning` stays put.  No pathfinding, no backing off
-        // inside the standoff (A3/A5 are separate steps).
+        // Idle without `returning` stays put.  No pathfinding.
         if (config_.use_move_step) {
             if (agent.state == AiState::alert || agent.state == AiState::attack) {
                 if (agent.has_aim) {
-                    move_step(agent, agent.aim_point, agent.standoff);
+                    // Standoff (`+0x1cc`, report §6.2 / §8):
+                    //   d > standoff             -> seek (engage = 1)
+                    //   d + 60 <= standoff       -> retreat (engage = -1)
+                    //   standoff - 60 < d <= ... -> hold position and fire
+                    //                               (engage = 0; the attack
+                    //                               state emits the events)
+                    const double d =
+                        octagonal_distance(agent.position, agent.aim_point);
+                    if (!(agent.standoff > 0.0) || d > agent.standoff) {
+                        move_step(agent, agent.aim_point, agent.standoff);
+                    } else if (d + config_.move_standoff_backoff <=
+                               agent.standoff) {
+                        retreat_step(agent, agent.aim_point);
+                    } else {
+                        agent.move_delta = Vec3d{};
+                        ++stats_.standoff_holds;
+                    }
                 }
             } else if (agent.state == AiState::patrol) {
                 move_step(agent, agent.home, 0.0);

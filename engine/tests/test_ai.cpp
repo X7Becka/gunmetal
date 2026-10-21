@@ -1027,6 +1027,12 @@ void test_move_step_opt_in() {
     const gm::Things things = make_synthetic_things();
     const gm::CollisionWorld empty;
 
+    // A3: the shipped standoff default is 200 (+0x1cc) and the retreat band is
+    // 60, but both only act through `use_move_step`.
+    CHECK(!gm::AiConfig{}.use_move_step);
+    CHECK_NEAR(gm::AiConfig{}.move_standoff, 200.0, 0.0);
+    CHECK_NEAR(gm::AiConfig{}.move_standoff_backoff, 60.0, 0.0);
+
     gm::Ai legacy;
     CHECK_EQ(legacy.attach(things), 2u);
     CHECK(legacy.set_player({0.0, 300.0, 0.0}));
@@ -1041,6 +1047,20 @@ void test_move_step_opt_in() {
     CHECK_EQ(legacy.stats().move_steps, 0u);
     CHECK_EQ(legacy.stats().blocked_steps, 0u);
     CHECK_EQ(legacy.stats().leash_clamps, 0u);
+    CHECK_EQ(legacy.stats().standoff_holds, 0u);
+    CHECK_EQ(legacy.stats().retreat_steps, 0u);
+
+    // The same default config with the player *inside* the standoff window:
+    // still no movement, no retreat.
+    gm::Ai inside;
+    CHECK_EQ(inside.attach(things), 2u);
+    CHECK(inside.set_player({0.0, 60.0, 0.0}));
+    for (int i = 0; i < 200; ++i) {
+        inside.tick(empty);
+    }
+    CHECK_NEAR(inside.agent(0)->position.y, 0.0, 0.0);
+    CHECK_EQ(inside.stats().move_steps, 0u);
+    CHECK_EQ(inside.stats().retreat_steps, 0u);
 }
 
 // alert/attack seek `aim_point`; the step is `speed_per_tick * 91 * dt`.
@@ -1053,6 +1073,7 @@ void test_move_step_seek() {
     config.move_speed = 2.0;     // units per tick
     config.move_arrive_radius = 5.0;
     config.move_leash = 0.0;     // clamp disabled
+    config.move_standoff = 0.0;  // A3 window disabled: pure seek to the arrival radius
     gm::Ai ai(config);
     CHECK_EQ(ai.attach(things), 2u);
     CHECK(ai.set_player({0.0, 300.0, 0.0}));
@@ -1112,6 +1133,7 @@ void test_move_step_wall() {
     config.move_speed = 2.0;
     config.move_radius = 10.0;
     config.move_arrive_radius = 5.0;
+    config.move_standoff = 0.0; // pure seek: the wall, not the window, stops it
     gm::Ai ai(config);
     CHECK_EQ(ai.attach(things), 2u);
     CHECK(ai.set_player({0.0, 300.0, 0.0}));
@@ -1137,6 +1159,7 @@ void test_move_step_leash() {
     config.move_speed = 2.0;
     config.move_arrive_radius = 5.0;
     config.move_leash = 100.0;
+    config.move_standoff = 0.0; // isolate the leash clamp
     config.leash = 10000.0; // keep the state-machine leash out of the way
     gm::Ai ai(config);
     CHECK_EQ(ai.attach(things), 2u);
@@ -1170,6 +1193,7 @@ void test_move_step_return() {
     config.use_move_step = true;
     config.move_speed = 2.0;
     config.move_arrive_radius = 5.0;
+    config.move_standoff = 0.0; // the return path is unaffected by A3
     gm::Ai ai(config);
     CHECK_EQ(ai.attach(things), 2u);
     // Reach `alert` first: the state-machine leash only breaks for engaged
@@ -1233,6 +1257,133 @@ void test_move_step_standoff() {
     CHECK_EQ(ai.stats().move_steps, 25u); // no drifting inside the standoff
 }
 
+// A3, far side: outside the standoff the agent closes in and stops on the
+// standoff sphere, then fires (the `attack` event) without moving.
+void test_move_step_standoff_far() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 1.0;
+    config.move_standoff = 200.0; // shipped default, set explicitly
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 500.0, 0.0}));
+
+    for (int i = 0; i < 300; ++i) {
+        ai.tick(empty);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK_NEAR(agent->position.y, 300.0, 1e-9); // 500 - standoff 200
+        CHECK_NEAR(agent->position.x, 0.0, 0.0);
+        CHECK_NEAR(agent->position.z, 0.0, 0.0);
+        CHECK_EQ(agent->state, gm::AiState::attack);
+        CHECK(agent->visible);
+    }
+    CHECK_EQ(ai.stats().move_steps, 150u); // 300 units at 2/tick
+    CHECK_EQ(ai.stats().retreat_steps, 0u);
+    CHECK(ai.stats().attacks > 0u);
+    CHECK(has_event(ai, gm::AiEventType::attack, 0));
+}
+
+// A3, inside the window but outside the retreat band: stand still and fire.
+void test_move_step_standoff_window() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 1.0;
+    config.move_standoff = 200.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 150.0, 0.0})); // 150 + 60 > 200 -> hold
+
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(empty);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK_NEAR(agent->position.y, 0.0, 0.0);
+        CHECK_NEAR(agent->move_delta.y, 0.0, 0.0);
+        CHECK_EQ(agent->state, gm::AiState::attack);
+    }
+    CHECK_EQ(ai.stats().move_steps, 0u);
+    CHECK_EQ(ai.stats().retreat_steps, 0u);
+    CHECK_EQ(ai.stats().standoff_holds, 200u); // every tick held the window
+    CHECK(ai.stats().attacks > 0u);
+    CHECK(has_event(ai, gm::AiEventType::attack, 0));
+}
+
+// A3, deep inside the standoff: `dist + 60 <= standoff` backs off until the
+// retreat band is left, then holds.
+void test_move_step_standoff_retreat() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 1.0;
+    config.move_standoff = 200.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 100.0, 0.0})); // 100 + 60 <= 200 -> retreat
+
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(empty);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        // Backs off until the octagonal distance is 142 (100 -> 200 - 60 + 2).
+        CHECK_NEAR(agent->position.y, -42.0, 1e-9);
+        CHECK_NEAR(agent->position.x, 0.0, 0.0);
+        CHECK_NEAR(agent->position.z, 0.0, 0.0);
+        CHECK_NEAR(gm::octagonal_distance(agent->position, agent->aim_point), 142.0,
+                   1e-9);
+    }
+    CHECK_EQ(ai.stats().retreat_steps, 21u);
+    CHECK_EQ(ai.stats().move_steps, 21u); // one count per committed retreat step
+    CHECK_EQ(ai.stats().standoff_holds, 179u);
+    CHECK(ai.stats().attacks > 0u);
+}
+
+// A3: a retreat never enters geometry; the wall cancels the back-off step.
+void test_move_step_standoff_retreat_wall() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld wall = wall_between(-50.0); // behind the agent
+
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_radius = 10.0;
+    config.move_arrive_radius = 1.0;
+    config.move_standoff = 200.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 100.0, 0.0}));
+
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(wall);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        // The body sphere (radius 10) rests on the wall plane y = -50 ...
+        CHECK_NEAR(agent->position.y, -40.0, 1e-6);
+        CHECK(agent->position.y > -50.0 + 1e-9); // ... never inside it
+    }
+    CHECK(ai.stats().blocked_steps > 0u);
+    CHECK_EQ(ai.stats().retreat_steps, 20u); // 0 -> -40 at 2/tick, then blocked
+}
+
 int main() {
     test_attach_and_transitions();
     test_line_of_sight_and_loss();
@@ -1246,6 +1397,10 @@ int main() {
     test_move_step_leash();
     test_move_step_return();
     test_move_step_standoff();
+    test_move_step_standoff_far();
+    test_move_step_standoff_window();
+    test_move_step_standoff_retreat();
+    test_move_step_standoff_retreat_wall();
     test_dt_and_player_negatives();
     test_two_runs();
     test_target_history();
