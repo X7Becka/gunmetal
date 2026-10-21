@@ -925,8 +925,9 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       `ADD_SWITCH`). `WorldState::post_switch_events` переносит
       `SwitchPressed` в type-2 записи `EventQueue`; `post_switch_events(EventRuntime&,
       WorldState&)` + cursor не дублирует уже отправленные нажатия, а `pump`
-      отдаёт generated/sounds. Осталось: подключение приёма пакета/таблицы к
-      игровому циклу.
+      отдаёт generated/sounds. `EventRuntime::pump_network` принимает
+      `u32 length + records`, битый blob не трогает очередь. Осталось:
+      подключение к игровому циклу и полное сетевое кадрирование.
 - ⬜ `M5.1.6` Все `DEFINE_*` (оружие, патроны, оборудование, шасси, цели,
       лифты, path) — раскладка и применение.
 - ⬜ `M5.1.7` Ошибки: неизвестный опкод/условие — понятный лог, не тихий skip.
