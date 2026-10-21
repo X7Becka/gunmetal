@@ -47,12 +47,15 @@ find ~/tools/ghidra_12.1.4_PUBLIC/Ghidra -path '*/os/linux_x86_64/*' \
 ```bash
 cd ~/gunmetal-re
 ./tools/ghidra/start.sh      # headless HTTP на 127.0.0.1:8765
-opencode mcp list            # ghidra connected
+opencode mcp list --print-logs  # ghidra connected
 ./tools/ghidra/stop.sh
 ```
 
-Первый запуск импортирует `gundx.exe` и делает auto-analysis (≈1 мин на этой
-машине), затем проект открывается из `re/ghidra/`. Сервер слушает только
+`start.sh` запускает сервер через `setsid`: без этого оболочка агента/инструмента
+убивает процесс при завершении команды (симптом — `ConnectionRefused` в
+`opencode.log` при живом проекте). Первый запуск импортирует `gundx.exe` и
+делает auto-analysis (≈1 мин на этой машине), затем проект открывается из
+`re/ghidra/`. Сервер слушает только
 loopback; `opencode.json` подключает его как remote MCP без OAuth.
 
 Конфиг добавлен и в проект (`gunmetal-re/opencode.json`), и глобально
