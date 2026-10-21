@@ -804,6 +804,11 @@ int Things::spawn(Thing thing, EventQueue* events) {
     things_.push_back(std::move(thing));
     by_id_.emplace(id, things_.size() - 1);
     ++stats_.executed;
+    if (things_.back().depth > 0) {
+        ++stats_.executed_nested;
+    } else {
+        ++stats_.executed_top_level;
+    }
     if (events != nullptr) {
         post_thing_event(*events, things_.back(), ThingEventKind::create);
     }
