@@ -8,7 +8,7 @@
 ```
 .sbw (таблицы + геометрия) ─┐
                             ├─ build_level_meshes → RenderMesh{vertices(world), local, faces}
-заголовок объекта (4×f32) ──┘        world = origin + basis × local
+заголовок объекта (12×f64) ─┘        world = origin + basis × local
                                       local = (world − origin) / |basis_x|
 
 .sbc (лайтмапы) ──────────── Lightmaps: page = records[poly.lightmap − 1]
@@ -40,10 +40,10 @@ add/sub с весом `material+0x2c / 127`).
 | `code492.sob` | 160×160 | `d3fa091674e86a7a` |
 | `desertpc.sob` | 160×160 | `1de0c4538c49b7c7` |
 | `moonfb.sob` | 160×160 | `4fb421bc5a2ff221` |
-| `level0` | 320×200, orbit | `20e80d077fd4f6bc` |
-| `level0` | 320×200, pos (0,0,600) → (0,0,0) | `9e54d79f29ac47c6` |
+| `level0` | 320×200, orbit | `0f3642dba39e87be` |
+| `level0` | 320×200, pos (0,0,600) → (0,0,0) | `960866d8cf1acfa1` |
 | `level0` | то же + `--clip 300` | `a4ccdd84a43ca565` |
-| `LEVEL10` | 320×200, интерьер | `25e40d77af2f01ba` |
+| `LEVEL10` | 320×200, авто-кадр камеры | `c4231f6cae99b7cd` |
 
 Все константы зашиты в `engine/tests/test_main.cpp` (`test_render`); сравнение
 не требует Python в runtime. Диапазон кадров — модели/уровни/интерьер/обрезка.
