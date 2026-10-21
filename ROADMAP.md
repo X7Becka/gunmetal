@@ -647,7 +647,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
 - 🟡 `M2.2.12` Save/load: диспетчер, все блоки, порядок.
       > C++ `game/state.*` (CTest `game_state`): блоки 9/2/3, saved0/saved1,
       > позиция/armor/ammo/weapon, двери по `(sector,object)`, no-op
-      > byte-exact; чужие блоки сохраняются. Things-приёмник и main — ещё нет.
+      > byte-exact; чужие блоки сохраняются. `GameState::vitals`/
+      > `apply_vitals` связывают armor/shield gauges с моделью урона.
+      > Things-приёмник и main — ещё нет.
 
 ### M2.3. Структуры и глобалы
 
