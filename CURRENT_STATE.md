@@ -96,14 +96,19 @@ ROADMAP появился 19.10 в 23:30. После разметки стату�
 * Софт-рендер уровней и моделей; побитовый паритет с `gm/render.py`
   (double + `-ffp-contract=off`), камера от первого лица, отсечка.
 * Видео `.sbv` (Intro 500/500 кадров), аудио SOU1/SOU2, WAV.
+  Правила рендера/прослушивания SOU2 (32000 Гц, шов, правый канал, M/S) —
+  `docs/SOU2.md`.
 * CLI: `--dump`, `--level`, `--scene`, `--render`, `--spawn-camera`,
+  `--third-person` (LIGHT `TICK` chassis at `SET_PLAYER_START`, camera behind),
   `--play`, `--film`, `--sou1/--sou2`, `--music`.
 
 ### Проверки
 
 * `regress.py`: **113/113** за ~85 с.
-* CTest: **51/51**, включая `sou1_full`, `sou1_audio`, `mixer`, `audio_output`, `controls`, `game_state`, `weapons`, `camera_rig`, `player_controller`, `sprite`, `doors`, `doors_full`, `things`, `things_full`, `thing_ai`, `soo_player`, `screen`, `sou2_full`, `parity_levels`,
-  `sbtvm`, `fuzz`, `save`, `save_writer`, `sml`, `soe`, `hud`, `hud_player`, `vm`, `vm_full`, `save_blocks`, `hud_bind`, `hud_compose`, `sbv_parity`, `text_layout`, `collide`.
+* CTest: **53** теста (на исходной установке 52/52; добавлен
+  `cli_third_person`; текущий swap `level1`/`level2` ломает corpus-голдены,
+  см. `NEXT.md`), включая `sou1_full`, `sou1_audio`, `mixer`, `audio_output`, `controls`, `game_state`, `weapons`, `camera_rig`, `player_controller`, `sprite`, `doors`, `doors_full`, `things`, `things_full`, `thing_ai`, `soo_player`, `screen`, `sou2_full`, `parity_levels`,
+  `sbtvm`, `fuzz`, `save`, `save_writer`, `sml`, `soe`, `hud`, `hud_player`, `vm`, `vm_full`, `save_blocks`, `hud_bind`, `hud_compose`, `sbv_parity`, `text_layout`, `collide`, `cli_third_person`.
 * Release-рендер: `level0` ~250 FPS, `LEVEL10` ~125 FPS в 640×400 (headless).
 
 ---
