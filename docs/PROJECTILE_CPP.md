@@ -74,7 +74,8 @@ projectiles.tick(1, targets, world, &queue);
 ```
 
 `projectile_step()` — чистая функция, возвращает `ProjectileTickResult` с
-событиями в порядке оригинала. `post_projectile_events()` — тонкий слой в
+событиями в порядке оригинала. `dt` — накопленные тики: `Projectiles::tick(5)`
+делает один шаг с `dt=5` (как `0x470c70`), а не пять шагов по одному. `post_projectile_events()` — тонкий слой в
 `EventQueue`. `ProjectileTargets` — spans; отсутствующие записи считаются
 отсутствующими. `ProjectileState::spent` означает, что expire уже постился;
 `dead` — удаление из мира. `Projectiles::remove(id, &queue)` постит

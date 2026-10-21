@@ -190,8 +190,10 @@ public:
     /// non-null and the spawn has a create event, it is posted at `position`.
     int spawn(ProjectileSpawn spawn, EventQueue* events = nullptr);
 
-    /// Advance every live projectile in spawn order by `ticks`; events are
-    /// posted in projectile order, then original event order.
+    /// Advance every live projectile in spawn order by `ticks` using the
+    /// original accumulated-dt semantics (one `0x4752d0` step with `dt=ticks`,
+    /// not N independent one-tick steps).  Events are posted in projectile
+    /// order, then original event order.
     void tick(int ticks, const ProjectileTargets& targets,
               const CollisionWorld& world, EventQueue* events = nullptr);
 
