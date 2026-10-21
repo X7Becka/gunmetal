@@ -734,6 +734,7 @@ void WorldState::advance_lift(Lift& lift, std::uint64_t ticks) {
 
 void WorldState::tick(std::uint64_t ticks) {
     events_.clear();
+    switch_event_cursor_ = 0;
     if (ticks == 0) {
         return;
     }

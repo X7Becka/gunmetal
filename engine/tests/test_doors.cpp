@@ -343,6 +343,14 @@ void test_synthetic() {
         CHECK_EQ(switch_event.events[0].switch_index, 0U);
         CHECK_EQ(switch_event.events[0].source, 7);
     }
+
+    // tick() clears the event log; the cursor must reset with it.
+    state.tick(1);
+    CHECK(state.interact(0));
+    gm::EventQueue after_tick;
+    CHECK_EQ(state.post_switch_events(after_tick, 1), 1U);
+    const gm::EventParseResult after_tick_events = after_tick.drain();
+    CHECK_EQ(after_tick_events.events.size(), 1U);
 }
 
 void test_negatives() {
