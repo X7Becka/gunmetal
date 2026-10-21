@@ -103,6 +103,15 @@ void wrf64(std::uint8_t* p, double v) {
     wr32(p + 4, static_cast<std::uint32_t>(bits >> 32));
 }
 
+std::int32_t rdi32(const std::uint8_t* p) {
+    return static_cast<std::int32_t>(rd32(p));
+}
+
+std::string size_error(const char* what, std::size_t size, std::size_t record) {
+    return std::string(what) + " body is " + std::to_string(size) +
+           " bytes, not a multiple of " + std::to_string(record);
+}
+
 } // namespace
 
 bool SbtSectorSlot::empty() const {
@@ -166,6 +175,273 @@ std::vector<std::uint8_t> encode_sector_stuff(const std::vector<SbtSectorSlot>& 
         wr32(p + 0x50, s.flags);
         wr32(p + 0x54, s.unused);
     }
+    return out;
+}
+
+// --- records 1 / 2 / 18: typed view + writer --------------------------------
+
+bool parse_switch_block(std::span<const std::uint8_t> body,
+                        std::vector<SbtSwitchRecord>& out, std::string& error) {
+    if (body.size() % kSbtSwitchRecordSize != 0) {
+        error = size_error("SWITCH", body.size(), kSbtSwitchRecordSize);
+        return false;
+    }
+    const std::size_t count = body.size() / kSbtSwitchRecordSize;
+    if (count > kSbtMaxSwitches) {
+        error = "SWITCH body holds " + std::to_string(count) + " records, limit " +
+                std::to_string(kSbtMaxSwitches);
+        return false;
+    }
+    std::vector<SbtSwitchRecord> records(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        const std::uint8_t* p = body.data() + i * kSbtSwitchRecordSize;
+        SbtSwitchRecord& s = records[i];
+        s.kind = rdi32(p + 0x00);
+        s.target = rdi32(p + 0x04);
+        s.radius = rdi32(p + 0x08);
+        for (std::size_t k = 0; k < 3; ++k) {
+            s.pos[k] = rdi32(p + 0x0c + k * 4);
+        }
+        s.aux = rdi32(p + 0x18);
+        s.sound = rdi32(p + 0x1c);
+    }
+    out = std::move(records);
+    return true;
+}
+
+std::vector<std::uint8_t> encode_switch_block(const std::vector<SbtSwitchRecord>& records) {
+    if (records.size() > kSbtMaxSwitches) {
+        return {};
+    }
+    std::vector<std::uint8_t> out(records.size() * kSbtSwitchRecordSize, 0);
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        std::uint8_t* p = out.data() + i * kSbtSwitchRecordSize;
+        const SbtSwitchRecord& s = records[i];
+        wr32(p + 0x00, static_cast<std::uint32_t>(s.kind));
+        wr32(p + 0x04, static_cast<std::uint32_t>(s.target));
+        wr32(p + 0x08, static_cast<std::uint32_t>(s.radius));
+        for (std::size_t k = 0; k < 3; ++k) {
+            wr32(p + 0x0c + k * 4, static_cast<std::uint32_t>(s.pos[k]));
+        }
+        wr32(p + 0x18, static_cast<std::uint32_t>(s.aux));
+        wr32(p + 0x1c, static_cast<std::uint32_t>(s.sound));
+    }
+    return out;
+}
+
+bool parse_door_block(std::span<const std::uint8_t> body, std::vector<SbtDoorRecord>& out,
+                      std::string& error) {
+    if (body.size() % kSbtDoorRecordSize != 0) {
+        error = size_error("DOOR", body.size(), kSbtDoorRecordSize);
+        return false;
+    }
+    const std::size_t count = body.size() / kSbtDoorRecordSize;
+    if (count > kSbtMaxDoors) {
+        error = "DOOR body holds " + std::to_string(count) + " records, limit " +
+                std::to_string(kSbtMaxDoors);
+        return false;
+    }
+    std::vector<SbtDoorRecord> records(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        const std::uint8_t* p = body.data() + i * kSbtDoorRecordSize;
+        SbtDoorRecord& d = records[i];
+        for (std::size_t k = 0; k < 3; ++k) {
+            d.closed[k] = rdf64(p + 0x00 + k * 8);
+            d.open[k] = rdf64(p + 0x18 + k * 8);
+            d.size[k] = rdf64(p + 0x30 + k * 8);
+            d.axis[k] = rdf64(p + 0x48 + k * 8);
+        }
+        d.sound_level = rdf64(p + 0x60);
+        d.flags = rdi32(p + 0x68);
+        for (std::size_t k = 0; k < 5; ++k) {
+            d.ids[k] = rdi32(p + 0x6c + k * 4);
+        }
+        d.state = rdi32(p + 0x80);
+        d.sector = rdi32(p + 0x84);
+        d.object = rdi32(p + 0x88);
+        d.phase_prev = rd32(p + 0x8c);
+        d.phase_next = rd32(p + 0x90);
+        d.step = rdi32(p + 0x94);
+        d.dwell = rdi32(p + 0x98);
+        d.timer = rdi32(p + 0x9c);
+        for (std::size_t k = 0; k < 3; ++k) {
+            d.volume[k] = rdi32(p + 0xa0 + k * 4);
+            d.sample[k] = rdi32(p + 0xac + k * 4);
+        }
+    }
+    out = std::move(records);
+    return true;
+}
+
+std::vector<std::uint8_t> encode_door_block(const std::vector<SbtDoorRecord>& records) {
+    if (records.size() > kSbtMaxDoors) {
+        return {};
+    }
+    std::vector<std::uint8_t> out(records.size() * kSbtDoorRecordSize, 0);
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        std::uint8_t* p = out.data() + i * kSbtDoorRecordSize;
+        const SbtDoorRecord& d = records[i];
+        for (std::size_t k = 0; k < 3; ++k) {
+            wrf64(p + 0x00 + k * 8, d.closed[k]);
+            wrf64(p + 0x18 + k * 8, d.open[k]);
+            wrf64(p + 0x30 + k * 8, d.size[k]);
+            wrf64(p + 0x48 + k * 8, d.axis[k]);
+            wr32(p + 0xa0 + k * 4, static_cast<std::uint32_t>(d.volume[k]));
+            wr32(p + 0xac + k * 4, static_cast<std::uint32_t>(d.sample[k]));
+        }
+        wrf64(p + 0x60, d.sound_level);
+        wr32(p + 0x68, static_cast<std::uint32_t>(d.flags));
+        for (std::size_t k = 0; k < 5; ++k) {
+            wr32(p + 0x6c + k * 4, static_cast<std::uint32_t>(d.ids[k]));
+        }
+        wr32(p + 0x80, static_cast<std::uint32_t>(d.state));
+        wr32(p + 0x84, static_cast<std::uint32_t>(d.sector));
+        wr32(p + 0x88, static_cast<std::uint32_t>(d.object));
+        wr32(p + 0x8c, d.phase_prev);
+        wr32(p + 0x90, d.phase_next);
+        wr32(p + 0x94, static_cast<std::uint32_t>(d.step));
+        wr32(p + 0x98, static_cast<std::uint32_t>(d.dwell));
+        wr32(p + 0x9c, static_cast<std::uint32_t>(d.timer));
+    }
+    return out;
+}
+
+bool parse_lift_block(std::span<const std::uint8_t> payload, SbtLiftBlock& out,
+                      std::string& error) {
+    Reader r{payload, 0, &error};
+    std::uint32_t count = 0;
+    if (!read_n(r, kSbtMaxLifts, count)) {
+        return false;
+    }
+    std::vector<SbtLiftRecord> lifts(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!r.need(kSbtLiftRecordSize)) {
+            error = "truncated LIFT record " + std::to_string(i);
+            return false;
+        }
+        const std::uint8_t* p = payload.data() + r.offset;
+        r.offset += kSbtLiftRecordSize;
+        SbtLiftRecord& l = lifts[i];
+        for (std::size_t k = 0; k < 6; ++k) {
+            l.basis[k] = rdf64(p + k * 8);
+        }
+        l.handle = rd32(p + 0x30);
+        l.kind = rdi32(p + 0x34);
+        l.sob = rdi32(p + 0x38);
+        for (std::size_t k = 0; k < 3; ++k) {
+            l.pos[k] = rdi32(p + 0x3c + k * 4);
+            l.pos_delta[k] = rdi32(p + 0x48 + k * 4);
+            l.call_ids[k] = rdi32(p + 0x70 + k * 4);
+        }
+        l.speed = rdi32(p + 0x54);
+        l.dwell = rdi32(p + 0x58);
+        l.height = rdi32(p + 0x5c);
+        l.height_tick = rdi32(p + 0x60);
+        l.wait = rdi32(p + 0x64);
+        l.direction = rdi32(p + 0x68);
+        l.stop_index = rdi32(p + 0x6c);
+        l.call_event = rdi32(p + 0x7c);
+        l.call_radius = rdi32(p + 0x80);
+        l.volume_a = rdi32(p + 0x84);
+        l.volume_b = rdi32(p + 0x88);
+        l.unknown_8c = rdi32(p + 0x8c);
+        l.sample_call = rdi32(p + 0x90);
+        l.sample_move = rdi32(p + 0x94);
+        l.sample_arrive = rdi32(p + 0x98);
+        l.stop_count = rdi32(p + 0x9c);
+        l.stop_start = rdi32(p + 0xa0);
+        l.unknown_a4 = rdi32(p + 0xa4);
+    }
+    std::uint32_t stops = 0;
+    if (!read_n(r, kSbtMaxLiftStops, stops) ||
+        !r.skip(static_cast<std::size_t>(stops) * 3 * 4)) {
+        return false;
+    }
+    const std::uint8_t* columns = payload.data() + r.offset - static_cast<std::size_t>(stops) * 12;
+    std::vector<SbtLiftStop> stop_list(stops);
+    for (std::size_t i = 0; i < stops; ++i) {
+        stop_list[i].floor_id = rdi32(columns + i * 4);
+        stop_list[i].height = rdi32(columns + stops * 4 + i * 4);
+        stop_list[i].sound = rdi32(columns + stops * 8 + i * 4);
+    }
+    if (r.offset != payload.size()) {
+        error = "LIFT payload has " + std::to_string(payload.size() - r.offset) +
+                " trailing bytes";
+        return false;
+    }
+    out.lifts = std::move(lifts);
+    out.stops = std::move(stop_list);
+    return true;
+}
+
+std::vector<std::uint8_t> encode_lift_block(const SbtLiftBlock& block) {
+    if (block.lifts.size() > kSbtMaxLifts || block.stops.size() > kSbtMaxLiftStops) {
+        return {};
+    }
+    const std::size_t stop_count = block.stops.size();
+    for (const SbtLiftRecord& l : block.lifts) {
+        if (l.stop_count < 0 || l.stop_start < 0 ||
+            static_cast<std::size_t>(l.stop_count) + static_cast<std::size_t>(l.stop_start) >
+                stop_count) {
+            return {};
+        }
+    }
+    std::vector<std::uint8_t> out(4 + block.lifts.size() * kSbtLiftRecordSize + 4 +
+                                  stop_count * 3 * 4,
+                                  0);
+    wr32(out.data(), static_cast<std::uint32_t>(block.lifts.size()));
+    std::uint8_t* records = out.data() + 4;
+    for (std::size_t i = 0; i < block.lifts.size(); ++i) {
+        std::uint8_t* p = records + i * kSbtLiftRecordSize;
+        const SbtLiftRecord& l = block.lifts[i];
+        for (std::size_t k = 0; k < 6; ++k) {
+            wrf64(p + k * 8, l.basis[k]);
+        }
+        wr32(p + 0x30, l.handle);
+        wr32(p + 0x34, static_cast<std::uint32_t>(l.kind));
+        wr32(p + 0x38, static_cast<std::uint32_t>(l.sob));
+        for (std::size_t k = 0; k < 3; ++k) {
+            wr32(p + 0x3c + k * 4, static_cast<std::uint32_t>(l.pos[k]));
+            wr32(p + 0x48 + k * 4, static_cast<std::uint32_t>(l.pos_delta[k]));
+            wr32(p + 0x70 + k * 4, static_cast<std::uint32_t>(l.call_ids[k]));
+        }
+        wr32(p + 0x54, static_cast<std::uint32_t>(l.speed));
+        wr32(p + 0x58, static_cast<std::uint32_t>(l.dwell));
+        wr32(p + 0x5c, static_cast<std::uint32_t>(l.height));
+        wr32(p + 0x60, static_cast<std::uint32_t>(l.height_tick));
+        wr32(p + 0x64, static_cast<std::uint32_t>(l.wait));
+        wr32(p + 0x68, static_cast<std::uint32_t>(l.direction));
+        wr32(p + 0x6c, static_cast<std::uint32_t>(l.stop_index));
+        wr32(p + 0x7c, static_cast<std::uint32_t>(l.call_event));
+        wr32(p + 0x80, static_cast<std::uint32_t>(l.call_radius));
+        wr32(p + 0x84, static_cast<std::uint32_t>(l.volume_a));
+        wr32(p + 0x88, static_cast<std::uint32_t>(l.volume_b));
+        wr32(p + 0x8c, static_cast<std::uint32_t>(l.unknown_8c));
+        wr32(p + 0x90, static_cast<std::uint32_t>(l.sample_call));
+        wr32(p + 0x94, static_cast<std::uint32_t>(l.sample_move));
+        wr32(p + 0x98, static_cast<std::uint32_t>(l.sample_arrive));
+        wr32(p + 0x9c, static_cast<std::uint32_t>(l.stop_count));
+        wr32(p + 0xa0, static_cast<std::uint32_t>(l.stop_start));
+        wr32(p + 0xa4, static_cast<std::uint32_t>(l.unknown_a4));
+    }
+    std::uint8_t* counts = records + block.lifts.size() * kSbtLiftRecordSize;
+    wr32(counts, static_cast<std::uint32_t>(stop_count));
+    std::uint8_t* columns = counts + 4;
+    for (std::size_t i = 0; i < stop_count; ++i) {
+        wr32(columns + i * 4, static_cast<std::uint32_t>(block.stops[i].floor_id));
+        wr32(columns + stop_count * 4 + i * 4,
+             static_cast<std::uint32_t>(block.stops[i].height));
+        wr32(columns + stop_count * 8 + i * 4,
+             static_cast<std::uint32_t>(block.stops[i].sound));
+    }
+    return out;
+}
+
+std::vector<std::uint8_t> encode_counted(const std::vector<std::uint8_t>& body,
+                                         std::uint32_t count) {
+    std::vector<std::uint8_t> out(4 + body.size(), 0);
+    wr32(out.data(), count);
+    std::memcpy(out.data() + 4, body.data(), body.size());
     return out;
 }
 

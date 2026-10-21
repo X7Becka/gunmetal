@@ -14,8 +14,11 @@
 
 #include "res/sbt.h"
 #include "res/sbw.h"
+#include "res/save.h"
+#include "res/scene.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -23,6 +26,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -96,6 +100,10 @@ struct DoorSpec {
     std::uint32_t phase = 0;
     int state = 0;
     int step = 1500;
+    std::array<double, 3> size{};
+    std::array<double, 3> axis{};
+    std::array<int, 3> volume{};
+    std::array<int, 3> sample{{-1, -1, -1}};
 };
 
 std::vector<std::uint8_t> make_door_payload(const std::vector<DoorSpec>& specs) {
@@ -109,7 +117,16 @@ std::vector<std::uint8_t> make_door_payload(const std::vector<DoorSpec>& specs) 
                     spec.closed[static_cast<std::size_t>(axis)]);
             put_f64(payload, base + 0x18 + static_cast<std::size_t>(axis) * 8,
                     spec.open[static_cast<std::size_t>(axis)]);
+            put_f64(payload, base + 0x30 + static_cast<std::size_t>(axis) * 8,
+                    spec.size[static_cast<std::size_t>(axis)]);
+            put_f64(payload, base + 0x48 + static_cast<std::size_t>(axis) * 8,
+                    spec.axis[static_cast<std::size_t>(axis)]);
+            put_i32(payload, base + 0xA0 + static_cast<std::size_t>(axis) * 4,
+                    spec.volume[static_cast<std::size_t>(axis)]);
+            put_i32(payload, base + 0xAC + static_cast<std::size_t>(axis) * 4,
+                    spec.sample[static_cast<std::size_t>(axis)]);
         }
+        put_f64(payload, base + 0x60, 0.03);
         put_i32(payload, base + 0x68, spec.flags);
         for (int i = 0; i < 5; ++i) {
             put_i32(payload, base + 0x6C + static_cast<std::size_t>(i) * 4,
@@ -124,17 +141,47 @@ std::vector<std::uint8_t> make_door_payload(const std::vector<DoorSpec>& specs) 
     return payload;
 }
 
-std::vector<std::uint8_t> make_switch_payload(const std::vector<int>& targets) {
-    std::vector<std::uint8_t> payload(4 + targets.size() * 0x20, 0);
-    put_u32(payload, 0, static_cast<std::uint32_t>(targets.size()));
-    for (std::size_t k = 0; k < targets.size(); ++k) {
+struct SwitchSpec {
+    int kind = 259;
+    int target = 0;
+    int radius = 128;
+    std::array<int, 3> pos{};
+    int aux = 0;
+    int sound = -1;
+};
+
+std::vector<std::uint8_t> make_switch_payload(const std::vector<SwitchSpec>& specs) {
+    std::vector<std::uint8_t> payload(4 + specs.size() * 0x20, 0);
+    put_u32(payload, 0, static_cast<std::uint32_t>(specs.size()));
+    for (std::size_t k = 0; k < specs.size(); ++k) {
         const std::size_t base = 4 + k * 0x20;
-        put_i32(payload, base, 259); // kind (transformed), as in dm1
-        put_i32(payload, base + 4, targets[k]);
-        put_i32(payload, base + 8, 128);
-        put_i32(payload, base + 12, static_cast<int>(k));
+        put_i32(payload, base + 0, specs[k].kind);
+        put_i32(payload, base + 4, specs[k].target);
+        put_i32(payload, base + 8, specs[k].radius);
+        for (int axis = 0; axis < 3; ++axis) {
+            put_i32(payload, base + 12 + static_cast<std::size_t>(axis) * 4,
+                    specs[k].pos[static_cast<std::size_t>(axis)]);
+        }
+        put_i32(payload, base + 0x18, specs[k].aux);
+        put_i32(payload, base + 0x1C, specs[k].sound);
     }
     return payload;
+}
+
+/// The original helper: one transformed (kind 259) switch per target.
+std::vector<std::uint8_t> make_switch_payload(const std::vector<int>& targets) {
+    std::vector<SwitchSpec> specs;
+    specs.reserve(targets.size());
+    for (std::size_t k = 0; k < targets.size(); ++k) {
+        SwitchSpec spec;
+        spec.kind = 259; // transformed, as in dm1
+        spec.target = targets[k];
+        spec.radius = 128;
+        spec.pos = static_cast<std::array<int, 3>>(std::array<int, 3>{
+            static_cast<int>(k), 0, 0});
+        specs.push_back(spec);
+    }
+    return make_switch_payload(specs);
 }
 
 std::vector<std::uint8_t> make_lift_payload() {
@@ -513,8 +560,6 @@ void test_negatives() {
     }
 }
 
-// --- real dm1 + corpus ------------------------------------------------------
-
 struct LoadedLevel {
     gm::SbtLevel sbt;
     gm::SbwLevel sbw;
@@ -544,6 +589,758 @@ LoadedLevel load_real(const fs::path& sbt_path, const fs::path& sbw_path) {
     out.ok = true;
     return out;
 }
+
+// --- geometry: leaf transform, motion delta, cabin --------------------------
+
+constexpr double kPi = 3.14159265358979323846;
+
+bool orthonormal(const std::array<double, 9>& b, double eps) {
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            double dot = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                dot += b[static_cast<std::size_t>(i * 3 + k)] *
+                       b[static_cast<std::size_t>(j * 3 + k)];
+            }
+            if (std::fabs(dot - (i == j ? 1.0 : 0.0)) > eps) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+void test_geometry() {
+    // Translation-only leaf (1422 of the shipped doors: every angle operand 0).
+    // The runtime record holds corner+size, so origin at phase 0 is the raw
+    // corner D1..D3 and the basis stays identity.
+    {
+        DoorSpec spec;
+        spec.id = 10;
+        spec.ids = {0, 10, 0, 0, 0};
+        spec.size = {1.0, 2.0, 3.0};
+        spec.closed = {11.0, 22.0, 33.0}; // D1 + size
+        spec.open = {111.0, 222.0, 333.0};
+        gm::SbtLevel level;
+        gm::SbtRecord doors;
+        doors.type = 2;
+        doors.payload = make_door_payload({spec});
+        level.records.push_back(std::move(doors));
+        gm::WorldState state;
+        CHECK(state.build(level, make_world(1), nullptr));
+        const gm::Door& door = state.doors().at(0);
+        CHECK_EQ(gm::door_rotation_axis(door), -1);
+        const gm::DoorTransform at0 = gm::door_transform(door);
+        CHECK_NEAR(at0.origin[0], 10.0, kEps);
+        CHECK_NEAR(at0.origin[1], 20.0, kEps);
+        CHECK_NEAR(at0.origin[2], 30.0, kEps);
+        CHECK(orthonormal(at0.basis, kEps));
+        const gm::DoorTransform half = gm::door_transform_at(door, 0x8000);
+        CHECK_NEAR(half.center[0], 11.0 + (111.0 - 11.0) * (32768.0 / 65535.0), kEps);
+        CHECK_NEAR(half.origin[0], half.center[0] - 1.0, kEps);
+        const gm::DoorTransform at1 = gm::door_transform_at(door, 0xFFFF);
+        CHECK_NEAR(at1.origin[0], 110.0, kEps);
+        CHECK_NEAR(at1.origin[1], 220.0, kEps);
+        CHECK_NEAR(at1.origin[2], 330.0, kEps);
+        // The full-open phase is 0xffff / 65535 == 1.0 exactly, even though the
+        // model's own phase counter goes to 65536.
+        const gm::DoorTransform clamped = gm::door_transform_at(door, gm::kDoorPhaseFull);
+        CHECK_NEAR(clamped.center[0], at1.center[0], 0.0);
+        CHECK_NEAR(door.motion_fraction(), 0.0, kEps);
+
+        // Per-tick motion vector written to obj+0x90 by 0x44f2e0.
+        const std::array<double, 3> delta =
+            gm::door_motion_delta(door, 0, 1500);
+        CHECK_NEAR(delta[0], (111.0 - 11.0) * (1500.0 / 65535.0), kEps);
+        CHECK_NEAR(delta[1], (222.0 - 22.0) * (1500.0 / 65535.0), kEps);
+        CHECK_NEAR(delta[2], (333.0 - 33.0) * (1500.0 / 65535.0), kEps);
+        const std::array<double, 3> none = gm::door_motion_delta(door, 1500, 1500);
+        CHECK_NEAR(none[0], 0.0, 0.0);
+        CHECK_NEAR(none[2], 0.0, 0.0);
+        // Clamp: going past 0xffff must not move the leaf further.
+        const std::array<double, 3> clipped = gm::door_motion_delta(door, 0xFFFF, 0x20000);
+        CHECK_NEAR(clipped[0], 0.0, 0.0);
+    }
+
+    // Hinged leaf: one angle operand, closed == open (the leaf spins in place).
+    {
+        DoorSpec spec;
+        spec.id = 11;
+        spec.ids = {0, 11, 0, 0, 0};
+        spec.size = {1.0, 2.0, 3.0};
+        spec.closed = {5.0, 5.0, 5.0};
+        spec.open = {5.0, 5.0, 5.0};
+        spec.axis = {0.0, (kPi / 2.0) / 65535.0, 0.0};
+        gm::SbtLevel level;
+        gm::SbtRecord doors;
+        doors.type = 2;
+        doors.payload = make_door_payload({spec});
+        level.records.push_back(std::move(doors));
+        gm::WorldState state;
+        CHECK(state.build(level, make_world(1), nullptr));
+        const gm::Door& door = state.doors().at(0);
+        CHECK_EQ(gm::door_rotation_axis(door), 1);
+        const gm::DoorTransform at0 = gm::door_transform(door);
+        CHECK_NEAR(at0.angle, 0.0, 0.0);
+        CHECK(orthonormal(at0.basis, kEps));
+        const gm::DoorTransform quarter = gm::door_transform_at(door, 0x4000);
+        CHECK_NEAR(quarter.angle, (kPi / 2.0) * (16384.0 / 65535.0), 1e-15);
+        CHECK(orthonormal(quarter.basis, kEps));
+        const gm::DoorTransform full = gm::door_transform_at(door, 0xFFFF);
+        CHECK_NEAR(full.angle, kPi / 2.0, 1e-12);
+        CHECK(orthonormal(full.basis, kEps));
+        // Rotation by -90 degrees about +y: row 0 is (0, 0, 1) up to sign.
+        CHECK_NEAR(std::fabs(full.basis[2]), 1.0, 1e-12);
+        CHECK_NEAR(full.basis[4], 1.0, 1e-12);
+        // origin = center - basis^T * size
+        for (int row = 0; row < 3; ++row) {
+            double shifted = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                shifted += spec.size[static_cast<std::size_t>(k)] *
+                           full.basis[static_cast<std::size_t>(k * 3 + row)];
+            }
+            CHECK_NEAR(full.origin[static_cast<std::size_t>(row)],
+                       full.center[static_cast<std::size_t>(row)] - shifted, kEps);
+        }
+        // A pure rotation must not translate the centre.
+        for (int k = 0; k < 3; ++k) {
+            CHECK_NEAR(full.center[static_cast<std::size_t>(k)], 5.0, kEps);
+        }
+    }
+
+    // Axis priority of 0x44dfc0: delta[2] wins over delta[0], which wins over
+    // delta[1]; two non-zero operands are legal in the data (357 doors rotate).
+    {
+        gm::Door door;
+        door.axis = {0.5, 0.5, 0.5};
+        CHECK_EQ(gm::door_rotation_axis(door), 2);
+        door.axis = {0.5, 0.5, 0.0};
+        CHECK_EQ(gm::door_rotation_axis(door), 0);
+        door.axis = {0.0, 0.25, 0.0};
+        CHECK_EQ(gm::door_rotation_axis(door), 1);
+        door.axis = {0.0, 0.0, 0.0};
+        CHECK_EQ(gm::door_rotation_axis(door), -1);
+    }
+
+    // Cabin: 0x44e6f0/0x41e025.  At height 0 the base angles are used, at
+    // 65535 the base+delta sum, and the position is pos + pos_delta*fraction.
+    {
+        gm::Lift lift;
+        lift.kind = 1;
+        lift.x = 100;
+        lift.y = 200;
+        lift.z = 300;
+        lift.pos_delta = {10, -20, 30};
+        lift.basis = {0.0, 0.0, 0.0, 0.0, kPi / 2.0, 0.0};
+        lift.height = 0;
+        const gm::LiftTransform low = gm::lift_transform(lift);
+        CHECK_NEAR(low.origin[0], 100.0, 0.0);
+        CHECK_NEAR(low.origin[1], 200.0, 0.0);
+        CHECK_NEAR(low.origin[2], 300.0, 0.0);
+        CHECK(orthonormal(low.basis, kEps));
+        CHECK_NEAR(low.basis[0], 1.0, kEps);
+        CHECK_NEAR(low.basis[4], 1.0, kEps);
+        CHECK_NEAR(low.basis[8], 1.0, kEps);
+        CHECK_NEAR(lift_fraction(lift), 0.0, 0.0);
+
+        lift.height = 0xFFFF;
+        const gm::LiftTransform high = gm::lift_transform(lift);
+        CHECK_NEAR(high.origin[0], 110.0, kEps);
+        CHECK_NEAR(high.origin[1], 180.0, kEps);
+        CHECK_NEAR(high.origin[2], 330.0, kEps);
+        CHECK(orthonormal(high.basis, 1e-12));
+        CHECK_NEAR(lift_fraction(lift), 1.0, 0.0);
+        // value[1] (basis[1] + basis[4]) goes into the first angle, so the
+        // stored second pair drives angles[0].
+        CHECK_NEAR(high.angles[0], kPi / 2.0, 1e-12);
+        CHECK_NEAR(high.angles[1], 0.0, 0.0);
+        CHECK_NEAR(high.angles[2], 0.0, 0.0);
+
+        // Clamp outside 0..65535.
+        lift.height = -5;
+        CHECK_NEAR(lift_fraction(lift), 0.0, 0.0);
+        lift.height = 1 << 20;
+        CHECK_NEAR(lift_fraction(lift), 1.0, 0.0);
+    }
+}
+
+// --- sounds: v0/n0 start, v1/n1 loop, v2/n2 stop ----------------------------
+
+void test_door_sounds() {
+    DoorSpec spec;
+    spec.id = 20;
+    spec.ids = {0, 20, 0, 0, 0};
+    spec.size = {1.0, 1.0, 1.0};
+    spec.closed = {1.0, 1.0, 1.0};
+    spec.open = {11.0, 1.0, 1.0};
+    spec.volume = {64, 32, 48};
+    spec.sample = {130, 131, 132};
+    gm::SbtLevel level;
+    gm::SbtRecord doors;
+    doors.type = 2;
+    doors.payload = make_door_payload({spec});
+    gm::SbtRecord switches;
+    switches.type = 1;
+    switches.payload = make_switch_payload(std::vector<int>{20});
+    level.records = {std::move(doors), std::move(switches)};
+    gm::WorldState state;
+    CHECK(state.build(level, make_world(1), nullptr));
+    const gm::Door& door = state.doors().at(0);
+    CHECK_EQ(door.start_sound.sample, 130);
+    CHECK_EQ(door.start_sound.volume, 64);
+    CHECK_EQ(door.move_sound.sample, 131);
+    CHECK_EQ(door.move_sound.volume, 32);
+    CHECK_EQ(door.stop_sound.sample, 132);
+    CHECK_EQ(door.stop_sound.volume, 48);
+    CHECK_NEAR(door.sound_level, 0.03, 0.0);
+    CHECK(!door.start_sound.silent());
+
+    // 0x44f690 plays v0/n0 on the GENERATE press.
+    state.clear_events();
+    CHECK(state.interact(0));
+    const auto& events = state.events();
+    CHECK_EQ(events.size(), 2u); // SwitchPressed, then DoorOpening
+    if (events.size() == 2u) {
+        CHECK(events[0].kind == gm::WorldEvent::Kind::SwitchPressed);
+        CHECK(events[1].kind == gm::WorldEvent::Kind::DoorOpening);
+        CHECK_EQ(events[1].sample, 130);
+        CHECK_EQ(events[1].volume, 64);
+    }
+    // 0x44f3f0 plays v2/n2 when the leaf reaches either end and posts ids[3]
+    // (open) / ids[4] (closed), which are 0 here.
+    state.tick(100);
+    const auto& done = state.events();
+    CHECK(!done.empty());
+    if (!done.empty()) {
+        CHECK(done.back().kind == gm::WorldEvent::Kind::DoorOpened);
+        CHECK_EQ(done.back().sample, 132);
+        CHECK_EQ(done.back().volume, 48);
+        CHECK_EQ(done.back().target, door.event_open);
+    }
+
+    // A silent door (-1) stays silent.
+    gm::Door quiet;
+    quiet.start_sound = {-1, 0};
+    CHECK(quiet.start_sound.silent());
+    quiet.start_sound = {gm::kDoorSampleCount, 0};
+    CHECK(quiet.start_sound.silent());
+}
+
+// --- triggers: 0x44fc30 proximity, 0x44fbd0 exact point ---------------------
+
+gm::WorldState build_trigger_level() {
+    std::vector<DoorSpec> doors;
+    for (int k = 0; k < 4; ++k) {
+        DoorSpec spec;
+        spec.id = 100 + k;
+        spec.sector = 0;
+        spec.object = k;
+        spec.ids = {0, 100 + k, 0, 0, 0};
+        spec.size = {1.0, 1.0, 1.0};
+        // Closed corner at (6k, 0, 0) + size, so the leaf origin is (6k, 0, 0).
+        spec.closed = {6.0 * k + 1.0, 1.0, 1.0};
+        spec.open = spec.closed;
+        doors.push_back(spec);
+    }
+    std::vector<SwitchSpec> switches = {
+        // 0: proximity to pos, radius 10.
+        {0, 100, 10, {20, 0, 0}, 0, -1},
+        // 1: proximity to the leaf origin of door 101 at (6, 0, 0).
+        {1, 101, 10, {0, 0, 0}, 0, -1},
+        // 2: exact point (3, 4, 5).
+        {0x104, 102, 0, {3, 4, 5}, 0, -1},
+        // 3: aimed trigger, never fired by a bare position.
+        {0x101, 103, 1000, {0, 0, 0}, 0, -1},
+        // 4: radius 10 around the origin — octagon probe.
+        {0, 100, 10, {0, 0, 0}, 0, -1},
+        // 5: unmatched target.
+        {0, 999, 5, {0, 0, 0}, 0, -1},
+    };
+    gm::SbtLevel level;
+    gm::SbtRecord door_record;
+    door_record.type = 2;
+    door_record.payload = make_door_payload(doors);
+    gm::SbtRecord switch_record;
+    switch_record.type = 1;
+    switch_record.payload = make_switch_payload(switches);
+    level.records = {std::move(door_record), std::move(switch_record)};
+    gm::WorldState state;
+    state.build(level, make_world(4), nullptr);
+    return state;
+}
+
+std::vector<int> fired_switches(const gm::WorldState& state) {
+    std::vector<int> out;
+    for (const gm::WorldEvent& event : state.events()) {
+        if (event.kind == gm::WorldEvent::Kind::SwitchPressed) {
+            out.push_back(event.switch_id);
+        }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+void test_triggers() {
+    {
+        gm::WorldState state = build_trigger_level();
+        CHECK_EQ(state.switches().size(), 6u);
+        // (20, 0, 0): only switch 0 (kind 0, pos 20, radius 10).
+        state.clear_events();
+        CHECK_EQ(state.poll_triggers({20.0, 0.0, 0.0}, 7), 1u);
+        {
+            const std::vector<int> fired = fired_switches(state);
+            CHECK(fired.size() == 1u && fired[0] == 0);
+        }
+        CHECK_EQ(state.stats().trigger_presses, 1u);
+        CHECK(state.switches()[0].inside);
+        CHECK(!state.switches()[1].inside);
+        CHECK(state.find_door(100)->state == gm::DoorState::Opening);
+
+        // The source of the press is the one 0x479810 stores, not the poster's.
+        gm::EventQueue queue;
+        CHECK_EQ(state.post_switch_events(queue, 99), 1u);
+        const gm::EventParseResult posted = queue.drain();
+        CHECK_EQ(posted.events.size(), 1u);
+        if (posted.events.size() == 1u) {
+            CHECK_EQ(posted.events[0].switch_index, 0u);
+            CHECK_EQ(posted.events[0].source, 7);
+        }
+
+        // Kind 1: proximity to the leaf origin of door 101 (6, 0, 0).
+        state.clear_events();
+        CHECK_EQ(state.poll_triggers({6.0, 0.0, 0.0}, 1), 2u); // switch 1 and 4
+        CHECK(!state.switches()[0].inside);
+        CHECK(state.switches()[1].inside);
+        CHECK(state.switches()[4].inside); // (6,0,0) vs pos 0 radius 10
+        CHECK_EQ(state.find_door(101)->state, gm::DoorState::Opening);
+
+        // Octagon metric: (7.5, 7.5, 1) is 9.625 away by 0x4344df (< 10) but
+        // 10.65 by Euclid, so a sphere would not fire switch 4 here.
+        state.clear_events();
+        CHECK_EQ(state.poll_triggers({-7.5, 7.5, 1.0}, 1), 1u);
+        {
+            const std::vector<int> fired = fired_switches(state);
+            CHECK(fired.size() == 1u && fired[0] == 4);
+        }
+
+        // No latch: standing still posts again on the next poll.
+        state.clear_events();
+        CHECK_EQ(state.poll_triggers({-7.5, 7.5, 1.0}, 1), 1u);
+        CHECK_EQ(state.stats().trigger_presses, 5u);
+
+        // Kind 0x101 is aimed (0x43c51f); a position never fires it.
+        CHECK(!state.switches()[3].inside);
+        CHECK(state.find_door(103)->state == gm::DoorState::Closed);
+
+        // Kind 0x104 (0x44fbd0): exact integer point match.
+        state.clear_events();
+        CHECK_EQ(state.trigger_at({3.0, 4.0, 5.0}, 5), 1u);
+        {
+            const std::vector<int> fired = fired_switches(state);
+            CHECK(fired.size() == 1u && fired[0] == 2);
+        }
+        CHECK(state.find_door(102)->state == gm::DoorState::Opening);
+        state.clear_events();
+        CHECK_EQ(state.trigger_at({3.0, 4.0, 6.0}, 5), 0u);
+
+        // An unmatched target only bumps the counter.
+        const std::size_t unmatched = state.stats().unmatched_targets;
+        state.clear_events();
+        CHECK_EQ(state.poll_triggers({0.0, 0.0, 0.0}, 1), 3u); // switches 1, 4, 5
+        CHECK_EQ(state.stats().unmatched_targets, unmatched + 1u);
+    }
+
+    // Doors of kind 0 are inert: 0x44f690 skips them and 0x44f2e0 never
+    // animates them.
+    {
+        DoorSpec spec;
+        spec.id = 40;
+        spec.flags = 0;
+        spec.ids = {0, 40, 0, 0, 0};
+        gm::SbtLevel level;
+        gm::SbtRecord doors;
+        doors.type = 2;
+        doors.payload = make_door_payload({spec});
+        gm::SbtRecord switches;
+        switches.type = 1;
+        switches.payload = make_switch_payload(std::vector<int>{40});
+        level.records = {std::move(doors), std::move(switches)};
+        gm::WorldState state;
+        CHECK(state.build(level, make_world(1), nullptr));
+        CHECK(!state.doors().at(0).active());
+        state.clear_events();
+        CHECK(state.interact(0));
+        CHECK_EQ(state.stats().unmatched_targets, 1u);
+        CHECK(state.doors().at(0).state == gm::DoorState::Closed);
+        state.doors_mutable()[0].state = gm::DoorState::Opening;
+        state.tick(10);
+        CHECK_EQ(state.doors().at(0).phase, 0u);
+    }
+}
+
+// --- 0x450590: an entity blocks the leaf ------------------------------------
+
+void test_block_contact() {
+    std::vector<DoorSpec> doors;
+    for (int kind = 1; kind <= 3; ++kind) {
+        DoorSpec spec;
+        spec.id = 50 + kind;
+        spec.object = kind - 1;
+        spec.flags = kind;
+        spec.ids = {0, 50 + kind, 0, 0, 0};
+        spec.size = {1.0, 1.0, 1.0};
+        spec.closed = {1.0, 1.0, 1.0};
+        spec.open = {21.0, 1.0, 1.0};
+        spec.step = 1500;
+        doors.push_back(spec);
+    }
+    std::vector<SwitchSpec> switches = {{259, 51, 128, {0, 0, 0}, 0, -1},
+                                        {259, 52, 128, {0, 0, 0}, 0, -1},
+                                        {259, 53, 128, {0, 0, 0}, 0, -1}};
+    gm::SbtLevel level;
+    gm::SbtRecord door_record;
+    door_record.type = 2;
+    door_record.payload = make_door_payload(doors);
+    gm::SbtRecord switch_record;
+    switch_record.type = 1;
+    switch_record.payload = make_switch_payload(switches);
+    level.records = {std::move(door_record), std::move(switch_record)};
+    gm::WorldState state;
+    std::string error;
+    CHECK(state.build(level, make_world(3), &error));
+    CHECK(error.empty());
+
+    for (int k = 0; k < 3; ++k) {
+        CHECK(state.interact(k));
+    }
+    state.tick(1);
+    for (const gm::Door& door : state.doors()) {
+        CHECK_EQ(door.phase, 1500u);
+        CHECK_EQ(door.phase_prev, 0u);
+        CHECK(door.state == gm::DoorState::Opening);
+    }
+
+    // Kind 1: ordinary door, 0x450590 returns without touching it.
+    CHECK(!state.block_contact(0, 0));
+    CHECK_EQ(state.doors().at(0).phase, 1500u);
+    CHECK_EQ(state.stats().blocked_hits, 0u);
+
+    // Kind 2: the tick's phase is dropped and the door reopens.
+    state.clear_events();
+    CHECK(state.block_contact(0, 1));
+    CHECK_EQ(state.doors().at(1).phase, 0u);
+    CHECK_EQ(state.doors().at(1).phase_next, 0u);
+    CHECK(state.doors().at(1).state == gm::DoorState::Opening);
+    CHECK_EQ(state.stats().blocked_hits, 1u);
+    CHECK_EQ(state.events().size(), 1u);
+    if (!state.events().empty()) {
+        CHECK(state.events()[0].kind == gm::WorldEvent::Kind::DoorBlocked);
+    }
+
+    // Kind 3: the same, plus event_post(-22) — the crush event.
+    state.clear_events();
+    CHECK(state.block_contact(0, 2));
+    CHECK_EQ(state.doors().at(2).phase, 0u);
+    CHECK_EQ(state.stats().blocked_hits, 2u);
+    CHECK_EQ(state.stats().crush_hits, 1u);
+    CHECK_EQ(state.events().size(), 1u);
+    if (!state.events().empty()) {
+        CHECK(state.events()[0].kind == gm::WorldEvent::Kind::DoorCrush);
+        CHECK_EQ(state.events()[0].door_id, 53);
+    }
+
+    // Unknown pair: nothing.
+    CHECK(!state.block_contact(5, 5));
+    CHECK_EQ(state.stats().blocked_hits, 2u);
+}
+
+// --- `.sbt` / save writer: records 1, 2, 18 --------------------------------
+
+bool same_door_record(const gm::SbtDoorRecord& a, const gm::SbtDoorRecord& b) {
+    if (a.closed != b.closed || a.open != b.open || a.size != b.size ||
+        a.axis != b.axis || a.ids != b.ids || a.volume != b.volume ||
+        a.sample != b.sample) {
+        return false;
+    }
+    return a.sound_level == b.sound_level && a.flags == b.flags && a.state == b.state &&
+           a.sector == b.sector && a.object == b.object &&
+           a.phase_prev == b.phase_prev && a.phase_next == b.phase_next &&
+           a.step == b.step && a.dwell == b.dwell && a.timer == b.timer;
+}
+
+bool same_switch_record(const gm::SbtSwitchRecord& a, const gm::SbtSwitchRecord& b) {
+    return a.kind == b.kind && a.target == b.target && a.radius == b.radius &&
+           a.pos == b.pos && a.aux == b.aux && a.sound == b.sound;
+}
+
+bool same_lift_record(const gm::SbtLiftRecord& a, const gm::SbtLiftRecord& b) {
+    return a.basis == b.basis && a.handle == b.handle && a.kind == b.kind &&
+           a.sob == b.sob && a.pos == b.pos && a.pos_delta == b.pos_delta &&
+           a.speed == b.speed && a.dwell == b.dwell && a.height == b.height &&
+           a.height_tick == b.height_tick && a.wait == b.wait &&
+           a.direction == b.direction && a.stop_index == b.stop_index &&
+           a.call_ids == b.call_ids && a.call_event == b.call_event &&
+           a.call_radius == b.call_radius && a.volume_a == b.volume_a &&
+           a.volume_b == b.volume_b && a.unknown_8c == b.unknown_8c &&
+           a.sample_call == b.sample_call && a.sample_move == b.sample_move &&
+           a.sample_arrive == b.sample_arrive && a.stop_count == b.stop_count &&
+           a.stop_start == b.stop_start && a.unknown_a4 == b.unknown_a4;
+}
+
+void test_sbt_writer(bool full) {
+    // Synthetic anchors: the payloads the rest of the tests use must survive
+    // `encode(parse(x)) == x` byte-for-byte.
+    {
+        const auto door_payload = make_door_payload({
+            {1, 0, 0, 3, {0, 1, 2, 3, 4}, {11, 22, 33}, {44, 55, 66}},
+        });
+        std::string error;
+        std::vector<gm::SbtDoorRecord> parsed;
+        CHECK(gm::parse_door_block(
+            std::span<const std::uint8_t>(door_payload.data() + 4, door_payload.size() - 4),
+            parsed, error));
+        CHECK(error.empty());
+        CHECK_EQ(parsed.size(), 1u);
+        if (parsed.size() == 1u) {
+            const gm::SbtDoorRecord& d = parsed[0];
+            CHECK_EQ(d.flags, 3);
+            CHECK_EQ(d.ids[4], 4);
+            CHECK_NEAR(d.open[2], 66.0, 0.0);
+            CHECK_EQ(d.sample[0], -1);
+        }
+        const auto body = gm::encode_door_block(parsed);
+        CHECK(body.size() == door_payload.size() - 4);
+        CHECK(std::memcmp(body.data(), door_payload.data() + 4, body.size()) == 0);
+        const auto counted = gm::encode_counted(body, static_cast<std::uint32_t>(parsed.size()));
+        CHECK(counted == door_payload);
+
+        const auto switch_payload =
+            make_switch_payload(std::vector<SwitchSpec>{{259, 7, 128, {1, 2, 3}, 5, 9}});
+        std::vector<gm::SbtSwitchRecord> switch_parsed;
+        CHECK(gm::parse_switch_block(
+            std::span<const std::uint8_t>(switch_payload.data() + 4, switch_payload.size() - 4),
+            switch_parsed, error));
+        CHECK_EQ(switch_parsed.size(), 1u);
+        if (switch_parsed.size() == 1u) {
+            CHECK_EQ(switch_parsed[0].kind, 259);
+            CHECK_EQ(switch_parsed[0].target, 7);
+            CHECK_EQ(switch_parsed[0].aux, 5);
+            CHECK_EQ(switch_parsed[0].sound, 9);
+            const std::array<int, 3> expected_pos = {1, 2, 3};
+            CHECK(switch_parsed[0].pos == expected_pos);
+        }
+        const auto switch_body = gm::encode_switch_block(switch_parsed);
+        CHECK(std::memcmp(switch_body.data(), switch_payload.data() + 4, switch_body.size()) == 0);
+
+        // Type 18 as the test level writes it.
+        const auto lift_payload = make_lift_payload();
+        gm::SbtLiftBlock lift_block;
+        CHECK(gm::parse_lift_block(lift_payload, lift_block, error));
+        CHECK_EQ(lift_block.lifts.size(), 1u);
+        CHECK_EQ(lift_block.stops.size(), 2u);
+        if (lift_block.lifts.size() == 1u) {
+            CHECK_EQ(lift_block.lifts[0].kind, 1);
+            CHECK_EQ(lift_block.lifts[0].speed, 10);
+            CHECK_EQ(lift_block.lifts[0].stop_count, 2);
+            CHECK_EQ(lift_block.lifts[0].stop_start, 0);
+        }
+        if (lift_block.stops.size() == 2u) {
+            CHECK_EQ(lift_block.stops[0].floor_id, 500);
+            CHECK_EQ(lift_block.stops[1].height, 100);
+            CHECK_EQ(lift_block.stops[1].sound, 7);
+        }
+        const auto reencoded = gm::encode_lift_block(lift_block);
+        CHECK(reencoded == lift_payload);
+        // And the canonical form is stable.
+        gm::SbtLiftBlock again;
+        CHECK(gm::parse_lift_block(reencoded, again, error));
+        CHECK(gm::encode_lift_block(again) == reencoded);
+
+        // Out-of-range stop window is refused instead of written as garbage.
+        gm::SbtLiftBlock broken = lift_block;
+        CHECK(!broken.lifts.empty());
+        if (!broken.lifts.empty()) {
+            broken.lifts[0].stop_count = 3;
+        }
+        CHECK(gm::encode_lift_block(broken).empty());
+        // Malformed bodies are rejected.
+        std::vector<gm::SbtDoorRecord> rejected;
+        CHECK(!gm::parse_door_block(
+            std::span<const std::uint8_t>(door_payload.data() + 4, 0xB7), rejected, error));
+        CHECK(!error.empty());
+        CHECK(!gm::parse_lift_block(
+            std::span<const std::uint8_t>(lift_payload.data(), lift_payload.size() - 4),
+            again, error));
+    }
+
+    // Real save files: blocks 1 and 2 are real door/switch records, so
+    // `encode(parse(y)) == y` is checked on bytes the game wrote.
+    {
+        for (const char* name : {"saved0.sbt", "saved1.sbt"}) {
+            const fs::path path = kGame / "SAVEGAME" / name;
+            if (!fs::exists(path)) {
+                continue;
+            }
+            const auto bytes = read_file(path);
+            std::string error;
+            const auto save = gm::parse_save(bytes, error);
+            if (!save) {
+                std::fprintf(stderr, "doors: parse_save(%s): %s\n", name, error.c_str());
+                ++g_failures;
+                continue;
+            }
+            std::size_t door_count = 0;
+            std::size_t switch_count = 0;
+            for (const gm::SaveBlock& block : save->blocks) {
+                // A block body is `u32 count` + records; the parsers take the
+                // bare record body.
+                if (block.raw.size() < 4) {
+                    continue;
+                }
+                const std::span<const std::uint8_t> body(block.raw.data() + 4,
+                                                         block.raw.size() - 4);
+                if (block.id == 1) {
+                    std::vector<gm::SbtSwitchRecord> records;
+                    CHECK(gm::parse_switch_block(body, records, error));
+                    CHECK_EQ(records.size(), block.count);
+                    const auto encoded = gm::encode_switch_block(records);
+                    CHECK(encoded.size() == body.size());
+                    CHECK(encoded == std::vector<std::uint8_t>(body.begin(), body.end()));
+                    CHECK(gm::encode_counted(encoded, block.count) == block.raw);
+                    switch_count += records.size();
+                } else if (block.id == 2) {
+                    std::vector<gm::SbtDoorRecord> records;
+                    CHECK(gm::parse_door_block(body, records, error));
+                    CHECK_EQ(records.size(), block.count);
+                    const auto encoded = gm::encode_door_block(records);
+                    CHECK(encoded.size() == body.size());
+                    CHECK(encoded == std::vector<std::uint8_t>(body.begin(), body.end()));
+                    CHECK(gm::encode_counted(encoded, block.count) == block.raw);
+                    // Save bytes are the *runtime* record: the folded corners
+                    // are what the loader stored, and the phase lives in
+                    // +0x8c/+0x90 as a 0..0xffff value.
+                    for (const gm::SbtDoorRecord& record : records) {
+                        CHECK(record.sector >= 0);
+                        CHECK(record.object >= 0);
+                    }
+                    door_count += records.size();
+                }
+            }
+            std::printf("doors: %s round-trip %zu doors, %zu switches\n", name,
+                        door_count, switch_count);
+            CHECK_EQ(door_count, 25u);
+            CHECK_EQ(switch_count, 24u);
+        }
+    }
+
+    // Shipped lifts (ADD_LIFT has no record-18 twin) become records and
+    // survive the writer; the full run pins all 45 records / 151 stops, the
+    // quick run only dm3 so it stays fast.
+    if (fs::exists(kGame)) {
+        std::size_t lifts = 0;
+        std::size_t stops = 0;
+        std::vector<fs::path> level_files;
+        for (const auto& entry : fs::directory_iterator(kGame)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".sbt") {
+                continue;
+            }
+            if (!full && entry.path().stem() != "dm3") {
+                continue;
+            }
+            level_files.push_back(entry.path());
+        }
+        std::sort(level_files.begin(), level_files.end());
+        for (const fs::path& path : level_files) {
+            const fs::path sbw_path =
+                path.parent_path() / (path.stem().string() + ".sbw");
+            if (!fs::exists(sbw_path)) {
+                continue;
+            }
+            const LoadedLevel level = load_real(path, sbw_path);
+            if (!level.ok) {
+                continue;
+            }
+            gm::WorldState state;
+            std::string error;
+            if (!state.build(level.sbt, level.sbw, &error)) {
+                continue;
+            }
+            gm::SbtLiftBlock block;
+            for (const gm::Lift& lift : state.lifts()) {
+                gm::SbtLiftRecord record;
+                record.kind = lift.kind;
+                record.sob = lift.sob;
+                record.pos = {lift.x, lift.y, lift.z};
+                record.pos_delta = lift.pos_delta;
+                record.basis = lift.basis;
+                record.speed = lift.speed;
+                record.dwell = lift.dwell;
+                record.height = lift.height;
+                record.height_tick = lift.height_tick;
+                record.wait = lift.wait;
+                record.direction = lift.direction;
+                record.stop_index = lift.stop_index;
+                record.call_ids = lift.call_ids;
+                record.call_event = lift.call_event;
+                record.call_radius = lift.call_radius;
+                record.volume_a = lift.call_sound.volume;
+                record.volume_b = lift.move_sound.volume;
+                record.sample_call = lift.call_sound.sample;
+                record.sample_move = lift.move_sound.sample;
+                record.sample_arrive = lift.arrive_sound.sample;
+                record.stop_count = static_cast<int>(lift.stops.size());
+                record.stop_start = static_cast<int>(block.stops.size());
+                for (const gm::LiftStop& stop : lift.stops) {
+                    block.stops.push_back({stop.floor_id, stop.height, stop.sound});
+                }
+                block.lifts.push_back(record);
+                ++lifts;
+                stops += lift.stops.size();
+            }
+            if (block.lifts.empty()) {
+                continue;
+            }
+            const auto payload = gm::encode_lift_block(block);
+            CHECK(!payload.empty());
+            gm::SbtLiftBlock parsed;
+            std::string error2;
+            if (!gm::parse_lift_block(payload, parsed, error2)) {
+                std::fprintf(stderr, "doors: %s lifts: %s\n", path.c_str(),
+                             error2.c_str());
+                ++g_failures;
+                continue;
+            }
+            CHECK_EQ(parsed.lifts.size(), block.lifts.size());
+            CHECK_EQ(parsed.stops.size(), block.stops.size());
+            CHECK(gm::encode_lift_block(parsed) == payload); // encode(parse(x)) == x
+            for (std::size_t i = 0; i < parsed.lifts.size(); ++i) {
+                CHECK(same_lift_record(parsed.lifts[i], block.lifts[i]));
+            }
+            for (std::size_t i = 0; i < parsed.stops.size(); ++i) {
+                CHECK(parsed.stops[i].floor_id == block.stops[i].floor_id);
+                CHECK(parsed.stops[i].height == block.stops[i].height);
+                CHECK(parsed.stops[i].sound == block.stops[i].sound);
+            }
+            // The scripted lift now really moves: word 20 is the speed.
+            for (const gm::Lift& lift : state.lifts()) {
+                CHECK(lift.speed >= 0);
+                CHECK(lift.speed < 1'000'000);
+                CHECK_EQ(lift.id, static_cast<int>(&lift - state.lifts().data()));
+                CHECK_EQ(lift.basis.size(), 6u);
+            }
+        }
+        std::printf("doors: type-18 writer round-trip %zu lifts, %zu stops%s\n", lifts,
+                    stops, full ? "" : " (dm3; --full pins 45/151)");
+        if (full) {
+            CHECK_EQ(lifts, 45u);
+            CHECK_EQ(stops, 151u);
+        } else {
+            CHECK(lifts >= 1u);
+            CHECK(stops >= 1u);
+        }
+    }
+}
+
 
 void test_real_dm1() {
     const fs::path sbt_path = kGame / "dm1.sbt";
@@ -617,6 +1414,55 @@ void test_real_dm1() {
     twice.tick(17);
     CHECK_NEAR(again.find_door(-30231)->open_fraction,
                twice.find_door(-30231)->open_fraction, 0.0);
+
+    // Geometry against the script operands: every shipped door starts at
+    // phase 0, so the engine's origin is exactly the raw D1..D3 corner and the
+    // size is D7..D9.  `closed` in the record is that corner + size (the
+    // loader fold at 0x44e368).
+    std::string scene_error;
+    const auto scene = gm::extract_scene(level.sbt, scene_error, false);
+    CHECK(scene.has_value());
+    if (!scene) {
+        return;
+    }
+    CHECK_EQ(scene->doors.size(), state.doors().size());
+    std::size_t rotating = 0;
+    for (const gm::SceneDoor& src : scene->doors) {
+        const gm::Door* model = nullptr;
+        for (const gm::Door& door : state.doors()) {
+            if (door.sector == src.params[0] && door.object == src.params[1]) {
+                model = &door;
+                break;
+            }
+        }
+        CHECK(model != nullptr);
+        if (model == nullptr) {
+            continue;
+        }
+        for (int k = 0; k < 3; ++k) {
+            CHECK_NEAR(model->size[static_cast<std::size_t>(k)],
+                       src.values[static_cast<std::size_t>(6 + k)], 0.0);
+            CHECK_NEAR(model->closed[static_cast<std::size_t>(k)],
+                       src.values[static_cast<std::size_t>(k)] +
+                           src.values[static_cast<std::size_t>(6 + k)],
+                       0.0);
+            CHECK_NEAR(model->axis[static_cast<std::size_t>(k)],
+                       src.angles[static_cast<std::size_t>(k)] * gm::kDoorPhaseMaxToFraction,
+                       1e-18);
+        }
+        const gm::DoorTransform at0 = gm::door_transform(*model);
+        for (int k = 0; k < 3; ++k) {
+            CHECK_NEAR(at0.origin[static_cast<std::size_t>(k)],
+                       src.values[static_cast<std::size_t>(k)], 1e-9);
+        }
+        CHECK(orthonormal(at0.basis, kEps));
+        const gm::DoorTransform at1 = gm::door_transform_at(*model, 0xFFFF);
+        CHECK(orthonormal(at1.basis, 1e-12));
+        if (gm::door_rotation_axis(*model) >= 0) {
+            ++rotating;
+        }
+    }
+    CHECK_EQ(rotating, 23u); // dm1: 23 of its 61 doors carry an angle operand
 }
 
 void test_corpus() {
@@ -640,6 +1486,8 @@ void test_corpus() {
     std::size_t sliding = 0;
     std::size_t linked = 0;
     std::size_t parsed = 0;
+    std::size_t rotating = 0;
+    std::size_t transforms = 0;
     for (const fs::path& sbt_path : levels) {
         const fs::path sbw_path = sbt_path.parent_path() / (sbt_path.stem().string() + ".sbw");
         if (!fs::exists(sbw_path)) {
@@ -671,6 +1519,19 @@ void test_corpus() {
                 std::fprintf(stderr, "doors: non-finite fraction in %s\n", sbt_path.c_str());
                 ++g_failures;
             }
+            // Every shipped door must produce a finite, orthonormal transform
+            // at both ends of its travel.
+            const gm::DoorTransform at0 = gm::door_transform_at(door, 0);
+            const gm::DoorTransform at1 = gm::door_transform_at(door, 0xFFFF);
+            if (!orthonormal(at0.basis, 1e-12) || !orthonormal(at1.basis, 1e-12) ||
+                !std::isfinite(at0.origin[0]) || !std::isfinite(at1.origin[0])) {
+                std::fprintf(stderr, "doors: bad transform in %s\n", sbt_path.c_str());
+                ++g_failures;
+            }
+            ++transforms;
+            if (gm::door_rotation_axis(door) >= 0) {
+                ++rotating;
+            }
         }
     }
     CHECK_EQ(parsed, 36u);
@@ -681,6 +1542,8 @@ void test_corpus() {
     CHECK_EQ(distinct, 1779u);
     CHECK_EQ(sliding, 1534u); // docs/FORMATS.md §12.4
     CHECK_EQ(linked, 200u);   // E4 != 0
+    CHECK_EQ(transforms, 1779u);
+    CHECK_EQ(rotating, 357u); // doors with a non-zero angle operand
 }
 
 } // namespace
@@ -690,6 +1553,11 @@ int main(int argc, char** argv) {
     test_synthetic();
     test_switch_source_tail();
     test_negatives();
+    test_geometry();
+    test_door_sounds();
+    test_triggers();
+    test_block_contact();
+    test_sbt_writer(full);
     test_real_dm1();
     if (full) {
         test_corpus();
