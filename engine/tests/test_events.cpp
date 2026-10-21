@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,16 @@ void put_u32(std::vector<std::uint8_t>& out, std::size_t offset, std::uint32_t v
 
 void put_i32(std::vector<std::uint8_t>& out, std::size_t offset, int value) {
     std::memcpy(out.data() + offset, &value, 4);
+}
+
+// `u32` byte count followed by raw event records (FUN_00465400).
+std::vector<std::uint8_t> make_network_blob(std::span<const std::uint8_t> records) {
+    std::vector<std::uint8_t> blob(4 + records.size(), 0);
+    put_u32(blob, 0, static_cast<std::uint32_t>(records.size()));
+    if (!records.empty()) {
+        std::memcpy(blob.data() + 4, records.data(), records.size());
+    }
+    return blob;
 }
 
 #define CHECK(cond)                                                                          \
@@ -640,6 +651,141 @@ void test_world_switch_pipeline() {
     CHECK(runtime.queue().empty());
 }
 
+// Network receive path of EventRuntime: a type-2 blob is resolved through the
+// switch table and pumped like a local record.  A valid blob replaces the
+// queue, the pump drains it, and a second pump posts nothing.
+void test_runtime_network_blob() {
+    gm::EventRuntime runtime;
+    gm::SwitchEffect effect;
+    effect.kind = 0x100; // below the sector-centroid threshold
+    effect.event_id = 900;
+    effect.x = 11;
+    effect.y = 22;
+    effect.z = 33;
+    CHECK(runtime.dispatcher().set_switch(3, effect));
+
+    std::vector<std::uint8_t> record(gm::EventQueue::kType2Size, 0);
+    record[0] = static_cast<std::uint8_t>(gm::EventType::trigger_switch);
+    put_u32(record, 1, 3);
+    record[5] = 7; // source 7
+    record[6] = 0;
+    const std::vector<std::uint8_t> blob = make_network_blob(record);
+
+    // accept_network_blob replaces the queue with the announced records.
+    const gm::EventParseResult accepted = runtime.accept_network_blob(blob);
+    CHECK(accepted.ok);
+    CHECK_EQ(accepted.events.size(), 1U);
+    CHECK_EQ(runtime.queue().size(), gm::EventQueue::kType2Size);
+    CHECK_EQ(runtime.queue().bytes()[0],
+             static_cast<std::uint8_t>(gm::EventType::trigger_switch));
+
+    const gm::EventDispatchResult first = runtime.pump(91);
+    CHECK(first.ok);
+    CHECK_EQ(first.generated.size(), 1U);
+    CHECK_EQ(first.sounds.size(), 0U);
+    if (first.generated.size() == 1) {
+        CHECK(first.generated[0].type == gm::EventType::generate);
+        CHECK_EQ(first.generated[0].id, 900);
+        CHECK_EQ(first.generated[0].x, 11);
+        CHECK_EQ(first.generated[0].y, 22);
+        CHECK_EQ(first.generated[0].z, 33);
+        CHECK_EQ(first.generated[0].extra,
+                 static_cast<std::uint32_t>(7 - 0x10000));
+    }
+    CHECK(runtime.queue().empty());
+
+    const gm::EventDispatchResult repeat = runtime.pump(92);
+    CHECK(repeat.ok);
+    CHECK(repeat.generated.empty());
+    CHECK(repeat.sounds.empty());
+    CHECK_EQ(repeat.text_posted, 0U);
+
+    // pump_network is accept + pump in one step.
+    const gm::EventDispatchResult combined = runtime.pump_network(blob, 93);
+    CHECK(combined.ok);
+    CHECK_EQ(combined.generated.size(), 1U);
+    if (combined.generated.size() == 1) {
+        CHECK_EQ(combined.generated[0].id, 900);
+        CHECK_EQ(combined.generated[0].extra,
+                 static_cast<std::uint32_t>(7 - 0x10000));
+    }
+    CHECK(runtime.queue().empty());
+    const gm::EventDispatchResult idle = runtime.pump(94);
+    CHECK(idle.ok);
+    CHECK(idle.generated.empty());
+
+    // A truncated or malformed blob is rejected, dispatches nothing and
+    // leaves the records already in the queue intact.
+    gm::EventRuntime recovered;
+    CHECK(recovered.queue().post_generate(77, 4, 5.0, 6.0, 7.0, 8));
+    const std::size_t before = recovered.queue().size();
+
+    std::vector<std::uint8_t> truncated = blob;
+    truncated[0] = static_cast<std::uint8_t>(gm::EventQueue::kType2Size + 1);
+    const gm::EventParseResult bad_accept = recovered.accept_network_blob(truncated);
+    CHECK(!bad_accept.ok);
+    CHECK(!bad_accept.error.empty());
+    CHECK_EQ(recovered.queue().size(), before);
+    const gm::EventDispatchResult bad_pump = recovered.pump_network(truncated, 1);
+    CHECK(!bad_pump.ok);
+    CHECK(bad_pump.generated.empty());
+    CHECK_EQ(recovered.queue().size(), before);
+
+    std::vector<std::uint8_t> unknown(gm::EventQueue::kType2Size, 0);
+    unknown[0] = 13; // no such event type
+    const std::vector<std::uint8_t> unknown_blob = make_network_blob(unknown);
+    CHECK(!recovered.accept_network_blob(unknown_blob).ok);
+    CHECK_EQ(recovered.queue().size(), before);
+
+    const gm::EventDispatchResult old = recovered.pump(2);
+    CHECK(old.ok);
+    CHECK_EQ(old.generated.size(), 1U);
+    if (old.generated.size() == 1) {
+        CHECK_EQ(old.generated[0].id, 77);
+        CHECK_EQ(old.generated[0].extra, 8U);
+    }
+    CHECK(recovered.queue().empty());
+}
+
+// A failed post at the original overflow threshold must not write a partial
+// record; after one pump drains the queue the same record can be retried and
+// is dispatched exactly once.
+void test_runtime_queue_full_retry() {
+    gm::EventRuntime runtime;
+    std::size_t posted = 0;
+    while (runtime.queue().post_generate(static_cast<std::int32_t>(posted), 0,
+                                         1.0, 2.0, 3.0, 0)) {
+        ++posted;
+    }
+    CHECK(posted > 0U);
+    const std::size_t full_size = runtime.queue().size();
+    CHECK(full_size > gm::EventQueue::kOverflowGenerate ||
+          full_size + gm::EventQueue::kType3Size > gm::EventQueue::kBufferSize);
+
+    CHECK(!runtime.queue().post_generate(4242, 0, 1.0, 2.0, 3.0, 0));
+    CHECK_EQ(runtime.queue().size(), full_size);
+    CHECK(!runtime.queue().post_generate(4242, 0, 1.0, 2.0, 3.0, 0));
+    CHECK_EQ(runtime.queue().size(), full_size);
+
+    const gm::EventDispatchResult drained = runtime.pump(10);
+    CHECK(drained.ok);
+    CHECK_EQ(drained.generated.size(), posted);
+    CHECK(runtime.queue().empty());
+
+    CHECK(runtime.queue().post_generate(4242, 0, 1.0, 2.0, 3.0, 0));
+    const gm::EventDispatchResult retried = runtime.pump(11);
+    CHECK(retried.ok);
+    CHECK_EQ(retried.generated.size(), 1U);
+    if (retried.generated.size() == 1) {
+        CHECK_EQ(retried.generated[0].id, 4242);
+    }
+    CHECK(runtime.queue().empty());
+
+    const gm::EventDispatchResult idle = runtime.pump(12);
+    CHECK(idle.ok);
+    CHECK(idle.generated.empty());
+}
+
 } // namespace
 
 
@@ -675,6 +821,8 @@ int main() {
     test_text_registry();
     test_network_blob();
     test_event_runtime();
+    test_runtime_network_blob();
+    test_runtime_queue_full_retry();
     test_dispatch_switch();
     test_thing_events();
     test_world_switch_pipeline();

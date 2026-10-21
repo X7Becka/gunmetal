@@ -345,6 +345,20 @@ public:
     /// Install `ADD_SWITCH` records into the dispatcher table.
     std::size_t install_switches(std::span<const Switch> switches);
 
+    /// Client side of the network event packet: a valid blob (`u32` length
+    /// plus records) replaces the queued records.  An invalid blob returns
+    /// `ok=false` with `error` set and leaves the previous queue untouched.
+    EventParseResult accept_network_blob(std::span<const std::uint8_t> bytes);
+
+    /// Accept a network blob and dispatch it at `now` in one step.  On a valid
+    /// blob the previous queue is replaced, the records are dispatched and the
+    /// queue is drained, so a second `pump`/`pump_network` without new records
+    /// posts nothing.  An invalid blob dispatches nothing and keeps the old
+    /// queue (use `accept_network_blob` for the parse error); the result then
+    /// has `ok=false`.
+    EventDispatchResult pump_network(std::span<const std::uint8_t> bytes,
+                                     std::uint32_t now);
+
     /// Drain the queue through the dispatcher at `now` (91 Hz tick or the
     /// caller's clock).
     EventDispatchResult pump(std::uint32_t now);

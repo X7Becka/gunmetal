@@ -547,6 +547,25 @@ std::size_t EventRuntime::install_switches(std::span<const Switch> switches) {
     return gm::install_switches(dispatcher_, switches);
 }
 
+EventParseResult EventRuntime::accept_network_blob(std::span<const std::uint8_t> bytes) {
+    return queue_.accept_network_blob(bytes);
+}
+
+EventDispatchResult EventRuntime::pump_network(std::span<const std::uint8_t> bytes,
+                                               std::uint32_t now) {
+    EventParseResult accepted = queue_.accept_network_blob(bytes);
+    if (!accepted.ok) {
+        EventDispatchResult rejected;
+        rejected.ok = false;
+        return rejected;
+    }
+    // The accepted records are already parsed and the queue now holds a copy
+    // of the blob.  Drop that copy before dispatching to keep the drain
+    // semantics of pump(): only a new blob can produce events again.
+    queue_.clear();
+    return dispatcher_.dispatch(accepted, now, text_);
+}
+
 EventDispatchResult EventRuntime::pump(std::uint32_t now) {
     return dispatcher_.dispatch(queue_, now, text_);
 }
