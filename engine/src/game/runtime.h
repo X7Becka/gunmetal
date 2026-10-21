@@ -388,6 +388,25 @@ public:
     /// Spawn a projectile and post its create event.  Returns the spawn index
     /// (`Projectiles::spawn`) or -1 for a duplicate `thing_id`.
     int spawn_projectile(ProjectileSpawn spawn);
+
+    /// Player FIRE path: turn an accepted `fire()` result into a live round.
+    ///
+    /// `fire()` resolves direction/spread/speed (including the `0x4453d0`
+    /// charge) but stays pure; this is the runtime seam that pairs it with the
+    /// FIRE sub-script's THING_TYPES projectile (`0x46ea40` -> `0x46d8b0`).
+    /// `projectile_thing` supplies gravity/damping/shape/radius/hits/lifetime
+    /// and event ids (`docs/THING_FIELDS.md`); its `id` becomes the spawn
+    /// `thing_id` and is auto-assigned from the runtime id pool when negative
+    /// (`0x10000+`, never clashes with level things).  `owner_player` is the
+    /// player index used by the self-hit guard of `apply_projectile_blasts*`.
+    ///
+    /// Returns the spawn index (`Projectiles::spawn`) or -1 when the shot was
+    /// not fired, was hitscan, had no usable speed, or the id was already live.
+    /// The create event goes through the runtime queue exactly like
+    /// `spawn_projectile()`.
+    int spawn_player_shot(const Weapon& weapon, const ShotResult& shot,
+                          const Thing& projectile_thing, int owner_player,
+                          double level_gravity = 0.0);
     /// Mark a projectile dead and post its destroy event; the slot stays in
     /// `projectiles().list()` and reports `destroyed` from then on.
     bool remove_projectile(int thing_id);

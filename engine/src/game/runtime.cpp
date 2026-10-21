@@ -501,6 +501,24 @@ int GameRuntime::spawn_projectile(ProjectileSpawn spawn) {
     return projectiles_.spawn(std::move(spawn), &events_.queue());
 }
 
+int GameRuntime::spawn_player_shot(const Weapon& weapon, const ShotResult& shot,
+                                   const Thing& projectile_thing,
+                                   int owner_player, double level_gravity) {
+    if (!shot.ok || !shot.fired || !shot.projectile) {
+        return -1;
+    }
+    Thing projectile = projectile_thing;
+    if (projectile.id < 0) {
+        projectile.id = take_ai_projectile_id();
+    }
+    const std::optional<ProjectileSpawn> spawn = projectile_spawn_from_shot(
+        weapon, shot, &projectile, owner_player, projectile.id, level_gravity);
+    if (!spawn) {
+        return -1;
+    }
+    return projectiles_.spawn(*spawn, &events_.queue());
+}
+
 bool GameRuntime::remove_projectile(int thing_id) {
     return projectiles_.remove(thing_id, &events_.queue());
 }

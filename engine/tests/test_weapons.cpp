@@ -15,6 +15,7 @@
 // magazine 0 with a capacity, projectile speed 0, NaN direction, negative and
 // NaN damage, and a weapon fire period of 0 (no cooldown).
 #include "game/projectile.h"
+#include "game/runtime.h"
 #include "game/weapons.h"
 
 #include "world/things.h"
@@ -577,6 +578,74 @@ void test_charge_state() {
     gm::ChargeState flat_state;
     CHECK(!gm::update_charge(flat, flat_state, true, true, false, -5).fire);
     CHECK_NEAR(flat_state.accumulated, 0.0, 0.0);
+}
+
+void test_player_fire_bridge() {
+    // `fire()` + `GameRuntime::spawn_player_shot()` is the player FIRE path:
+    // `0x4453d0` (charge) -> `0x46ea40` (spawn) -> `0x4752d0` (step).
+    gm::Weapon weapon = make_weapon(0, 1, false);
+    weapon.fire_mode = 2;          // charged, fire on release
+    weapon.charge_rate = 0.5;      // 2 ticks to full
+    weapon.projectile_speed = 182.0;  // 2 units/tick
+    weapon.projectile_charge = 10.0;  // operand[9]
+    weapon.range = 0.0;
+    gm::Weapons table({weapon});
+    gm::Arsenal arsenal = make_arsenal(0x1, 0, 5);
+    gm::CollisionWorld world;      // no geometry: the shot misses
+
+    gm::GameRuntime runtime;
+    gm::ChargeState charge;
+    const gm::ChargeOutcome held =
+        gm::update_charge(weapon, charge, true, true, true, 1);
+    CHECK(!held.fire);
+    CHECK_NEAR(charge.accumulated, 0.5, 1e-15);
+    const gm::ChargeOutcome release =
+        gm::update_charge(weapon, charge, true, false, false, 1);
+    CHECK(release.fire);
+    CHECK_NEAR(charge.charge, 0.5, 1e-15);
+
+    const gm::ShotResult shot = gm::fire(table, arsenal, {10.0, 20.0, 30.0},
+                                         {0.0, 1.0, 0.0}, world, charge.charge);
+    CHECK(shot.ok);
+    CHECK(shot.projectile);
+    CHECK_NEAR(shot.projectile_speed, 182.0 + 0.5 * 10.0 * 91.0, 1e-12);
+
+    gm::Thing grenade;
+    grenade.id = -1;               // runtime assigns 0x10000+
+    grenade.type = 28;
+    grenade.movement_type = 6;
+    grenade.gravity = 1.0;
+    grenade.damping = 0.8;
+    grenade.collision_shape = 1;
+    grenade.radius = 10.0;
+    grenade.hits_left = 3;
+    grenade.expire_ticks = 364;
+    grenade.create_event = 901;
+
+    const int spawn_index = runtime.spawn_player_shot(weapon, shot, grenade, 0);
+    CHECK(spawn_index >= 0);
+    CHECK_EQ(runtime.projectiles().list().size(), std::size_t(1));
+    if (spawn_index >= 0) {
+        const gm::ProjectileState& state = runtime.projectiles().list()[0];
+        CHECK_EQ(state.spawn.thing_id, 0x10000);
+        CHECK_EQ(state.spawn.owner_player, 0);
+    }
+
+    // A rejected shot spawns nothing.
+    gm::Arsenal dry = make_arsenal(0x1, 0, 0);
+    const gm::ShotResult empty =
+        gm::fire(table, dry, {0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, world, 0.0);
+    CHECK(!empty.ok);
+    CHECK_EQ(runtime.spawn_player_shot(weapon, empty, grenade, 0), -1);
+
+    // One fixed tick moves the round by speed/91 = 7 units along +y.
+    runtime.tick(1);
+    CHECK_EQ(runtime.last_projectile_results().size(), std::size_t(1));
+    if (!runtime.last_projectile_results().empty()) {
+        const gm::ProjectileTickRecord& record = runtime.last_projectile_results()[0];
+        CHECK_NEAR(record.speed, 7.0, 1e-12);
+        CHECK_NEAR(record.position.y, 20.0 + 7.0, 1e-9);
+    }
 }
 
 void test_projectile() {
@@ -3742,6 +3811,7 @@ int main() {
     test_spread_determinism();
     test_projectile();
     test_charge_state();
+    test_player_fire_bridge();
     test_recoil();
     test_damage_and_armor();
     test_damage_gauge();

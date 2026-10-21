@@ -439,6 +439,15 @@ C++: `gm::ChargeState { charge, accumulated, state_event }` и
 заряд. Кулдаун по-прежнему ведёт `gm::tick`. Игровому слою остаётся
 передать `state.charge` в `fire(...)`.
 
+Мост в игровой слой: `GameRuntime::spawn_player_shot(weapon, shot,
+projectile_thing, owner_player)` превращает принятый `fire()` в живой снаряд
+через `projectile_spawn_from_shot` (`0x46ea40` → `0x46d8b0`): шаблон вещи даёт
+gravity/damping/shape/radius/hits/lifetime/события, `id < 0` заменяется на
+runtime-id `0x10000+`, create-событие уходит в очередь рантайма. CTest
+`weapons` проверяет полный цикл «заряд 0.5 → fire → spawn → тик»: скорость
+7 ед/тик, `y += 7`, `owner_player = 0`. Осталось только чтение органов
+управления в цикле (курок/слот) — сам выстрел уже сквозной.
+
 Данные `level0` (`DEFINE_WEAPONS`): зарядных оружий два — **GRENADE**
 (слот 4) и **VIRAL AGENT** (слот 5), оба `fire_mode=2`,
 файловый `charge_rate=0.015`, в памяти `× 0.91 = 0.01365` за тик
