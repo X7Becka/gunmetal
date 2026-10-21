@@ -32,6 +32,7 @@
 #include <string_view>
 #include <vector>
 
+#include "game/weapons.h"      // Vitals
 #include "player/controller.h" // PlayerState
 #include "res/save.h"          // Save, SaveDoor, SavePlayer
 #include "world/doors.h"       // WorldState
@@ -108,6 +109,15 @@ struct GameState {
     /// `on_ground` is cleared.  Capsule height/eye height stay owned by the
     /// caller's `ControllerConfig`.
     bool apply_to_player(PlayerState& player, std::string* error = nullptr) const;
+
+    /// Runtime player gauges in the damage model's units (hundredths).
+    /// The save has no burn/hitstun/status fields, so those stay zero and
+    /// `mult_plate`/`mult_hull` keep their documented defaults.
+    Vitals vitals() const;
+
+    /// Copy gauges from the damage model back into the save-shaped state.
+    /// Rejects out-of-range values without modifying this object.
+    bool apply_vitals(const Vitals& vitals, std::string* error = nullptr);
 
     /// Apply the saved door runtime state to `world`.
     ///

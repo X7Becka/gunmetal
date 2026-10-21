@@ -797,6 +797,38 @@ void test_negatives() {
 
 } // namespace
 
+void test_vitals_bridge() {
+    gm::GameState state;
+    state.armor_max = 10000;
+    state.armor = 7500;
+    state.shield_max = 5000;
+    state.shields = {1000, 2000, 3000, 4000};
+
+    const gm::Vitals vitals = state.vitals();
+    CHECK_EQ(vitals.armor, 7500);
+    CHECK_EQ(vitals.armor_max, 10000);
+    CHECK_EQ(vitals.shield_max, 5000);
+    CHECK_EQ(vitals.shields[0], 1000);
+    CHECK_EQ(vitals.shields[3], 4000);
+    CHECK_NEAR(vitals.mult_plate, 1.0, 0.0);
+    CHECK_NEAR(vitals.mult_hull, 1.0, 0.0);
+
+    gm::Vitals next = vitals;
+    next.armor = 2500;
+    next.shields[2] = 500;
+    std::string error;
+    CHECK(state.apply_vitals(next, &error));
+    CHECK(error.empty());
+    CHECK_EQ(state.armor, 2500);
+    CHECK_EQ(state.shields[2], 500);
+
+    gm::Vitals bad = next;
+    bad.armor = 20000;
+    CHECK(!state.apply_vitals(bad, &error));
+    CHECK(!error.empty());
+    CHECK_EQ(state.armor, 2500); // rejected update leaves the state intact
+}
+
 int main() {
     test_synthetic();
     for (const GoldenSave& golden : kSaves) {
@@ -804,6 +836,7 @@ int main() {
     }
     test_real_doors(kSaves[0]);
     test_negatives();
+    test_vitals_bridge();
 
     if (g_failures != 0) {
         std::fprintf(stderr, "game_state: %d failure(s)\n", g_failures);

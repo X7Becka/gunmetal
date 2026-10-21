@@ -239,6 +239,53 @@ std::optional<GameState> GameState::from_save(Save save, std::string_view level,
     return state;
 }
 
+Vitals GameState::vitals() const {
+    Vitals out;
+    out.armor = armor;
+    out.armor_max = armor_max;
+    out.shield_max = shield_max;
+    out.shields = shields;
+    return out;
+}
+
+bool GameState::apply_vitals(const Vitals& source, std::string* error) {
+    if (error != nullptr) {
+        error->clear();
+    }
+    std::string message;
+    if (source.armor_max <= 0 || source.armor_max > kMaxGauge) {
+        message = "armor_max " + std::to_string(source.armor_max) +
+                  " out of range [1, " + std::to_string(kMaxGauge) + "]";
+    } else if (source.armor < 0 || source.armor > source.armor_max) {
+        message = "armor " + std::to_string(source.armor) + " outside [0, " +
+                  std::to_string(source.armor_max) + "]";
+    } else if (source.shield_max <= 0 || source.shield_max > kMaxGauge) {
+        message = "shield_max " + std::to_string(source.shield_max) +
+                  " out of range [1, " + std::to_string(kMaxGauge) + "]";
+    }
+    if (message.empty()) {
+        for (std::size_t i = 0; i < source.shields.size(); ++i) {
+            if (source.shields[i] < 0 || source.shields[i] > source.shield_max) {
+                message = "shield " + std::to_string(i) + " value " +
+                          std::to_string(source.shields[i]) + " outside [0, " +
+                          std::to_string(source.shield_max) + "]";
+                break;
+            }
+        }
+    }
+    if (!message.empty()) {
+        if (error != nullptr) {
+            *error = message;
+        }
+        return false;
+    }
+    armor = source.armor;
+    armor_max = source.armor_max;
+    shield_max = source.shield_max;
+    shields = source.shields;
+    return true;
+}
+
 bool GameState::apply_to_player(PlayerState& player, std::string* error) const {
     if (!validate(error)) {
         return false;

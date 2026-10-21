@@ -56,6 +56,8 @@ auto state = gm::GameState::from_save(std::move(*save), "level0", error);
 
 gm::PlayerState player = gm::make_state({0, 0, 0}, 0.0);
 state->apply_to_player(player);          // pos + yaw, vel = 0
+gm::Vitals vitals = state->vitals();      // armor/shield gauges for damage
+state->apply_vitals(vitals);              // update gauges after damage
 
 gm::WorldState world;
 world.build(sbt, sbw);
@@ -71,6 +73,8 @@ auto out = save->to_bytes(error);
 | `static std::optional<GameState> from_save(Save, std::string_view level, std::string&)` | загрузка; `level0`, `LEVEL0`, `level0.sbt` эквивалентны |
 | `bool validate(std::string* = nullptr) const` | значения и диапазоны без мира |
 | `bool apply_to_player(PlayerState&, std::string* = nullptr) const` | `pos`, `yaw`, сброс `vel`/`on_ground` |
+| `Vitals vitals() const` | armor/shield gauges в единицах модели урона (`10000 = 100.00`) |
+| `bool apply_vitals(const Vitals&, std::string* = nullptr)` | проверка диапазонов и запись gauges; при ошибке состояние не меняется |
 | `std::size_t apply_to_doors(WorldState&, std::string* = nullptr) const` | применение по `(sector, object)`, число совпадений |
 | `bool update_save(Save&, std::string* = nullptr) const` | запись в существующий `Save` |
 | `std::optional<Save> to_save(std::string&) const` | копия шаблона + `update_save` |
