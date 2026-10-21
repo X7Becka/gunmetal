@@ -359,8 +359,12 @@ void Mixer::mix(std::int16_t* out, std::size_t frames) {
             }
         }
 
-        std::int64_t left = acc_l >> 15;
-        std::int64_t right = acc_r >> 15;
+        // 0x8610d0: the original rounds before the final shift
+        // (`(acc + 0x10) >> 5`) instead of truncating.  In this fixed-point
+        // layout the accumulator is Q15, so half an LSB is 1 << 14.
+        constexpr std::int64_t kRound = 1 << 14;
+        std::int64_t left = (acc_l + kRound) >> 15;
+        std::int64_t right = (acc_r + kRound) >> 15;
         if (left > 32767) {
             left = 32767;
             ++stats_.clipped;

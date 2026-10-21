@@ -46,6 +46,10 @@ struct PlayParams {
 
 class Mixer {
 public:
+    // Capacity, not a copy of the original: `0x84e068` holds 9 slots of 0x50
+    // (8 effect voices + 1 music stream, `docs/SOUND_FIELDS.md` 2).  C++ keeps
+    // 32 so a level can layer more one-shots; behaviour of the shipped data is
+    // unaffected.
     static constexpr int kMaxVoices = 32;
     static constexpr float kMaxGain = 4.0f;
     static constexpr float kRefDistance = 1.0f;
@@ -122,6 +126,11 @@ s  = s0 + ((s1 - s0) * frac >> 16)
 * В конце нецикличного звука `s1 = s0` (hold последнего значения, а не
   затухание в ноль), чтобы последний кадр был точным.
 * `sample()` понимает U8/S16/S32; для S32 применяется `clamp(acc >> shift)`.
+* Финальный аккумулятор округляется перед сдвигом, как `0x8610d0`
+  (`(acc + 0x10) >> 5`): в Q15-раскладке это `(acc + (1 << 14)) >> 15`.
+  При единичном гейне (`32768 = 1.0`) результат совпадает с прежним
+  усечением, поэтому голдены не меняются. Точная раскладка голосов и
+  сэмплов — `docs/SOUND_FIELDS.md`.
 * `step` для равных частот равен ровно `2^32`, поэтому синтетические
   фикстуры воспроизводятся без дробных ошибок.
 
