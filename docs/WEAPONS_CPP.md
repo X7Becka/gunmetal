@@ -271,7 +271,7 @@ if (eax > 0) { eax -= dt; [player+0x81c358] = eax; if (eax < 0) = 0; }
 | `reload_ticks` | `0` | механики перезарядки в оригинале не найдено; 0 = мгновенно, но `reload()` для `magazine == 0` возвращает `no_magazine`. |
 | `damage` | резолвится для BULLET/LASER, иначе `1.0` | `load()` ищет `projectile_id` в entity-таблице, декодирует подскрипт и берёт `L2` у BULLET / `L4` у LASER: MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00. Для THING остаётся placeholder 1.0, но урон снаряда теперь считается через `apply_blast`/`apply_thing_damage` по таблице §7 Ghidra, а не по этому полю. |
 | `hitscan` | резолвится | первый `FIRE_SOURCEPLAYER_BULLET`/`_LASER` → true, `_THING` → false (`0x478520`/`0x478be0`/`0x45e19d`). |
-| `projectile_speed` | `THING_TYPES[type].+0x10 × 91` ед/с; `12000` — fallback | `0x46f0f0` читает double `+0x10` (ед/тик), `0x4752d0` делает `pos += speed·dt`; 91 тик = 1 с, поэтому ROCKET 18→1638, MRL 25→2275, NUKE 10→910. `charge*operand[9]` добавляется вызывающим слоем. |
+| `projectile_speed` | `THING_TYPES[type].+0x10 × 91` ед/с; `12000` — fallback | `0x46f0f0` читает double `+0x10` (ед/тик), `0x4752d0` делает `pos += speed·dt`; 91 тик = 1 с, поэтому ROCKET 18→1638, MRL 25→2275, NUKE 10→910. `charge*operand[9]` добавляет `fire(..., charge)`. |
 
 `hitscan` для поставочных BULLET/LASER теперь `true`; THING (GRENADE/ROCKET/
 PLASMA и т.п.) остаётся `false`. Для `level10.sbt` цепочка `GENERATE` не
