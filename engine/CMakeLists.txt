@@ -55,6 +55,7 @@ add_library(gm_engine STATIC
     src/world/things.cpp
     src/world/ai.cpp
     src/world/ai_move.cpp
+    src/world/thing_motion.cpp
 )
 
 target_include_directories(gm_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)

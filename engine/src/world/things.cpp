@@ -63,6 +63,11 @@ struct TypeTable {
     std::vector<double> speeds;
     std::vector<double> turn_accels;
     std::vector<double> turn_maxes;
+    std::vector<std::array<double, 3>> angle_rates;
+    std::vector<double> climb_speeds;
+    std::vector<std::uint32_t> flags_a;
+    std::vector<std::uint32_t> flags_b;
+    std::vector<std::uint32_t> flags_c;
     std::vector<double> arrive_radii;
     std::vector<double> leash_distances;
     std::vector<double> gravities;
@@ -111,6 +116,11 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.speeds.reserve(count);
         table.turn_accels.reserve(count);
         table.turn_maxes.reserve(count);
+        table.angle_rates.reserve(count);
+        table.climb_speeds.reserve(count);
+        table.flags_a.reserve(count);
+        table.flags_b.reserve(count);
+        table.flags_c.reserve(count);
         table.arrive_radii.reserve(count);
         table.leash_distances.reserve(count);
         table.gravities.reserve(count);
@@ -150,6 +160,16 @@ TypeTable resolve_types(const SbtLevel& level) {
             table.speeds.push_back(std::bit_cast<double>(rd64(entry + 0x10)));
             table.turn_accels.push_back(std::bit_cast<double>(rd64(entry + 0x20)));
             table.turn_maxes.push_back(std::bit_cast<double>(rd64(entry + 0x28)));
+            std::array<double, 3> angle_rate{};
+            for (std::size_t a = 0; a < angle_rate.size(); ++a) {
+                angle_rate[a] =
+                    std::bit_cast<double>(rd64(entry + 0x90 + a * 8));
+            }
+            table.angle_rates.push_back(angle_rate);
+            table.climb_speeds.push_back(std::bit_cast<double>(rd64(entry + 0x18)));
+            table.flags_a.push_back(rd32(entry + 0x1a8));
+            table.flags_b.push_back(rd32(entry + 0x1ac));
+            table.flags_c.push_back(rd32(entry + 0x1b0));
             table.arrive_radii.push_back(std::bit_cast<double>(rd64(entry + 0x70)));
             table.leash_distances.push_back(std::bit_cast<double>(rd64(entry + 0xd0)));
             table.gravities.push_back(std::bit_cast<double>(rd64(entry + 0x78)));
@@ -227,6 +247,11 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.speed = types.speeds[i];
     thing.turn_accel = types.turn_accels[i];
     thing.turn_max = types.turn_maxes[i];
+    thing.angle_rate = types.angle_rates[i];
+    thing.climb_speed = types.climb_speeds[i];
+    thing.flags_a = types.flags_a[i];
+    thing.flags_b = types.flags_b[i];
+    thing.flags_c = types.flags_c[i];
     thing.arrive_radius = types.arrive_radii[i];
     thing.leash_distance = types.leash_distances[i];
     thing.gravity = types.gravities[i];
@@ -468,9 +493,15 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     }
     ThingTypeEvents out;
     out.type = type;
+    out.movement_type = types.movement_types[index];
     out.speed = types.speeds[index];
     out.turn_accel = types.turn_accels[index];
     out.turn_max = types.turn_maxes[index];
+    out.angle_rate = types.angle_rates[index];
+    out.climb_speed = types.climb_speeds[index];
+    out.flags_a = types.flags_a[index];
+    out.flags_b = types.flags_b[index];
+    out.flags_c = types.flags_c[index];
     out.arrive_radius = types.arrive_radii[index];
     out.leash_distance = types.leash_distances[index];
     out.gravity = types.gravities[index];
