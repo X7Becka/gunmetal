@@ -608,8 +608,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > (`gravity/damping/shape/radius/box`) читаются из `THING_TYPES`.
       > Таблица близости (`THING_TYPES+0x218`) загружается; цель кодируется
       > `0..7`/`8+index`, contact-skin и floor-rest не тратят hits/damping;
-      > rest ограничен полом (`n.z >= 0.5`),скользящее трение и `rest_ticks`;
-      > `remove` постит destroy. RGM/homing: отдельная ветка `homing` с
+      > rest ограничен полом (`n.z >= 0.5`), скользящее трение и `rest_ticks`;
+      > `tick_results` отдаёт per-projectile записи (`status/position/events`)
+      > в spawn order; `remove` постит destroy. RGM/homing: отдельная ветка `homing` с
       > target_point/индексом, плавным поворотом и destroy по контакту;
       > к игровому циклу ещё не подключена. `apply_projectile_blast`:
       > `bounced`/`expired` → `apply_weapon_blast`, `already_spent` защищает
