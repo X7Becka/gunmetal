@@ -316,9 +316,12 @@ void TextRegistry::clear() {
 bool TextRegistry::post(std::string_view text, std::int32_t font, std::int32_t kind,
                         std::uint32_t deadline) {
     // The original compares the stored text (strcmp), the kind and the font
-    // and refreshes the slot it finds.
+    // and refreshes the slot it finds.  The stored slot is truncated first, so
+    // a long input dedups against its own 0x31-byte prefix.
+    const std::string_view stored_text = text.substr(0, kMaxTextLength);
     for (TextMessage& message : messages_) {
-        if (message.kind == kind && message.font == font && message.text == text) {
+        if (message.kind == kind && message.font == font &&
+            message.text == stored_text) {
             message.deadline = deadline;
             message.updated = counter_;
             ++counter_;

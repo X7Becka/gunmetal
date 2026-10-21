@@ -259,6 +259,9 @@ void test_text_registry() {
     const std::string long_text(60, 'x');
     CHECK(registry.post(long_text, 2, -1, 400));
     CHECK_EQ(registry.messages().back().text.size(), gm::TextRegistry::kMaxTextLength);
+    const std::size_t after_long = registry.size();
+    CHECK(registry.post(long_text, 2, -1, 500)); // dedup against the truncated slot
+    CHECK_EQ(registry.size(), after_long);
 
     // A full registry drops the new message and does not move the counter.
     gm::TextRegistry full;
