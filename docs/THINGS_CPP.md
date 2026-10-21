@@ -206,6 +206,16 @@ god_mode); переопределяются только `game_mode` и `playert
 результат детерминирован и не зависит от того, исполнял ли вызывающий
 главный скрипт.
 
+### 2.2a. Локации и AI-маршруты
+
+`Things` собирает выполненные `ADD_LOCATION` (`0x45bea6`) в таблицу
+`locations()`: `{id, x, y, z, orient[3]}`. `location(id)` — первый матч,
+как линейный поиск `0x476012`. `Thing::path_locations` хранит сырые id из
+`THING_TYPES+0x324[]` (0..32); `Ai::set_path_from_thing` резолвит их через
+эту таблицу. Дубликаты `(site, occ)` детерминированно дедуплицируются; при
+`execute=false` таблица пуста. `pathrandom` (тип 11) и `DELETE_LOCATION` в
+рантайме не моделируются.
+
 ### 2.3. `tick`, `alive`, `children`
 
 `spawn(thing, events)` добавляет runtime-экземпляр, назначает свободный id
