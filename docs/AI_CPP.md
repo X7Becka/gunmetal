@@ -108,6 +108,10 @@ struct AiAgent {
     double heading;        // atan2 последнего move_delta, рад
     double omega;          // зарезервировано под интегратор поворота (A6)
     Vec3d move_delta;      // перемещение, применённое за последний тик
+
+    // A4-path — данные, Ai::tick их пока не читает.
+    std::vector<Vec3d> path_waypoints; // +0x324[], до 32 точек
+    AiPathState path;                  // +0x4ec index / +0x4f4 waiting
 };
 ```
 
@@ -414,8 +418,10 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    оружии/сглаживании и добавить навигацию к выбранной цели.
 3. **Навигация**: A2-шаг (`ai_seek_step`, leash-кламп) и A3 `standoff`-окно
    (`+0x1cc`: подойти / стоять+стрелять / отойти на `standoff-60`) уже
-   подключены opt-in'ом (§7); остались path/pathloop/pathrandom (`+0x320`),
-   waypoint'ы, высота/пол через `floor_at` и гравитация.
+   подключены opt-in'ом (§7); path-примитив `path_advance` (§8) покрывает
+   `path`/`pathloop`/`pathexpire`, но ещё не подключён к тику; остались
+   `pathrandom`, waypoint'ы из таблицы локаций, высота/пол через `floor_at`
+   и гравитация.
 4. **Бой**: урон игроку, оружие (`+0x21c`), снаряды, звук (`+0x1fc`),
    анимация; сейчас `attack` — только событие.
 5. **Оригинальный AI**: разобрать `0x473eed`/`0x473f07`/`0x475615`, leash,
@@ -485,7 +491,8 @@ swept-сфера-ограничение, направление — планар
 
 Чего здесь нет намеренно:
 
-* pathfinding и path-семейства (`+0x320`) — только один waypoint;
+* pathfinding и подключение path-семейств (`+0x320`) к тику — в A4 есть только
+  чистый автомат `path_advance` (§8), `Ai::tick` его не вызывает;
 * оружия, окна `[w0,w1]`, кулдауна `w2` и `rand()%period` — `attack` остаётся
   событием, а не баллистикой (§8 отчёта — следующий шаг);
 * памяти «последней увиденной точки»: во время `lose_sight_seconds` агент
@@ -502,3 +509,68 @@ swept-сфера-ограничение, направление — планар
 `test_move_step_standoff_far`, `test_move_step_standoff_window`,
 `test_move_step_standoff_retreat`, `test_move_step_standoff_retreat_wall`
 (все в `gm_ai_tests`, label `thing_ai`).
+
+---
+
+## 8. A4: path-примитив (`0x475f10`)
+
+Чистый автомат точек из `FUN_00475f10` (отчёт `ai-nav-report.md` §6.8),
+без RNG, без `Things`, без `CollisionWorld`. Живёт в `world/ai_move.h`:
+
+```cpp
+enum class AiPathMode : std::uint8_t { path = 9, loop = 10, expire = 12 };
+
+struct AiPathState {
+    int index = -1;       // +0x4ec
+    bool waiting = false; // +0x4f4 > 0: точка выбрана, тело ещё не дошло
+    bool expired = false; // pathexpire уже сработал
+};
+
+AiPathStep path_advance(const AiPathState&, std::span<const Vec3d> waypoints,
+                        AiPathMode);
+void path_mark_arrived(AiPathState&); // очистить `waiting`
+```
+
+`AiPathStep` возвращает `index` и саму `point`, флаги `selected` (выбрана
+**новая** точка), `waiting` (точка ещё в работе), `arrived` (`path` стоит на
+последней), `expired` (`pathexpire` дошёл до последней) и `state` — состояние
+для следующего вызова. Ходьбу по-прежнему делает `ai_seek_step()`; когда тело
+дошло, вызывающий зовёт `path_mark_arrived()`, и следующий `path_advance()`
+берёт следующую точку. Это ровно разделение оригинала: `0x475f10` выбирает
+точку и ставит `+0x4f4`, `0x476a50` идёт и сбрасывает флаг на прибытии.
+
+Семантика (proven по дизассемблеру `0x475f10`):
+
+| ситуация | результат |
+|---|---|
+| `state.waiting` | ничего нового; `selected=false`, `waiting=true`, та же точка |
+| `index + 1 < count` | `selected=true`, `index+1`, `waiting=true` |
+| конец, `path` (9) | `index` остаётся последним, `arrived=true`, без события |
+| конец, `loop` (10) | `index = 0`, `selected=true` (цикл `0,1,2,3,0…`) |
+| конец, `expire` (12) | `index` последний, `expired=true` — аналог `0x4703a0` |
+| пустой список, `path`/`loop` | ничего (`index=-1`), тик просто ничего не делает |
+| пустой список, `expire` | `expired=true` сразу (ветка `path_count < 1`) |
+| `index` вне `[-1, count-1]` | перезапуск с `-1` (защита оригинала от битого `+0x4ec`) |
+
+Важно: `expire` срабатывает **не** в момент выбора последней точки, а на
+следующем вызове после её достижения — как в оригинале, где последняя точка
+сначала отрабатывается ходьбой. `expired` терминален: повторные вызовы
+возвращают `expired=true` и не перезапускают путь. Список длиннее 32 точек
+обрезается: оригинал отбраковывает `0x1f < i` (`kAiPathMaxPoints = 32`).
+
+Чего здесь нет намеренно:
+
+* `pathrandom` (тип 11) — вызывает `rand()` (`0x480e30`), а детерминизм для
+  каркаса обязателен; для него нужен `AiConfig::rng_seed` и собственный ГПСЧ;
+* разрешения id точки через таблицу локаций `0x80d8e0` — примитив работает с
+  уже разрешёнными `Vec3d`; загрузка `+0x324[]` остаётся слою спавна/типов;
+* подключения к `Ai::tick` — `AiConfig::use_path` и `AiAgent::path` /
+  `path_waypoints` добавлены как opt-in данные (по умолчанию `false`), но тик
+  их не читает, поэтому A2/A3 не меняются; `pathrandom` и выбор между
+  «патруль по пути» и state machine — следующий шаг.
+
+Тесты (`gm_ai_tests`, label `thing_ai`): `test_path_loop` (4 точки →
+`0,1,2,3,0,1`), `test_path_expire` (expire после последней, терминальность),
+`test_path_empty` (пустой список для всех режимов), `test_path_repeat_advance`
+(повторный advance без прибытия, `path`-терминал, битый индекс, обрезка до 32,
+дефолты `AiConfig`).

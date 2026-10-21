@@ -95,4 +95,87 @@ AiSeekResult ai_retreat_step(const Vec3d& from, const Vec3d& threat,
     return swept_step(from, away * (1.0 / distance), speed, world, params);
 }
 
+AiPathStep path_advance(const AiPathState& state,
+                        std::span<const Vec3d> waypoints, AiPathMode mode) {
+    AiPathStep step;
+    step.state = state;
+
+    const std::size_t clamped =
+        std::min(waypoints.size(), static_cast<std::size_t>(kAiPathMaxPoints));
+    const int count = static_cast<int>(clamped);
+
+    // The original posts `0x4703a0` once and the thing is gone; keep the
+    // terminal flag so repeated calls stay dead rather than restarting.
+    if (state.expired) {
+        step.index =
+            count > 0 ? std::clamp(state.index, 0, count - 1) : -1;
+        if (step.index >= 0) {
+            step.point = waypoints[static_cast<std::size_t>(step.index)];
+        }
+        step.expired = true;
+        return step;
+    }
+
+    // `path_count < 1`: only pathexpire dies (0x475f10, empty-list branch).
+    if (count < 1) {
+        step.state.index = -1;
+        step.expired = (mode == AiPathMode::expire);
+        step.state.expired = step.expired;
+        return step;
+    }
+
+    if (state.waiting) {
+        if (state.index >= 0 && state.index < count) {
+            step.index = state.index;
+            step.point = waypoints[static_cast<std::size_t>(state.index)];
+            step.waiting = true;
+            return step;
+        }
+        // Pending flag without a valid index (corrupt state): drop it and
+        // select from the start below.
+        step.state.waiting = false;
+    }
+
+    // Broken index guard: the original rejects i < 0 or 0x1f < i and reselects
+    // from the start instead of reading outside the location list.
+    int index = state.index;
+    if (index < -1 || index > count - 1) {
+        index = -1;
+    }
+
+    if (mode == AiPathMode::path && index == count - 1) {
+        // Standing on the last point of a `path`: no new target, no event.
+        step.index = index;
+        step.point = waypoints[static_cast<std::size_t>(index)];
+        step.arrived = true;
+        step.state.index = index;
+        step.state.waiting = false;
+        return step;
+    }
+    if (mode == AiPathMode::expire && index == count - 1) {
+        // The last point was reached; the original posts 0x4703a0 here.
+        step.index = index;
+        step.point = waypoints[static_cast<std::size_t>(index)];
+        step.expired = true;
+        step.state.index = index;
+        step.state.waiting = false;
+        step.state.expired = true;
+        return step;
+    }
+
+    int next = index + 1;
+    if (next >= count) {
+        next = 0; // `loop`; `path`/`expire` were handled above
+    }
+
+    step.index = next;
+    step.point = waypoints[static_cast<std::size_t>(next)];
+    step.selected = true;
+    step.waiting = true;
+    step.state.index = next;
+    step.state.waiting = true;
+    step.state.expired = false;
+    return step;
+}
+
 } // namespace gm

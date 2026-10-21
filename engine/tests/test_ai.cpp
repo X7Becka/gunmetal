@@ -1022,6 +1022,172 @@ void test_seek_step() {
     CHECK(blocked_position.y > 80.0);
 }
 
+// A4: pure `0x475f10` automaton over a linear waypoint list.  Four points,
+// loop 0,1,2,3,0; expire on the last; empty list; repeated advance.
+void test_path_loop() {
+    const std::array<gm::Vec3d, 4> points{{
+        {10.0, 0.0, 0.0},
+        {20.0, 0.0, 0.0},
+        {30.0, 0.0, 0.0},
+        {40.0, 0.0, 0.0},
+    }};
+    const int expected[] = {0, 1, 2, 3, 0, 1};
+
+    gm::AiPathState state;
+    for (int i = 0; i < 6; ++i) {
+        const gm::AiPathStep step =
+            gm::path_advance(state, points, gm::AiPathMode::loop);
+        CHECK(step.selected);
+        CHECK(step.waiting);
+        CHECK(!step.arrived);
+        CHECK(!step.expired);
+        CHECK_EQ(step.index, expected[i]);
+        CHECK_NEAR(step.point.x,
+                   points[static_cast<std::size_t>(expected[i])].x, 0.0);
+        CHECK_EQ(step.state.index, expected[i]);
+        CHECK(step.state.waiting);
+
+        // The body reaches the point: `0x476a50` clears `+0x4f4`.
+        state = step.state;
+        gm::path_mark_arrived(state);
+        CHECK(!state.waiting);
+    }
+    CHECK_EQ(state.index, 1);
+}
+
+void test_path_expire() {
+    const std::array<gm::Vec3d, 4> points{{
+        {1.0, 0.0, 0.0},
+        {2.0, 0.0, 0.0},
+        {3.0, 0.0, 0.0},
+        {4.0, 0.0, 0.0},
+    }};
+    gm::AiPathState state;
+    for (int i = 0; i < 4; ++i) {
+        const gm::AiPathStep step =
+            gm::path_advance(state, points, gm::AiPathMode::expire);
+        CHECK(step.selected);
+        CHECK(!step.expired);
+        CHECK_EQ(step.index, i);
+        state = step.state;
+        gm::path_mark_arrived(state);
+    }
+
+    // Reaching the last point is not the expiry: the *next* advance is.
+    const gm::AiPathStep expired =
+        gm::path_advance(state, points, gm::AiPathMode::expire);
+    CHECK(!expired.selected);
+    CHECK(expired.expired);
+    CHECK(!expired.waiting);
+    CHECK_EQ(expired.index, 3);
+    CHECK_NEAR(expired.point.x, 4.0, 0.0);
+    CHECK(expired.state.expired);
+
+    // `0x4703a0` is posted once; the dead state stays terminal.
+    const gm::AiPathStep again =
+        gm::path_advance(expired.state, points, gm::AiPathMode::expire);
+    CHECK(again.expired);
+    CHECK(!again.selected);
+    CHECK_EQ(again.index, 3);
+}
+
+void test_path_empty() {
+    const std::span<const gm::Vec3d> none;
+    for (const gm::AiPathMode mode :
+         {gm::AiPathMode::path, gm::AiPathMode::loop}) {
+        const gm::AiPathState state;
+        const gm::AiPathStep step = gm::path_advance(state, none, mode);
+        CHECK(!step.selected);
+        CHECK(!step.waiting);
+        CHECK(!step.arrived);
+        CHECK(!step.expired);
+        CHECK_EQ(step.index, -1);
+        CHECK_EQ(step.state.index, -1);
+        CHECK(!step.state.expired);
+    }
+
+    // The original's `path_count < 1` branch: only pathexpire dies.
+    const gm::AiPathStep expired =
+        gm::path_advance({}, none, gm::AiPathMode::expire);
+    CHECK(expired.expired);
+    CHECK(expired.state.expired);
+    CHECK(!expired.selected);
+
+    gm::AiPathState dead;
+    dead.expired = true;
+    const gm::AiPathStep dead_step =
+        gm::path_advance(dead, none, gm::AiPathMode::expire);
+    CHECK(dead_step.expired);
+}
+
+void test_path_repeat_advance() {
+    const std::array<gm::Vec3d, 4> points{{
+        {0.0, 0.0, 0.0},
+        {0.0, 10.0, 0.0},
+        {0.0, 20.0, 0.0},
+        {0.0, 30.0, 0.0},
+    }};
+
+    const gm::AiPathStep first =
+        gm::path_advance({}, points, gm::AiPathMode::loop);
+    CHECK(first.selected);
+    CHECK_EQ(first.index, 0);
+
+    // Pending point: no second selection, the same waypoint comes back.
+    const gm::AiPathStep pending =
+        gm::path_advance(first.state, points, gm::AiPathMode::loop);
+    CHECK(!pending.selected);
+    CHECK(pending.waiting);
+    CHECK_EQ(pending.index, 0);
+    CHECK_NEAR(pending.point.y, 0.0, 0.0);
+    CHECK_EQ(pending.state.index, 0);
+
+    // `path` mode: after the last point the agent stands there for good.
+    gm::AiPathState path_state;
+    for (int i = 0; i < 4; ++i) {
+        const gm::AiPathStep step =
+            gm::path_advance(path_state, points, gm::AiPathMode::path);
+        CHECK(step.selected);
+        CHECK_EQ(step.index, i);
+        path_state = step.state;
+        gm::path_mark_arrived(path_state);
+    }
+    const gm::AiPathStep done =
+        gm::path_advance(path_state, points, gm::AiPathMode::path);
+    CHECK(done.arrived);
+    CHECK(!done.selected);
+    CHECK(!done.expired);
+    CHECK_EQ(done.index, 3);
+    const gm::AiPathStep done_again =
+        gm::path_advance(done.state, points, gm::AiPathMode::path);
+    CHECK(done_again.arrived);
+    CHECK(!done_again.selected);
+    CHECK_EQ(done_again.index, 3);
+
+    // Corrupt index restarts from the beginning, never reads out of bounds.
+    gm::AiPathState broken;
+    broken.index = 99;
+    const gm::AiPathStep restarted =
+        gm::path_advance(broken, points, gm::AiPathMode::loop);
+    CHECK(restarted.selected);
+    CHECK_EQ(restarted.index, 0);
+
+    // More than 32 points: the original's `0x1f < i` guard truncates.
+    std::vector<gm::Vec3d> long_path(gm::kAiPathMaxPoints + 8,
+                                     gm::Vec3d{0.0, 0.0, 0.0});
+    gm::AiPathState long_state;
+    long_state.index = gm::kAiPathMaxPoints - 1;
+    const gm::AiPathStep wrapped =
+        gm::path_advance(long_state, long_path, gm::AiPathMode::loop);
+    CHECK(wrapped.selected);
+    CHECK_EQ(wrapped.index, 0);
+
+    // A4 fields are opt-in data; A2/A3 defaults must not change.
+    const gm::AiConfig config;
+    CHECK(!config.use_path);
+    CHECK(config.path_mode == gm::AiPathMode::loop);
+}
+
 // A2 wiring: `use_move_step` is opt-in, so the default scaffold must not move.
 void test_move_step_opt_in() {
     const gm::Things things = make_synthetic_things();
@@ -1391,6 +1557,10 @@ int main() {
     test_death_and_negatives();
     test_octagonal_distance();
     test_seek_step();
+    test_path_loop();
+    test_path_expire();
+    test_path_empty();
+    test_path_repeat_advance();
     test_move_step_opt_in();
     test_move_step_seek();
     test_move_step_wall();

@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "render/collide.h" // Vec3d, CollisionWorld
+#include "world/ai_move.h"  // AiPathMode/AiPathState (A4, data only)
 #include "world/things.h"   // Things
 
 namespace gm {
@@ -121,6 +122,15 @@ struct AiConfig {
     /// Hard leash radius (`+0xd0`, report §9); `0` disables the clamp.  The
     /// anchor is `AiAgent::leash_anchor`, which `attach` sets to `home`.
     double move_leash = 0.0;
+
+    // --- A4 path family (`0x475f10`), data only ---------------------------
+    /// Opt-in switch for the path layer.  A4 only adds the pure primitive
+    /// `path_advance()` (`world/ai_move.h`) and the per-agent fields; `Ai::tick`
+    /// does **not** read this flag yet, so A2/A3 behaviour is unchanged.
+    bool use_path = false;
+    /// `THING_TYPES +0x1b4` movement type 9/10/12 (`path`/`pathloop`/
+    /// `pathexpire`).  Ignored while `use_path` is false.
+    AiPathMode path_mode = AiPathMode::loop;
 };
 
 /// One agent, keyed by the runtime `Thing::id` from `Things`.
@@ -177,6 +187,13 @@ struct AiAgent {
     bool visible = false;       ///< last line-of-sight result
     bool returning = false;     ///< idle substate: walking home, no sight checks
     bool has_home = false;
+
+    // --- path (A4, data only; `Ai::tick` does not read it yet) ------------
+    /// `THING_TYPES +0x324[]`: the resolved location points, at most
+    /// `kAiPathMaxPoints` (32).  Filled by the future spawn/type layer.
+    std::vector<Vec3d> path_waypoints;
+    /// `+0x4ec` index and `+0x4f4` pending flag of `0x475f10`.
+    AiPathState path;
 };
 
 enum class AiEventType : std::uint8_t {
