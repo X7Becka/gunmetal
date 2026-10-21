@@ -681,9 +681,14 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
       > ray/sphere vs triangle, floor, AABB broad-phase, double, без аллокаций;
       > golden лучей из спавна. `world/doors.*` (CTest `doors`/`doors_full`):
-      > 1779 дверей / 3964 switch / 45 лифтов, привязка 1779/1779, фаза
-      > 0..65536, группы, locked; лифт из записи 18. Движение геометрии,
-      > триггеры и `ADD_LIFT` 148 Б — ещё нет.
+      > 1779 дверей / 3964 switch / 45 лифтов (151 остановка), привязка
+      > 1779/1779 (1779 различных), фаза 0..65536, группы, locked; лифт из
+      > записи 18. Карта полей — `docs/DOOR_FIELDS.md`, `door_fields.py`
+      > (`--verify` 36 уровней, `--self-test`). Исправлено по ней: dwell
+      > `+0x98` → `hold_ticks` (727 дверей с `L6>0`, `dm1` 22, `level0` 7),
+      > timer `+0x9c`, `ADD_LIFT` `head[16]=speed`/`head[18]=height` (в
+      > поставе `ADD_LIFT` не встречается). Осталось: движение геометрии,
+      > триггеры, звуковые поля двери/лифта, `basis` кабины, writer типа 18.
 - 🟡 `M2.2.9` Звук: загрузка, микшер, 3D-позиционирование, музыка.
       > C++ `audio/mixer.*` (CTest `mixer`): 32 голоса, resample 32.32,
       > SOU0/1/2, loop/stop, gain/pan/3D, клип, детерминизм; golden ADON

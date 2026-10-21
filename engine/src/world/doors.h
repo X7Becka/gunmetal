@@ -48,7 +48,7 @@ struct Door {
     std::array<double, 3> size{};   // D7..D9
     std::int32_t step = 0;          // record +0x94: phase units per 91 Hz tick
     std::uint32_t phase = 0;        // 0..kDoorPhaseFull
-    std::uint32_t hold_ticks = 0;   // opt-in auto-close delay, not decoded
+    std::uint32_t hold_ticks = 0;   // record +0x98: auto-close dwell in ticks
     bool sliding = false;           // D4..D6 differ from D1..D3
     bool linked = false;            // E4 != 0
     bool bound = false;             // (sector, object) exists in the .sbw

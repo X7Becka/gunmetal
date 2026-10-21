@@ -115,6 +115,18 @@ bool parse_door_record(const std::vector<std::uint8_t>& payload, std::size_t off
     if (door.step < 0) {
         door.step = 0;
     }
+    // Door dwell/timer (`docs/DOOR_FIELDS.md`): +0x98 is the auto-close
+    // delay copied into the timer (+0x9c) when the door finishes opening.
+    int dwell = 0;
+    if (!read_i32(payload, offset + 0x98, dwell)) {
+        return false;
+    }
+    door.hold_ticks = static_cast<std::uint32_t>(std::max(dwell, 0));
+    int timer = 0;
+    if (!read_i32(payload, offset + 0x9C, timer)) {
+        return false;
+    }
+    door.timer = timer > 0 ? static_cast<std::uint32_t>(timer) : 0u;
     for (int k = 0; k < 3; ++k) {
         if (!read_f64(payload, offset + static_cast<std::size_t>(k) * 8,
                       door.closed[static_cast<std::size_t>(k)]) ||
@@ -179,7 +191,6 @@ void finalise_door(Door& door) {
     door.id = effective_door_id(door.ids);
     door.phase = std::min(door.phase, kDoorPhaseFull);
     door.open_fraction = static_cast<double>(door.phase) * kDoorPhaseToFraction;
-    door.timer = 0;
     if (!all_finite(door.closed) || !all_finite(door.open) || !all_finite(door.size)) {
         door.closed = {0.0, 0.0, 0.0};
         door.open = {0.0, 0.0, 0.0};
@@ -202,13 +213,15 @@ void collect_lifts(const std::vector<SbtInsn>& insns, const std::vector<std::uin
                     std::memcpy(&lift.head[k], code.data() + head + k * 4, 4);
                 }
                 lift.kind = as_i32(lift.head[0]);
-                // Hypothesis (documented): word 1 is the entity id, words 2..4
-                // the position and word 7 the initial height.
+                // `docs/DOOR_FIELDS.md`: word 1 is the entity/SOB id, words
+                // 2..4 the position, 16 the speed, 17 the dwell and 18 the
+                // initial height (`ADD_LIFT` block, proven by 0x450180).
                 lift.id = as_i32(lift.head[1]);
                 lift.x = as_i32(lift.head[2]);
                 lift.y = as_i32(lift.head[3]);
                 lift.z = as_i32(lift.head[4]);
-                lift.height = as_i32(lift.head[7]);
+                lift.speed = std::max(as_i32(lift.head[16]), 0);
+                lift.height = as_i32(lift.head[18]);
                 lift.target = lift.height;
             }
             const std::size_t count = std::min<std::size_t>(insn.count,
