@@ -1723,15 +1723,10 @@ void test_move_step_attack_hysteresis() {
     }
     CHECK(ai.agent(0)->state == gm::AiState::attack);
     CHECK_NEAR(ai.agent(0)->position.y, 0.0, 1e-12);
-    CHECK(ai.set_player({0.0, 240.0, 0.0})); // inside 200*1.25, outside 200
-    for (int i = 0; i < 20; ++i) {
-        ai.tick(empty);
-    }
-    CHECK(ai.agent(0)->state == gm::AiState::attack);
     // The state keeps its 1.25x hysteresis, but A3 must not fire outside the
     // standoff window itself.
     const std::size_t attacks_before = ai.stats().attacks;
-    CHECK(ai.set_player({0.0, 240.0, 0.0}));
+    CHECK(ai.set_player({0.0, 240.0, 0.0})); // inside 200*1.25, outside 200
     for (int i = 0; i < 20; ++i) {
         ai.tick(empty);
     }
