@@ -7,17 +7,19 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 игрока, проверяет line-of-sight лучом через `render/collide.h` и переключает
 состояния на фиксированном тике **91 Гц**. Opt-in `use_move_step` (§7)
 подключает один A2-шаг к `aim_point`/`home` и A3-окно `standoff`
-(подойти / стоять и стрелять / отойти).
+(подойти / стоять и стрелять / отойти), opt-in `use_path` (§8) ведёт
+`patrol` по A4-маршруту (`path`/`pathloop`/`pathexpire`).
 
 Статус: API, состояния, LOS, таймеры, leash/return, synthetic- и
 поставочные golden'ы, 240-слотовая история позиции цели с лагом
 `Thing::target_history_offset` и зеркало виталов вещи (`sync_vitals`: HP,
 щиты, счётчик попаданий; мёртвая вещь убивает агента) готовы. CTest
-`thing_ai` (quick, **0.37 с**) проходит, `python3 regress.py` — **113/113**
+`thing_ai` (quick, **0.39 с**) проходит, `python3 regress.py` — **113/113**
 (скрипт не менялся). Игра только читается; `Things` AI не мутирует.
 Навигация — A2 (один waypoint, столкновения, leash) плюс A3
-(`standoff`-окно: seek / hold+fire / retreat, §7); path-семейств, реального
-оружия и решений по истории по-прежнему нет, см. §6.
+(`standoff`-окно: seek / hold+fire / retreat, §7) и opt-in A4
+(`patrol` по списку точек, §8); `pathrandom`, реального оружия и решений
+по истории по-прежнему нет, см. §6.
 
 ---
 
@@ -34,7 +36,7 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 | `dead` | не тикает: ни таймеров, ни LOS, ни событий |
 | dm1 | attached **5** из 141, первый id **115** `(-350, 1304, 40)` |
 | level0 | attached **6** из 121, первый id **115** `(24, 2708, -92)` |
-| движение | default: только return к `home`; с `use_move_step=true` alert/attack идут к `aim_point`, patrol/return — к `home` через A2 (`world/ai_move.*`); внутри `standoff` стоят и стреляют, внутри `standoff-60` пятятся (A3) |
+| движение | default: только return к `home`; с `use_move_step=true` alert/attack идут к `aim_point`, patrol/return — к `home` через A2 (`world/ai_move.*`); внутри `standoff` стоят и стреляют, внутри `standoff-60` пятятся (A3); с `use_path=true` patrol идёт по `path_waypoints` (`loop`/`path`/`expire`, §8), приоритетнее шага домой |
 | урон | `damage()` меняет только AI-агента, не `Things`; `sync_vitals()` читает виталы вещи (щиты, hits, HP) и убивает агента вместе с вещью |
 | история цели | кольцо **240** позиций; `tick` пишет один слот, лаг 0..239 |
 | лаг из данных | `Thing::target_history_offset` (+0x1d0): 0 = текущая, иначе 1..239 |
@@ -54,6 +56,7 @@ ai.tick(world);                  // ровно один тик 1/91 с
 ai.tick(world, dt);              // dt зажимается до config().max_dt
 ai.damage(id, 25.0);             // true, если агент жив и урон принят
 ai.place(id, {x, y, z});         // только тест/отладка, без навигации
+ai.set_path(id, waypoints);      // A4: маршрут patrol (до 32 точек)
 ai.sync_vitals();                // зеркалить здоровье/щиты/hits вещи в агента
 
 const auto& agents = ai.agents();
@@ -109,8 +112,8 @@ struct AiAgent {
     double omega;          // зарезервировано под интегратор поворота (A6)
     Vec3d move_delta;      // перемещение, применённое за последний тик
 
-    // A4-path — данные, Ai::tick их пока не читает.
-    std::vector<Vec3d> path_waypoints; // +0x324[], до 32 точек
+    // A4-path — маршрут patrol; читается при AiConfig::use_path.
+    std::vector<Vec3d> path_waypoints; // +0x324[], до 32 точек (set_path)
     AiPathState path;                  // +0x4ec index / +0x4f4 waiting
 };
 ```
@@ -128,8 +131,9 @@ struct AiAgent {
 `vitals_syncs` (вызовы `sync_vitals`), `thing_deaths` (агенты, убитые
 виталями вещи), `move_steps` (A2-шаги, изменившие `position`),
 `blocked_steps` (шаги, урезанные стеной), `leash_clamps` (шаги, отменённые
-жёстким leash), `standoff_holds` (тики A3-стояния в окне) и
-`retreat_steps` (A3-шаги назад).
+жёстким leash), `standoff_holds` (тики A3-стояния в окне),
+`retreat_steps` (A3-шаги назад) и `path_expiries` (агенты, завершённые
+`pathexpire`, — один инкремент на агента).
 
 `events()` возвращает упорядоченный журнал `AiEvent { type, thing_id, from, to,
 target, target_thing, aim, value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
@@ -235,7 +239,8 @@ alert/attack + |position − home| > leash
   путь идёт через `ai_seek_step` (`speed`, `arrive_radius`), а прибытие
   притягивает позицию ровно в `home`.
 
-Движение (только `AiConfig::use_move_step`, см. §7) выполняется **после**
+Движение (A2/A3 — только `AiConfig::use_move_step`, см. §7; A4-маршрут —
+`use_path`, §8) выполняется **после**
 восприятия и смены состояния, поэтому тик, на котором цель захвачена, уже
 делает шаг. Евклидов скан цели (`distance`, `search_radius`) не меняется;
 октогональная метрика используется только внутри A2/A3-шага. При `false`
@@ -276,6 +281,8 @@ state machine — следующий шаг. Tunables ниже — **гипот�
 | `return_speed` | 200 | hypothesis | скорость возврата, не ориентация движения `+0x1b4` |
 | `health` | 100 | hypothesis | fallback; при `use_thing_fields=true` берётся `Thing::max_health` (`+0x1d4`), 0 = иммунитет |
 | `use_move_step` | `false` | opt-in | включает A2/A3-движение (§7); `false` сохраняет прежнее поведение байт-в-байт |
+| `use_path` | `false` | opt-in | включает A4-маршрут `patrol` (§8); не зависит от `use_move_step`, `false` сохраняет A2/A3 байт-в-байт |
+| `path_mode` | `loop` | opt-in | `+0x1b4` типы 9/10/12: `path` (стоять на последней), `loop` (по кругу), `expire` (умереть на последней); читается только при `use_path=true` |
 | `move_speed` | 1.0 | fallback | ед./тик; при `use_thing_fields=true` и `Thing::speed > 0` берётся `+0x10` |
 | `move_radius` | 0.0 | fallback | радиус swept-сферы; при `use_thing_fields=true` берётся `Thing::radius`; **0 отключает** проверку стены, поэтому для столкновений задайте радиус или включите `use_thing_fields` |
 | `move_arrive_radius` | 50 | fallback | `+0x70`; при `use_thing_fields=true` берётся `Thing::arrive_radius` |
@@ -354,6 +361,12 @@ SBT/SCRIPT: два абсолютных `ADD_THING` в `(0,0,0)` и `(1000,0,0)`
 | A3: отход | цель `(0,100,0)` → пятится до `y=-42` (`d=142`), `retreat_steps=21`, затем стоит |
 | A3: отход+стена | стена `y=-50`, radius 10 → `y=-40`, `blocked_steps>0`, сквозь стену не проходит |
 | A3: opt-in | `AiConfig{}`: `use_move_step=false`, `move_standoff=200`, `backoff=60`; игрок в окне 200 тиков — позиция не меняется |
+| A4: opt-in | маршрут `(40,0)/(40,40)` при `use_path=false` → `path.index=-1`, `position==home`, `move_steps=0`; при `true` patrol идёт по точкам; `set_path(99)`/NaN → `false`, 40 точек → 32, курсор сброшен |
+| A4: loop | 4 точки `(40,0)→(40,40)→(0,40)→(0,0)`, `use_move_step=false` → прибытия `0,1,2,3,0`, `move_steps>0` |
+| A4: path | 3 точки `10/20/30` → стоп на `(≈30,0)`, `index=2`, 200 лишних тиков не двигают |
+| A4: expire | 2 точки `10/20` → на следующем advance после `(20,0)` `state=dead`, `path.expired`, `path_expiries=1`, один `death`, дальше тишина |
+| A4: стена | маршрут `(0,182,0)`, низкая стена `y=100`, radius 10 → `position.y=90`, `path.waiting`, `blocked_steps>0` |
+| A4: alert | `use_path=true`, маршрут в `-y`, игрок `(0,300,0)` → `alert`, 1-й тик `y=2`, `path.index=-1` (маршрут не выбран) |
 
 ### 4.2. Поставочные уровни
 
@@ -418,10 +431,10 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    оружии/сглаживании и добавить навигацию к выбранной цели.
 3. **Навигация**: A2-шаг (`ai_seek_step`, leash-кламп) и A3 `standoff`-окно
    (`+0x1cc`: подойти / стоять+стрелять / отойти на `standoff-60`) уже
-   подключены opt-in'ом (§7); path-примитив `path_advance` (§8) покрывает
-   `path`/`pathloop`/`pathexpire`, но ещё не подключён к тику; остались
-   `pathrandom`, waypoint'ы из таблицы локаций, высота/пол через `floor_at`
-   и гравитация.
+   подключены opt-in'ом (§7); A4 `path_advance` (§8) подключён вторым
+   opt-in'ом: `patrol` идёт по `path_waypoints` в режимах
+   `path`/`loop`/`expire`, `expire` убивает агента. Остались `pathrandom`,
+   waypoint'ы из таблицы локаций, высота/пол через `floor_at` и гравитация.
 4. **Бой**: урон игроку, оружие (`+0x21c`), снаряды, звук (`+0x1fc`),
    анимация; сейчас `attack` — только событие.
 5. **Оригинальный AI**: разобрать `0x473eed`/`0x473f07`/`0x475615`, leash,
@@ -438,7 +451,9 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
 
 Opt-in слой между state machine и `world/ai_move.h`. Включается только
 `use_move_step=true`; по умолчанию `false`, и тогда `Ai::tick` ведёт себя как
-раньше (позиция меняется лишь на leash/return).
+раньше (позиция меняется лишь на leash/return). A4-маршрут — отдельный
+opt-in `use_path` (§8): он двигает только `patrol` и не требует
+`use_move_step`.
 
 Что происходит за тик при `true` (после LOS, выбора цели и `switch`):
 
@@ -448,7 +463,7 @@ Opt-in слой между state machine и `world/ai_move.h`. Включает�
 | `alert`, `attack`, `dist + 60 <= standoff` | шаг **от** `aim_point` (`ai_retreat_step`) | выход из полосы `standoff-60` |
 | `alert`, `attack`, `standoff-60 < dist <= standoff` | не двигается | стоит и стреляет |
 | `alert`, `attack`, `standoff == 0` | `aim_point` | `arrive_radius` |
-| `patrol` | `home` | `arrive_radius` |
+| `patrol` | `home` (или текущая точка A4-маршрута при `use_path`, §8) | `arrive_radius` |
 | `idle(returning)` | `home` | `arrive_radius`, затем snap в `home`, `patrol`, событие `arrived` |
 | `idle` | не двигается | — |
 | `dead` | не тикает | — |
@@ -491,8 +506,9 @@ swept-сфера-ограничение, направление — планар
 
 Чего здесь нет намеренно:
 
-* pathfinding и подключение path-семейств (`+0x320`) к тику — в A4 есть только
-  чистый автомат `path_advance` (§8), `Ai::tick` его не вызывает;
+* pathfinding и `pathrandom` — A4 идёт строго по списку точек (§8), обхода
+  препятствий нет (стена лишь урезает шаг); `pathrandom` (тип 11) не
+  подключён, потому что вызывает `rand()`;
 * оружия, окна `[w0,w1]`, кулдауна `w2` и `rand()%period` — `attack` остаётся
   событием, а не баллистикой (§8 отчёта — следующий шаг);
 * памяти «последней увиденной точки»: во время `lose_sight_seconds` агент
@@ -564,14 +580,59 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
 * `pathrandom` (тип 11) — вызывает `rand()` (`0x480e30`), а детерминизм для
   каркаса обязателен; для него нужен `AiConfig::rng_seed` и собственный ГПСЧ;
 * разрешения id точки через таблицу локаций `0x80d8e0` — примитив работает с
-  уже разрешёнными `Vec3d`; загрузка `+0x324[]` остаётся слою спавна/типов;
-* подключения к `Ai::tick` — `AiConfig::use_path` и `AiAgent::path` /
-  `path_waypoints` добавлены как opt-in данные (по умолчанию `false`), но тик
-  их не читает, поэтому A2/A3 не меняются; `pathrandom` и выбор между
-  «патруль по пути» и state machine — следующий шаг.
+  уже разрешёнными `Vec3d`; загрузка `+0x324[]` остаётся слою спавна/типов.
+
+### 8.1. Подключение к `Ai::tick`
+
+Второй opt-in: `AiConfig::use_path` (по умолчанию `false`) плюс маршрут
+агента. Маршрут задаётся `Ai::set_path(thing_id, span<const Vec3d>)`:
+обрезается до 32 точек, сбрасывает `path.index`/`waiting`/`expired`,
+отклоняет неизвестный/мёртвый id и NaN/inf без изменения прежнего маршрута;
+пустой span очищает маршрут. Это единственный способ заполнить
+`path_waypoints` — слой спавна/типов (`+0x324[]`, таблица локаций) ещё не
+подключён.
+
+За тик, **после** восприятия и `switch` состояний:
+
+1. Условие входа: `use_path=true`, `state == patrol` и (маршрут непуст или
+   `path_mode == expire`). Это независимо от `use_move_step`: маршрут — свой
+   opt-in, A2-параметры (`speed`, `radius`, `arrive_radius`) уже заполнены в
+   `AiAgent` на `attach`.
+2. `path_advance(state, waypoints, path_mode)` выбирает/возвращает текущую
+   точку; `Ai::tick` сохраняет `step.state` в `AiAgent::path`.
+3. `step.expired` → агент переходит в `dead` **один раз**: цель/alertness/
+   timer сбрасываются, пишутся события `state`/`death`,
+   `stats().path_expiries += 1`. Дальше `dead` не тикает, второй expire
+   невозможен (терминальный `state.expired`).
+4. `step.waiting` → `ai_seek_step` к `step.point` через тот же `move_step`,
+   что A2/A3: октогональное прибытие `arrive_radius`, swept-сфера
+   `radius` (`blocked_steps`) и жёсткий leash (`leash_clamps`). На прибытии
+   вызывается `path_mark_arrived(path)`, и **следующий** тик выбирает
+   следующую точку — за тик не более одного шага.
+5. `!step.waiting` → `path` стоит на последней точке, `move_delta = 0`.
+   Пустой маршрут при `path`/`loop` в ветку не входит: patrol продолжает
+   A2-шаг домой (или стоит, если `use_move_step=false`).
+
+Что не затронуто: `alert`/`attack` продолжают A2-поиск `aim_point` (при
+`use_move_step`), `idle(returning)` идёт домой — маршрут там намеренно не
+применяется, иначе возврат по leash мог бы не дойти до `home`. Евклидов скан
+цели, LOS, `standoff` и оба leash-правила не меняются. При
+`use_path=false` ветка не выполняется вообще: A2/A3 и исторический каркас
+байт-в-байт прежние.
+
+Ограничения подключения: маршрут только у `patrol`, без pathfinding и
+`pathrandom`; `expire` убивает **агента**, но не мутирует `Things` (вещь
+удаляет слой `Things`/spawn); при пустом маршруте и `expire` агент умирает на
+первом patrol-тике — это осознанно повторяет ветку оригинала
+`path_count < 1`.
 
 Тесты (`gm_ai_tests`, label `thing_ai`): `test_path_loop` (4 точки →
 `0,1,2,3,0,1`), `test_path_expire` (expire после последней, терминальность),
 `test_path_empty` (пустой список для всех режимов), `test_path_repeat_advance`
 (повторный advance без прибытия, `path`-терминал, битый индекс, обрезка до 32,
-дефолты `AiConfig`).
+дефолты `AiConfig`), а также подключение к тику: `test_tick_path_opt_in`
+(`use_path=false` не входит в маршрут, `set_path`/NaN/обрезка),
+`test_tick_path_loop` (4 точки по кругу без `use_move_step`),
+`test_tick_path_stand` (`path` замирает на последней), `test_tick_path_expire`
+(один `death`, `path_expiries=1`), `test_tick_path_wall` (стена урезает шаг),
+`test_tick_path_alert_ignores_route` (alert идёт к цели, не по маршруту).

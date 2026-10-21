@@ -404,6 +404,39 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             return commit_step(walker, step);
         };
 
+        // A4: one patrol waypoint step.  `path_advance` owns the cursor
+        // (`0x475f10`), `move_step` owns the body (`0x476a50`); arrival
+        // clears `+0x4f4` through `path_mark_arrived` so the next tick selects
+        // the following point.  `pathexpire` turns the agent dead exactly
+        // once, mirroring the original's `0x4703a0` post.
+        auto path_step = [&](AiAgent& walker) {
+            const AiPathStep step = path_advance(
+                walker.path, walker.path_waypoints, config_.path_mode);
+            walker.path = step.state;
+            if (step.expired) {
+                walker.target = -1;
+                walker.target_thing = -1;
+                walker.target_is_thing = false;
+                walker.alertness = 0.0;
+                walker.timer = 0.0;
+                walker.returning = false;
+                walker.move_delta = Vec3d{};
+                set_state(walker, AiState::dead, tick);
+                ++stats_.path_expiries;
+                log(AiEventType::death, walker, 0.0, tick);
+                return;
+            }
+            if (!step.waiting) {
+                // `path` stands on its last point (and an empty `path`/`loop`
+                // has nothing to walk); no body movement this tick.
+                walker.move_delta = Vec3d{};
+                return;
+            }
+            if (move_step(walker, step.point, 0.0)) {
+                path_mark_arrived(walker.path);
+            }
+        };
+
         // A3: one step straight away from the target (`retreat` branch of
         // `0x473240`), clamped by the same sweep and leash rules.
         auto retreat_step = [&](AiAgent& walker, const Vec3d& threat) {
@@ -711,9 +744,18 @@ void Ai::tick(const CollisionWorld& world, double dt) {
 
         // A2/A3 movement runs after perception/state so the same tick that
         // acquires a target already takes a step.  Alert/attack pursue the
-        // aim point (Euclidean target scan is untouched); patrol walks home.
-        // Idle without `returning` stays put.  No pathfinding.
-        if (config_.use_move_step) {
+        // aim point (Euclidean target scan is untouched); patrol walks home,
+        // or the A4 route when `use_path` is set.  Idle without `returning`
+        // stays put.
+        const bool route_patrol =
+            config_.use_path && agent.state == AiState::patrol &&
+            (config_.path_mode == AiPathMode::expire ||
+             !agent.path_waypoints.empty());
+        if (route_patrol) {
+            // A4 (opt-in): the patrol state walks the route; `alert`/`attack`
+            // and `idle(returning)` above/below never select a waypoint.
+            path_step(agent);
+        } else if (config_.use_move_step) {
             if (agent.state == AiState::alert || agent.state == AiState::attack) {
                 if (agent.has_aim) {
                     // Standoff (`+0x1cc`, report §6.2 / §8):
@@ -836,6 +878,31 @@ bool Ai::place(int thing_id, const Vec3d& position) {
     }
     agent->position = position;
     agent->move_delta = Vec3d{};
+    return true;
+}
+
+bool Ai::set_path(int thing_id, std::span<const Vec3d> waypoints) {
+    for (const Vec3d& point : waypoints) {
+        if (!finite(point)) {
+            return false;
+        }
+    }
+    AiAgent* agent = nullptr;
+    for (AiAgent& candidate : agents_) {
+        if (candidate.thing_id == thing_id) {
+            agent = &candidate;
+            break;
+        }
+    }
+    if (agent == nullptr || agent->state == AiState::dead) {
+        return false;
+    }
+    const std::size_t count =
+        std::min(waypoints.size(), static_cast<std::size_t>(kAiPathMaxPoints));
+    agent->path_waypoints.assign(
+        waypoints.begin(),
+        waypoints.begin() + static_cast<std::ptrdiff_t>(count));
+    agent->path = AiPathState{};
     return true;
 }
 

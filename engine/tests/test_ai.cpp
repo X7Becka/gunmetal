@@ -1190,6 +1190,281 @@ void test_path_repeat_advance() {
     CHECK(config.path_mode == gm::AiPathMode::loop);
 }
 
+// A4 wiring: default `use_path=false` must ignore an assigned route and keep
+// the historical patrol behaviour (walk home / stand); `use_path=true` walks
+// it.  Also pins `set_path` validation and the 32-point truncation.
+void test_tick_path_opt_in() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+    const std::array<gm::Vec3d, 2> route{{
+        {40.0, 0.0, 0.0},
+        {40.0, 40.0, 0.0},
+    }};
+
+    gm::AiConfig base;
+    base.use_move_step = true;
+    base.move_speed = 2.0;
+    base.move_arrive_radius = 1.0;
+    base.patrol_after_seconds = 0.01;
+
+    gm::Ai off(base);
+    CHECK_EQ(off.attach(things), 2u);
+    CHECK(off.set_path(0, route));
+    for (int i = 0; i < 200; ++i) {
+        off.tick(empty);
+    }
+    CHECK_EQ(off.agent(0)->state, gm::AiState::patrol);
+    CHECK_NEAR(off.agent(0)->position.x, 0.0, 0.0);
+    CHECK_NEAR(off.agent(0)->position.y, 0.0, 0.0);
+    CHECK_EQ(off.agent(0)->path.index, -1); // route never entered
+    CHECK(!off.agent(0)->path.waiting);
+    CHECK_EQ(off.stats().move_steps, 0u);
+
+    gm::AiConfig on = base;
+    on.use_path = true;
+    gm::Ai ai(on);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_path(0, route));
+    CHECK_EQ(ai.agent(0)->path.index, -1);
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(empty);
+    }
+    CHECK(ai.agent(0)->position.x > 0.0);
+    CHECK(ai.agent(0)->path.index >= 0);
+    CHECK(ai.stats().move_steps > 0u);
+    // No route on agent 1: patrol falls back to `home`, no path cursor.
+    CHECK_EQ(ai.agent(1)->path.index, -1);
+    CHECK_NEAR(ai.agent(1)->position.x, 1000.0, 0.0);
+
+    // Validation: unknown id and NaN leave the route untouched.
+    const int before = ai.agent(0)->path.index;
+    CHECK(before >= 0);
+    CHECK(!ai.set_path(99, route));
+    const gm::Vec3d nan{std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0};
+    CHECK(!ai.set_path(0, std::span<const gm::Vec3d>(&nan, 1)));
+    CHECK_EQ(ai.agent(0)->path.index, before); // still on the same leg
+    // More than 32 points is truncated and restarts the cursor.
+    std::vector<gm::Vec3d> long_route(40, gm::Vec3d{0.0, 0.0, 0.0});
+    CHECK(ai.set_path(0, long_route));
+    CHECK_EQ(ai.agent(0)->path_waypoints.size(),
+             static_cast<std::size_t>(gm::kAiPathMaxPoints));
+    CHECK_EQ(ai.agent(0)->path.index, -1);
+}
+
+// A4 `loop`: the patrol walks all four points and wraps 3 -> 0.  Runs without
+// `use_move_step`, because the route is its own opt-in.
+void test_tick_path_loop() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+    const std::array<gm::Vec3d, 4> route{{
+        {40.0, 0.0, 0.0},
+        {40.0, 40.0, 0.0},
+        {0.0, 40.0, 0.0},
+        {0.0, 0.0, 0.0},
+    }};
+    const int expected[] = {0, 1, 2, 3, 0};
+
+    gm::AiConfig config;
+    config.use_path = true;
+    config.path_mode = gm::AiPathMode::loop;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 1.0;
+    config.patrol_after_seconds = 0.01;
+    CHECK(!config.use_move_step);
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_path(0, route));
+
+    std::vector<int> arrived;
+    for (int i = 0; i < 4000 && arrived.size() < 5; ++i) {
+        ai.tick(empty);
+        const gm::AiAgent* agent = ai.agent(0);
+        CHECK(agent != nullptr);
+        if (agent == nullptr) {
+            break;
+        }
+        if (!agent->path.waiting && agent->path.index >= 0 &&
+            (arrived.empty() || arrived.back() != agent->path.index)) {
+            arrived.push_back(agent->path.index);
+            CHECK(gm::octagonal_distance(
+                      agent->position,
+                      route[static_cast<std::size_t>(agent->path.index)]) <=
+                  1.0 + 1e-9);
+        }
+    }
+    CHECK_EQ(arrived.size(), 5u);
+    for (std::size_t i = 0; i < arrived.size() && i < 5; ++i) {
+        CHECK_EQ(arrived[i], expected[i]);
+    }
+    CHECK_EQ(ai.agent(0)->state, gm::AiState::patrol);
+    CHECK(ai.stats().move_steps > 0u);
+}
+
+// A4 `path`: after the last point the agent stands there for good.
+void test_tick_path_stand() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+    const std::array<gm::Vec3d, 3> route{{
+        {10.0, 0.0, 0.0},
+        {20.0, 0.0, 0.0},
+        {30.0, 0.0, 0.0},
+    }};
+
+    gm::AiConfig config;
+    config.use_path = true;
+    config.path_mode = gm::AiPathMode::path;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 1.0;
+    config.patrol_after_seconds = 0.01;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_path(0, route));
+    for (int i = 0; i < 300; ++i) {
+        ai.tick(empty);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent == nullptr) {
+        return;
+    }
+    CHECK_EQ(agent->state, gm::AiState::patrol);
+    CHECK_EQ(agent->path.index, 2);
+    CHECK(!agent->path.waiting);
+    CHECK(!agent->path.expired);
+    CHECK(gm::octagonal_distance(agent->position, route[2]) <= 1.0 + 1e-9);
+    CHECK_NEAR(agent->move_delta.x, 0.0, 0.0);
+    const gm::Vec3d rest = agent->position;
+    const std::uint64_t steps = ai.stats().move_steps;
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(empty);
+    }
+    CHECK_NEAR(agent->position.x, rest.x, 0.0);
+    CHECK_NEAR(agent->position.y, rest.y, 0.0);
+    CHECK_NEAR(agent->position.z, rest.z, 0.0);
+    CHECK_EQ(agent->path.index, 2);
+    CHECK_EQ(ai.stats().move_steps, steps); // terminal `path` never drifts
+}
+
+// A4 `expire`: reaching the last point is not the expiry; the next advance is.
+// The agent dies once, the terminal latch survives and no second death is
+// posted.
+void test_tick_path_expire() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+    const std::array<gm::Vec3d, 2> route{{
+        {10.0, 0.0, 0.0},
+        {20.0, 0.0, 0.0},
+    }};
+
+    gm::AiConfig config;
+    config.use_path = true;
+    config.path_mode = gm::AiPathMode::expire;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 1.0;
+    config.patrol_after_seconds = 0.01;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.damage(1, 1000.0)); // isolate the expiry counter to agent 0
+    CHECK(ai.set_path(0, route));
+
+    int ticks = 0;
+    while (ai.agent(0)->state != gm::AiState::dead && ticks < 1000) {
+        ai.tick(empty);
+        ++ticks;
+    }
+    CHECK(ticks > 0);
+    CHECK(ticks < 1000);
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent == nullptr) {
+        return;
+    }
+    CHECK_EQ(agent->state, gm::AiState::dead);
+    CHECK(agent->path.expired);
+    CHECK(!agent->path.waiting);
+    CHECK_EQ(agent->path.index, 1);
+    CHECK(gm::octagonal_distance(agent->position, route[1]) <= 1.0 + 1e-9);
+    CHECK_EQ(ai.stats().path_expiries, 1u);
+    CHECK(has_event(ai, gm::AiEventType::death, 0));
+
+    const gm::Vec3d rest = agent->position;
+    for (int i = 0; i < 100; ++i) {
+        ai.tick(empty);
+    }
+    CHECK_NEAR(agent->position.x, rest.x, 0.0);
+    CHECK_NEAR(agent->position.y, rest.y, 0.0);
+    CHECK_EQ(ai.stats().path_expiries, 1u); // one-shot `0x4703a0`
+}
+
+// A wall clamps the route step to the swept-sphere contact.
+void test_tick_path_wall() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld wall = low_wall_between(100.0);
+    const std::array<gm::Vec3d, 1> route{{{0.0, 182.0, 0.0}}};
+
+    gm::AiConfig config;
+    config.use_path = true;
+    config.path_mode = gm::AiPathMode::loop;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_radius = 10.0;
+    config.move_arrive_radius = 1.0;
+    config.move_standoff = 0.0;
+    config.patrol_after_seconds = 0.01;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_path(0, route));
+
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(wall);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent == nullptr) {
+        return;
+    }
+    CHECK(agent->position.y <= 90.0 + 1e-9); // 100 - radius
+    CHECK(agent->position.y > 80.0);
+    CHECK(agent->path.waiting); // still trying to reach the waypoint
+    CHECK_EQ(agent->path.index, 0);
+    CHECK(ai.stats().blocked_steps > 0u);
+    CHECK_EQ(ai.stats().path_expiries, 0u);
+}
+
+// `alert`/`attack` must keep using the A2 aim-point seek: the route is not
+// selected while a target is visible, even with `use_path=true`.
+void test_tick_path_alert_ignores_route() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+    const std::array<gm::Vec3d, 2> route{{
+        {0.0, -500.0, 0.0},
+        {0.0, -600.0, 0.0},
+    }};
+
+    gm::AiConfig config;
+    config.use_path = true;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 1.0;
+    config.move_standoff = 0.0;
+    config.patrol_after_seconds = 0.01;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_path(0, route));
+    CHECK(ai.set_player({0.0, 300.0, 0.0}));
+    ai.tick(empty);
+    CHECK_EQ(ai.agent(0)->state, gm::AiState::alert);
+    CHECK_EQ(ai.agent(0)->path.index, -1);
+    CHECK(!ai.agent(0)->path.waiting);
+    CHECK_NEAR(ai.agent(0)->position.y, 2.0, 1e-12); // toward the player
+    for (int i = 0; i < 100; ++i) {
+        ai.tick(empty);
+    }
+    CHECK(ai.agent(0)->position.y > 0.0); // route points at -y
+    CHECK_EQ(ai.agent(0)->path.index, -1);
+    CHECK(!ai.agent(0)->path.waiting);
+}
+
 // A2 wiring: `use_move_step` is opt-in, so the default scaffold must not move.
 void test_move_step_opt_in() {
     const gm::Things things = make_synthetic_things();
@@ -1590,6 +1865,12 @@ int main() {
     test_path_expire();
     test_path_empty();
     test_path_repeat_advance();
+    test_tick_path_opt_in();
+    test_tick_path_loop();
+    test_tick_path_stand();
+    test_tick_path_expire();
+    test_tick_path_wall();
+    test_tick_path_alert_ignores_route();
     test_move_step_opt_in();
     test_move_step_seek();
     test_move_step_wall();

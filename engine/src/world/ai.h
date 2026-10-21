@@ -123,10 +123,17 @@ struct AiConfig {
     /// anchor is `AiAgent::leash_anchor`, which `attach` sets to `home`.
     double move_leash = 0.0;
 
-    // --- A4 path family (`0x475f10`), data only ---------------------------
-    /// Opt-in switch for the path layer.  A4 only adds the pure primitive
-    /// `path_advance()` (`world/ai_move.h`) and the per-agent fields; `Ai::tick`
-    /// does **not** read this flag yet, so A2/A3 behaviour is unchanged.
+    // --- A4 path family (`0x475f10`), opt-in ------------------------------
+    /// When `true`, a `patrol` agent with a route walks
+    /// `AiAgent::path_waypoints` through `path_advance()` and `ai_seek_step()`
+    /// instead of the A2 "walk home" step.  `alert`, `attack` and
+    /// `idle(returning)` never touch the path, and the Euclidean target scan,
+    /// LOS, standoff and both leash rules are unchanged.  An empty route with
+    /// mode `path`/`loop` falls back to the A2 patrol behaviour; mode `expire`
+    /// keeps the original's `path_count < 1` branch (the agent expires).
+    /// Movement is driven by `use_path` alone; `use_move_step` only adds the
+    /// alert/attack/return layers.  `false` keeps A2/A3 and the historical
+    /// scaffold byte-for-byte.
     bool use_path = false;
     /// `THING_TYPES +0x1b4` movement type 9/10/12 (`path`/`pathloop`/
     /// `pathexpire`).  Ignored while `use_path` is false.
@@ -188,9 +195,9 @@ struct AiAgent {
     bool returning = false;     ///< idle substate: walking home, no sight checks
     bool has_home = false;
 
-    // --- path (A4, data only; `Ai::tick` does not read it yet) ------------
-    /// `THING_TYPES +0x324[]`: the resolved location points, at most
-    /// `kAiPathMaxPoints` (32).  Filled by the future spawn/type layer.
+    // --- path (A4, used by `Ai::tick` when `AiConfig::use_path`) -----------
+    /// Resolved location points (`THING_TYPES +0x324[]`), at most
+    /// `kAiPathMaxPoints` (32), filled through `Ai::set_path()`.
     std::vector<Vec3d> path_waypoints;
     /// `+0x4ec` index and `+0x4f4` pending flag of `0x475f10`.
     AiPathState path;
@@ -248,6 +255,7 @@ struct AiStats {
     std::uint64_t leash_clamps = 0;  ///< A2 steps cancelled by the hard leash
     std::uint64_t standoff_holds = 0; ///< A3 ticks standing inside the window
     std::uint64_t retreat_steps = 0;  ///< A3 steps away from the target
+    std::uint64_t path_expiries = 0;  ///< A4 `pathexpire` agents turned dead
     std::size_t typed_agents = 0;   ///< agents with a THING_TYPES record
     std::uint64_t immune_hits = 0;  ///< damage rejected by max_health == 0
 };
@@ -303,6 +311,14 @@ public:
     /// Test/debug hook: move an agent without changing its state.  Used to put
     /// an agent outside its leash; `use_move_step` (§7) can move it back.
     bool place(int thing_id, const Vec3d& position);
+
+    /// Replace an agent's patrol route (A4, `0x475f10`).  At most
+    /// `kAiPathMaxPoints` (32) points are kept; the cursor and the `expired`
+    /// latch are reset.  Rejects unknown/dead ids and NaN/inf and leaves the
+    /// previous route untouched then.  An empty span clears the route.  The
+    /// route is walked only while `AiConfig::use_path` is set and the agent is
+    /// in `patrol`.
+    bool set_path(int thing_id, std::span<const Vec3d> waypoints);
 
     /// Ring of player 0's world positions.  `tick` appends every live player
     /// eye exactly once per accepted tick; `attach`/`clear_players` reset all
