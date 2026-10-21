@@ -62,6 +62,14 @@ struct Thing {
     double speed = 0.0;              // +0x10 (double), world units per tick
     double turn_accel = 0.0;         // +0x20, angular acceleration
     double turn_max = 0.0;           // +0x28, max angular speed
+    // +0x90/+0x98/+0xa0 (double): pitch/roll/yaw rate of movement type 1,
+    // copied to instance +0x48/+0x50/+0x58 by 0x46d8b0.
+    std::array<double, 3> angle_rate{};
+    double climb_speed = 0.0;        // +0x18 (double), vertical seek speed (+0xa8)
+    std::uint32_t flags_a = 0;       // +0x1a8, instance +0x360 (bit 0 = slot used)
+    std::uint32_t flags_b = 0;       // +0x1ac, instance +0x364 (0x40000000 lean,
+                                     //   0x08000000/0x10000000 impulse bounce)
+    std::uint32_t flags_c = 0;       // +0x1b0, instance +0x368
     double arrive_radius = 50.0;     // +0x70, arrival distance
     double leash_distance = 0.0;     // +0xd0, hard leash radius
     double gravity = 0.0;            // +0x78, type gravity multiplier
@@ -104,9 +112,15 @@ struct Thing {
 /// through 0x4703a0 when the per-impact hits counter or lifetime is exhausted.
 struct ThingTypeEvents {
     int type = -1;
+    int movement_type = -1; ///< +0x1b4, the 0x470c70 dispatch index
     double speed = 0.0; ///< +0x10 (double), world units per 91 Hz tick
     double turn_accel = 0.0; ///< +0x20, angular acceleration
     double turn_max = 0.0; ///< +0x28, max angular speed
+    std::array<double, 3> angle_rate{}; ///< +0x90/98/a0, spin mode
+    double climb_speed = 0.0; ///< +0x18, vertical seek speed (+0xa8)
+    std::uint32_t flags_a = 0; ///< +0x1a8
+    std::uint32_t flags_b = 0; ///< +0x1ac
+    std::uint32_t flags_c = 0; ///< +0x1b0
     double arrive_radius = 50.0; ///< +0x70, arrival distance
     double leash_distance = 0.0; ///< +0xd0, hard leash radius
     double gravity = 0.0; ///< +0x78, type gravity multiplier

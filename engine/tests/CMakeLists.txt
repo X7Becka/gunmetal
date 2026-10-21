@@ -157,6 +157,16 @@ target_link_libraries(gm_ai_tests PRIVATE gm_engine)
 add_test(NAME thing_ai COMMAND gm_ai_tests)
 gm_label(thing_ai quick)
 
+# Thing movement automata (docs/THING_FIELDS.md §4a, docs/AI_CPP.md §7):
+# synthetic per-mode steps against a floor/ceiling/wall world (spin, avoid 2/3/4,
+# turret 5, ram 13, seek 14/15, patrol 16 fire band, projectile 6 gravity and
+# bounce, floor stick, impulse bounce, thruster, negatives, determinism) plus a
+# 91-tick smoke run over every spawned level0/dm1 instance.
+add_executable(gm_thing_motion_tests test_thing_motion.cpp)
+target_link_libraries(gm_thing_motion_tests PRIVATE gm_engine)
+add_test(NAME thing_motion COMMAND gm_thing_motion_tests)
+gm_label(thing_motion quick)
+
 add_executable(gm_sof_tests test_sof.cpp)
 target_link_libraries(gm_sof_tests PRIVATE gm_engine)
 add_test(NAME film_sof COMMAND gm_sof_tests)
