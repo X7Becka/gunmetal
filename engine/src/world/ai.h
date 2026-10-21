@@ -94,13 +94,33 @@ struct AiConfig {
     bool use_thing_fields = false;     ///< opt-in: use Thing's THING_TYPES copy
     double max_dt = 181.0 / 91.0;      ///< 0x470b20 clamps dt to 181 ticks (~1.99 s)
     double los_skin = 1e-3;            ///< "still visible" tolerance at the target
+
+    // --- A2 movement (`world/ai_move.h`), opt-in -------------------------
+    /// When `true`, `alert`/`attack` seek `AiAgent::aim_point` and
+    /// `patrol`/`return` seek `home` through `ai_seek_step()` (octagonal
+    /// arrival, swept-sphere wall clamp, hard leash clamp).  When `false`
+    /// the historical scaffold runs unchanged: `position` only moves on the
+    /// leash/return path.
+    bool use_move_step = false;
+    /// Fallbacks for the movement parameters when `use_thing_fields` is off
+    /// or the type record is zero.  `move_speed` is in world units per
+    /// 91 Hz tick, exactly like `THING_TYPES +0x10`.
+    double move_speed = 1.0;
+    double move_radius = 0.0;          ///< swept-sphere radius (Thing::radius)
+    double move_arrive_radius = 50.0;  ///< +0x70, octagonal distance
+    /// Stop distance (`+0x1cc`); `0` walks all the way to `move_arrive_radius`.
+    /// The original also backs off inside `standoff - 60` (A3, not done).
+    double move_standoff = 0.0;
+    /// Hard leash radius (`+0xd0`, report §9); `0` disables the clamp.  The
+    /// anchor is `AiAgent::leash_anchor`, which `attach` sets to `home`.
+    double move_leash = 0.0;
 };
 
 /// One agent, keyed by the runtime `Thing::id` from `Things`.
 struct AiAgent {
     int thing_id = -1;
     int thing_type = -1;        ///< Thing::type, -1 = no record
-    int movement_type = -1;     ///< 0..18; data only, no navigation yet
+    int movement_type = -1;     ///< 0..18; data only, A2 does not branch on it
     double search_radius = 0.0; ///< effective acquisition radius (strict <)
     int target_zone = 0;        ///< effective interaction radius (integer)
     int history_lag = 0;        ///< 0..239; 0 = current target position
@@ -114,8 +134,19 @@ struct AiAgent {
     double timer = 0.0;         ///< seconds left in the current state
     double leash = 0.0;         ///< copy of the effective leash radius
     Vec3d home{};               ///< absolute `Thing::position`, never changes
-    Vec3d position{};           ///< starts at home; only return movement changes it
+    Vec3d position{};           ///< starts at home; return and opt-in A2 movement change it
     double health = 0.0;
+
+    // --- movement (A2, only used when `AiConfig::use_move_step`) ----------
+    double speed = 0.0;          ///< +0x10, world units per 91 Hz tick
+    double radius = 0.0;         ///< swept-sphere radius (Thing::radius)
+    double arrive_radius = 50.0; ///< +0x70, octagonal distance
+    double standoff = 0.0;       ///< +0x1cc stop distance, 0 = none
+    Vec3d leash_anchor{};        ///< hard-leash centre, `home` after attach
+    double leash_distance = 0.0; ///< +0xd0, 0 = no clamp
+    double heading = 0.0;        ///< atan2 of the last `move_delta`, radians
+    double omega = 0.0;          ///< turn rate, reserved for the A6 integrator
+    Vec3d move_delta{};          ///< displacement applied by the last tick
     /// The vitals of the owning thing, mirrored by `Ai::sync_vitals()`:
     /// the four shield gauges (hundredths) and the geometry hits left.
     std::array<int, 4> shields{};
@@ -185,6 +216,9 @@ struct AiStats {
     std::uint64_t invalid_damage = 0;
     std::uint64_t vitals_syncs = 0;  ///< `sync_vitals()` calls
     std::uint64_t thing_deaths = 0;  ///< agents killed by the thing's vitals
+    std::uint64_t move_steps = 0;    ///< A2 steps that changed `position`
+    std::uint64_t blocked_steps = 0; ///< A2 steps clamped by a wall
+    std::uint64_t leash_clamps = 0;  ///< A2 steps cancelled by the hard leash
     std::size_t typed_agents = 0;   ///< agents with a THING_TYPES record
     std::uint64_t immune_hits = 0;  ///< damage rejected by max_health == 0
 };
@@ -238,7 +272,7 @@ public:
     std::size_t sync_vitals();
 
     /// Test/debug hook: move an agent without changing its state.  Used to put
-    /// an agent outside its leash; real movement (navigation) is not modelled.
+    /// an agent outside its leash; `use_move_step` (§7) can move it back.
     bool place(int thing_id, const Vec3d& position);
 
     /// Ring of player 0's world positions.  `tick` appends every live player

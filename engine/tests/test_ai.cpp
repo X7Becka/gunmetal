@@ -279,6 +279,19 @@ gm::CollisionWorld wall_between(double y) {
     return world;
 }
 
+// A wall that stops the body sphere (z = 0, radius 10) but stays below the
+// eye ray from (0, 0, 10) to (0, 300, 0), which passes z = 6.67 at y = 100.
+gm::CollisionWorld low_wall_between(double y) {
+    std::vector<TriSpec> specs;
+    add_quad(specs, {-50.0, y, -20.0}, {50.0, y, -20.0}, {50.0, y, 5.0},
+             {-50.0, y, 5.0});
+    gm::CollisionWorld world;
+    std::string error;
+    CHECK(world.build(make_sbw_level(specs), &error));
+    CHECK(error.empty());
+    return world;
+}
+
 bool same_agent(const gm::AiAgent& a, const gm::AiAgent& b) {
     return a.thing_id == b.thing_id && a.state == b.state && a.target == b.target &&
            a.alertness == b.alertness && a.timer == b.timer && a.leash == b.leash &&
@@ -1009,6 +1022,217 @@ void test_seek_step() {
     CHECK(blocked_position.y > 80.0);
 }
 
+// A2 wiring: `use_move_step` is opt-in, so the default scaffold must not move.
+void test_move_step_opt_in() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+
+    gm::Ai legacy;
+    CHECK_EQ(legacy.attach(things), 2u);
+    CHECK(legacy.set_player({0.0, 300.0, 0.0}));
+    for (int i = 0; i < 200; ++i) {
+        legacy.tick(empty);
+    }
+    CHECK_EQ(legacy.agent(0)->state, gm::AiState::alert);
+    CHECK_NEAR(legacy.agent(0)->position.x, 0.0, 0.0);
+    CHECK_NEAR(legacy.agent(0)->position.y, 0.0, 0.0);
+    CHECK_NEAR(legacy.agent(0)->position.z, 0.0, 0.0);
+    CHECK_NEAR(legacy.agent(0)->move_delta.y, 0.0, 0.0);
+    CHECK_EQ(legacy.stats().move_steps, 0u);
+    CHECK_EQ(legacy.stats().blocked_steps, 0u);
+    CHECK_EQ(legacy.stats().leash_clamps, 0u);
+}
+
+// alert/attack seek `aim_point`; the step is `speed_per_tick * 91 * dt`.
+void test_move_step_seek() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;     // units per tick
+    config.move_arrive_radius = 5.0;
+    config.move_leash = 0.0;     // clamp disabled
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 300.0, 0.0}));
+
+    const double start_distance = ai.agent(0)->distance;
+    ai.tick(empty);
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    double first_distance = 0.0;
+    if (agent != nullptr) {
+        CHECK_EQ(agent->state, gm::AiState::alert);
+        CHECK(agent->has_aim);
+        CHECK_NEAR(agent->position.y, 2.0, 1e-12); // 2 units * 91 * (1/91)
+        CHECK_NEAR(agent->position.x, 0.0, 0.0);
+        CHECK_NEAR(agent->position.z, 0.0, 0.0);
+        CHECK_NEAR(agent->move_delta.y, 2.0, 1e-12);
+        CHECK_NEAR(agent->heading, std::atan2(1.0, 0.0), 1e-12);
+        CHECK_NEAR(start_distance, 0.0, 0.0); // no target before the first tick
+        first_distance = agent->distance;
+    }
+    CHECK_EQ(ai.stats().move_steps, 1u);
+
+    for (int i = 0; i < 199; ++i) {
+        ai.tick(empty);
+    }
+    agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        // 300 units at 2/tick: the octagonal arrival radius stops it at 296.
+        CHECK_NEAR(agent->position.y, 296.0, 1e-6);
+        CHECK(agent->state == gm::AiState::attack ||
+              agent->state == gm::AiState::alert);
+        CHECK(agent->distance < first_distance);
+    }
+    CHECK(ai.stats().move_steps > 0u);
+    CHECK_EQ(ai.stats().leash_clamps, 0u);
+
+    // A second run from the same inputs produces the same path (no rand).
+    gm::Ai twin(config);
+    CHECK_EQ(twin.attach(things), 2u);
+    CHECK(twin.set_player({0.0, 300.0, 0.0}));
+    for (int i = 0; i < 200; ++i) {
+        twin.tick(empty);
+    }
+    CHECK_NEAR(twin.agent(0)->position.y, ai.agent(0)->position.y, 0.0);
+    CHECK_EQ(twin.stats().move_steps, ai.stats().move_steps);
+}
+
+// A wall clamps the step to the swept-sphere contact, not through it.
+void test_move_step_wall() {
+    const gm::Things things = make_synthetic_things();
+    // Low wall: the body sphere hits it, the eye ray still sees the target.
+    const gm::CollisionWorld wall = low_wall_between(100.0);
+
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_radius = 10.0;
+    config.move_arrive_radius = 5.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 300.0, 0.0}));
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(wall);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK(agent->position.y <= 90.0 + 1e-9); // 100 - radius
+        CHECK(agent->position.y > 80.0);
+    }
+    CHECK(ai.stats().blocked_steps > 0u);
+}
+
+// Leash: a step that grows the anchor distance past `move_leash` is cancelled.
+void test_move_step_leash() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 5.0;
+    config.move_leash = 100.0;
+    config.leash = 10000.0; // keep the state-machine leash out of the way
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 500.0, 0.0}));
+    CHECK_NEAR(ai.agent(0)->leash_anchor.x, 0.0, 0.0);
+    CHECK_NEAR(ai.agent(0)->leash_anchor.y, 0.0, 0.0);
+    CHECK_NEAR(ai.agent(0)->leash_distance, 100.0, 0.0);
+
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(empty);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK_EQ(agent->state, gm::AiState::alert);
+        CHECK_NEAR(agent->position.y, 100.0, 1e-9); // frozen on the leash sphere
+        CHECK_NEAR(gm::octagonal_distance(agent->leash_anchor, agent->position),
+                   100.0, 1e-9);
+        CHECK(agent->move_delta.y == 0.0);
+    }
+    CHECK_EQ(ai.stats().move_steps, 50u); // 100 units at 2/tick
+    CHECK(ai.stats().leash_clamps > 0u);
+}
+
+// patrol/return seek `home` through the same step; arrival snaps to home.
+void test_move_step_return() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 5.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    // Reach `alert` first: the state-machine leash only breaks for engaged
+    // agents, exactly like the default scaffold.
+    CHECK(ai.set_player({0.0, 60.0, 10.0}));
+    ai.tick(empty);
+    CHECK_EQ(ai.agent(0)->state, gm::AiState::alert);
+    CHECK(ai.place(0, {1000.0, 0.0, 0.0}));
+    ai.tick(empty);
+    CHECK(ai.agent(0)->returning);
+    CHECK(ai.agent(0)->position.x < 1000.0);
+    CHECK(has_event(ai, gm::AiEventType::leash, 0));
+    ai.clear_player();
+
+    int ticks = 0;
+    while (ai.agent(0)->returning && ticks < 2000) {
+        ai.tick(empty);
+        ++ticks;
+    }
+    CHECK(ticks > 0);
+    CHECK(ticks < 2000);
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK(!agent->returning);
+        CHECK_NEAR(agent->position.x, 0.0, 0.0);
+        CHECK_NEAR(agent->position.y, 0.0, 0.0);
+        CHECK_NEAR(agent->position.z, 0.0, 0.0);
+        CHECK_EQ(agent->state, gm::AiState::patrol);
+        CHECK_NEAR(agent->move_delta.x, 0.0, 0.0);
+    }
+    CHECK(has_event(ai, gm::AiEventType::arrived, 0));
+    CHECK(ai.stats().move_steps > 0u);
+}
+
+// Standoff (`+0x1cc`) stops the seek before the arrival radius.
+void test_move_step_standoff() {
+    const gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+
+    gm::AiConfig config;
+    config.use_move_step = true;
+    config.move_speed = 2.0;
+    config.move_arrive_radius = 1.0;
+    config.move_standoff = 100.0;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 150.0, 0.0}));
+
+    for (int i = 0; i < 200; ++i) {
+        ai.tick(empty);
+    }
+    const double frozen = ai.agent(0)->position.y;
+    CHECK_NEAR(frozen, 50.0, 1e-12); // 150 - standoff 100
+    CHECK_EQ(ai.stats().move_steps, 25u);
+
+    for (int i = 0; i < 100; ++i) {
+        ai.tick(empty);
+    }
+    CHECK_NEAR(ai.agent(0)->position.y, frozen, 0.0);
+    CHECK_EQ(ai.stats().move_steps, 25u); // no drifting inside the standoff
+}
+
 int main() {
     test_attach_and_transitions();
     test_line_of_sight_and_loss();
@@ -1016,6 +1240,12 @@ int main() {
     test_death_and_negatives();
     test_octagonal_distance();
     test_seek_step();
+    test_move_step_opt_in();
+    test_move_step_seek();
+    test_move_step_wall();
+    test_move_step_leash();
+    test_move_step_return();
+    test_move_step_standoff();
     test_dt_and_player_negatives();
     test_two_runs();
     test_target_history();

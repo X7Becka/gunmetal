@@ -5,6 +5,8 @@
 #include <limits>
 #include <utility>
 
+#include "world/ai_move.h"
+
 namespace gm {
 
 const char* ai_state_name(AiState state) {
@@ -102,6 +104,15 @@ std::size_t Ai::attach(const Things& things) {
         agent.leash = config_.leash;
         agent.has_home = true;
         agent.thing_type = thing.type;
+        // A2 movement defaults; `use_thing_fields` overwrites them from the
+        // THING_TYPES copy below.  Zero type values keep the fallbacks so a
+        // synthetic record (all zeros) still moves.
+        agent.leash_anchor = agent.home;
+        agent.speed = config_.move_speed;
+        agent.radius = config_.move_radius;
+        agent.arrive_radius = config_.move_arrive_radius;
+        agent.standoff = config_.move_standoff;
+        agent.leash_distance = config_.move_leash;
         if (config_.use_thing_fields && thing.type >= 0 && !thing.type_name.empty()) {
             agent.movement_type =
                 (thing.movement_type >= 0 && thing.movement_type <= 18)
@@ -116,6 +127,23 @@ std::size_t Ai::attach(const Things& things) {
             agent.max_health = static_cast<double>(std::max(0, thing.max_health));
             agent.immune = thing.max_health == 0;
             agent.health = thing.alive ? (agent.immune ? 0.0 : agent.max_health) : 0.0;
+            // A2: proven THING_TYPES movement fields (+0x10/+0x70/+0xd0/+0xf8)
+            // and the target-zone threshold (+0x1cc) as the stop distance.
+            if (thing.speed > 0.0) {
+                agent.speed = thing.speed;
+            }
+            if (thing.radius > 0.0) {
+                agent.radius = thing.radius;
+            }
+            if (thing.arrive_radius > 0.0) {
+                agent.arrive_radius = thing.arrive_radius;
+            }
+            if (thing.target_zone_threshold > 0) {
+                agent.standoff = static_cast<double>(thing.target_zone_threshold);
+            }
+            if (thing.leash_distance > 0.0) {
+                agent.leash_distance = thing.leash_distance;
+            }
             ++stats_.typed_agents;
         } else {
             agent.search_radius = config_.sight_range;
@@ -322,8 +350,63 @@ void Ai::tick(const CollisionWorld& world, double dt) {
             continue;
         }
 
+        // One A2 seek step (`ai_seek_step`, docs/AI_CPP.md §7): octagonal
+        // arrival, swept-sphere wall clamp and the hard leash clamp of
+        // `0x470c70` (report §9).  Returns `true` when the target is inside
+        // `arrive_radius`.  Only reached with `AiConfig::use_move_step`, so
+        // the default scaffold stays byte-for-byte unchanged.
+        auto move_step = [&](AiAgent& walker, const Vec3d& target,
+                             double standoff) -> bool {
+            if (standoff > 0.0 &&
+                octagonal_distance(walker.position, target) <= standoff) {
+                walker.move_delta = Vec3d{};
+                return false;
+            }
+            AiMoveParams params;
+            params.speed_per_tick = walker.speed;
+            params.radius = walker.radius;
+            params.arrive_radius = walker.arrive_radius;
+            const AiSeekResult step =
+                ai_seek_step(walker.position, target, world, params, dt);
+            if (step.blocked) {
+                ++stats_.blocked_steps;
+            }
+            if (walker.leash_distance > 0.0) {
+                const double before =
+                    octagonal_distance(walker.leash_anchor, walker.position);
+                const double after =
+                    octagonal_distance(walker.leash_anchor, step.position);
+                // The step may never *increase* the anchor distance once it
+                // is outside the leash; walking back in is always allowed.
+                if (after > walker.leash_distance && after > before) {
+                    ++stats_.leash_clamps;
+                    walker.move_delta = Vec3d{};
+                    return false;
+                }
+            }
+            walker.move_delta = step.position - walker.position;
+            walker.position = step.position;
+            if (length(walker.move_delta) > 1e-12) {
+                walker.heading =
+                    std::atan2(walker.move_delta.y, walker.move_delta.x);
+                ++stats_.move_steps;
+            }
+            return step.arrived;
+        };
+
         // One return step (also used right after a leash break below).
         auto return_step = [&](AiAgent& walker) {
+            if (config_.use_move_step) {
+                if (move_step(walker, walker.home, 0.0)) {
+                    walker.position = walker.home;
+                    walker.move_delta = Vec3d{};
+                    walker.returning = false;
+                    walker.timer = 0.0;
+                    set_state(walker, AiState::patrol, tick);
+                    log(AiEventType::arrived, walker, 0.0, tick);
+                }
+                return;
+            }
             const Vec3d delta = walker.home - walker.position;
             const double distance = length(delta);
             const double step = config_.return_speed * dt;
@@ -582,6 +665,21 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         case AiState::dead:
             break;
         }
+
+        // A2 movement runs after perception/state so the same tick that
+        // acquires a target already takes a step.  Alert/attack pursue the
+        // aim point (Euclidean target scan is untouched); patrol walks home.
+        // Idle without `returning` stays put.  No pathfinding, no backing off
+        // inside the standoff (A3/A5 are separate steps).
+        if (config_.use_move_step) {
+            if (agent.state == AiState::alert || agent.state == AiState::attack) {
+                if (agent.has_aim) {
+                    move_step(agent, agent.aim_point, agent.standoff);
+                }
+            } else if (agent.state == AiState::patrol) {
+                move_step(agent, agent.home, 0.0);
+            }
+        }
     }
     refresh_stats();
 }
@@ -679,6 +777,7 @@ bool Ai::place(int thing_id, const Vec3d& position) {
         return false;
     }
     agent->position = position;
+    agent->move_delta = Vec3d{};
     return true;
 }
 

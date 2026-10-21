@@ -2,19 +2,20 @@
 
 Что здесь: `engine/src/world/ai.{h,cpp}` — детерминированная заготовка
 state machine для runtime-вещей `Things`. Модуль **не порт** оригинального AI:
-нет навигации, анимации, звука, урона игроку и рендера/SDL. Он берёт уже
+нет pathfinding, анимации, звука, урона игроку и рендера/SDL. Он берёт уже
 известную абсолютную позицию вещи, считает расстояние до единственного глаза
 игрока, проверяет line-of-sight лучом через `render/collide.h` и переключает
-состояния на фиксированном тике **91 Гц**.
+состояния на фиксированном тике **91 Гц**. Opt-in `use_move_step` (§7)
+подключает один A2-шаг к `aim_point`/`home`.
 
 Статус: API, состояния, LOS, таймеры, leash/return, synthetic- и
 поставочные golden'ы, 240-слотовая история позиции цели с лагом
 `Thing::target_history_offset` и зеркало виталов вещи (`sync_vitals`: HP,
 щиты, счётчик попаданий; мёртвая вещь убивает агента) готовы. CTest
-`thing_ai` (quick, **0.35 с**) проходит, `python3 regress.py` — **113/113**
+`thing_ai` (quick, **0.37 с**) проходит, `python3 regress.py` — **113/113**
 (скрипт не менялся). Игра только читается; `Things` AI не мутирует.
-Навигации и принятия решений по истории (куда стрелять/идти) по-прежнему нет
-— см. §6.
+Навигация — только A2 (один waypoint, столкновения, leash/standoff, §7);
+path-семейства, стрельба и решения по истории — по-прежнему нет, см. §6.
 
 ---
 
@@ -31,7 +32,7 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 | `dead` | не тикает: ни таймеров, ни LOS, ни событий |
 | dm1 | attached **5** из 141, первый id **115** `(-350, 1304, 40)` |
 | level0 | attached **6** из 121, первый id **115** `(24, 2708, -92)` |
-| движение | только return к `home`; alert/attack не преследуют |
+| движение | default: только return к `home`; с `use_move_step=true` alert/attack идут к `aim_point`, patrol/return — к `home` через A2 (`world/ai_move.*`) |
 | урон | `damage()` меняет только AI-агента, не `Things`; `sync_vitals()` читает виталы вещи (щиты, hits, HP) и убивает агента вместе с вещью |
 | история цели | кольцо **240** позиций; `tick` пишет один слот, лаг 0..239 |
 | лаг из данных | `Thing::target_history_offset` (+0x1d0): 0 = текущая, иначе 1..239 |
@@ -94,6 +95,17 @@ struct AiAgent {
     bool visible;       // последний LOS
     bool returning;     // idle-подсостояние «идёт домой»
     bool has_home;
+
+    // A2-движение; используется только при AiConfig::use_move_step.
+    double speed;          // +0x10, единиц за тик 91 Гц
+    double radius;         // радиус swept-сферы (Thing::radius)
+    double arrive_radius;  // +0x70, октогональная дистанция прибытия
+    double standoff;       // +0x1cc, дистанция остановки (0 = нет)
+    Vec3d leash_anchor;    // центр жёсткого leash, после attach = home
+    double leash_distance; // +0xd0, 0 = кламп выключен
+    double heading;        // atan2 последнего move_delta, рад
+    double omega;          // зарезервировано под интегратор поворота (A6)
+    Vec3d move_delta;      // перемещение, применённое за последний тик
 };
 ```
 
@@ -108,7 +120,9 @@ struct AiAgent {
 `transitions`, `attacks`, `damage_events`, `deaths`, `ignored_ticks`,
 `clamped_ticks`, `invalid_damage`, `typed_agents`, `immune_hits`,
 `vitals_syncs` (вызовы `sync_vitals`), `thing_deaths` (агенты, убитые
-виталями вещи).
+виталями вещи), `move_steps` (A2-шаги, изменившие `position`),
+`blocked_steps` (шаги, урезанные стеной) и `leash_clamps` (шаги, отменённые
+жёстким leash).
 
 `events()` возвращает упорядоченный журнал `AiEvent { type, thing_id, from, to,
 target, target_thing, aim, value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
@@ -194,19 +208,29 @@ alert/attack + |position − home| > leash
 * **idle** — стоит в `home`, ждёт `patrol_after_seconds`; при LOS сразу
   переходит в `alert`.
 * **patrol** — «маршрут не задан»: позиция та же, сканирует; при LOS → `alert`.
-  Реального патрулирования/waypoint'ов нет.
+  Реального патрулирования/waypoint'ов нет. С `use_move_step=true` patrol
+  шагает к `home` (то есть возвращается, если его оттуда сдвинули).
 * **alert** — цель захвачена. `timer` 0.5 с; если цель видна и ближе
   `attack_range`, переход в `attack`. Без LOS `alertness` падает 3 с, затем
-  `patrol` и цель сбрасывается.
+  `patrol` и цель сбрасывается. С `use_move_step=true` идёт к `aim_point`.
 * **attack** — цель в радиусе; каждые `attack_period` 0.75 с пишется событие
   `attack`. Урона игроку нет — это заготовка. При дистанции > 1.25×range
-  возврат в `alert` (гистерезис).
+  возврат в `alert` (гистерезис). С `use_move_step=true` идёт к `aim_point`,
+  пока октогональная дистанция больше `standoff`.
 * **dead** — после `damage()` до `health <= 0`. Таймеры и LOS не считаются;
   `damage()` по мёртвому/неизвестному id возвращает `false`.
 * **leash/return** — если агент (например, после `place()`) оказался дальше
   `leash` от `home`, он сбрасывает цель, идёт в `idle(returning)` и движется к
   `home` со скоростью `return_speed`; по прибытии — `patrol` и событие
-  `arrived`. Пока идёт return, LOS игнорируется.
+  `arrived`. Пока идёт return, LOS игнорируется. С `use_move_step=true` тот же
+  путь идёт через `ai_seek_step` (`speed`, `arrive_radius`), а прибытие
+  притягивает позицию ровно в `home`.
+
+Движение (только `AiConfig::use_move_step`, см. §7) выполняется **после**
+восприятия и смены состояния, поэтому тик, на котором цель захвачена, уже
+делает шаг. Евклидов скан цели (`distance`, `search_radius`) не меняется;
+октогональная метрика используется только внутри A2-шага. При `false`
+`position` по-прежнему меняется только на leash/return, побайтово как раньше.
 
 LOS: луч из `position + (0,0,eye_height)` в eye игрока, `max_t = distance`;
 промах или `hit.t >= distance − los_skin` — видно. Стены/пол/потолок
@@ -239,24 +263,31 @@ state machine — следующий шаг. Tunables ниже — **гипот�
 | `lose_sight_seconds` | 3.0 | hypothesis | время забывания цели |
 | `patrol_after_seconds` | 2.0 | hypothesis | idle → patrol без цели |
 
-`Thing`/`ThingTypeEvents` уже несут `turn_accel` (`+0x20`), `turn_max`
-(`+0x28`), `arrive_radius` (`+0x70`), `leash_distance` (`+0xd0`), `standoff`
-(`+0x1cc`), `speed` (`+0x10`). `octagonal_distance()` повторяет метрику
-`0x4344df` (`max + 0.25*(mid+min)`, тест `test_octagonal_distance`);
-`world/ai_move.*` (A2) даёт чистый `ai_seek_step()`: один waypoint,
-`arrive_radius` по октогональной метрике, шаг `speed_per_tick*91*dt` и
-swept-сфера радиуса `Thing::radius`. Тесты `test_seek_step`. Текущий
-state machine по-прежнему использует евклидовы расстояния и не вызывает
-`ai_seek_step`; это следующий шаг (A2/A3).
 | `attack_period` | 0.75 | hypothesis | период события атаки; `+0x1d0` — не период, а лаг истории цели, поэтому он не подходит |
 | `return_speed` | 200 | hypothesis | скорость возврата, не ориентация движения `+0x1b4` |
 | `health` | 100 | hypothesis | fallback; при `use_thing_fields=true` берётся `Thing::max_health` (`+0x1d4`), 0 = иммунитет |
+| `use_move_step` | `false` | opt-in | включает A2-движение (§7); `false` сохраняет прежнее поведение байт-в-байт |
+| `move_speed` | 1.0 | fallback | ед./тик; при `use_thing_fields=true` и `Thing::speed > 0` берётся `+0x10` |
+| `move_radius` | 0.0 | fallback | радиус swept-сферы; при `use_thing_fields=true` берётся `Thing::radius` |
+| `move_arrive_radius` | 50 | fallback | `+0x70`; при `use_thing_fields=true` берётся `Thing::arrive_radius` |
+| `move_standoff` | 0.0 | fallback | дистанция остановки; при `use_thing_fields=true` берётся `+0x1cc` (`target_zone_threshold`) |
+| `move_leash` | 0.0 | fallback | жёсткий leash `+0xd0`; `0` = выключен. При `use_thing_fields=true` и `Thing::leash_distance > 0` берётся поле |
 | `max_dt` | `181/91 ≈ 1.989` | guard | `0x470b20` при выходе суммы за 1..181 тик **сбрасывает её в 1**, а не зажимает; C++-`Ai` использует верхний предел как защиту от огромного dt (`clamped_ticks`), это осознанное отличие |
 | `los_skin` | 1e-3 | hypothesis | допуск на конечную точку луча |
 | `kAiHistorySlots` | 240 | **proven** (данные+код) | `history[240][3]` в структуре объекта (`+0x30`), `history_index` (`+0x3204`) wrap на `0xf0` — docs/SAVE_FIELDS.md §9.2 |
 | `TargetHistory` шаг | 1 запись / tick | **proven** (код) | «позиция пишется каждый апдейт», `0x44377b..0x44378b`, docs/SAVE_FIELDS.md §9.2 |
 | clamp `history_lag` | 0 или 1..239 | **proven** (код) | `0x473eed`/`0x476523`, поле +0x1d0, docs/SOE.md; 0 — «текущая позиция». Данные: 0..10 во всём корпусе, у dm1/level0 только 0 (например level1 — 1..2, level3 — 1..10) |
 | смысл `lag = N` | N записей/тиков назад | **proven** (код) | `FUN_00473a00` (`0x473a00`): `i = history_index; i = (i < lag) ? i - lag + 0xf0 : i - lag; p = &DAT_00819070 + (i + player*0x236)*0x18`; stride `0x18` = 3 double, `0xf0` = 240. `+0x1d0` — ровно число записей назад, C++ хранит 1 запись/тик. |
+
+`Thing`/`ThingTypeEvents` уже несут `turn_accel` (`+0x20`), `turn_max`
+(`+0x28`), `arrive_radius` (`+0x70`), `leash_distance` (`+0xd0`),
+`target_zone_threshold` (`+0x1cc`), `radius`, `speed` (`+0x10`).
+`octagonal_distance()` повторяет метрику `0x4344df` (`max + 0.25*(mid+min)`,
+тест `test_octagonal_distance`); `world/ai_move.*` (A2) даёт чистый
+`ai_seek_step()`: один waypoint, `arrive_radius` по октогональной метрике, шаг
+`speed_per_tick*91*dt` и swept-сфера радиуса `Thing::radius`. С opt-in
+`use_move_step` (§7) его вызывает `Ai::tick`; евклидов скан цели при этом не
+меняется.
 
 `AiConfig::use_thing_fields` (по умолчанию `false`) включает реальные поля:
 `search_radius → sight`, `target_zone_threshold → attack zone`,
@@ -301,6 +332,12 @@ SBT/SCRIPT: два абсолютных `ADD_THING` в `(0,0,0)` и `(1000,0,0)`
 | вещь как цель | после `clear_player` агент видит вторую вещь → `target_thing=1`, `distance≈1000.05` (eye z=10), `aim_point=(1000,0,0)` |
 | статусы вещи | `burn_timer=91`, `status_flags=0x40` в `Thing` → те же поля у агента после `sync_vitals` |
 | два прогона | `same_agent` для всех полей и совпадение журнала на 300 тиках; отдельный прогон сравнивает кольцо истории |
+| A2: opt-in | `use_move_step=false` на 200 тиках: `position == home`, `move_steps=blocked_steps=leash_clamps=0` |
+| A2: seek | `use_move_step=true`, speed 2/тик, игрок `(0,300,0)`: 1-й тик `position.y=2`, `heading=π/2`; 200 тиков → `y=296` (`arrive_radius=5`), второй прогон идентичен |
+| A2: стена | низкая стена `y=100`, radius 10 → `position.y=90`, `blocked_steps>0` (тело упирается, eye-луч видит цель) |
+| A2: leash | `move_leash=100`, цель `(0,500,0)` → позиция замирает на `y=100`, `move_steps=50`, `leash_clamps>0` |
+| A2: return | `place(0,(1000,0,0))` → `returning`, затем `position==home`, `patrol`, `arrived`; шаги через `ai_seek_step` |
+| A2: standoff | `move_standoff=100`, цель `(0,150,0)` → стоп на `y=50`, `move_steps=25`, 100 лишних тиков не двигают |
 
 ### 4.2. Поставочные уровни
 
@@ -336,7 +373,10 @@ AI не пытается её вывести (docs/THINGS_CPP.md §1.3).
   и `attach` сбрасывают кольцо, поэтому прогон детерминирован с нуля.
 * LOS использует проверенный `CollisionWorld::raycast` (docs/COLLIDE.md), а не
   собственную геометрию.
-* CTest `thing_ai` — **0.35 с**, label quick. `regress.py` — **113/113**.
+* A2-шаг использует проверенный `CollisionWorld::sphere_cast`; при
+  `use_move_step=false` новый код не исполняется и прежние golden'ы не
+  меняются (это проверяют `test_move_step_opt_in` и поставочные golden'ы).
+* CTest `thing_ai` — **0.37 с**, label quick. `regress.py` — **113/113**.
 
 Ограничения доверия: golden'ы AI (радиусы, таймеры, скорости) — это golden'ы
 **этой заготовки**, а не оригинала. Они не доказывают поведение `gundx.exe`.
@@ -359,8 +399,9 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    у каждого игрока своё кольцо; вещи сканируются как fallback-цели
    (`target_thing`). Осталось использовать `aim_point` в реальном
    оружии/сглаживании и добавить навигацию к выбранной цели.
-3. **Навигация**: patrol waypoint'ы (`+0x320`), path/pathloop/pathrandom,
-   collision-aware движение, высота/пол через `floor_at`, гравитация.
+3. **Навигация**: A2-шаг (`ai_seek_step`, leash-кламп, standoff) уже
+   подключён opt-in'ом (§7); остались path/pathloop/pathrandom (`+0x320`),
+   waypoint'ы, высота/пол через `floor_at` и гравитация.
 4. **Бой**: урон игроку, оружие (`+0x21c`), снаряды, звук (`+0x1fc`),
    анимация; сейчас `attack` — только событие.
 5. **Оригинальный AI**: разобрать `0x473eed`/`0x473f07`/`0x475615`, leash,
@@ -370,3 +411,53 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    приоритеты и DM-респавн; тогда история станет per-target.
 7. **Сохранение**: AI-состояние (включая кольцо) не входит в `saved*.sbt`;
    решить, какие поля писать (docs/SAVE_BLOCKS.md).
+
+---
+
+## 7. A2: движение (`AiConfig::use_move_step`)
+
+Opt-in слой между state machine и `world/ai_move.h`. Включается только
+`use_move_step=true`; по умолчанию `false`, и тогда `Ai::tick` ведёт себя как
+раньше (позиция меняется лишь на leash/return).
+
+Что происходит за тик при `true` (после LOS, выбора цели и `switch`):
+
+| состояние | цель шага | остановка |
+|---|---|---|
+| `alert`, `attack` | `AiAgent::aim_point` (игрок/вещь или лаг истории `+0x1d0`) | `arrive_radius`, либо `standoff` (`+0x1cc`) |
+| `patrol` | `home` | `arrive_radius` |
+| `idle(returning)` | `home` | `arrive_radius`, затем snap в `home`, `patrol`, событие `arrived` |
+| `idle` | не двигается | — |
+| `dead` | не тикает | — |
+
+Шаг считает `ai_seek_step()`: `speed_per_tick * 91 * dt` (то есть `+0x10` из
+`THING_TYPES`), октогональное прибытие `max + 0.25*(mid+min)` и
+swept-сфера `sphere_cast` радиуса `Thing::radius`. Стена урезает шаг до
+контакта (`blocked_steps`), сквозь геометрию агент не проходит. В `AiAgent`
+пишутся `move_delta` (фактическое перемещение), `heading` (`atan2` этого
+вектора); `omega` пока 0 — интегратор поворота это A6, не A2.
+
+**Leash-кламп** (отчёт `ai-nav-report.md` §9). Якорь — `leash_anchor`, после
+`attach` равный `home`; радиус — `leash_distance` (fallback `move_leash`,
+`0` = выключен). Шаг отменяется, если он *увеличивает* октогональное
+расстояние до якоря и новое расстояние больше радиуса. Шаг внутрь сферы
+разрешён всегда. Каждая отмена — `stats().leash_clamps += 1`; состояние и
+цель при этом не сбрасываются (в отличие от state-машины leash в §2, которая
+срабатывает по `AiConfig::leash` и уводит агента домой).
+
+Чего здесь нет намеренно:
+
+* pathfinding и path-семейства (`+0x320`) — только один waypoint;
+* «пятящегося» поведения внутри `standoff − 60` и стрельбы — это A3;
+* памяти «последней увиденной точки»: во время `lose_sight_seconds` агент
+  продолжает идти к `aim_point`, который обновляется по живой позиции цели
+  (как и в прежнем каркасе), а не к точке потери LOS;
+* изменения евклидова скана цели, `distance`, `search_radius`, LOS — они
+  остаются прежними; октогональная метрика живёт только внутри шага;
+* пола/гравитации/`floor_at` и интегратора `ω` — A6;
+* `Things` не мутируется: движение живёт в `AiAgent::position` (как и
+  return в прежнем каркасе).
+
+Тесты: `test_move_step_opt_in`, `test_move_step_seek`, `test_move_step_wall`,
+`test_move_step_leash`, `test_move_step_return`, `test_move_step_standoff`
+(все в `gm_ai_tests`, label `thing_ai`).
