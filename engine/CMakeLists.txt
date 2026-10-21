@@ -40,6 +40,7 @@ add_library(gm_engine STATIC
     src/game/state.cpp
     src/game/events.cpp
     src/game/weapons.cpp
+    src/game/trigger.cpp
     src/game/projectile.cpp
     src/game/runtime.cpp
     src/res/scene.cpp

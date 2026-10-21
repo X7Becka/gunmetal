@@ -26,6 +26,9 @@
 //   2b. AI shots   opt-in: drain `Ai::take_weapon_shots()` and spawn one
 //                  `Projectiles` round per accepted shot (create events go to
 //                  the same queue)
+//   2c. player fire opt-in: one `0x4453d0` weapon tick from the input
+//                  installed with `set_player_weapon_input()`, then
+//                  `spawn_player_shot()` for a fired projectile
 //   3. projectiles `Projectiles::tick_results(1, targets, collision, queue)`
 //   4. doors/world `WorldState::tick(1)`
 //   5. events      pending switch tail + `EventRuntime::pump(now)`
@@ -73,6 +76,7 @@
 
 #include "game/events.h"
 #include "game/projectile.h"
+#include "game/trigger.h"
 #include "render/collide.h"
 #include "res/sbt.h"
 #include "res/sbw.h"
@@ -119,6 +123,12 @@ struct GameRuntimeConfig {
     /// The shots themselves only exist with `ai.use_weapon_shots` (which
     /// requires `ai.use_weapon_table`).
     bool ai_shots_to_projectiles = false;
+    /// Opt-in player weapon phase: `tick_once()` consumes the input installed
+    /// by `set_player_weapon_input()` (one `0x4453d0` weapon tick) and spawns
+    /// the round through `spawn_player_shot()`.  `false` (default) leaves the
+    /// seam to the caller: call `update_player_weapon()` explicitly when the
+    /// immediate result is needed.
+    bool player_weapons_in_tick = false;
 };
 
 /// One `apply_projectile_blasts()` call.  `damage` merges the applied blasts in
@@ -252,6 +262,63 @@ public:
     /// configuration side of the runtime, like `config()`).
     const std::optional<Thing>& ai_projectile_template() const {
         return ai_projectile_template_;
+    }
+
+    // --- player weapon seam -------------------------------------------------
+
+    /// Install the player's weapon tables and loadout (docs/WEAPONS_CPP.md
+    /// §3.6).  `set_player_weapons(table)` uses `table.initial()` (the save's
+    /// ammo/mask/selected slot); the two-argument form overrides it.  The
+    /// charge accumulator (`0x4453d0`'s `+0x2fa8/+0x2fa0`) starts zeroed.
+    /// Replacing the loadout clears the pending input and the last result.
+    void set_player_weapons(Weapons table);
+    void set_player_weapons(Weapons table, Arsenal arsenal);
+    /// Drop the tables/loadout/charge state; `reset()` also does this.
+    void clear_player_weapons();
+    bool has_player_weapons() const { return player_weapons_.has_value(); }
+    /// The installed tables, or nullptr when none were set.
+    const Weapons* player_weapons() const {
+        return player_weapons_ ? &*player_weapons_ : nullptr;
+    }
+    Arsenal& player_arsenal() { return player_arsenal_; }
+    const Arsenal& player_arsenal() const { return player_arsenal_; }
+    ChargeState& player_charge() { return player_charge_; }
+    const ChargeState& player_charge() const { return player_charge_; }
+
+    /// Projectile template for the player FIRE path: the same `Thing` shape
+    /// `spawn_player_shot()` expects (movement-type 6 projectile).  Its `id`
+    /// is replaced per round from the runtime id pool (`0x10000+`).
+    /// `owner_player` feeds the self-hit guard of `apply_projectile_blasts*`.
+    void set_player_projectile(Thing projectile, int owner_player = 0,
+                               double level_gravity = 0.0);
+    void clear_player_projectile();
+    const std::optional<Thing>& player_projectile() const {
+        return player_projectile_template_;
+    }
+    int player_owner() const { return player_owner_; }
+    double player_level_gravity() const { return player_level_gravity_; }
+
+    /// Install the input of the next tick for the opt-in phase
+    /// (`config().player_weapons_in_tick`).  `tick_once()` consumes it exactly
+    /// once, right after the AI phase and before the projectile step, so the
+    /// round appears in that tick's `last_projectile_results()` and its create
+    /// event is dispatched by the same tick.  Without a new input a following
+    /// tick does not repeat the trigger.
+    void set_player_weapon_input(PlayerWeaponInput input, Vec3d origin);
+    bool has_player_weapon_input() const {
+        return pending_player_input_.has_value();
+    }
+
+    /// One explicit player weapon tick (`0x4453d0`): slot request -> charge
+    /// state machine -> `fire()` -> `spawn_player_shot()`.  This is the same
+    /// body the opt-in tick phase runs; it returns the result immediately and
+    /// keeps it for `last_player_weapon_tick()`.  Never builds anything.
+    PlayerWeaponTick update_player_weapon(const PlayerWeaponInput& input,
+                                          Vec3d origin);
+    /// Result of the last explicit call or of the last tick phase; empty
+    /// (`action.slot == -1`) when neither ran yet.
+    const PlayerWeaponTick& last_player_weapon_tick() const {
+        return last_player_weapon_tick_;
     }
 
     // --- driving ------------------------------------------------------------
@@ -507,6 +574,18 @@ private:
     EventRuntime events_;
     CollisionWorld collision_;
     std::optional<Thing> ai_projectile_template_;
+    /// Player weapon seam state (docs/WEAPONS_CPP.md §3.6).  The tables and
+    /// loadout are level state (dropped by `reset()`); the projectile template
+    /// is caller configuration and survives like `ai_projectile_template_`.
+    std::optional<Weapons> player_weapons_;
+    Arsenal player_arsenal_{};
+    ChargeState player_charge_{};
+    std::optional<Thing> player_projectile_template_;
+    int player_owner_ = 0;
+    double player_level_gravity_ = 0.0;
+    std::optional<PlayerWeaponInput> pending_player_input_;
+    std::optional<Vec3d> pending_player_origin_;
+    PlayerWeaponTick last_player_weapon_tick_{};
     std::vector<Vec3d> player_eyes_;
     /// One gauge set per eye point (same size or empty); see
     /// `set_player_vitals()`.

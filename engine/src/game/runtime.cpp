@@ -215,6 +215,71 @@ void GameRuntime::clear_ai_projectile_template() {
     ai_projectile_template_.reset();
 }
 
+void GameRuntime::set_player_weapons(Weapons table, Arsenal arsenal) {
+    player_weapons_ = std::move(table);
+    player_arsenal_ = arsenal;
+    player_charge_ = ChargeState{};
+    pending_player_input_.reset();
+    pending_player_origin_.reset();
+    last_player_weapon_tick_ = PlayerWeaponTick{};
+}
+
+void GameRuntime::set_player_weapons(Weapons table) {
+    Arsenal arsenal = table.initial();
+    set_player_weapons(std::move(table), arsenal);
+}
+
+void GameRuntime::clear_player_weapons() {
+    player_weapons_.reset();
+    player_arsenal_ = Arsenal{};
+    player_charge_ = ChargeState{};
+    pending_player_input_.reset();
+    pending_player_origin_.reset();
+    last_player_weapon_tick_ = PlayerWeaponTick{};
+}
+
+void GameRuntime::set_player_projectile(Thing projectile, int owner_player,
+                                        double level_gravity) {
+    player_projectile_template_ = std::move(projectile);
+    player_owner_ = owner_player;
+    player_level_gravity_ = level_gravity;
+}
+
+void GameRuntime::clear_player_projectile() {
+    player_projectile_template_.reset();
+    player_owner_ = 0;
+    player_level_gravity_ = 0.0;
+}
+
+void GameRuntime::set_player_weapon_input(PlayerWeaponInput input, Vec3d origin) {
+    pending_player_input_ = input;
+    pending_player_origin_ = origin;
+}
+
+PlayerWeaponTick GameRuntime::update_player_weapon(const PlayerWeaponInput& input,
+                                                   Vec3d origin) {
+    PlayerWeaponTick tick;
+    if (!player_weapons_.has_value()) {
+        // No tables: nothing can fire, but the call still reports why.
+        tick.action.shot.error = FireError::no_weapon;
+        last_player_weapon_tick_ = tick;
+        return tick;
+    }
+    tick.action = gm::update_player_weapon(*player_weapons_, player_arsenal_,
+                                           player_charge_, input, origin,
+                                           collision_);
+    if (tick.action.fired() && player_projectile_template_.has_value()) {
+        const Weapon* weapon = player_weapons_->at(tick.action.slot);
+        if (weapon != nullptr) {
+            tick.spawned = spawn_player_shot(
+                *weapon, tick.action.shot, *player_projectile_template_,
+                player_owner_, player_level_gravity_);
+        }
+    }
+    last_player_weapon_tick_ = tick;
+    return tick;
+}
+
 int GameRuntime::take_ai_projectile_id() {
     const int id = next_ai_projectile_id_;
     ++next_ai_projectile_id_;
@@ -269,6 +334,18 @@ void GameRuntime::tick_once() {
     //     queue is left untouched: the caller owns it.
     if (config_.ai_shots_to_projectiles) {
         bridge_ai_shots();
+    }
+
+    // 2c. Player weapon seam (opt-in): one `0x4453d0` tick from the input the
+    //     caller installed for this step, then `spawn_player_shot()`.  It runs
+    //     before the projectile step, so the new round is stepped (and its
+    //     create event dispatched) by this same tick.  The input is consumed:
+    //     a held trigger must be re-installed every tick by the input layer.
+    if (config_.player_weapons_in_tick && pending_player_input_.has_value() &&
+        pending_player_origin_.has_value()) {
+        update_player_weapon(*pending_player_input_, *pending_player_origin_);
+        pending_player_input_.reset();
+        pending_player_origin_.reset();
     }
 
     // 3. Projectiles: one `tick_results` pass, with the queue, so every event
@@ -604,6 +681,14 @@ void GameRuntime::reset() {
     collision_.clear();
     player_eyes_.clear();
     player_vitals_.clear();
+    // Level-side player weapon state is dropped with the level; the projectile
+    // template and its owner/gravity are caller configuration and stay.
+    player_weapons_.reset();
+    player_arsenal_ = Arsenal{};
+    player_charge_ = ChargeState{};
+    pending_player_input_.reset();
+    pending_player_origin_.reset();
+    last_player_weapon_tick_ = PlayerWeaponTick{};
     switch_source_ = 0;
     clock_ = 0;
     // The template belongs to the configuration side and is kept (like
