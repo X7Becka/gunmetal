@@ -228,8 +228,10 @@ alert/attack + |position − home| > leash
 * **attack** — цель в радиусе; каждые `attack_period` 0.75 с пишется событие
   `attack`. Урона игроку нет — это заготовка. При дистанции > 1.25×range
   возврат в `alert` (гистерезис). С `use_move_step=true`: дальше `standoff`
-  идёт к `aim_point`, в окне `standoff` стоит (событие `attack` продолжает
-  идти), ближе `standoff − 60` пятится.
+  идёт к `aim_point`, в окне `standoff` стоит, ближе `standoff − 60` пятится.
+  Событие `attack` при A3 пишется только внутри `engage_range`; в зоне
+  гистерезиса (`engage_range … 1.25×engage_range`) агент ещё в `attack`,
+  но не стреляет.
 * **dead** — после `damage()` до `health <= 0`. Таймеры и LOS не считаются;
   `damage()` по мёртвому/неизвестному id возвращает `false`.
 * **leash/return** — если агент (например, после `place()`) оказался дальше
