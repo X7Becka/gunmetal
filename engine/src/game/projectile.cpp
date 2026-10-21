@@ -252,6 +252,29 @@ ProjectileTickResult projectile_step(ProjectileState& state,
     // away; without the skin a bounced projectile would stick to the surface.
     constexpr double kContactSkin = 1e-4;
     const Vec3d resolved = hit->centre + contact_normal * kContactSkin;
+
+    // A contact that only creeps into the surface cannot become a bounce: the
+    // reflected speed would be smaller than one step of gravity, so the very
+    // next tick would touch the surface again.  The original still treats that
+    // as a bounce, which halves `damping`, spends one hit and (because of the
+    // collide gate below) posts nothing -- a projectile "resting" on the floor
+    // would silently burn its hits and decay to speed 0.  The contact skin
+    // removed the t = 0 contact of a touching sphere; this branch covers the
+    // remaining repeated contact.  It is not a hit: push the centre out along
+    // the normal, drop the vertical speed, leave `hits_left`, `damping` and the
+    // events untouched, and report a plain flight so the game layer does not
+    // blast every tick.  Only floors qualify: gravity is what keeps the sphere
+    // pressed against them (a wall or a ceiling is still an ordinary bounce).
+    const double gravity_step = kProjectileGravityScale * gravity_scale *
+                                static_cast<double>(dt) * static_cast<double>(dt);
+    const double approach = -dot(displacement, contact_normal); // > 0 into surface
+    if (contact_normal.z > 0.0 && approach > 0.0 &&
+        approach <= gravity_step) {
+        state.vertical_speed = 0.0;
+        state.position = resolved;
+        return make_result(state, ProjectileStatus::flying);
+    }
+
     if (state.hits_left > 0) {
         --state.hits_left;
         state.position = resolved;

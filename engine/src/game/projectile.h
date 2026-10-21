@@ -134,6 +134,11 @@ struct ProjectileTargets {
 
 /// Advance one projectile by `dt` ticks.  The state is updated in place; the
 /// result mirrors the observable fields and carries the events in post order.
+///
+/// A floor contact that cannot separate within one gravity step is a rest, not
+/// a hit (docs/PROJECTILE_CPP.md §1.7): the centre is pushed out along the
+/// normal, the vertical speed is cleared and the status is `flying`, so the
+/// caller does not blast a resting projectile every tick.
 ProjectileTickResult projectile_step(ProjectileState& state,
                                      const ProjectileTargets& targets,
                                      const CollisionWorld& world, int dt);

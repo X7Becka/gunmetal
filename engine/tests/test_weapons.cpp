@@ -2183,6 +2183,462 @@ void test_projectile_shot_bridge() {
 }
 
 
+void test_projectile_floor_bounces() {
+    const gm::ProjectileTargets no_targets;
+
+    std::vector<TriSpec> floor;
+    add_quad(floor, {-100.0, 100.0, 0.0}, {-100.0, -100.0, 0.0},
+             {100.0, -100.0, 0.0}, {100.0, 100.0, 0.0});
+    const gm::CollisionWorld world = build_world(floor);
+
+    // A fast, heavy sphere dropped straight down: the first bounces survive the
+    // vertical `damping *= 0.5`, so three of them have to leave the floor.
+    gm::ProjectileState state;
+    state.spawn.thing_id = 7;
+    state.spawn.position = {0.0, 0.0, 100.0};
+    state.spawn.direction = {0.0, 0.0, -1.0};
+    state.spawn.speed = 40.0;
+    state.spawn.gravity = 1.0;
+    state.spawn.level_gravity = 1.0;
+    state.spawn.damping = 0.8;
+    state.spawn.radius = 10.0;
+    state.spawn.hits_left = 5;
+    state.spawn.collide_event = 601;
+    state.spawn.expire_event = 602;
+    state.position = state.spawn.position;
+    state.direction = state.spawn.direction;
+    state.speed = state.spawn.speed;
+    state.damping = state.spawn.damping;
+    state.hits_left = state.spawn.hits_left;
+
+    struct Bounce {
+        int tick = -1;
+        double z = 0.0;
+        double damping_before = 0.0;
+        double damping_after = 0.0;
+        double speed_before = 0.0;
+        double speed_after = 0.0;
+        int hits_before = 0;
+        int hits_after = 0;
+    };
+    std::vector<Bounce> bounces;
+    std::size_t collide_events = 0;
+    std::size_t stray_events = 0;
+    // Position reached on the tick right after each of the first three
+    // bounces; `-1` marks a slot that the next tick has not filled yet.
+    std::array<double, 3> rise_z = {{-1.0, -1.0, -1.0}};
+    std::array<bool, 3> rise_is_bounce = {{false, false, false}};
+
+    for (int tick = 0; tick < 400 && bounces.size() < 4; ++tick) {
+        const gm::ProjectileState before = state;
+        const gm::ProjectileTickResult result =
+            gm::projectile_step(state, no_targets, world, 1);
+
+        // After every bounce at least the next tick has to move away from the
+        // floor: this is the old "sticking" regression (the sphere used to be
+        // left exactly on the contact point, so the next cast hit it at t=0).
+        for (std::size_t i = 0; i < bounces.size() && i < rise_z.size(); ++i) {
+            if (bounces[i].tick + 1 == tick && rise_z[i] < 0.0) {
+                rise_z[i] = state.position.z;
+                rise_is_bounce[i] =
+                    result.status == gm::ProjectileStatus::bounced;
+            }
+        }
+
+        CHECK(result.events.size() <= 1U);
+        if (result.status == gm::ProjectileStatus::bounced) {
+            Bounce bounce;
+            bounce.tick = tick;
+            bounce.z = state.position.z;
+            bounce.damping_before = before.damping;
+            bounce.damping_after = state.damping;
+            bounce.speed_before = before.speed;
+            bounce.speed_after = state.speed;
+            bounce.hits_before = before.hits_left;
+            bounce.hits_after = state.hits_left;
+            bounces.push_back(bounce);
+            for (const gm::ProjectileEvent& event : result.events) {
+                if (event.id == 601) {
+                    ++collide_events;
+                }
+            }
+        } else {
+            // A non-contact tick must not halve damping, spend a hit or post
+            // anything: the old code did all three on every resting tick.
+            CHECK_NEAR(state.damping, before.damping, 0.0);
+            CHECK_EQ(state.hits_left, before.hits_left);
+            if (!result.events.empty()) {
+                ++stray_events;
+            }
+        }
+    }
+
+    CHECK(bounces.size() >= 3U);
+    CHECK_EQ(stray_events, 0U);
+    CHECK(collide_events >= 3U);
+    CHECK(collide_events <= bounces.size());
+    for (const Bounce& bounce : bounces) {
+        // Contact skin: the centre sits just outside radius 10, never on 10.
+        CHECK(bounce.z > 10.0);
+        CHECK_NEAR(bounce.z, 10.0, 1e-3);
+        // `damping *= 0.5` is a per-contact rule, not a per-tick one.
+        CHECK_NEAR(bounce.damping_after, bounce.damping_before * 0.5, 1e-12);
+        // hits > 0 is spent one per bounce and only on a bounce.
+        CHECK_EQ(bounce.hits_after, bounce.hits_before - 1);
+    }
+    if (bounces.size() >= 3U) {
+        CHECK_NEAR(bounces.front().speed_before, 40.0, 1e-12);
+        CHECK_NEAR(bounces.front().speed_after, 40.0 * 0.4, 1e-12);
+        CHECK_NEAR(bounces.at(1).speed_after, bounces.front().speed_after * 0.2,
+                   1e-12);
+        CHECK_NEAR(bounces.at(2).speed_after, bounces.at(1).speed_after * 0.1,
+                   1e-12);
+        // The first three bounces leave the floor on the very next tick and
+        // that tick is a flight, not another contact.
+        for (std::size_t i = 0; i < rise_z.size(); ++i) {
+            CHECK(rise_z[i] > bounces[i].z);
+            CHECK(!rise_is_bounce[i]);
+        }
+    }
+
+    // The last bounce leaves too little speed to overcome one gravity step, so
+    // the following contacts are rests: frozen damping/hits/position with no
+    // events at all.  Twenty ticks used to burn the remaining hit and decay
+    // `damping` to zero.
+    const double rest_z = state.position.z;
+    const double rest_damping = state.damping;
+    const double rest_speed = state.speed;
+    const int rest_hits = state.hits_left;
+    CHECK(rest_hits > 0);
+    for (int tick = 0; tick < 20; ++tick) {
+        const gm::ProjectileTickResult rest =
+            gm::projectile_step(state, no_targets, world, 1);
+        CHECK(rest.status == gm::ProjectileStatus::flying);
+        CHECK(rest.events.empty());
+    }
+    CHECK_NEAR(state.position.z, rest_z, 1e-12);
+    CHECK_NEAR(state.damping, rest_damping, 1e-12);
+    CHECK_NEAR(state.speed, rest_speed, 1e-12);
+    CHECK_EQ(state.hits_left, rest_hits);
+    CHECK(!state.spent);
+
+    // The owner class has to follow the same path: the same number of collide
+    // records, no expire (hits left) and no per-tick event stream.
+    gm::ProjectileSpawn spawn;
+    spawn.thing_id = 7;
+    spawn.position = {0.0, 0.0, 100.0};
+    spawn.direction = {0.0, 0.0, -1.0};
+    spawn.speed = 40.0;
+    spawn.gravity = 1.0;
+    spawn.level_gravity = 1.0;
+    spawn.damping = 0.8;
+    spawn.radius = 10.0;
+    spawn.hits_left = 5;
+    spawn.collide_event = 601;
+    spawn.expire_event = 602;
+    gm::Projectiles projectiles;
+    gm::EventQueue queue;
+    CHECK_EQ(projectiles.spawn(spawn, &queue), 0);
+    CHECK(queue.empty());
+    std::size_t owner_collide = 0;
+    std::size_t owner_expire = 0;
+    for (int tick = 0; tick < 400; ++tick) {
+        projectiles.tick(1, no_targets, world, &queue);
+        for (const gm::Event& event : queue.drain().events) {
+            if (event.id == 601) {
+                ++owner_collide;
+            } else if (event.id == 602) {
+                ++owner_expire;
+            }
+        }
+    }
+    CHECK_EQ(owner_collide, collide_events);
+    CHECK_EQ(owner_expire, 0U);
+    const gm::ProjectileState* owner = projectiles.by_thing_id(7);
+    CHECK(owner != nullptr);
+    if (owner != nullptr) {
+        CHECK_NEAR(owner->position.z, rest_z, 1e-9);
+        CHECK_NEAR(owner->damping, rest_damping, 1e-12);
+        CHECK_EQ(owner->hits_left, rest_hits);
+        CHECK(!owner->spent);
+        CHECK(!owner->dead);
+    }
+
+    // Gravity only presses a sphere against a floor.  A slow wall contact is
+    // still a bounce even when its approach is below one gravity step, so the
+    // rest rule must not swallow walls.
+    const gm::CollisionWorld wall_world = build_world(wall_x(6.0));
+    gm::ProjectileState slow_wall;
+    slow_wall.spawn.position = {0.0, 0.0, 0.0};
+    slow_wall.spawn.direction = {1.0, 0.0, 0.0};
+    slow_wall.spawn.speed = 0.1;
+    slow_wall.spawn.gravity = 1.0;
+    slow_wall.spawn.level_gravity = 1.0;
+    slow_wall.spawn.damping = 0.8;
+    slow_wall.spawn.radius = 5.0;
+    slow_wall.position = slow_wall.spawn.position;
+    slow_wall.direction = slow_wall.spawn.direction;
+    slow_wall.speed = 0.1;
+    slow_wall.damping = 0.8;
+    gm::ProjectileTickResult wall_hit;
+    for (int tick = 0; tick < 20; ++tick) {
+        wall_hit = gm::projectile_step(slow_wall, no_targets, wall_world, 1);
+        if (wall_hit.status != gm::ProjectileStatus::flying) {
+            break;
+        }
+    }
+    CHECK(wall_hit.status == gm::ProjectileStatus::bounced);
+    CHECK(slow_wall.direction.x < 0.0);
+    CHECK_NEAR(slow_wall.position.x, 1.0 + 1e-4, 1e-3);
+}
+
+void test_projectile_accumulated_dt() {
+    const gm::ProjectileTargets no_targets;
+
+    // Hybrid Euler with `dt = 5` is one step, not five: vz = 1, z = -5 after a
+    // single 5-tick step against z = -3 after five 1-tick steps.
+    gm::ProjectileState state;
+    state.spawn.position = {0.0, 0.0, 0.0};
+    state.spawn.direction = {1.0, 0.0, 0.0};
+    state.spawn.speed = 2.0;
+    state.spawn.gravity = 1.0;
+    state.spawn.level_gravity = 1.0;
+    state.spawn.life_ticks = 100;
+    state.position = {0.0, 0.0, 0.0};
+    state.direction = {1.0, 0.0, 0.0};
+    state.speed = 2.0;
+    state.life_left = 100;
+
+    gm::ProjectileState single = state;
+    for (int tick = 0; tick < 5; ++tick) {
+        gm::projectile_step(single, no_targets, gm::CollisionWorld{}, 1);
+    }
+    CHECK_NEAR(single.position.x, 10.0, 1e-12);
+    CHECK_NEAR(single.position.z, -3.0, 1e-12);
+    CHECK_NEAR(single.vertical_speed, 1.0, 1e-12);
+    CHECK_EQ(single.life_left, 95);
+
+    gm::ProjectileSpawn spawn;
+    spawn.thing_id = 11;
+    spawn.position = state.position;
+    spawn.direction = state.direction;
+    spawn.speed = 2.0;
+    spawn.gravity = 1.0;
+    spawn.level_gravity = 1.0;
+    spawn.life_ticks = 100;
+    gm::Projectiles projectiles;
+    CHECK_EQ(projectiles.spawn(spawn), 0);
+    projectiles.tick(5, no_targets, gm::CollisionWorld{}, nullptr);
+
+    const gm::ProjectileState& by_tick = *projectiles.by_thing_id(11);
+    const gm::ProjectileTickResult by_step =
+        gm::projectile_step(state, no_targets, gm::CollisionWorld{}, 5);
+    CHECK(by_step.status == gm::ProjectileStatus::flying);
+    CHECK(by_step.events.empty());
+    CHECK_NEAR(by_step.position.x, 10.0, 1e-12);
+    CHECK_NEAR(by_step.position.z, -5.0, 1e-12);
+    CHECK_NEAR(by_step.vertical_speed, 1.0, 1e-12);
+    CHECK_NEAR(by_step.speed, 2.0, 1e-12);
+    CHECK_EQ(by_step.hits_left, 0);
+    CHECK_EQ(by_step.life_left, 95);
+    CHECK_NEAR(by_tick.position.x, by_step.position.x, 1e-12);
+    CHECK_NEAR(by_tick.position.y, by_step.position.y, 1e-12);
+    CHECK_NEAR(by_tick.position.z, by_step.position.z, 1e-12);
+    CHECK_NEAR(by_tick.direction.x, by_step.direction.x, 1e-12);
+    CHECK_NEAR(by_tick.direction.y, by_step.direction.y, 1e-12);
+    CHECK_NEAR(by_tick.direction.z, by_step.direction.z, 1e-12);
+    CHECK_NEAR(by_tick.speed, by_step.speed, 1e-12);
+    CHECK_NEAR(by_tick.vertical_speed, by_step.vertical_speed, 1e-12);
+    CHECK_EQ(by_tick.hits_left, by_step.hits_left);
+    CHECK_EQ(by_tick.life_left, by_step.life_left);
+    CHECK_NEAR(by_tick.position.z, -5.0, 1e-12);
+    CHECK(by_tick.position.z < single.position.z); // one step, not five
+
+    // A bounce inside the same 5-tick step is identical through both paths and
+    // posts exactly one collide record.
+    std::vector<TriSpec> floor;
+    add_quad(floor, {-100.0, 100.0, 0.0}, {-100.0, -100.0, 0.0},
+             {100.0, -100.0, 0.0}, {100.0, 100.0, 0.0});
+    const gm::CollisionWorld world = build_world(floor);
+    // `speed = 18` also satisfies the original collide gate (`dt <=
+    // |vz_old| + speed_old`, 5 <= 18), so both paths post the same record.
+    gm::ProjectileState bulk_bounce;
+    bulk_bounce.spawn.thing_id = 12;
+    bulk_bounce.spawn.position = {0.0, 0.0, 25.0};
+    bulk_bounce.spawn.direction = {0.0, 0.0, -1.0};
+    bulk_bounce.spawn.speed = 18.0;
+    bulk_bounce.spawn.damping = 0.8;
+    bulk_bounce.spawn.radius = 10.0;
+    bulk_bounce.spawn.collide_event = 604;
+    bulk_bounce.position = bulk_bounce.spawn.position;
+    bulk_bounce.direction = bulk_bounce.spawn.direction;
+    bulk_bounce.speed = 18.0;
+    bulk_bounce.damping = 0.8;
+    const gm::ProjectileTickResult bulk_result =
+        gm::projectile_step(bulk_bounce, no_targets, world, 5);
+    CHECK(bulk_result.status == gm::ProjectileStatus::bounced);
+    CHECK_EQ(bulk_result.events.size(), 1U);
+    CHECK_NEAR(bulk_bounce.position.z, 10.0, 1e-3);
+    CHECK_NEAR(bulk_bounce.direction.z, 1.0, 1e-12);
+    CHECK_NEAR(bulk_bounce.speed, 18.0 * 0.8 * 0.5, 1e-12);
+
+    gm::ProjectileSpawn bouncer;
+    bouncer.thing_id = 12;
+    bouncer.position = bulk_bounce.spawn.position;
+    bouncer.direction = bulk_bounce.spawn.direction;
+    bouncer.speed = 18.0;
+    bouncer.damping = 0.8;
+    bouncer.radius = 10.0;
+    bouncer.collide_event = 604;
+    gm::Projectiles bouncers;
+    gm::EventQueue bounce_queue;
+    CHECK_EQ(bouncers.spawn(bouncer, &bounce_queue), 0);
+    bouncers.tick(5, no_targets, world, &bounce_queue);
+    const gm::EventParseResult bounced_events = bounce_queue.drain();
+    CHECK_EQ(bounced_events.events.size(), 1U);
+    if (bounced_events.events.size() == 1) {
+        CHECK_EQ(bounced_events.events[0].id, 604);
+    }
+    CHECK_NEAR(bouncers.by_thing_id(12)->position.z, bulk_bounce.position.z, 1e-12);
+    CHECK_NEAR(bouncers.by_thing_id(12)->speed, bulk_bounce.speed, 1e-12);
+
+    // Lifetime boundary with the accumulated dt: exactly one expire, one event.
+    gm::ProjectileSpawn timed;
+    timed.thing_id = 13;
+    timed.position = {0.0, 0.0, 0.0};
+    timed.direction = {1.0, 0.0, 0.0};
+    timed.speed = 0.0;
+    timed.life_ticks = 5;
+    timed.expire_event = 702;
+    gm::Projectiles expiring;
+    gm::EventQueue queue;
+    CHECK_EQ(expiring.spawn(timed, &queue), 0);
+    CHECK(queue.empty());
+    expiring.tick(5, no_targets, gm::CollisionWorld{}, &queue);
+    const gm::EventParseResult expired = queue.drain();
+    CHECK_EQ(expired.events.size(), 1U);
+    if (expired.events.size() == 1) {
+        CHECK_EQ(expired.events[0].id, 702);
+    }
+    const gm::ProjectileState* spent = expiring.by_thing_id(13);
+    CHECK(spent != nullptr);
+    if (spent != nullptr) {
+        CHECK(spent->spent);
+        CHECK(!spent->dead);
+        CHECK_EQ(spent->life_left, 0);
+    }
+    // A spent record is skipped by `tick` and posts nothing again.
+    expiring.tick(5, no_targets, gm::CollisionWorld{}, &queue);
+    CHECK(queue.empty());
+    expiring.tick(1, no_targets, gm::CollisionWorld{}, &queue);
+    CHECK(queue.empty());
+
+    // Manual path: the expire is in the result once and posting it once yields
+    // one record; re-stepping the spent state returns an empty event list.
+    gm::ProjectileState manual;
+    manual.spawn = timed;
+    manual.position = timed.position;
+    manual.direction = timed.direction;
+    manual.life_left = timed.life_ticks;
+    gm::EventQueue manual_queue;
+    const gm::ProjectileTickResult expire_result =
+        gm::projectile_step(manual, no_targets, gm::CollisionWorld{}, 5);
+    CHECK(expire_result.status == gm::ProjectileStatus::expired);
+    CHECK_EQ(expire_result.events.size(), 1U);
+    CHECK_EQ(gm::post_projectile_events(manual_queue, expire_result), 1U);
+    const gm::EventParseResult manual_events = manual_queue.drain();
+    CHECK_EQ(manual_events.events.size(), 1U);
+    if (manual_events.events.size() == 1) {
+        CHECK_EQ(manual_events.events[0].id, 702);
+    }
+    const gm::ProjectileTickResult again =
+        gm::projectile_step(manual, no_targets, gm::CollisionWorld{}, 5);
+    CHECK(again.status == gm::ProjectileStatus::expired);
+    CHECK(again.events.empty());
+    CHECK_EQ(gm::post_projectile_events(manual_queue, again), 0U);
+    CHECK(manual_queue.empty());
+}
+
+void test_projectile_remove_events() {
+    const gm::ProjectileTargets no_targets;
+
+    gm::ProjectileSpawn spawn;
+    spawn.thing_id = 21;
+    spawn.position = {0.0, 0.0, 0.0};
+    spawn.direction = {1.0, 0.0, 0.0};
+    spawn.speed = 1.0;
+    spawn.life_ticks = 1;
+    spawn.create_event = 801;
+    spawn.expire_event = 802;
+    spawn.destroy_event = 803;
+
+    gm::Projectiles projectiles;
+    gm::EventQueue queue;
+    CHECK_EQ(projectiles.spawn(spawn, &queue), 0);
+    const gm::EventParseResult created = queue.drain();
+    CHECK_EQ(created.events.size(), 1U);
+    if (created.events.size() == 1) {
+        CHECK_EQ(created.events[0].id, 801);
+    }
+
+    projectiles.tick(1, no_targets, gm::CollisionWorld{}, &queue);
+    const gm::EventParseResult expired = queue.drain();
+    CHECK_EQ(expired.events.size(), 1U);
+    if (expired.events.size() == 1) {
+        CHECK_EQ(expired.events[0].id, 802);
+    }
+    const gm::ProjectileState* state = projectiles.by_thing_id(21);
+    CHECK(state != nullptr);
+    if (state != nullptr) {
+        CHECK(state->spent);
+        CHECK(!state->dead);
+    }
+    // `spent` means the expire was posted: ticking again must not repeat it.
+    for (int tick = 0; tick < 3; ++tick) {
+        projectiles.tick(1, no_targets, gm::CollisionWorld{}, &queue);
+        CHECK(queue.empty());
+    }
+
+    // Destroy is a separate record and exactly one per projectile.
+    CHECK(projectiles.remove(21, &queue));
+    const gm::EventParseResult destroyed = queue.drain();
+    CHECK_EQ(destroyed.events.size(), 1U);
+    if (destroyed.events.size() == 1) {
+        CHECK_EQ(destroyed.events[0].id, 803);
+    }
+    if (state != nullptr) {
+        CHECK(state->dead);
+        CHECK(state->spent);
+    }
+    CHECK(!projectiles.remove(21, &queue));
+    CHECK(queue.empty());
+    projectiles.tick(5, no_targets, gm::CollisionWorld{}, &queue);
+    CHECK(queue.empty());
+
+    // Removing before the lifetime expires also posts destroy once, and the
+    // dead record produces nothing afterwards.
+    gm::ProjectileSpawn live = spawn;
+    live.thing_id = 22;
+    live.life_ticks = 100;
+    live.create_event = 0;
+    CHECK_EQ(projectiles.spawn(live, &queue), 1);
+    CHECK(queue.empty());
+    projectiles.tick(1, no_targets, gm::CollisionWorld{}, &queue);
+    CHECK(queue.empty());
+    CHECK(projectiles.remove(22, &queue));
+    const gm::EventParseResult destroyed_live = queue.drain();
+    CHECK_EQ(destroyed_live.events.size(), 1U);
+    if (destroyed_live.events.size() == 1) {
+        CHECK_EQ(destroyed_live.events[0].id, 803);
+    }
+    CHECK(!projectiles.remove(22, &queue));
+    CHECK(queue.empty());
+    for (int tick = 0; tick < 3; ++tick) {
+        projectiles.tick(1, no_targets, gm::CollisionWorld{}, &queue);
+        CHECK(queue.empty());
+    }
+}
+
 int main() {
     test_fire_rate_quantisation();
     test_single_and_auto();
@@ -2198,6 +2654,9 @@ int main() {
     test_negatives_synthetic();
     test_projectile_core();
     test_projectile_shot_bridge();
+    test_projectile_floor_bounces();
+    test_projectile_accumulated_dt();
+    test_projectile_remove_events();
     test_weapon_impact_event();
     test_spawned_thing_damage();
 
