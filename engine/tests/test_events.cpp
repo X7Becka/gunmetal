@@ -400,10 +400,12 @@ void test_network_blob() {
     CHECK(!gm::EventQueue::parse_network_blob(truncated).ok);
     // The original buffer cap is 0x7530 bytes; an oversized length is an
     // error even before any record is parsed.
-    const std::array<std::uint8_t, 4> oversized{
-        static_cast<std::uint8_t>(0x7531U & 0xffU),
-        static_cast<std::uint8_t>((0x7531U >> 8U) & 0xffU), 0, 0};
-    CHECK(!gm::EventQueue::parse_network_blob(oversized).ok);
+    std::vector<std::uint8_t> oversized(4 + 0x7531U, 0);
+    oversized[0] = static_cast<std::uint8_t>(0x7531U & 0xffU);
+    oversized[1] = static_cast<std::uint8_t>((0x7531U >> 8U) & 0xffU);
+    gm::EventQueue cap_queue;
+    CHECK(!cap_queue.accept_network_blob(oversized).ok);
+    CHECK(cap_queue.empty());
     gm::EventQueue untouched;
     CHECK(untouched.post_generate(1, 0, 0.0, 0.0, 0.0));
     CHECK(!untouched.accept_network_blob(truncated).ok);

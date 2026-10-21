@@ -1727,7 +1727,9 @@ void test_move_step_attack_hysteresis() {
     // standoff window itself.
     const std::size_t attacks_before = ai.stats().attacks;
     CHECK(ai.set_player({0.0, 240.0, 0.0})); // inside 200*1.25, outside 200
-    for (int i = 0; i < 20; ++i) {
+    // Longer than attack_period (0.75 s): without the window gate this would
+    // produce a `weapon`/`attack` shot before the state leaves at 250.
+    for (int i = 0; i < 200; ++i) {
         ai.tick(empty);
     }
     CHECK(ai.agent(0)->state == gm::AiState::attack);
