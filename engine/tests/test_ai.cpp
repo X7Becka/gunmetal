@@ -1086,7 +1086,8 @@ void test_path_expire() {
     // `0x4703a0` is posted once; the dead state stays terminal.
     const gm::AiPathStep again =
         gm::path_advance(expired.state, points, gm::AiPathMode::expire);
-    CHECK(again.expired);
+    CHECK(!again.expired); // no second expiry event
+    CHECK(again.state.expired);
     CHECK(!again.selected);
     CHECK_EQ(again.index, 3);
 }
@@ -1117,7 +1118,8 @@ void test_path_empty() {
     dead.expired = true;
     const gm::AiPathStep dead_step =
         gm::path_advance(dead, none, gm::AiPathMode::expire);
-    CHECK(dead_step.expired);
+    CHECK(!dead_step.expired);
+    CHECK(dead_step.state.expired);
 }
 
 void test_path_repeat_advance() {

@@ -112,7 +112,10 @@ AiPathStep path_advance(const AiPathState& state,
         if (step.index >= 0) {
             step.point = waypoints[static_cast<std::size_t>(step.index)];
         }
-        step.expired = true;
+        // This call did not trigger a new expiry; the terminal flag lives in
+        // step.state.expired.  Returning true here would make a future caller
+        // post `0x4703a0` on every tick.
+        step.expired = false;
         return step;
     }
 
