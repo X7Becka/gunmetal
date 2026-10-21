@@ -67,6 +67,7 @@ then-ветки**, а не разделителем после неё (прим�
 | `objectives`, `objectives_bits` | цели уровня | `DEFINE_LEVEL_OBJECTIVES` → `0x80d7ec/0x80f9d0` |
 | `defs` | `DEFINE_AMMO/WEAPONS/EQUIPMENT/PLAYER_TYPES/SHIELDS/VIRUS/REGEN` | структурные опкоды |
 | `scene` | `lights/locations/items/named_items/attached/sounds/sprites/things/doors/switches/lifts/spawns` | команды и `ADD_THING*` |
+| `sectors[256]` | `SECTOR_STUFF` (`0x800b60`, шаг `0x58`): `move`, `extra`, `sound_param`, `event_a/b`, `damage_a/b`, `sound`, `sound_count`, `flags` | блок 8 сейва (`vm_load_sector_stuff`) и `SET_SECTOR_*`; карта полей — `docs/RECORDS.md` §2 |
 | `events` | всё исполненное, что не влияет на модель (звук, экран, камера, мир) | — |
 | `clock`, `rng`, `occ`, `steps`, `trace` | виртуальное время `SLEEP`, ГПСЧ, счётчик повторных исполнений точки, бюджет, трасса | — |
 
@@ -343,6 +344,20 @@ then-ветки**, а не разделителем после неё (прим�
 | `ADD_NAMED_ITEM` | `ILLLAAA` | `named_items` (позиция — **гипотеза**) | `0x459a78` |
 | `ADD_NAMED_ITEM_EX` | `LLLILLLAAA` | `named_items` (id/позиция — **гипотеза**) | `0x459ac0` (обработчик сначала проверяет `a1/a2` по `0x83d62c`) |
 | `DELETE_LOCATION` | `E` | удаляет `Location` с этим id | `0x45bf4f` |
+| `SET_SECTOR_MOVEMENT` | `LLLLAAA` | `sectors[i].move` = три `fild`-int'а, `sectors[i].extra` = три сырых double | `0x457815` (`+0x00/+0x08/+0x10`, `+0x18/+0x20/+0x28`) |
+| `SET_SECTOR_DAMAGE` | `LL` | `damage_a = v & 0xffff`, `damage_b = v >> 16` (арифметически) | `0x457961` (`0x45799a`, `0x4579a0`) |
+| `SET_SECTOR_SOUND` | `LVND` | `sound`, `sound_count`, `sound_param` | `0x4579ee` → `0x46b740` (`+0x48`, `+0x4c`, `+0x30`) |
+| `SET_SECTOR_EVENTS` | `LEE` | `event_a`, `event_b` | `0x4579ab` (`+0x38`, `+0x3c`) |
+| `SET_SECTOR_FLAGS` | `LL` | `flags` | `0x457929` (`+0x50`, слот 0 = `0x800bb0`) |
+| `SET_SECTOR_BRIGHTNESS` | `LL` | **не** модельный массив: пишет байт `sector+0x16` записи `.sbw` (`0x42d8a5`) | `0x4578d6`, store `0x4578f8` |
+| `SET_SECTOR_TYPE` | `LL` | **не** модельный массив: `0x42d9d5` пишет `u16 sector+0x14 = value*6` | `0x457a1c` |
+
+Индекс сектора у всех пяти «массивных» команд проверяется на `0..255`: вне
+диапазона слот не пишется (в оригинале `MOVEMENT`/`SOUND` печатают ошибку,
+`DAMAGE`/`EVENTS`/`FLAGS` молча пропускают операнды). Родственные
+`SET_SOURCESECTOR_*` (27–31) и `SET_HANDLESECTOR_*` (40–45) пишут тот же
+массив, но берут индекс из источника/таблицы сущностей — в executors пока
+только события (TODO в `docs/RECORDS.md` §2.5).
 
 `ADD_THING*` — не команды, а **условия** (см. §4): при `EVAL`/`IF` они
 создают вещь через `0x46d000`, тип — операнд `G`, абсолютные координаты

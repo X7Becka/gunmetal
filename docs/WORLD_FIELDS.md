@@ -229,7 +229,7 @@ object — `0x74`, poly — `0x76−1`).
 | `0x30` | `f64` | `sound_param` (`SET_SECTOR_SOUND` `0x4579ee`) |
 | `0x38` | `u32` | `event_a` (`0x4579ab`; `0x445095`) |
 | `0x3c` | `u32` | `event_b` (`0x44503f`) |
-| `0x40/0x44` | `u16` | `damage_lo/hi` (`SET_SECTOR_DAMAGE` `0x457961`) |
+| `0x40/0x44` | 2 × `u32` | `damage_a` / `damage_b` (`SET_SECTOR_DAMAGE` `0x457961`: низ/верх одного операнда, потребитель `0x4450f6`) |
 | `0x48` | `i32` | `sound` (индекс `SOUND_SAMPLE_TABLE`) |
 | `0x4c` | `i32` | `sound_count` |
 | `0x50` | `u32` | `flags` (биты `1/2/4/8/0x10`; `SET_SECTOR_FLAGS` `0x457929`) |
