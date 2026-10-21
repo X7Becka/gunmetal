@@ -59,6 +59,10 @@ struct Thing {
     // C++ state machine.
     int movement_type = -1;          // +0x1b4, 0..18
     double speed = 0.0;              // +0x10 (double), world units per tick
+    double turn_accel = 0.0;         // +0x20, angular acceleration
+    double turn_max = 0.0;           // +0x28, max angular speed
+    double arrive_radius = 50.0;     // +0x70, arrival distance
+    double leash_distance = 0.0;     // +0xd0, hard leash radius
     double gravity = 0.0;            // +0x78, type gravity multiplier
     double damping = 0.0;            // +0x80, speed multiplier after a bounce
     int collision_shape = 1;         // +0x1a0, 1 = sphere, 2 = box
@@ -94,6 +98,10 @@ struct Thing {
 struct ThingTypeEvents {
     int type = -1;
     double speed = 0.0; ///< +0x10 (double), world units per 91 Hz tick
+    double turn_accel = 0.0; ///< +0x20, angular acceleration
+    double turn_max = 0.0; ///< +0x28, max angular speed
+    double arrive_radius = 50.0; ///< +0x70, arrival distance
+    double leash_distance = 0.0; ///< +0xd0, hard leash radius
     double gravity = 0.0; ///< +0x78, type gravity multiplier
     double damping = 0.0; ///< +0x80, speed multiplier after a bounce
     int collision_shape = 1; ///< +0x1a0, 1 = sphere, 2 = box

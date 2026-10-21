@@ -237,6 +237,13 @@ void Ai::set_state(AiAgent& agent, AiState next, std::uint64_t tick) {
     events_.push_back(event);
 }
 
+double octagonal_distance(const Vec3d& a, const Vec3d& b) {
+    std::array<double, 3> d{std::abs(a.x - b.x), std::abs(a.y - b.y),
+                            std::abs(a.z - b.z)};
+    std::sort(d.begin(), d.end());
+    return d[2] + 0.25 * (d[1] + d[0]);
+}
+
 void Ai::log(AiEventType type, const AiAgent& agent, double value, std::uint64_t tick) {
     AiEvent event;
     event.type = type;

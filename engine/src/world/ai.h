@@ -29,6 +29,10 @@ namespace gm {
 inline constexpr int kAiTickHz = 91;
 inline constexpr double kAiTickSeconds = 1.0 / 91.0;
 
+/// 0x4344df: the AI distance metric is octagonal, not Euclidean.
+/// `max + 0.25 * (mid + min)` over absolute component differences.
+double octagonal_distance(const Vec3d& a, const Vec3d& b);
+
 /// Target position history: the original keeps `history[240][3]` in the
 /// tracked object (struct+0x30) and wraps `history_index` at 240
 /// (struct+0x3204, docs/SAVE_FIELDS.md §9.2).  The AI mirrors that shape.

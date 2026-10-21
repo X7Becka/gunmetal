@@ -952,11 +952,24 @@ void test_real_dm1() {
 
 } // namespace
 
+
+void test_octagonal_distance() {
+    CHECK_NEAR(gm::octagonal_distance({0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}),
+               0.0, 0.0);
+    CHECK_NEAR(gm::octagonal_distance({0.0, 0.0, 0.0}, {3.0, 4.0, 0.0}),
+               4.75, 0.0);
+    CHECK_NEAR(gm::octagonal_distance({3.0, 4.0, 0.0}, {0.0, 0.0, 0.0}),
+               4.75, 0.0);
+    CHECK_NEAR(gm::octagonal_distance({1.0, 2.0, 3.0}, {4.0, 6.0, 3.0}),
+               4.75, 1e-12);
+}
+
 int main() {
     test_attach_and_transitions();
     test_line_of_sight_and_loss();
     test_leash_and_return();
     test_death_and_negatives();
+    test_octagonal_distance();
     test_dt_and_player_negatives();
     test_two_runs();
     test_target_history();

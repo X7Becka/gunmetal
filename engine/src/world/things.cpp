@@ -61,6 +61,10 @@ struct TypeTable {
     std::vector<std::string> models;
     std::vector<int> movement_types;
     std::vector<double> speeds;
+    std::vector<double> turn_accels;
+    std::vector<double> turn_maxes;
+    std::vector<double> arrive_radii;
+    std::vector<double> leash_distances;
     std::vector<double> gravities;
     std::vector<double> dampings;
     std::vector<int> collision_shapes;
@@ -103,6 +107,10 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.model_indices.reserve(count);
         table.movement_types.reserve(count);
         table.speeds.reserve(count);
+        table.turn_accels.reserve(count);
+        table.turn_maxes.reserve(count);
+        table.arrive_radii.reserve(count);
+        table.leash_distances.reserve(count);
         table.gravities.reserve(count);
         table.dampings.reserve(count);
         table.collision_shapes.reserve(count);
@@ -136,6 +144,10 @@ TypeTable resolve_types(const SbtLevel& level) {
             }
             table.movement_types.push_back(static_cast<std::int32_t>(rd32(entry + 0x1b4)));
             table.speeds.push_back(std::bit_cast<double>(rd64(entry + 0x10)));
+            table.turn_accels.push_back(std::bit_cast<double>(rd64(entry + 0x20)));
+            table.turn_maxes.push_back(std::bit_cast<double>(rd64(entry + 0x28)));
+            table.arrive_radii.push_back(std::bit_cast<double>(rd64(entry + 0x70)));
+            table.leash_distances.push_back(std::bit_cast<double>(rd64(entry + 0xd0)));
             table.gravities.push_back(std::bit_cast<double>(rd64(entry + 0x78)));
             table.dampings.push_back(std::bit_cast<double>(rd64(entry + 0x80)));
             table.collision_shapes.push_back(
@@ -180,6 +192,10 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     const auto i = static_cast<std::size_t>(thing.type);
     thing.movement_type = types.movement_types[i];
     thing.speed = types.speeds[i];
+    thing.turn_accel = types.turn_accels[i];
+    thing.turn_max = types.turn_maxes[i];
+    thing.arrive_radius = types.arrive_radii[i];
+    thing.leash_distance = types.leash_distances[i];
     thing.gravity = types.gravities[i];
     thing.damping = types.dampings[i];
     thing.collision_shape = types.collision_shapes[i];
@@ -418,6 +434,10 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     ThingTypeEvents out;
     out.type = type;
     out.speed = types.speeds[index];
+    out.turn_accel = types.turn_accels[index];
+    out.turn_max = types.turn_maxes[index];
+    out.arrive_radius = types.arrive_radii[index];
+    out.leash_distance = types.leash_distances[index];
     out.gravity = types.gravities[index];
     out.damping = types.dampings[index];
     out.collision_shape = types.collision_shapes[index];
