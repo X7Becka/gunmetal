@@ -69,7 +69,7 @@ struct ProjectileSpawn {
     std::uint32_t destroy_event = 0;
     std::uint32_t timeout_event = 0;
     std::uint32_t create_event = 0;
-    std::vector<ProximityEntry> proximity; ///< inactive entries are ignored
+    std::vector<ProximityEntry> proximity; ///< 0x4752d0 reads entry 0 only
 };
 
 struct ProjectileState {

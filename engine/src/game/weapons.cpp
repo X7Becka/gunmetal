@@ -1429,8 +1429,9 @@ ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
         result.error = "shield side outside -1..3";
         return result;
     }
-    if (vitals.max_hp == 0) {
-        // THING_TYPES+0x1d4 == 0 is the original's damage-immune marker.
+    if (vitals.max_hp <= 0) {
+        // THING_TYPES+0x1d4 == 0 (or a malformed negative copy) is the
+        // original's damage-immune marker.
         result.ok = true;
         return result;
     }
@@ -1530,7 +1531,9 @@ void store_thing_vitals(Thing& thing, const ThingVitals& vitals) {
     thing.shield_max = vitals.shield_max;
     thing.burn_timer = vitals.burn_timer;
     thing.status_flags = vitals.status_flags;
-    thing.alive = vitals.alive && vitals.hp > 0;
+    if (vitals.max_hp > 0) {
+        thing.alive = vitals.alive && vitals.hp > 0;
+    }
 }
 
 ThingDamageResult apply_thing_damage(Thing& thing, std::int32_t plate,

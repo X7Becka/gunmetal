@@ -814,6 +814,18 @@ void test_blast_and_thing_damage() {
     CHECK(!tr.dead);
     CHECK_EQ(immune.hp, 100);
     CHECK_EQ(immune.shields[0], 0);
+
+    // The same immunity must survive the Thing bridge (DMG-1).
+    gm::Thing immune_thing;
+    immune_thing.id = 12;
+    immune_thing.health = 0;
+    immune_thing.max_health = 0;
+    immune_thing.alive = true;
+    tr = gm::apply_thing_damage(immune_thing, 100, 100, 0, -1);
+    CHECK(tr.ok);
+    CHECK(!tr.dead);
+    CHECK(immune_thing.alive);
+    CHECK_EQ(immune_thing.health, 0);
 }
 
 void test_runtime_blast_bridge() {
@@ -1768,7 +1780,7 @@ void test_projectile_core() {
         }
     }
     CHECK(bounced.status == gm::ProjectileStatus::bounced);
-    CHECK_NEAR(bounce.position.z, 10.0, 1e-9);
+    CHECK_NEAR(bounce.position.z, 10.0, 1e-3);
     CHECK_NEAR(bounce.direction.z, 1.0, 1e-12);
     CHECK_NEAR(bounce.speed, 0.8, 1e-12); // 2 * 0.8 * 0.5 (vertical damping)
     CHECK_EQ(bounced.events.size(), 1U);
@@ -1842,6 +1854,44 @@ void test_projectile_core() {
     if (prox.events.size() == 1) {
         CHECK_EQ(prox.events[0].id, 123U);
         CHECK_EQ(prox.events[0].extra, (0U << 16) | (8U + 3U));
+    }
+
+    // A thing target uses the fixed 8+ slot, not ``thing_count + index`` and
+    // therefore cannot be mistaken for player 1.
+    const std::array<gm::Vec3d, 2> far_players = {
+        gm::Vec3d{1000.0, 0.0, 0.0}, gm::Vec3d{2000.0, 0.0, 0.0}};
+    const std::array<double, 2> far_radii = {{5.0, 5.0}};
+    const std::array<std::uint8_t, 2> kinds = {{1, 1}};
+    const std::array<std::uint8_t, 2> objects = {{1, 1}};
+    const std::array<gm::Vec3d, 1> thing_pos = {gm::Vec3d{20.0, 0.0, 0.0}};
+    const std::array<double, 1> thing_radii = {{5.0}};
+    const std::array<std::uint8_t, 1> alive = {{1}};
+    const std::array<std::uint32_t, 1> flags = {{0}};
+    const std::array<int, 1> moves = {{1}};
+    const std::array<int, 1> objects_present = {{1}};
+    const std::array<int, 1> owners = {{-1}};
+    const std::array<int, 1> parents = {{-1}};
+    gm::ProjectileTargets thing_targets;
+    thing_targets.player_positions = far_players;
+    thing_targets.player_radii = far_radii;
+    thing_targets.player_kind = kinds;
+    thing_targets.player_has_object = objects;
+    thing_targets.thing_positions = thing_pos;
+    thing_targets.thing_radii = thing_radii;
+    thing_targets.thing_alive = alive;
+    thing_targets.thing_flags2 = flags;
+    thing_targets.thing_movement_type = moves;
+    thing_targets.thing_has_object = objects_present;
+    thing_targets.thing_owner = owners;
+    thing_targets.thing_parent = parents;
+    gm::ProjectileState thing_grenade = grenade;
+    thing_grenade.position = {0.0, 0.0, 0.0};
+    const gm::ProjectileTickResult thing_prox =
+        gm::projectile_step(thing_grenade, thing_targets, gm::CollisionWorld{}, 1);
+    CHECK(thing_prox.status == gm::ProjectileStatus::proximity);
+    CHECK_EQ(thing_prox.events.size(), 1U);
+    if (thing_prox.events.size() == 1) {
+        CHECK_EQ(thing_prox.events[0].extra >> 16, 8U);
     }
 
     // The owner class is deterministic and posts create/expire events.
@@ -2086,7 +2136,7 @@ void test_projectile_shot_bridge() {
         if (state != nullptr) {
             CHECK(state->spent);
             CHECK_EQ(state->life_left, 0);
-            CHECK_NEAR(state->position.z, 10.0, 1e-9);
+            CHECK_NEAR(state->position.z, 10.8, 1e-3); // one post-bounce step
         }
         // A spent projectile is skipped: no re-tick, no second expire.
         projectiles.tick(5, no_targets, world, &queue);

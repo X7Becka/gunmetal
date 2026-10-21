@@ -141,7 +141,7 @@ int find_proximity_target(const ProjectileState& state,
             target = static_cast<int>(i);
         }
     }
-    return target < 0 ? -1 : static_cast<int>(count) + target;
+    return target < 0 ? -1 : 8 + target; // fixed player slots 0..7, things 8..
 }
 
 ProjectileTickResult make_result(const ProjectileState& state,
@@ -246,7 +246,12 @@ ProjectileTickResult projectile_step(ProjectileState& state,
         return make_result(state, ProjectileStatus::flying);
     }
 
-    const Vec3d resolved = hit->centre;
+    const Vec3d contact_normal = safe_direction(hit->normal);
+    // Leave the contact point by a tiny skin along the surface normal.  The
+    // generic sphere_cast reports a touching sphere at t=0 even when it moves
+    // away; without the skin a bounced projectile would stick to the surface.
+    constexpr double kContactSkin = 1e-4;
+    const Vec3d resolved = hit->centre + contact_normal * kContactSkin;
     if (state.hits_left > 0) {
         --state.hits_left;
         state.position = resolved;
@@ -257,7 +262,7 @@ ProjectileTickResult projectile_step(ProjectileState& state,
 
     // Reflect the movement vector: dir' = inc - 2*(inc·n)*n.
     const Vec3d incoming = desired - old_position;
-    const Vec3d normal = safe_direction(hit->normal);
+    const Vec3d normal = contact_normal;
     Vec3d reflected = incoming;
     const double projection = dot(incoming, normal);
     reflected = incoming - normal * (2.0 * projection);
