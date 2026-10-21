@@ -26,6 +26,9 @@
 #include "res/save.h"
 #include "res/soe.h"
 #include "res/sml.h"
+#include "camera/camera.h"
+#include "player/controller.h"
+#include "render/collide.h"
 #include "render/hud_player.h"
 #include "render/hud_compose.h"
 #include "render/render.h"
@@ -570,6 +573,14 @@ int dump_file(const gm::Options& options) {
 bool start_camera(const gm::Options& options, const gm::SbtLevel& entities,
                   gm::Vec3d& eye, gm::Vec3d& target, std::string& error);
 
+/// Append the player chassis at SET_PLAYER_START and fill the third-person
+/// eye/target.  The chassis is placed feet-on-spawn and turned by the spawn
+/// yaw; the camera is the tested `CameraRig` third-person mode with level
+/// occlusion.
+bool third_person_camera(const gm::Options& options, const gm::LevelBundle& level,
+                         std::vector<gm::RenderMesh>& meshes, gm::Vec3d& eye,
+                         gm::Vec3d& target, std::string& error);
+
 /// Apply ``--set`` edits to the first present save player.
 bool apply_save_edits(const gm::Options& options, gm::SavePlayer& player,
                       std::string& error) {
@@ -760,14 +771,13 @@ int render_image(const gm::Options& options) {
                     if (!it->second) {
                         continue;
                     }
-                    // gm/scene.py stores these in the 1.875x "world" frame;
-                    // divide to reach the renderer's .sbw world frame.
-                    constexpr double kSceneToWorld = 1.0 / 1.875;
+                    // gm/scene.py and the C++ .sbw renderer both use the
+                    // engine world frame (origin + 1.875 * local).  Do not
+                    // rescale ADD_THING positions: they are already world.
                     auto placed_meshes = gm::place_model_meshes(
                         *it->second,
-                        {static_cast<double>(thing.x) * kSceneToWorld,
-                         static_cast<double>(thing.y) * kSceneToWorld,
-                         static_cast<double>(thing.z) * kSceneToWorld},
+                        {static_cast<double>(thing.x), static_cast<double>(thing.y),
+                         static_cast<double>(thing.z)},
                         options.thing_scale);
                     meshes.insert(meshes.end(),
                                   std::make_move_iterator(placed_meshes.begin()),
@@ -801,11 +811,32 @@ int render_image(const gm::Options& options) {
         gm::logf(gm::LogLevel::Error, "render", "--pos and --look must be given together");
         return 2;
     }
+    gm::Vec3d third_eye{};
+    gm::Vec3d third_target{};
+    bool third_ready = false;
+    if (options.third_person) {
+        if (!level || !level->world) {
+            gm::logf(gm::LogLevel::Error, "third-person",
+                     "--third-person needs --level NAME");
+            return 2;
+        }
+        std::string third_error;
+        if (!third_person_camera(options, *level, meshes, third_eye, third_target,
+                                 third_error)) {
+            gm::logf(gm::LogLevel::Error, "third-person", third_error);
+            return 2;
+        }
+        third_ready = true;
+    }
     if (options.has_pos) {
         render.camera_override = true;
         render.eye = {options.pos[0], options.pos[1], options.pos[2]};
         render.target = {options.look[0], options.look[1], options.look[2]};
-    } else if (options.spawn_camera && level->entities) {
+    } else if (third_ready) {
+        render.camera_override = true;
+        render.eye = third_eye;
+        render.target = third_target;
+    } else if (options.spawn_camera && level && level->entities) {
         std::string spawn_error;
         if (!start_camera(options, *level->entities, render.eye, render.target,
                           spawn_error)) {
@@ -922,23 +953,29 @@ int show_level(const gm::Options& options) {
     return 0;
 }
 
+/// The campaign spawn for `--spawn-slot`, copied out of the parsed scene.
+std::optional<gm::SceneSpawn> campaign_spawn(const gm::Options& options,
+                                             const gm::SbtLevel& entities,
+                                             std::string& error) {
+    const auto scene = gm::extract_scene(entities, error, false);
+    if (!scene) {
+        return std::nullopt;
+    }
+    for (const auto& spawn : scene->spawns) {
+        if (!spawn.deathmatch && spawn.slot == options.spawn_slot) {
+            return spawn;
+        }
+    }
+    error = "no campaign spawn for slot " + std::to_string(options.spawn_slot);
+    return std::nullopt;
+}
+
 /// Camera at SET_PLAYER_START: eye = feet + height, forward from the proven
 /// 0x41e025 basis (X right, Y forward at yaw 0, Z up).
 bool start_camera(const gm::Options& options, const gm::SbtLevel& entities,
                   gm::Vec3d& eye, gm::Vec3d& target, std::string& error) {
-    const auto scene = gm::extract_scene(entities, error, false);
-    if (!scene) {
-        return false;
-    }
-    const gm::SceneSpawn* found = nullptr;
-    for (const auto& spawn : scene->spawns) {
-        if (!spawn.deathmatch && spawn.slot == options.spawn_slot) {
-            found = &spawn;
-            break;
-        }
-    }
-    if (found == nullptr) {
-        error = "no campaign spawn for slot " + std::to_string(options.spawn_slot);
+    const auto found = campaign_spawn(options, entities, error);
+    if (!found) {
         return false;
     }
     const double pitch = found->angles[0];
@@ -950,6 +987,132 @@ bool start_camera(const gm::Options& options, const gm::SbtLevel& entities,
            static_cast<double>(found->z) + options.spawn_eye};
     target = {eye.x + forward.x * 100.0, eye.y + forward.y * 100.0,
               eye.z + forward.z * 100.0};
+    return true;
+}
+
+bool third_person_camera(const gm::Options& options, const gm::LevelBundle& level,
+                         std::vector<gm::RenderMesh>& meshes, gm::Vec3d& eye,
+                         gm::Vec3d& target, std::string& error) {
+    if (!level.entities) {
+        error = "--third-person needs the level's .sbt (SET_PLAYER_START)";
+        return false;
+    }
+    const auto spawn = campaign_spawn(options, *level.entities, error);
+    if (!spawn) {
+        return false;
+    }
+
+    const auto path = gm::resolve_ci(options.game / "SOBS",
+                                     options.player_model + ".sob");
+    if (!path) {
+        error = "player model not found: SOBS/" + options.player_model + ".sob";
+        return false;
+    }
+    const auto bytes = read_file(*path, error);
+    if (!bytes) {
+        return false;
+    }
+    const auto model = gm::parse_sob(*bytes, error);
+    if (!model) {
+        error = options.player_model + ".sob: " + error;
+        return false;
+    }
+
+    double min_z = 1e30;
+    for (const auto& vertex : model->vertices) {
+        min_z = std::min(min_z, static_cast<double>(vertex.z));
+    }
+    if (!(min_z < 1e30)) {
+        error = options.player_model + ".sob has no vertices";
+        return false;
+    }
+
+    gm::Vec3d feet{static_cast<double>(spawn->x), static_cast<double>(spawn->y),
+                   static_cast<double>(spawn->z)};
+    double yaw = spawn->angles[2];
+    if (options.has_third_pos) {
+        feet = {options.third_pos[0], options.third_pos[1], options.third_pos[2]};
+    }
+    if (options.has_third_yaw) {
+        yaw = static_cast<double>(options.third_yaw) * 0.017453292519943295;
+    }
+    const double model_scale = static_cast<double>(options.player_scale);
+    const double ground_offset =
+        options.player_origin ? 0.0 : min_z * model_scale;
+    const gm::Vec3d pos{feet.x, feet.y, feet.z - ground_offset};
+    const double cy = std::cos(yaw), sy = std::sin(yaw);
+
+    // Place feet-on-spawn, then turn the chassis to the spawn yaw.  The UV
+    // frame (`local`, face origin/u/v) is left untouched, so the texture turns
+    // with the world-space vertices; only the lighting normal is rotated.
+    auto placed = gm::place_model_meshes(*model, pos, model_scale);
+    for (auto& mesh : placed) {
+        for (auto& vertex : mesh.vertices) {
+            const double dx = vertex.x - pos.x;
+            const double dy = vertex.y - pos.y;
+            vertex.x = pos.x + dx * cy + dy * sy;
+            vertex.y = pos.y - dx * sy + dy * cy;
+        }
+        for (auto& face : mesh.faces) {
+            const double nx = face.normal.x;
+            const double ny = face.normal.y;
+            face.normal.x = static_cast<float>(nx * cy + ny * sy);
+            face.normal.y = static_cast<float>(-nx * sy + ny * cy);
+        }
+        mesh.aabb_lo = {1e30, 1e30, 1e30};
+        mesh.aabb_hi = {-1e30, -1e30, -1e30};
+        for (const auto& vertex : mesh.vertices) {
+            mesh.aabb_lo = {std::min(mesh.aabb_lo.x, vertex.x),
+                            std::min(mesh.aabb_lo.y, vertex.y),
+                            std::min(mesh.aabb_lo.z, vertex.z)};
+            mesh.aabb_hi = {std::max(mesh.aabb_hi.x, vertex.x),
+                            std::max(mesh.aabb_hi.y, vertex.y),
+                            std::max(mesh.aabb_hi.z, vertex.z)};
+        }
+    }
+    meshes.insert(meshes.end(), std::make_move_iterator(placed.begin()),
+                  std::make_move_iterator(placed.end()));
+
+    gm::ControllerConfig player_config;
+    player_config.eye_height = options.spawn_eye;
+    const gm::PlayerState player = gm::make_state(feet, yaw, player_config);
+
+    gm::CameraConfig config;
+    config.focus_distance = static_cast<double>(options.third_distance) + 100.0;
+    config.third_distance = options.third_distance;
+    config.third_height = options.third_height;
+    config.third_radius = 1.0;
+    config.fov = static_cast<double>(options.fov) * 0.017453292519943295;
+    config.aspect = options.height > 0
+                        ? static_cast<double>(options.width) / options.height
+                        : 4.0 / 3.0;
+    gm::CameraRig rig(config);
+    rig.set_mode(gm::CameraMode::Third);
+
+    gm::CollisionWorld collision;
+    if (level.world) {
+        std::string build_error;
+        if (collision.build(*level.world, &build_error)) {
+            rig.set_collision_world(&collision);
+        } else {
+            gm::logf(gm::LogLevel::Warn, "third-person", "collision: ", build_error);
+        }
+    }
+
+    const auto update = rig.update(player, {}, 1.0 / 91.0);
+    if (!update.ok) {
+        error = "third-person: " + update.error;
+        return false;
+    }
+    eye = rig.eye();
+    target = rig.target();
+    gm::logf(gm::LogLevel::Info, "third-person", "model=", options.player_model,
+             " feet=", feet.x, ",", feet.y, ",", feet.z, " yaw=", yaw,
+             " source=", options.has_third_pos ? "override" : "spawn",
+             " scale=", model_scale, " origin=", options.player_origin ? 1 : 0,
+             " distance=", rig.state().distance,
+             " occluded=", rig.state().occluded ? 1 : 0, " eye=", eye.x, ",",
+             eye.y, ",", eye.z);
     return true;
 }
 
@@ -1548,14 +1711,13 @@ int run(const gm::Options& options) {
                     if (!it->second) {
                         continue;
                     }
-                    // gm/scene.py stores these in the 1.875x "world" frame;
-                    // divide to reach the renderer's .sbw world frame.
-                    constexpr double kSceneToWorld = 1.0 / 1.875;
+                    // gm/scene.py and the C++ .sbw renderer both use the
+                    // engine world frame (origin + 1.875 * local).  Do not
+                    // rescale ADD_THING positions: they are already world.
                     auto placed_meshes = gm::place_model_meshes(
                         *it->second,
-                        {static_cast<double>(thing.x) * kSceneToWorld,
-                         static_cast<double>(thing.y) * kSceneToWorld,
-                         static_cast<double>(thing.z) * kSceneToWorld},
+                        {static_cast<double>(thing.x), static_cast<double>(thing.y),
+                         static_cast<double>(thing.z)},
                         options.thing_scale);
                     meshes.insert(meshes.end(),
                                   std::make_move_iterator(placed_meshes.begin()),
@@ -1566,6 +1728,23 @@ int run(const gm::Options& options) {
                          " models=", cache.size());
             }
         }
+    }
+
+    gm::Vec3d third_eye{};
+    gm::Vec3d third_target{};
+    bool third_ready = false;
+    if (options.third_person) {
+        if (!level || !level->world) {
+            gm::logf(gm::LogLevel::Error, "third-person",
+                     "--third-person needs --level NAME");
+            return 2;
+        }
+        if (!third_person_camera(options, *level, meshes, third_eye, third_target,
+                                 error)) {
+            gm::logf(gm::LogLevel::Error, "third-person", error);
+            return 2;
+        }
+        third_ready = true;
     }
 
     std::optional<gm::HudFilm> hud_film;
@@ -1617,7 +1796,10 @@ int run(const gm::Options& options) {
         if (options.has_pos && options.has_look) {
             eye = {options.pos[0], options.pos[1], options.pos[2]};
             target = {options.look[0], options.look[1], options.look[2]};
-        } else if (options.spawn_camera && level->entities) {
+        } else if (third_ready) {
+            eye = third_eye;
+            target = third_target;
+        } else if (options.spawn_camera && level && level->entities) {
             std::string spawn_error;
             if (!start_camera(options, *level->entities, eye, target, spawn_error)) {
                 gm::logf(gm::LogLevel::Error, "run", spawn_error);

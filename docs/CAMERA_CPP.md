@@ -318,6 +318,54 @@ target3 = eye3 + forward·focus_distance
 (дефолт) — прямой путь движка. `snap_smoothing()` нужен при телепорте или
 респавне.
 
+### 5.3. CLI-режим `--third-person`
+
+`gunmetal --level level0 --third-person --render out.png` ставит модель
+игрока в `SET_PLAYER_START` (низ модели на `spawn.z`), поворачивает её на
+`spawn.yaw` и включает `CameraMode::Third` с окклюзией по `.sbw`.
+
+```
+--third-distance X   вынос назад (по умолчанию 220)
+--third-height X     подъём над глазом игрока (по умолчанию 40)
+--player-model NAME  модель шасси из SOBS/ (по умолчанию TICK = LIGHT)
+--third-pos X,Y,Z    фото-режим: поставить шасси в точку, не в спавн
+--third-yaw DEG      фото-режим: поворот шасси, не из спавна
+```
+
+Спавн `level0` — тесная ниша: сфера окклюзии укорачивает вынос до ~18
+единиц, и камера оказывается внутри корпуса. Для постановочного кадра
+используется проверенный открытый ангар `(0, -550, 11.5)`, например:
+
+```sh
+gunmetal --level level0 --third-person --third-pos 0,-550,11.5 \
+         --third-yaw 90 --third-distance 140 --third-height 45 --fov 60 \
+         --render out/third_person/level0_tick_third_person.png --width 1280 --height 720
+```
+
+`level1` (Testing Range после swap) устроен иначе: кампанийный старт
+`(53, -527, 3)` — вертикальная шахта, до стены ~18 единиц, а пол/платформа
+глубоко внизу. Вынос 220 (и даже 100) туда не помещается. Для постановки
+шасси ставится в открытый зал базы на полу `z = 724` (точка `(200, 0, 724)`),
+а камера — фото-оверрайд `--pos/--look`, потому что `CameraMode::Third`
+смотрит горизонтально (`target = eye + forward * focus_distance`) и не
+наклоняется на корпус:
+
+```sh
+gunmetal --level level1 --third-person --third-pos 200,0,724 --third-yaw 90 \
+         --third-distance 100 --third-height 40 --fov 55 \
+         --pos 100,-120,790 --look 210,0,760 \
+         --render out/third_person/level1_tick_third_person.png --width 1280 --height 720
+```
+
+Второй кадр — крупный план спереди с пушкой:
+
+```sh
+gunmetal --level level1 --third-person --third-pos 200,0,724 --third-yaw 90 \
+         --third-distance 100 --third-height 40 --fov 50 \
+         --pos 320,80,775 --look 200,0,744 \
+         --render out/third_person/level1_tick_third_person_front.png --width 1280 --height 720
+```
+
 ---
 
 ## 6. Тесты и голдены

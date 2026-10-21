@@ -61,6 +61,16 @@ struct Options {
     bool spawn_camera = false;  // start the viewer at SET_PLAYER_START
     int spawn_slot = 0;
     float spawn_eye = 10.0f;    // LIGHT chassis (player+0x2F50)
+    bool third_person = false;  // place the player chassis, pull the camera back
+    float third_distance = 220.0f;
+    float third_height = 40.0f;
+    std::array<double, 3> third_pos{}; // photo override: feet position
+    bool has_third_pos = false;
+    float third_yaw = 0.0f;           // photo override: chassis yaw, degrees
+    bool has_third_yaw = false;
+    std::string player_model = "TICK"; // LIGHT chassis (SOBS/TICK.sob)
+    float player_scale = 1.0f;    // chassis mesh scale (engine world units)
+    bool player_origin = false;   // place the mesh origin at the feet, not min_z
     bool things = false;       // place the scene's ADD_THING models
     float thing_scale = 1.0f;  // extra scale for those models
     bool info = false;

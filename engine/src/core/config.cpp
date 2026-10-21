@@ -352,6 +352,80 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 error = "--spawn-eye expects a number";
                 return std::nullopt;
             }
+        } else if (arg == "--third-person") {
+            options.third_person = true;
+        } else if (arg == "--third-distance" || arg == "--third-height") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                std::size_t used = 0;
+                const float number = std::stof(std::string(*v), &used);
+                if (used != v->size() || number <= 0.0f) {
+                    throw std::invalid_argument("bad");
+                }
+                if (arg == "--third-distance") {
+                    options.third_distance = number;
+                } else {
+                    options.third_height = number;
+                }
+            } catch (const std::exception&) {
+                error = std::string(arg) + " expects a positive number";
+                return std::nullopt;
+            }
+        } else if (arg == "--player-model") {
+            const auto v = value(arg);
+            if (!v || v->empty()) {
+                error = "--player-model expects a SOBS/NAME";
+                return std::nullopt;
+            }
+            options.player_model = std::string(*v);
+        } else if (arg == "--third-pos") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            std::array<double, 3> vec{};
+            if (!parse_vec3(*v, vec)) {
+                error = "--third-pos expects X,Y,Z";
+                return std::nullopt;
+            }
+            options.third_pos = vec;
+            options.has_third_pos = true;
+        } else if (arg == "--third-yaw") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                std::size_t used = 0;
+                options.third_yaw = std::stof(std::string(*v), &used);
+                if (used != v->size()) {
+                    throw std::invalid_argument("trailing");
+                }
+            } catch (const std::exception&) {
+                error = "--third-yaw expects degrees";
+                return std::nullopt;
+            }
+            options.has_third_yaw = true;
+        } else if (arg == "--player-scale") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                std::size_t used = 0;
+                options.player_scale = std::stof(std::string(*v), &used);
+                if (used != v->size() || !(options.player_scale > 0.0f)) {
+                    throw std::invalid_argument("bad scale");
+                }
+            } catch (const std::exception&) {
+                error = "--player-scale expects a positive number";
+                return std::nullopt;
+            }
+        } else if (arg == "--player-origin") {
+            options.player_origin = true;
         } else if (arg == "--things") {
             options.things = true;
         } else if (arg == "--thing-scale") {
@@ -459,6 +533,15 @@ std::string usage() {
        << "      --transparent-index N  palette key (default 0)\n"
        << "      --things      place the scene's ADD_THING models\n"
        << "      --thing-scale X  extra scale for those models (default 1)\n"
+       << "      --third-person   place the player chassis at SET_PLAYER_START and\n"
+       << "                       view it from behind (with --render or the viewer)\n"
+       << "      --third-distance X  camera distance behind the chassis (default 220)\n"
+       << "      --third-height X    camera height above the player eye (default 40)\n"
+       << "      --third-pos X,Y,Z   photo override: chassis feet position (world)\n"
+       << "      --third-yaw DEG     photo override: chassis yaw (default: spawn yaw)\n"
+       << "      --player-model NAME chassis .sob under SOBS/ (default TICK, LIGHT)\n"
+       << "      --player-scale X    chassis mesh scale (default 1)\n"
+       << "      --player-origin     put the .sob origin at the spawn (default: feet)\n"
        << "      --info        print the level summary instead of opening the viewer\n"
        << "      --play NAME   play Vid/NAME.sbv (--frames limits the frame count)\n"
        << "      --song NAME   list the MUSIC/NAME.sog playlist and its SOU.DAT entries\n"
