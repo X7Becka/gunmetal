@@ -410,6 +410,14 @@ int dump_file(const gm::Options& options) {
                 std::printf("  id %2u count %u size %zu @0x%zx\n", block.id,
                             block.count, block.size, block.offset);
             }
+            if (save->sector_stuff.size() == gm::kSbtSectorSlots) {
+                std::size_t active = 0;
+                for (const auto& slot : save->sector_stuff) {
+                    active += slot.empty() ? 0 : 1;
+                }
+                std::printf("sector stuff: %zu slots, %zu active\n",
+                            save->sector_stuff.size(), active);
+            }
             std::printf("F0/F1: %u/%u\n", save->header.fields[0],
                         save->header.fields[1]);
             if (!options.save_edits.empty()) {
