@@ -222,3 +222,24 @@
   и `--verify` ok (101/427/30 проверок).
 - Дальше: интегрировать `M2.3.2`/`M2.3.4`/`M2.3.7`, затем `M2.3.6`,
   `M2.2.3`, ввод игрока (пункт 8) и `FORMATS.md` (пункт 7).
+
+## Последний ход (закрытие Ghidra-пакета)
+
+- Смержены и проверены все 7 карт: `M2.3.1` (игрок), `M2.3.2` (мир),
+  `M2.3.3` (things), `M2.3.4` (двери), `M2.3.5` (оружие), `M2.3.6`
+  (сущности), `M2.3.7` (звук), `M2.2.1` (инициализация ✅),
+  `M2.2.3` (загрузка уровня). Инструменты: `player_fields.py`,
+  `world_fields.py`, `thing_fields.py`, `door_fields.py`, `weapon_fields.py`,
+  `entity_fields.py`, `sound_fields.py`, `init_flow.py`, `level_load.py`
+  (+ `tools/ghidra/mcp.py`); у каждого `--self-test` и `--verify`.
+- Правки кода по картам: заряд `0x4453d0` (+×0.91, события, reset),
+  `spawn_player_shot`, `MsvcRand`, dwell/timer двери + `ADD_LIFT`
+  speed/height, округление микшера `0x8610d0`, биты игроков сущностей
+  `0..7`, `SOE +0x010 = speed`.
+- Осталось (в порядке приоритета): реестр «event id → THING_TYPES blast»
+  (п.9), `SECTOR_STUFF` (п.10), ввод игрока (п.8), `FORMATS.md` (п.7),
+  one-shot `0x200`/дубли id/`SLEEP` (M2.3.6), выгрузка/reload и порталы
+  S6/S17 (M2.2.3).
+- Проверки на момент остановки: `weapons`, `mixer`, `doors`, `doors_full`,
+  `soe`, `rng`, `audio_output` — ok; `vm`/`sbtvm`/`core` падают только из-за
+  внешней пары level1/level2; `regress.py --full` — 121/121.
