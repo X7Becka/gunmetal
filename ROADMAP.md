@@ -900,8 +900,9 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       `0x5a4af0` реализована как `gm::EventDispatcher` (`SwitchEffect[0x200]`,
       `dispatch` типов 1/2/3/4…12, centroid и `SoundCommand`;
       `serialize`/`deserialize` файла `0x5a4af0`, `install_switches` из
-      `ADD_SWITCH`). Осталось: подключение приёма пакета и таблицы к игровому
-      циклу.
+      `ADD_SWITCH`). `WorldState::post_switch_events` переносит
+      `SwitchPressed` в type-2 записи `EventQueue`. Осталось: подключение
+      приёма пакета и таблицы к игровому циклу.
 - ⬜ `M5.1.6` Все `DEFINE_*` (оружие, патроны, оборудование, шасси, цели,
       лифты, path) — раскладка и применение.
 - ⬜ `M5.1.7` Ошибки: неизвестный опкод/условие — понятный лог, не тихий skip.
