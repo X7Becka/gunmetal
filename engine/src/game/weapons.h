@@ -281,6 +281,14 @@ struct ChargeState {
     double charge = 0.0;      ///< player `+0x2fa0`, feed it to `fire(..., charge)`
     double accumulated = 0.0; ///< player `+0x2fa8`, 0..1
     std::uint32_t state_event = 0; ///< player `+0x35c`, 0 = not started
+
+    /// Respawn reset: `0x452730` zeroes `+0x2fa0`, `+0x2fa8` and `+0x35c`
+    /// together with the fire cooldown and the view-pitch state.
+    void reset() {
+        charge = 0.0;
+        accumulated = 0.0;
+        state_event = 0;
+    }
 };
 
 /// What one input tick of the charge state machine produced.
@@ -289,6 +297,12 @@ struct ChargeOutcome {
     bool started = false;   ///< charge-start event posted (`weapon[+0x34]`)
     std::uint32_t start_event = 0;
     std::uint32_t state_value = 0; ///< `weapon[+0x38]`, mirrors to `+0x35c`
+    /// The pending `player[+0x35c]` state event (`weapon[+0x38]`) was posted
+    /// and cleared this tick (`0x445a90..0x445a98`).  While the trigger is
+    /// held the original alternates start/state events every tick, because the
+    /// start event re-arms `+0x35c`.
+    bool state_event_posted = false;
+    std::uint32_t state_event = 0;
 };
 
 /// One tick of `0x4453d0`'s charge branch.
@@ -306,7 +320,7 @@ struct ChargeOutcome {
 /// "not yet over"), so a tick that lands on exactly 1.0 does not fire.
 ChargeOutcome update_charge(const Weapon& weapon, ChargeState& state,
                             bool ready, bool trigger_held, bool trigger_edge,
-                            int ticks);
+                            int ticks, bool suppress_state_event = false);
 
 /// Immutable weapon/ammo tables plus the initial loadout from `GameState`.
 

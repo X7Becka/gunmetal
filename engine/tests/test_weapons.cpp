@@ -493,6 +493,7 @@ void test_charge_state() {
     gm::ChargeState state;
     int shots = 0;
     int starts = 0;
+    int state_posts = 0;
     for (int tick = 0; tick < 10; ++tick) {
         const gm::ChargeOutcome outcome =
             gm::update_charge(charged, state, true, true, tick == 0, 1);
@@ -502,16 +503,36 @@ void test_charge_state() {
             CHECK_EQ(outcome.start_event, std::uint32_t(555));
             CHECK_EQ(outcome.state_value, std::uint32_t(77));
         }
+        if (outcome.state_event_posted) {
+            ++state_posts;
+            CHECK_EQ(outcome.state_event, std::uint32_t(77));
+        }
     }
     CHECK_EQ(shots, 0);
-    CHECK_EQ(starts, 1);
+    // While charging, the original alternates: each tick dispatches the
+    // pending state event (0x445a90, +0x35c) and then re-arms it with the
+    // start event (0x445cdd), so the start event repeats every tick.
+    CHECK_EQ(starts, 10);
+    CHECK_EQ(state_posts, 9);
     CHECK_NEAR(state.accumulated, 0.5, 1e-15);
+    CHECK_EQ(state.state_event, std::uint32_t(77));
+    // The hold bit (player+0x3340 bit 0x20) suppresses the post and keeps the
+    // pending value (0x445a8b..0x445a98).
+    gm::ChargeState quiet_state;
+    gm::update_charge(charged, quiet_state, true, true, true, 1); // start
+    const gm::ChargeOutcome quiet =
+        gm::update_charge(charged, quiet_state, true, true, false, 1, true);
+    CHECK(!quiet.state_event_posted);
+    CHECK_EQ(quiet_state.state_event, std::uint32_t(77));
+    CHECK_NEAR(quiet_state.accumulated, 0.1, 1e-15);
     CHECK_NEAR(state.charge, 0.0, 0.0);
     CHECK_EQ(state.state_event, std::uint32_t(77));
 
     // Release latches the charge and resolves the shot.
-    const gm::ChargeOutcome release = gm::update_charge(charged, state, true, false, false, 1);
+    const gm::ChargeOutcome release =
+        gm::update_charge(charged, state, true, false, false, 1);
     CHECK(release.fire);
+    CHECK(release.state_event_posted); // the pending state event flushes first
     CHECK_NEAR(state.charge, 0.5, 1e-15);
     CHECK_NEAR(state.accumulated, 0.0, 0.0);
 
@@ -571,6 +592,12 @@ void test_charge_state() {
     latched.accumulated = 1.5;
     CHECK(gm::update_charge(charged, latched, true, true, false, 1).fire);
     CHECK_NEAR(latched.accumulated, 0.0, 0.0);
+
+    // Respawn reset (0x452730) drops the latched value and the pending event.
+    state.reset();
+    CHECK_NEAR(state.charge, 0.0, 0.0);
+    CHECK_NEAR(state.accumulated, 0.0, 0.0);
+    CHECK_EQ(state.state_event, std::uint32_t(0));
 
     // Negative ticks are clamped, charge rate 0 never charges.
     gm::Weapon flat = charged;
