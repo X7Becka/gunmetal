@@ -1463,6 +1463,138 @@ void test_runtime_player_vitals() {
     CHECK(bare.player_vitals().empty());
 }
 
+/// Blast that skips its own source (`flags` bit 0, the `apply_blast` self-hit
+/// guard): a radius-200 expire blast of 1000 hull deals 750 at distance 50.
+gm::Weapon self_hit_weapon() {
+    gm::Weapon weapon;
+    weapon.name = "SELF";
+    gm::Blast expire;
+    expire.hull = 1000;
+    expire.radius = 200;
+    expire.flags = 1; // skip the source player/thing
+    weapon.expire_blasts.push_back(expire);
+    return weapon;
+}
+
+/// Two eyes 100 units apart, one 10000-armor gauge each, and two rounds of
+/// different owners that expire together at the midpoint (50 units from each
+/// eye, so a radius-200 blast of `self_hit_weapon()` would hit both players).
+void mixed_owner_setup(gm::GameRuntime& runtime) {
+    const gm::Vec3d eyes[2] = {gm::Vec3d{0.0, 0.0, 20.0},
+                               gm::Vec3d{100.0, 0.0, 20.0}};
+    CHECK(runtime.set_player_eyes(eyes));
+    gm::Vitals gauges[2];
+    for (gm::Vitals& gauge : gauges) {
+        gauge.armor = 10000;
+        gauge.armor_max = 10000;
+    }
+    CHECK(runtime.set_player_vitals(gauges));
+
+    for (int owner = 0; owner < 2; ++owner) {
+        gm::ProjectileSpawn grenade;
+        grenade.thing_id = 60 + owner;
+        grenade.owner_player = owner;
+        grenade.position = gm::Vec3d{50.0, 0.0, 20.0};
+        grenade.direction = gm::Vec3d{0.0, 0.0, 1.0};
+        grenade.speed = 0.0;    // stays at the blast centre
+        grenade.life_ticks = 1; // expires on the first step
+        grenade.radius = 0.0;
+        CHECK_EQ(runtime.spawn_projectile(grenade), owner);
+    }
+    runtime.tick(1);
+    for (const gm::ProjectileTickRecord& record : runtime.last_projectile_results()) {
+        CHECK(record.status == gm::ProjectileStatus::expired);
+        CHECK(!record.already_spent);
+    }
+}
+
+/// Per-record blast contexts: a fleet with different owners keeps every round's
+/// own source ids, so the self-hit guard skips the right player and each player
+/// is hit exactly once.  The fleet-wide context can only name one owner (the
+/// limitation the per-record overload closes), and a short context span skips
+/// the uncovered record instead of inventing an owner.
+void test_runtime_projectile_blasts_mixed_owners() {
+    const gm::Weapon weapon = self_hit_weapon();
+
+    // Per-record contexts, one per spawn slot: record 0 belongs to player 0,
+    // record 1 to player 1.
+    gm::GameRuntime per_record;
+    mixed_owner_setup(per_record);
+    gm::ProjectileBlastContext contexts[2];
+    contexts[0].source_player = 0;
+    contexts[1].source_player = 1;
+    const gm::ProjectileBlastBatch batch =
+        per_record.apply_projectile_blasts_to_players(weapon, contexts);
+    CHECK_EQ(batch.blasts, std::size_t(2));
+    CHECK_EQ(batch.already_applied, std::size_t(0));
+    CHECK_EQ(batch.skipped_no_context, std::size_t(0));
+    CHECK_EQ(batch.posted_events, std::size_t(0)); // the blast event is 0
+    CHECK_EQ(batch.damage.hits.size(), std::size_t(2));
+    if (batch.damage.hits.size() == 2) {
+        CHECK(batch.damage.hits[0].hit.is_player);
+        CHECK_EQ(batch.damage.hits[0].hit.index, 1); // round 0 hit player 1
+        CHECK_EQ(batch.damage.hits[0].hit.hull, 750);
+        CHECK(batch.damage.hits[1].hit.is_player);
+        CHECK_EQ(batch.damage.hits[1].hit.index, 0); // round 1 hit player 0
+        CHECK_EQ(batch.damage.hits[1].hit.hull, 750);
+    }
+    CHECK_EQ(per_record.player_vitals()[0].armor, 9250);
+    CHECK_EQ(per_record.player_vitals()[1].armor, 9250);
+
+    // The marks are shared with the fleet-wide form: no second application.
+    const gm::ProjectileBlastContext shared_context;
+    const gm::ProjectileBlastBatch repeat =
+        per_record.apply_projectile_blasts_to_players(weapon, shared_context);
+    CHECK_EQ(repeat.blasts, std::size_t(0));
+    CHECK_EQ(repeat.already_applied, std::size_t(2));
+    CHECK_EQ(per_record.player_vitals()[0].armor, 9250);
+    CHECK_EQ(per_record.player_vitals()[1].armor, 9250);
+
+    // One context for the whole fleet can only name one owner: both rounds
+    // skip player 0, so player 1 eats both blasts.
+    gm::GameRuntime fleet_wide;
+    mixed_owner_setup(fleet_wide);
+    gm::ProjectileBlastContext owner0;
+    owner0.source_player = 0;
+    const gm::ProjectileBlastBatch shared =
+        fleet_wide.apply_projectile_blasts_to_players(weapon, owner0);
+    CHECK_EQ(shared.blasts, std::size_t(2));
+    CHECK_EQ(shared.damage.hits.size(), std::size_t(2));
+    if (shared.damage.hits.size() == 2) {
+        CHECK_EQ(shared.damage.hits[0].hit.index, 1);
+        CHECK_EQ(shared.damage.hits[1].hit.index, 1);
+    }
+    CHECK_EQ(fleet_wide.player_vitals()[0].armor, 10000);
+    CHECK_EQ(fleet_wide.player_vitals()[1].armor, 8500);
+
+    // A short per-record span: the covered record blasts, the other one is
+    // reported instead of being blasted with a wrong owner.
+    gm::GameRuntime partial;
+    mixed_owner_setup(partial);
+    gm::ProjectileBlastContext only_first[1];
+    only_first[0].source_player = 0;
+    const std::span<const gm::ProjectileBlastContext> one(only_first, 1);
+    const gm::ProjectileBlastBatch short_span =
+        partial.apply_projectile_blasts(weapon, one, partial.player_vitals(), {});
+    CHECK_EQ(short_span.blasts, std::size_t(1));
+    CHECK_EQ(short_span.skipped_no_context, std::size_t(1));
+    CHECK_EQ(short_span.damage.hits.size(), std::size_t(1));
+    if (short_span.damage.hits.size() == 1) {
+        CHECK_EQ(short_span.damage.hits[0].hit.index, 1);
+    }
+    CHECK_EQ(partial.player_vitals()[0].armor, 10000); // no invented source
+    CHECK_EQ(partial.player_vitals()[1].armor, 9250);
+
+    // `only_new = false` re-applies the covered record; the uncovered one still
+    // does not blast.
+    const gm::ProjectileBlastBatch replay = partial.apply_projectile_blasts(
+        weapon, one, partial.player_vitals(), {}, false);
+    CHECK_EQ(replay.blasts, std::size_t(1));
+    CHECK_EQ(replay.skipped_no_context, std::size_t(1));
+    CHECK_EQ(partial.player_vitals()[0].armor, 10000);
+    CHECK_EQ(partial.player_vitals()[1].armor, 8500);
+}
+
 /// Filling the staging queue must leave the unposted switch tail in the world
 /// and the next tick must dispatch it exactly once.
 void test_runtime_pending_switch_tail() {
@@ -1476,7 +1608,8 @@ void test_runtime_pending_switch_tail() {
     CHECK_EQ(runtime.world().switches().size(), std::size_t(1));
 
     // Type-2 records are 7 bytes and the queue threshold is 0x7526, so the
-    // 4280th press fills it and every later record stays pending.
+    // 4285th press fills the queue (29988 + 7 = 29995 bytes, the threshold is
+    // checked before appending) and every later record stays pending.
     constexpr int kPresses = 4300;
     for (int i = 0; i < kPresses; ++i) {
         CHECK(runtime.press_switch(0, 7));
@@ -1506,6 +1639,55 @@ void test_runtime_pending_switch_tail() {
     runtime.tick(1);
     CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
     CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
+}
+
+/// `build_world()` replaces the switch table but keeps the staged records that
+/// do not address it: a type-2 record of the old level must not fire the new
+/// table's entry at the same index, while a thing create event survives the
+/// rebuild (it has no table dependency).
+void test_runtime_build_world_keeps_non_switch_events() {
+    const gm::SbwLevel geometry = make_runtime_geometry();
+    gm::GameRuntime runtime;
+    std::string error;
+    CHECK(runtime.build_world(make_runtime_level(111, false), geometry, &error));
+    CHECK(error.empty());
+
+    gm::Thing crate;
+    crate.id = -1;
+    crate.position = std::array<int, 3>{-1, 5, 77};
+    crate.create_event = 700;
+    CHECK_EQ(runtime.spawn_thing(crate), 0);
+    CHECK(runtime.press_switch(0, 4));
+    // One type-3 create record + one type-2 switch record are staged.
+    CHECK_EQ(runtime.events().queue().size(),
+             gm::EventQueue::kType3Size + gm::EventQueue::kType2Size);
+
+    // Rebuild the world: index 0 now targets event 222 instead of 111.
+    CHECK(runtime.build_world(make_runtime_level(222, false), geometry, &error));
+    CHECK(error.empty());
+    CHECK_EQ(runtime.events().queue().size(), gm::EventQueue::kType3Size);
+
+    runtime.tick(1);
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(1));
+    if (runtime.last_events().generated.size() == 1) {
+        const gm::Event& event = runtime.last_events().generated[0];
+        CHECK_EQ(event.id, 700); // the create event survived the rebuild
+        CHECK_EQ(event.x, -1);
+        CHECK_EQ(event.y, 5);
+        CHECK_EQ(event.z, 77);
+    }
+    for (const gm::Event& event : runtime.last_events().generated) {
+        CHECK(event.id != 111); // the old table is gone
+        CHECK(event.id != 222); // ... and the stale type-2 record is too
+    }
+
+    // The new table is live: the same switch index now dispatches 222.
+    CHECK(runtime.press_switch(0, 0));
+    runtime.tick(1);
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(1));
+    if (runtime.last_events().generated.size() == 1) {
+        CHECK_EQ(runtime.last_events().generated[0].id, 222);
+    }
 }
 
 /// One AI agent that can fire: its thing carries a single weapon table entry
@@ -1849,10 +2031,12 @@ int main() {
     test_runtime_projectile_blasts_expire();
     test_runtime_projectile_blasts_bounce();
     test_runtime_player_vitals();
+    test_runtime_projectile_blasts_mixed_owners();
     test_runtime_ai_shots_default_off();
     test_runtime_ai_shots_to_projectiles();
     test_runtime_ai_shots_without_template();
     test_runtime_pending_switch_tail();
+    test_runtime_build_world_keeps_non_switch_events();
     test_runtime_determinism();
 
     if (g_failures != 0) {

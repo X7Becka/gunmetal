@@ -41,7 +41,10 @@
 // `apply_projectile_blasts()` is the explicit bridge over
 // `last_projectile_results()` (see the method and docs/RUNTIME_CPP.md §7).  It
 // is idempotent per tick generation: every result record is blasted at most
-// once until the next `tick()`.
+// once until the next `tick()`.  The context that selects the blast branch and
+// the self-hit guard is either one for the whole fleet or one per result record
+// (`std::span<const ProjectileBlastContext>`, indexed like the results), so a
+// fleet with mixed owners keeps every round's own source ids.
 //
 // The runtime can also own the player gauges: `set_player_vitals()` stores one
 // `Vitals` per `set_player_eyes()` point, and
@@ -62,6 +65,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -129,6 +133,12 @@ struct ProjectileBlastBatch {
     /// (`only_new = true` only); flying/destroyed/replayed records are not
     /// counted here.
     std::size_t already_applied = 0;
+    /// Result records that blast (bounce / non-replayed expiry) but had no
+    /// context entry in the per-record overload, so they were skipped instead
+    /// of being blasted with an invented owner.  A `proximity` record is not
+    /// counted: whether it triggers is decided by the missing context's
+    /// `allow_proximity`.
+    std::size_t skipped_no_context = 0;
     /// Blast event records the queue accepted (0 for `event == 0` hits and for
     /// a full queue, which drops the record like every other runtime post).
     std::size_t posted_events = 0;
@@ -162,6 +172,12 @@ public:
     /// and AI are not touched except that the switch table is reinstalled.
     /// Returns false (with `error`) when the geometry or the world records are
     /// rejected.
+    ///
+    /// The switch table is replaced wholesale, so the staged `Trigger Switch`
+    /// (type 2) records of the old table are dropped with it: they address the
+    /// table by index and would otherwise fire the *new* entry at the same
+    /// index.  Every other staged record (thing create/expire/destroy, blast
+    /// generates, text) does not depend on the table and is kept.
     bool build_world(const SbtLevel& level, const SbwLevel& geometry,
                      std::string* error = nullptr);
 
@@ -320,6 +336,24 @@ public:
         std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
         bool only_new = true);
 
+    /// The same bridge with one context per result record: `contexts[i]`
+    /// describes `last_projectile_results()[i]` (the spawn-slot order, i.e.
+    /// `ProjectileTickRecord::index`, so the owner of every round is the one
+    /// its own spawn carries).  This is the mixed-owner form: a single
+    /// context can only name one `source_player`/`source_thing`, so the
+    /// self-hit guard of the other owners would skip the wrong target.
+    ///
+    /// The span is index-aligned but does not have to be complete: a record
+    /// whose index is outside `contexts` is not blasted (no owner is
+    /// invented) and is counted in `ProjectileBlastBatch::skipped_no_context`
+    /// when it would have blasted.  Marks, vitals spans, `only_new` and the
+    /// event posting are exactly those of the single-context overload, and the
+    /// two forms share the per-generation marks.
+    ProjectileBlastBatch apply_projectile_blasts(
+        const Weapon& weapon, std::span<const ProjectileBlastContext> contexts,
+        std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+        bool only_new = true);
+
     /// The same bridge, with the runtime-owned player vitals: `player_vitals_`
     /// (see `set_player_vitals()`) is blasted instead of a caller span, so a
     /// runtime configured once with eyes + vitals needs no vitals plumbing.
@@ -332,6 +366,13 @@ public:
     /// `tick()` applies nothing (`already_applied` counts the skipped records).
     ProjectileBlastBatch apply_projectile_blasts_to_players(
         const Weapon& weapon, const ProjectileBlastContext& context,
+        std::span<ThingVitals> thing_vitals = {}, bool only_new = true);
+
+    /// The owned-vitals form of the per-record overload above: `contexts[i]`
+    /// is the context of `last_projectile_results()[i]`, records outside the
+    /// span are not blasted and are counted in `skipped_no_context`.
+    ProjectileBlastBatch apply_projectile_blasts_to_players(
+        const Weapon& weapon, std::span<const ProjectileBlastContext> contexts,
         std::span<ThingVitals> thing_vitals = {}, bool only_new = true);
 
     // --- spawn --------------------------------------------------------------
@@ -376,6 +417,15 @@ private:
     /// `kAiProjectileRuntimeIdBase`).
     int take_ai_projectile_id();
     ProjectileTargets projectile_targets();
+    /// Shared body of the two `apply_projectile_blasts()` forms: `shared`
+    /// non-null means one context for the whole fleet, otherwise
+    /// `per_record[i]` is the context of result record `i` and records outside
+    /// the span are skipped.
+    ProjectileBlastBatch apply_projectile_blasts_impl(
+        const Weapon& weapon, const ProjectileBlastContext* shared,
+        std::span<const ProjectileBlastContext> per_record,
+        std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+        bool only_new);
 
     GameRuntimeConfig config_;
     WorldState world_;
@@ -413,6 +463,17 @@ private:
     /// generation was already blasted.  Cleared by every new `tick_results`
     /// assignment and by the explicit clears.
     std::vector<std::uint8_t> blasted_results_;
+
+    // Scratch target arrays of the blast bridge: rebuilt from `Things` on each
+    // `apply_projectile_blasts()` call but kept between calls, so a steady
+    // state call does not allocate them.  `blast_thing_alive_` is a raw block
+    // because `ProjectileBlastTargets::thing_alive` is a `span<const bool>`
+    // and `std::vector<bool>` has no contiguous `bool` storage.  They are
+    // derived data, like `target_*` above: `reset()` keeps the capacity.
+    std::vector<Vec3d> blast_thing_positions_;
+    std::unique_ptr<bool[]> blast_thing_alive_;
+    std::size_t blast_thing_alive_capacity_ = 0;
+
     EventDispatchResult last_events_;
 };
 

@@ -43,6 +43,31 @@ bool blast_trigger(ProjectileStatus status, bool already_spent,
     return false;
 }
 
+/// Copy the staged records of `queue` into a queue of the same kind, dropping
+/// the `Trigger Switch` (type 2) records.  `build_world()` replaces the switch
+/// table wholesale; a staged type-2 record addresses that table by index, so
+/// keeping it would fire the new level's entry at the same index.  Every other
+/// record (thing create/expire/destroy, blast generates, text) does not depend
+/// on the table and has to survive a world rebuild.
+///
+/// A corrupt staging buffer parses as `ok == false` with no events; the result
+/// is then empty, i.e. the old "drop the queue" behaviour for a buffer the
+/// dispatcher would reject as a whole anyway.
+EventQueue without_switch_records(const EventQueue& queue) {
+    EventQueue filtered(queue.overflow_check());
+    const EventParseResult parsed = EventQueue::parse(queue.bytes());
+    if (!parsed.ok) {
+        return filtered;
+    }
+    for (const Event& event : parsed.events) {
+        if (event.type == EventType::trigger_switch) {
+            continue;
+        }
+        filtered.post(event);
+    }
+    return filtered;
+}
+
 } // namespace
 
 GameRuntime::GameRuntime(GameRuntimeConfig config) : config_(std::move(config)) {}
@@ -83,8 +108,11 @@ bool GameRuntime::build_world(const SbtLevel& level, const SbwLevel& geometry,
     // The old table may carry ids of a different level; the dispatcher has no
     // clear(), so replace it wholesale before installing the new records.
     // Staged type-2 records point into the old table by index, so they are
-    // dropped with it instead of being dispatched against the new one.
-    events_.queue().clear();
+    // dropped with it instead of being dispatched against the new one.  Every
+    // other staged record (thing create/expire/destroy, blast generates, text)
+    // does not address the table and survives the rebuild: `build_world()`
+    // runs on a live runtime that may already have posted world events.
+    events_.queue() = without_switch_records(events_.queue());
     events_.dispatcher() = EventDispatcher{};
     if (config_.install_switches) {
         events_.install_switches(world_.switches());
@@ -320,6 +348,23 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
     const Weapon& weapon, const ProjectileBlastContext& context,
     std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
     bool only_new) {
+    return apply_projectile_blasts_impl(weapon, &context, {}, player_vitals,
+                                        thing_vitals, only_new);
+}
+
+ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
+    const Weapon& weapon, std::span<const ProjectileBlastContext> contexts,
+    std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+    bool only_new) {
+    return apply_projectile_blasts_impl(weapon, nullptr, contexts, player_vitals,
+                                        thing_vitals, only_new);
+}
+
+ProjectileBlastBatch GameRuntime::apply_projectile_blasts_impl(
+    const Weapon& weapon, const ProjectileBlastContext* shared,
+    std::span<const ProjectileBlastContext> per_record,
+    std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+    bool only_new) {
     ProjectileBlastBatch batch;
     const std::size_t count = last_projectile_results_.size();
     // Defensive: the marks are sized by `tick_once()`; rebuild them if a
@@ -336,33 +381,47 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
     // same indices.  `ProjectileBlastTargets::thing_alive` needs a contiguous
     // `bool` array (index-stable like `things().things()`, dead and
     // source-relative things marked absent), which `std::vector<bool>` cannot
-    // provide.
+    // provide.  Both arrays are runtime scratch: kept between calls, so the
+    // bridge allocates only when the thing count grows.
     const std::vector<Thing>& list = things_.things();
     const std::size_t thing_count = list.size();
-    std::vector<Vec3d> thing_positions(thing_count);
-    std::unique_ptr<bool[]> thing_alive(new bool[thing_count]);
+    blast_thing_positions_.resize(thing_count);
+    if (thing_count > blast_thing_alive_capacity_) {
+        blast_thing_alive_ = std::make_unique<bool[]>(thing_count);
+        blast_thing_alive_capacity_ = thing_count;
+    }
     for (std::size_t i = 0; i < thing_count; ++i) {
         const Thing& thing = list[i];
         const bool absolute = thing.position.has_value();
-        thing_positions[i] =
+        blast_thing_positions_[i] =
             absolute ? Vec3d{static_cast<double>((*thing.position)[0]),
                              static_cast<double>((*thing.position)[1]),
                              static_cast<double>((*thing.position)[2])}
                      : Vec3d{};
-        thing_alive[i] = thing.alive && absolute;
+        blast_thing_alive_[i] = thing.alive && absolute;
     }
 
     ProjectileBlastTargets targets;
     targets.player_positions = player_eyes_;
     targets.player_vitals = player_vitals;
-    targets.thing_positions = thing_positions;
-    targets.thing_alive = std::span<const bool>(thing_alive.get(), thing_count);
+    targets.thing_positions = blast_thing_positions_;
+    if (thing_count != 0) {
+        // An empty `thing_alive` is the documented "no data" span; a
+        // `(nullptr, 0)` span is avoided for the empty case.
+        targets.thing_alive =
+            std::span<const bool>(blast_thing_alive_.get(), thing_count);
+    }
     targets.thing_vitals = thing_vitals;
 
     for (std::size_t i = 0; i < count; ++i) {
         const ProjectileTickRecord& record = last_projectile_results_[i];
+        const ProjectileBlastContext* context =
+            shared != nullptr ? shared
+                              : (i < per_record.size() ? &per_record[i] : nullptr);
+        // Without a context entry the proximity opt-in is unknown, so a
+        // proximity record is not treated as a trigger (the default is off).
         if (!blast_trigger(record.status, record.already_spent,
-                           context.allow_proximity)) {
+                           context != nullptr && context->allow_proximity)) {
             continue;
         }
         if (blasted_results_[i] != 0) {
@@ -371,11 +430,17 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
                 continue;
             }
         }
+        if (context == nullptr) {
+            // Per-record form with a short span: no owner is invented, the
+            // record is reported instead of being blasted with wrong ids.
+            ++batch.skipped_no_context;
+            continue;
+        }
 
         BlastDamageResult one;
         apply_projectile_blast(
             weapon, projectile_result_of(record),
-            record.status == ProjectileStatus::expired, context, targets, &one);
+            record.status == ProjectileStatus::expired, *context, targets, &one);
 
         // One record per affected target with a non-zero blast event.  The
         // original per-target coordinates are not proven here, so the record
@@ -407,9 +472,17 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts_to_players(
     std::span<ThingVitals> thing_vitals, bool only_new) {
     // Same marks and the same per-record loop: a caller may alternate the two
     // entry points and still blast each generation of records at most once.
-    return apply_projectile_blasts(weapon, context,
-                                   std::span<Vitals>(player_vitals_),
-                                   thing_vitals, only_new);
+    return apply_projectile_blasts_impl(weapon, &context, {},
+                                        std::span<Vitals>(player_vitals_),
+                                        thing_vitals, only_new);
+}
+
+ProjectileBlastBatch GameRuntime::apply_projectile_blasts_to_players(
+    const Weapon& weapon, std::span<const ProjectileBlastContext> contexts,
+    std::span<ThingVitals> thing_vitals, bool only_new) {
+    return apply_projectile_blasts_impl(weapon, nullptr, contexts,
+                                        std::span<Vitals>(player_vitals_),
+                                        thing_vitals, only_new);
 }
 
 int GameRuntime::spawn_thing(Thing thing) {

@@ -20,7 +20,7 @@
 | игроки | `set_player_eyes(span)` + `set_player_vitals(span)` (размеры совпадают), `player_vitals()` |
 | тик | 91 Гц, `tick(n)` = ровно `n` проходов тела |
 | порядок | вещи → AI → AI-выстрелы (opt-in) → снаряды → двери/мир → события |
-| blast | `apply_projectile_blasts(weapon, …)` — явный мост, не фаза тика; идемпотентен на генерацию `tick_results`; `apply_projectile_blasts_to_players()` — то же по собственным виталам |
+| blast | `apply_projectile_blasts(weapon, …)` — явный мост, не фаза тика; идемпотентен на генерацию `tick_results`; контекст один на флот или по одному на запись (`std::span<const ProjectileBlastContext>`); `apply_projectile_blasts_to_players()` — то же по собственным виталам |
 | события | очередь опустошается в том же тике, повторного dispatch нет |
 | снаряды | один `Projectiles::tick_results(1, …)`; записи отдаются как есть |
 | ввод | `press_switch()` (не `world().interact()` напрямую) |
@@ -63,8 +63,13 @@ for (const gm::ProjectileTickRecord& record : runtime.last_projectile_results())
 затем `Ai::attach` и таблицу `ADD_SWITCH` в `EventRuntime`. При ошибке рантайм
 остаётся в `reset()`-состоянии. Частичные сборки — `build_world()` (без вещей)
 и `build_things()` (без мира); они не сбрасывают чужую половину.
-`build_world()` заменяет таблицу свитчей целиком и поэтому очищает staging-
-очередь: type-2 записи адресуют старую таблицу по индексу.
+`build_world()` заменяет таблицу свитчей целиком. Вместе с ней выбрасываются
+только уже поставленные в очередь записи type-2 (`Trigger Switch`): они адресуют
+старую таблицу по индексу и после подмены сработали бы по чужой записи. Все
+остальные записи очереди (create/expire/destroy вещей, blast-generate, текст)
+таблицу не адресуют и переживают пересборку мира — `build_world()` можно звать
+на живом рантайме, уже успевшем поставить события. Повреждённый staging-буфер
+по-прежнему отбрасывается целиком (его отверг бы и `pump()`).
 
 `has_world()`/`has_things()`/`has_ai()` показывают, что собрано; `clock()` —
 число исполненных тиков (до первого тика `0`).
@@ -296,6 +301,37 @@ const gm::ProjectileBlastBatch batch =
 одни и те же отметки генерации, поэтому смешивать их безопасно: запись
 взрывается не более одного раза до следующего `tick()`.
 
+### Контекст на снаряд (флот с разными владельцами)
+
+Один `ProjectileBlastContext` описывает **один** `source_player`/`source_thing`,
+поэтому для флота с разными владельцами есть вторая форма — контекст на запись
+результата, индекс в индекс с `last_projectile_results()` (это порядок слотов
+спавна, то есть `ProjectileTickRecord::index`):
+
+```cpp
+std::vector<gm::ProjectileBlastContext> contexts(runtime.last_projectile_results().size());
+for (std::size_t i = 0; i < contexts.size(); ++i) {
+    const gm::ProjectileSpawn& spawn = runtime.projectiles().list()[i].spawn;
+    contexts[i].source_player = spawn.owner_player;   // кто выпустил снаряд i
+    // source_thing — индекс цели в things().things(), как в apply_blast()
+}
+
+const gm::ProjectileBlastBatch batch =
+    runtime.apply_projectile_blasts_to_players(weapon, contexts);
+```
+
+Зачем: `flags & 1` у blast — защита от самопопадания, она сравнивает
+`source_player`/`source_thing` с индексом цели. С одним контекстом на флот
+второй владелец не пропускается, и его же снаряд бьёт его самого (тест
+`test_runtime_projectile_blasts_mixed_owners` фиксирует оба поведения).
+
+Спан не обязан быть полным: запись, для индекса которой контекста нет, **не**
+взрывается (владелец не выдумывается) и считается в
+`ProjectileBlastBatch::skipped_no_context`, если она вообще была бы trigger'ом.
+`proximity`-запись без контекста в счётчик не входит: неизвестно, включил бы
+пропущенный контекст `allow_proximity`. Отметки генерации, спаны vitals,
+`only_new` и постинг событий у обеих форм общие.
+
 Что делает вызов:
 
 1. идёт по `last_projectile_results()` (только последний шаг `tick()`);
@@ -303,7 +339,9 @@ const gm::ProjectileBlastBatch batch =
    `apply_projectile_blast(weapon, projectile_result_of(record), expired, …)`:
    bounce → `Weapon::impact_blasts`, expiry → `Weapon::expire_blasts`;
    `proximity` — только при `context.allow_proximity`; `flying` и `destroyed`
-   не бьют никогда;
+   не бьют никогда. Контекст — общий для флота или `contexts[i]` записи `i`;
+   без контекста (короткий спан) запись пропускается и считается в
+   `skipped_no_context`;
 3. цели берёт из рантайма: `player_positions` — точки `set_player_eyes()`,
    `thing_positions`/`thing_alive` — `things().things()` по индексу
    (source-relative вещь без мировой точки помечается «не живой»);
@@ -317,8 +355,9 @@ const gm::ProjectileBlastBatch batch =
 5. возвращает `ProjectileBlastBatch`: `damage` — объединённые
    `BlastDamageResult` в порядке записей, `blasts` — сколько blast реально
    применено (trigger, даже если в радиусе никого), `already_applied` —
-   сколько записей пропущено из-за отметки, `posted_events` — сколько
-   type-3 записей приняла очередь.
+   сколько записей пропущено из-за отметки, `skipped_no_context` — сколько
+   trigger-записей не имело контекста (только per-record форма),
+   `posted_events` — сколько type-3 записей приняла очередь.
 
 Blast пишет только в переданные спаны vitals: `Things`/`Ai` увидят новый
 `health` после `store_thing_vitals()` (AI читает вещи в `sync_vitals()`).
@@ -367,10 +406,12 @@ Blast пишет только в переданные спаны vitals: `Things
 | `test_runtime_ai_shots_default_off` | `ai_shots_to_projectiles=false`: AI ставит выстрел в очередь, но снарядов и событий нет, очередь не выедена |
 | `test_runtime_ai_shots_to_projectiles` | opt-in: ровно один снаряд на weapon-event (910 ед/с → 10 ед/тик), виден в `last_projectile_results()` с runtime-id ≥ `0x10000`; повторный тик без события ничего не плодит и не дублирует create-событие; второй выстрел через cooldown 91 даёт второй живой снаряд с другим id |
 | `test_runtime_ai_shots_without_template` | флаг включён, шаблона нет: очередь не дренируется и не теряется — после `set_ai_projectile_template()` следующий тик спавнит ровно один снаряд; `clear_ai_projectile_template()` снова выключает мост |
-| `test_runtime_pending_switch_tail` | 4300 нажатий переполняют очередь (0x7526 / 7 байт); тик 1 отдаёт часть, тик 2 — остаток, сумма ровно 4300, третий тик пуст |
+| `test_runtime_pending_switch_tail` | 4300 нажатий переполняют очередь: 7 байт на запись, порог `0x7526` проверяется до добавления, поэтому 4285-е нажатие (29988 + 7 = 29995) ещё проходит; тик 1 отдаёт часть, тик 2 — остаток, сумма ровно 4300, третий тик пуст |
+| `test_runtime_build_world_keeps_non_switch_events` | `build_world()` с другой таблицей свитчей: старая type-2 запись не диспатчится по новой таблице (не 111 и не 222), а create-событие вещи (type 3) переживает пересборку и уезжает в `generated` ровно один раз; новый свитч с тем же индексом после этого бьёт 222 |
 | `test_runtime_projectile_blasts_expire` | expire-снаряд в центре игрока и вещи: один blast (`expire_blasts`, hull 2000 → armor/hp 8000), 2 попадания, 2 type-3 записи в очереди; повторный вызов без тика — `blasts == 0`, `already_applied == 1`, урон не меняется; на следующем тике события уезжают в `generated` ровно один раз, а `already_spent`-повтор expiry не бьёт |
 | `test_runtime_projectile_blasts_bounce` | пол из двух треугольников: bounce бьёт по `impact_blasts` (hull 1000 у игрока, 400 у вещи на d=30 при радиусе 50), `flying` между bounce'ами не бьёт, второй bounce нового тика бьёт ещё раз, повтор вызова — 0 |
 | `test_runtime_player_vitals` | собственные виталы: размер не равен списку глаз → `false` без записи; blast через `apply_projectile_blasts_to_players()` снимает 100 щита (400 plate >> 2) и 1300 брони (1000 hull + 300 пролитого plate), повтор без тика — 0, смешанный вызов с явным спаном тоже 0; смена числа глаз сбрасывает виталы, `clear_players()`/`reset()` очищают; без виталов попадание считается, урон не применяется |
+| `test_runtime_projectile_blasts_mixed_owners` | флот из двух снарядов разных владельцев, оба взрываются в середине между двумя игроками: per-record контексты (`source_player = 0/1`) дают по одному попаданию в каждого (750 брони), общий контекст на флот бьёт только player 1 дважды (10000/8500), короткий спан — `blasts == 1`, `skipped_no_context == 1`, второй игрок не получает урона ни при `only_new = true`, ни при `false` |
 | `test_runtime_determinism` | 12 тиков с дверью, вещами, AI и снарядом: хеши состояний двух рантаймов совпадают, `reset()` + повторная сборка дают тот же поток; дверь за 12 тиков уходит на `phase = 18000` |
 
 Фикстуры синтетические (SWITCH/DOOR-записи + `.sbw` из одного объекта или пола
@@ -411,6 +452,11 @@ ctest --test-dir build/dev -R '^game_state$' --output-on-failure
   `store_thing_vitals()`, игроки — либо в собственные `player_vitals_`, либо в
   спан вызывающего), а события попаданий постятся в центре взрыва,
   потому что координаты цели в оригинальном пути не доказаны.
+* Связь «снаряд → владелец» мост не выводит сам: `source_player`/`source_thing`
+  per-record контекста задаёт вызывающий (обычно из
+  `projectiles().list()[i].spawn`). `source_thing` — это индекс цели в
+  `things().things()`, как в `apply_blast()`, а не `Thing::id`; маппинг id →
+  индекс не доказан и не подставляется.
 * `player_vitals_` — только цель blast-моста: `Ai` их не читает (у scaffold нет
   гейджей игроков), в сейв/`GameState` они не переносятся (этот слой не
   владеет `GameState`), а смена числа точек глаз сбрасывает их, чтобы индексы
