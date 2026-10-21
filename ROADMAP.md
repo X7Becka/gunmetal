@@ -652,6 +652,8 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > (`take/drain_weapon_shots`) и `spawn_ai_shots` → `Projectiles`;
       > `GameRuntime::ai_shots_to_projectiles` (opt-in) сам дренирует очередь
       > в свой тик и выдаёт AI-снарядам отдельные runtime-id `0x10000+`.
+      > `apply_projectile_blasts` применяет bounce/expire blast один раз на
+      > поколение `last_projectile_results`; оружие/vitals выбирает вызывающий.
       > Урон/патроны и привязка `event_id` к типу остаются игровому слою.
       > pathfinding/RNG и интегратор ω по-прежнему отсутствуют.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
