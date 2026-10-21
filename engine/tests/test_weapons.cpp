@@ -14,6 +14,7 @@
 // Negatives: slot outside 0..11, mask bit clear, table entry missing,
 // magazine 0 with a capacity, projectile speed 0, NaN direction, negative and
 // NaN damage, and a weapon fire period of 0 (no cooldown).
+#include "game/projectile.h"
 #include "game/weapons.h"
 
 #include "world/things.h"
@@ -800,6 +801,17 @@ void test_blast_and_thing_damage() {
     CHECK_EQ(runtime_thing.health, 500);
     CHECK_EQ(runtime_thing.shields[0], 0);
     CHECK(runtime_thing.alive);
+
+    // max_health == 0 is the original damage-immune marker.
+    gm::ThingVitals immune;
+    immune.hp = 100;
+    immune.max_hp = 0;
+    immune.alive = true;
+    tr = gm::apply_thing_damage(immune, 1000, 0, 0, 0);
+    CHECK(tr.ok);
+    CHECK(!tr.dead);
+    CHECK_EQ(immune.hp, 100);
+    CHECK_EQ(immune.shields[0], 0);
 }
 
 void test_runtime_blast_bridge() {
@@ -1626,6 +1638,7 @@ void test_weapon_impact_event() {
     weapon.impact_event = 1234;
     gm::ShotResult shot;
     shot.ok = true;
+    shot.hit = true;
     shot.point = {1.0, 2.0, 3.0};
     gm::EventQueue queue;
     CHECK(gm::post_weapon_impact(queue, weapon, shot, 0x11));
@@ -1643,6 +1656,13 @@ void test_weapon_impact_event() {
     shot.ok = false;
     weapon.impact_event = 1234;
     CHECK(!gm::post_weapon_impact(queue, weapon, shot));
+    shot.ok = true;
+    shot.hit = false;
+    CHECK(!gm::post_weapon_impact(queue, weapon, shot));
+    shot.hit = true;
+    gm::Weapon not_hitscan = weapon;
+    not_hitscan.hitscan = false;
+    CHECK(!gm::post_weapon_impact(queue, not_hitscan, shot));
 }
 
 
@@ -1679,6 +1699,205 @@ void test_spawned_thing_damage() {
     if (destroyed.events.size() == 1) {
         CHECK_EQ(destroyed.events[0].id, 881);
     }
+    const gm::ThingDamageResult again =
+        gm::apply_thing_damage(things, id, 0, 1, 0, -1, &queue);
+    CHECK(!again.ok);
+    CHECK(queue.empty());
+}
+
+
+void test_projectile_core() {
+    const gm::ProjectileTargets no_targets;
+
+    // Straight flight: 10 ticks at 2 units/tick, no gravity, no lifetime hit.
+    gm::ProjectileState straight;
+    straight.spawn.position = {0.0, 0.0, 0.0};
+    straight.spawn.direction = {1.0, 0.0, 0.0};
+    straight.spawn.speed = 2.0;
+    straight.spawn.life_ticks = 364;
+    straight.position = straight.spawn.position;
+    straight.direction = straight.spawn.direction;
+    straight.speed = straight.spawn.speed;
+    straight.life_left = straight.spawn.life_ticks;
+    for (int i = 0; i < 10; ++i) {
+        const gm::ProjectileTickResult r =
+            gm::projectile_step(straight, no_targets, gm::CollisionWorld{}, 1);
+        CHECK(r.status == gm::ProjectileStatus::flying);
+        CHECK_EQ(r.events.size(), 0U);
+    }
+    CHECK_NEAR(straight.position.x, 20.0, 1e-12);
+    CHECK_NEAR(straight.position.z, 0.0, 0.0);
+    CHECK_EQ(straight.life_left, 354);
+
+    // Semi-implicit gravity: z = -0.2*n*(n+1)/2 after n ticks.
+    gm::ProjectileState falling;
+    falling.spawn.gravity = 1.0;
+    falling.spawn.level_gravity = 1.0;
+    falling.spawn.direction = {1.0, 0.0, 0.0};
+    falling.position = {0.0, 0.0, 0.0};
+    falling.direction = falling.spawn.direction;
+    for (int i = 0; i < 10; ++i) {
+        gm::projectile_step(falling, no_targets, gm::CollisionWorld{}, 1);
+    }
+    CHECK_NEAR(falling.position.z, -11.0, 1e-12);
+    CHECK_NEAR(falling.vertical_speed, 2.0, 1e-12);
+
+    // Floor at z=0, sphere radius 10: one 8-tick step reaches the contact.
+    std::vector<TriSpec> floor;
+    add_quad(floor, {-100.0, 100.0, 0.0}, {-100.0, -100.0, 0.0},
+             {100.0, -100.0, 0.0}, {100.0, 100.0, 0.0});
+    const gm::CollisionWorld world = build_world(floor);
+
+    gm::ProjectileState bounce;
+    bounce.spawn.direction = {0.0, 0.0, -1.0};
+    bounce.spawn.speed = 2.0;
+    bounce.spawn.radius = 10.0;
+    bounce.spawn.damping = 0.8;
+    bounce.spawn.collide_event = 77;
+    bounce.position = {0.0, 0.0, 25.0};
+    bounce.direction = {0.0, 0.0, -1.0};
+    bounce.speed = 2.0;
+    bounce.damping = 0.8;
+    gm::ProjectileTickResult bounced;
+    for (int i = 0; i < 8; ++i) {
+        bounced = gm::projectile_step(bounce, no_targets, world, 1);
+        if (bounced.status == gm::ProjectileStatus::bounced) {
+            break;
+        }
+    }
+    CHECK(bounced.status == gm::ProjectileStatus::bounced);
+    CHECK_NEAR(bounce.position.z, 10.0, 1e-9);
+    CHECK_NEAR(bounce.direction.z, 1.0, 1e-12);
+    CHECK_NEAR(bounce.speed, 0.8, 1e-12); // 2 * 0.8 * 0.5 (vertical damping)
+    CHECK_EQ(bounced.events.size(), 1U);
+    if (bounced.events.size() == 1) {
+        CHECK_EQ(bounced.events[0].id, 77U);
+        CHECK_NEAR(bounced.events[0].position.z, 11.0, 1e-12);
+    }
+
+    // hits_left == 1: the first contact expires and posts no collide event.
+    gm::ProjectileState one_hit;
+    one_hit.spawn.hits_left = 1;
+    one_hit.spawn.radius = 10.0;
+    one_hit.spawn.damping = 0.8;
+    one_hit.spawn.expire_event = 88;
+    one_hit.spawn.collide_event = 77;
+    one_hit.position = {0.0, 0.0, 25.0};
+    one_hit.direction = {0.0, 0.0, -1.0};
+    one_hit.speed = 2.0;
+    one_hit.hits_left = 1;
+    gm::ProjectileTickResult expired;
+    for (int i = 0; i < 8; ++i) {
+        expired = gm::projectile_step(one_hit, no_targets, world, 1);
+        if (expired.status == gm::ProjectileStatus::expired) {
+            break;
+        }
+    }
+    CHECK(expired.status == gm::ProjectileStatus::expired);
+    CHECK_EQ(one_hit.hits_left, 0);
+    CHECK_EQ(expired.events.size(), 1U);
+    if (expired.events.size() == 1) {
+        CHECK_EQ(expired.events[0].id, 88U);
+    }
+
+    // Lifetime is decremented before movement; the exact boundary expires.
+    gm::ProjectileState timed;
+    timed.position = {0.0, 0.0, 0.0};
+    timed.direction = {1.0, 0.0, 0.0};
+    timed.spawn.life_ticks = 2;
+    timed.spawn.expire_event = 99;
+    timed.life_left = 2;
+    CHECK(gm::projectile_step(timed, no_targets, gm::CollisionWorld{}, 1).status ==
+          gm::ProjectileStatus::flying);
+    const gm::ProjectileTickResult last =
+        gm::projectile_step(timed, no_targets, gm::CollisionWorld{}, 1);
+    CHECK(last.status == gm::ProjectileStatus::expired);
+    CHECK(timed.spent);
+    CHECK_EQ(last.events.size(), 1U);
+    CHECK(gm::projectile_step(timed, no_targets, gm::CollisionWorld{}, 1).events.empty());
+
+    // Proximity: the player is checked at the current position, movement waits.
+    const std::array<gm::Vec3d, 1> player_pos = {{{20.0, 0.0, 0.0}}};
+    const std::array<double, 1> player_radius = {{5.0}};
+    const std::array<std::uint8_t, 1> player_kind = {{1}};
+    const std::array<std::uint8_t, 1> player_object = {{1}};
+    gm::ProjectileTargets targets;
+    targets.player_positions = player_pos;
+    targets.player_radii = player_radius;
+    targets.player_kind = player_kind;
+    targets.player_has_object = player_object;
+    gm::ProjectileState grenade;
+    grenade.spawn.thing_id = 3;
+    grenade.spawn.proximity.push_back(gm::ProximityEntry{123, 0, 20, 0, {}});
+    grenade.position = {0.0, 0.0, 0.0};
+    grenade.direction = {1.0, 0.0, 0.0};
+    grenade.speed = 2.0;
+    const gm::ProjectileTickResult prox =
+        gm::projectile_step(grenade, targets, gm::CollisionWorld{}, 1);
+    CHECK(prox.status == gm::ProjectileStatus::proximity);
+    CHECK_NEAR(grenade.position.x, 0.0, 0.0);
+    CHECK_EQ(prox.events.size(), 1U);
+    if (prox.events.size() == 1) {
+        CHECK_EQ(prox.events[0].id, 123U);
+        CHECK_EQ(prox.events[0].extra, (0U << 16) | (8U + 3U));
+    }
+
+    // The owner class is deterministic and posts create/expire events.
+    gm::ProjectileSpawn spawn;
+    spawn.thing_id = 5;
+    spawn.position = {0.0, 0.0, 0.0};
+    spawn.direction = {1.0, 0.0, 0.0};
+    spawn.speed = 2.0;
+    spawn.life_ticks = 2;
+    spawn.create_event = 55;
+    spawn.expire_event = 66;
+    gm::Projectiles projectiles;
+    gm::EventQueue queue;
+    CHECK_EQ(projectiles.spawn(spawn, &queue), 0);
+    CHECK_EQ(projectiles.spawn(spawn, &queue), -1);
+    CHECK(projectiles.by_thing_id(5) != nullptr);
+    const gm::EventParseResult created = queue.drain();
+    CHECK_EQ(created.events.size(), 1U);
+    if (created.events.size() == 1) {
+        CHECK_EQ(created.events[0].id, 55);
+    }
+    projectiles.tick(1, no_targets, gm::CollisionWorld{}, &queue);
+    CHECK(queue.empty());
+    CHECK(projectiles.by_thing_id(5)->life_left == 1);
+    projectiles.tick(1, no_targets, gm::CollisionWorld{}, &queue);
+    const gm::EventParseResult expired_owner = queue.drain();
+    CHECK_EQ(expired_owner.events.size(), 1U);
+    if (expired_owner.events.size() == 1) {
+        CHECK_EQ(expired_owner.events[0].id, 66);
+    }
+    CHECK(projectiles.by_thing_id(5)->spent);
+    CHECK(!projectiles.remove(5) || projectiles.by_thing_id(5)->dead);
+
+    // The Thing adapter copies only the proven THING_TYPES fields.
+    gm::Thing source;
+    source.id = 9;
+    source.gravity = 1.0;
+    source.damping = 0.8;
+    source.collision_shape = 2;
+    source.radius = 10.0;
+    source.box = {4.0, 10.0, 4.0};
+    source.hits_left = 1;
+    source.expire_ticks = 20;
+    source.collide_event = 1;
+    source.expire_event = 2;
+    source.destroy_event = 3;
+    source.timeout_event = 4;
+    source.create_event = 5;
+    const gm::ProjectileState from_thing =
+        gm::projectile_spawn_from_thing(source, {1.0, 2.0, 3.0},
+                                        {0.0, 0.0, 1.0}, 7.0, 0, -1);
+    CHECK_EQ(from_thing.spawn.thing_id, 9);
+    CHECK_NEAR(from_thing.spawn.gravity, 1.0, 0.0);
+    CHECK_NEAR(from_thing.spawn.damping, 0.8, 0.0);
+    CHECK_EQ(from_thing.spawn.shape, 2);
+    CHECK_NEAR(from_thing.spawn.box[1], 10.0, 0.0);
+    CHECK_EQ(from_thing.hits_left, 1);
+    CHECK_EQ(from_thing.life_left, 20);
 }
 
 int main() {
@@ -1694,6 +1913,7 @@ int main() {
     test_damage_and_armor();
     test_damage_gauge();
     test_negatives_synthetic();
+    test_projectile_core();
     test_weapon_impact_event();
     test_spawned_thing_damage();
 

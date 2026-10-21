@@ -177,7 +177,11 @@ Source-relative вещь без мировой точки даёт коорди�
 (0…0x200) + `count` записей по 0x20 байт в порядке полей выше. C++
 `EventDispatcher::serialize()`/`deserialize()` повторяют этот формат;
 `install_switches()` переносит `ADD_SWITCH` (`Switch::id` → индекс,
-`target` → event id, `kind`/`pos` → поля) в ту же таблицу. Осталось
+`target` → event id, `kind`/`pos` → поля) в ту же таблицу. Центроид
+(`SwitchEffect::centroid`) — runtime-поле и в 0x20-байтовый файл не входит;
+после `serialize→deserialize` запись использует сохранённые `x/y/z`.
+`parse_network_blob`/`parse_event_queue` отвергают type-2 с индексом
+`>= 0x200` целиком (как испорченную очередь). Осталось
 подключить чтение/запись файла `0x5a4af0` к игровому циклу.
 
 ### 2.3. Сетевой блоб событий

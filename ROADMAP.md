@@ -602,7 +602,11 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > `variant_for_power`/`select_blasts_at_power`. `projectile_speed`
       > теперь `THING_TYPES+0x10 × 91` (ед/тик доказаны `0x4752d0`);
       > `fire(..., charge)` применяет `charge*operand[9]`; остаётся передать
-      > заряд из игрового слоя.
+      > заряд из игрового слоя. `game/projectile.*` (CTest `weapons`):
+      > `0x4752d0` — полунеявная гравитация, swept-сфера, отражение/damping,
+      > hits/lifetime, proximity-события и `Projectiles`; поля `Thing`
+      > (`gravity/damping/shape/radius/box`) читаются из `THING_TYPES`.
+      > Таблица близости и RGM/homing ещё не подключены.
 - 🟡 `M2.2.7` AI/things: состояния, path, дети, мораль, оружие, события.
       > C++ `world/things.*` (CTest `things`/`things_full`): top-level 4008,
       > recursive 7563, executed 7617, 391 старт, 2896/2896 model refs;

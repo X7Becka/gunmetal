@@ -61,6 +61,11 @@ struct TypeTable {
     std::vector<std::string> models;
     std::vector<int> movement_types;
     std::vector<double> speeds;
+    std::vector<double> gravities;
+    std::vector<double> dampings;
+    std::vector<int> collision_shapes;
+    std::vector<double> radii;
+    std::vector<std::array<double, 3>> boxes;
     std::vector<double> search_radii;
     std::vector<int> target_zone_thresholds;
     std::vector<int> target_history_offsets;
@@ -98,6 +103,11 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.model_indices.reserve(count);
         table.movement_types.reserve(count);
         table.speeds.reserve(count);
+        table.gravities.reserve(count);
+        table.dampings.reserve(count);
+        table.collision_shapes.reserve(count);
+        table.radii.reserve(count);
+        table.boxes.reserve(count);
         table.search_radii.reserve(count);
         table.target_zone_thresholds.reserve(count);
         table.target_history_offsets.reserve(count);
@@ -126,6 +136,16 @@ TypeTable resolve_types(const SbtLevel& level) {
             }
             table.movement_types.push_back(static_cast<std::int32_t>(rd32(entry + 0x1b4)));
             table.speeds.push_back(std::bit_cast<double>(rd64(entry + 0x10)));
+            table.gravities.push_back(std::bit_cast<double>(rd64(entry + 0x78)));
+            table.dampings.push_back(std::bit_cast<double>(rd64(entry + 0x80)));
+            table.collision_shapes.push_back(
+                static_cast<std::int32_t>(rd32(entry + 0x1a0)));
+            table.radii.push_back(std::bit_cast<double>(rd64(entry + 0x30)));
+            std::array<double, 3> box{};
+            for (std::size_t b = 0; b < box.size(); ++b) {
+                box[b] = std::bit_cast<double>(rd64(entry + 0x38 + b * 8));
+            }
+            table.boxes.push_back(box);
             table.search_radii.push_back(std::bit_cast<double>(rd64(entry + 0x58)));
             table.target_zone_thresholds.push_back(
                 static_cast<std::int32_t>(rd32(entry + 0x1cc)));
@@ -160,6 +180,11 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     const auto i = static_cast<std::size_t>(thing.type);
     thing.movement_type = types.movement_types[i];
     thing.speed = types.speeds[i];
+    thing.gravity = types.gravities[i];
+    thing.damping = types.dampings[i];
+    thing.collision_shape = types.collision_shapes[i];
+    thing.radius = types.radii[i];
+    thing.box = types.boxes[i];
     thing.search_radius = types.search_radii[i];
     thing.target_zone_threshold = types.target_zone_thresholds[i];
     thing.target_history_offset = types.target_history_offsets[i];
@@ -393,6 +418,11 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     ThingTypeEvents out;
     out.type = type;
     out.speed = types.speeds[index];
+    out.gravity = types.gravities[index];
+    out.damping = types.dampings[index];
+    out.collision_shape = types.collision_shapes[index];
+    out.radius = types.radii[index];
+    out.box = types.boxes[index];
     out.expire_ticks = types.expire_ticks[index];
     out.collide_event = types.collide_events[index];
     out.expire_event = types.expire_events[index];

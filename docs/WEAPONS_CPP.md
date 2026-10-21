@@ -115,7 +115,7 @@ struct Arsenal {
 | `apply_blast_damage` | `apply_blast` + `apply_damage_gauge` для игроков и `apply_thing_damage` для THING; возвращает hits с результатами. |
 | `apply_weapon_blast` | выбирает `impact_blasts`/`expire_blasts` по контексту (`expired`, вода, земля, DM) и применяет их через `apply_blast_damage`; события остаются в `hits` для `event_post`. |
 | `apply_weapon_inline` | применяет `inline_blasts` (EMP-кольца) в точке выстрела; интервалы `SLEEP 22` остаются вызывающему слою. |
-| `post_weapon_impact` | постит hitscan `impact_event` в `ShotResult.point` (`event_post`); для оружия без события — `false`. |
+| `post_weapon_impact` | постит hitscan `impact_event` в `ShotResult.point` (`event_post`) **только при `shot.ok && shot.hit && weapon.hitscan`**; для оружия без события или промаха — `false`. |
 | `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |
 | `thing_vitals` / `store_thing_vitals` | мост между runtime `Thing` (`+0x1d4/+0x1d8/+0x1c8`) и `ThingVitals`; позволяет blast’у обновить ту же вещь, которую читает AI/рендер. |
 | `apply_thing_damage(Thing&, ...)` | та же ветка `0x470500`, сразу пишет HP/щиты/статусы обратно в runtime `Thing`; AI видит результат на следующем `sync_vitals`. |
@@ -380,8 +380,8 @@ DM-only blast’а плюс общий статус, поэтому DM и non-DM
 (`expired=false`), на истечение — expire (`expired=true`), фильтрует контекст
 и применяет каждый blast к игрокам/THING. `projectile_speed` теперь
 `THING_TYPES+0x10 × 91` (ед/тик, доказано `0x4752d0`); 12000 остаётся только
-fallback’ом для типа без скорости. `charge*operand[9]` ещё должен добавить
-игровой слой.
+fallback’ом для типа без скорости. `fire(..., charge)` уже добавляет
+`charge*operand[9]` к скорости; игровому слою остаётся передать заряд.
 
 ---
 
@@ -479,8 +479,9 @@ fallback’ом для типа без скорости. `charge*operand[9]` е�
 
 1. **Скорость и тип снаряда.** Цепочка `FIRE_SOURCEPLAYER_THING` →
    `0x46ea40` → `0x46d8b0` найдена; базовая скорость
-   `THING_TYPES[type].+0x10 × 91` уже в `projectile_speed`. Осталось
-   применить `charge*operand[9]` в игровом слое (поле `projectile_charge`).
+   `THING_TYPES[type].+0x10 × 91` уже в `projectile_speed`, а
+   `fire(..., charge)` применяет `charge*operand[9]`. Осталось передать
+   заряд из игрового слоя.
 2. **Hitscan.** Режим выбирается по первому условию подскрипта:
    BULLET/LASER → hitscan, THING → объект. Для BULLET/LASER найдены
    `0x478520`/`0x478be0`, дистанция, impact event, урон `L2`/`L4` и конус

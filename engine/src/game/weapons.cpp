@@ -998,7 +998,8 @@ ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
 
 bool post_weapon_impact(EventQueue& queue, const Weapon& weapon,
                         const ShotResult& shot, std::uint32_t source) {
-    if (!shot.ok || weapon.impact_event == 0) {
+    if (!shot.ok || !shot.hit || !weapon.hitscan ||
+        weapon.impact_event == 0) {
         return false;
     }
     return queue.post_generate(static_cast<std::int32_t>(weapon.impact_event), 0,
@@ -1428,6 +1429,11 @@ ThingDamageResult apply_thing_damage(ThingVitals& vitals, std::int32_t plate,
         result.error = "shield side outside -1..3";
         return result;
     }
+    if (vitals.max_hp == 0) {
+        // THING_TYPES+0x1d4 == 0 is the original's damage-immune marker.
+        result.ok = true;
+        return result;
+    }
     if (plate < 0) {
         // 0x470500 status path: -1 adds (hull * 91)/100 to the burn timer and
         // sets 0x40 once it reaches one; -2 sets 0x18 (frozen) unless 0x40 is
@@ -1541,7 +1547,7 @@ ThingDamageResult apply_thing_damage(Things& things, int id,
                                      std::uint32_t flags, int side,
                                      EventQueue* events) {
     Thing* thing = things.by_id(id);
-    if (thing == nullptr) {
+    if (thing == nullptr || !thing->alive) {
         ThingDamageResult missing;
         missing.ok = false;
         return missing;

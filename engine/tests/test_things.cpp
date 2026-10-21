@@ -56,6 +56,17 @@ int g_failures = 0;
         }                                                                                    \
     } while (0)
 
+#define CHECK_NEAR(a, b, eps)                                                                \
+    do {                                                                                     \
+        const double va = (a);                                                               \
+        const double vb = (b);                                                               \
+        if (!(std::fabs(va - vb) <= (eps))) {                                                \
+            std::fprintf(stderr, "FAIL %s:%d: %s=%.17g != %s=%.17g\n", __FILE__, __LINE__,   \
+                         #a, va, #b, vb);                                                    \
+            ++g_failures;                                                                    \
+        }                                                                                    \
+    } while (0)
+
 #define CHECK_STR(a, b)                                                                      \
     do {                                                                                     \
         const std::string va = (a);                                                          \
@@ -629,6 +640,13 @@ void test_type_events() {
         CHECK_EQ(rocket->expire_event, static_cast<std::uint32_t>(-30103));
         CHECK_EQ(rocket->create_event, static_cast<std::uint32_t>(-30104));
         CHECK_EQ(rocket->damaged_event, 0u);
+        CHECK_NEAR(rocket->gravity, 0.0, 0.0);
+        CHECK_NEAR(rocket->damping, 0.8, 0.0);
+        CHECK_EQ(rocket->collision_shape, 2);
+        CHECK_NEAR(rocket->radius, 10.0, 0.0); // params[4], unused for shape 2
+        CHECK_NEAR(rocket->box[0], 4.0, 0.0);
+        CHECK_NEAR(rocket->box[1], 10.0, 0.0);
+        CHECK_NEAR(rocket->box[2], 4.0, 0.0);
     }
     const auto grenade = gm::thing_type_events(level, 28);
     CHECK(grenade.has_value());
@@ -637,6 +655,10 @@ void test_type_events() {
         CHECK_EQ(grenade->collide_event, static_cast<std::uint32_t>(-30094));
         CHECK_EQ(grenade->expire_event, static_cast<std::uint32_t>(-30093));
         CHECK_EQ(grenade->create_event, 0u);
+        CHECK_NEAR(grenade->gravity, 1.0, 0.0);
+        CHECK_NEAR(grenade->damping, 0.8, 0.0);
+        CHECK_EQ(grenade->collision_shape, 1);
+        CHECK_NEAR(grenade->radius, 10.0, 0.0);
     }
     CHECK(!gm::thing_type_events(level, -1).has_value());
     CHECK(!gm::thing_type_events(level, 100000).has_value());

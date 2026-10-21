@@ -111,7 +111,7 @@ struct AiAgent {
 виталями вещи).
 
 `events()` возвращает упорядоченный журнал `AiEvent { type, thing_id, from, to,
-value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
+target, target_thing, aim, value, tick }`; `tick` 1-based, у `attach` — 0. Типы: `attach`, `sight`,
 `lost_sight`, `state`, `attack`, `damage`, `death`, `leash`, `arrived`.
 `clear_events()` очищает только журнал, не состояние.
 
