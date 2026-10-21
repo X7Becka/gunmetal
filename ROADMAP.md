@@ -634,8 +634,10 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > aim_point, patrol/return → home), leash-кламп и stats; default
       > сохраняет прежнее поведение. A3: `move_standoff`/`move_standoff_backoff`,
       > удержание окна, отход при `d+60 <= standoff`, `standoff_holds`/
-      > `retreat_steps`, столкновение и leash. Реального оружия, pathfinding
-      > и интегратора ω по-прежнему нет.
+      > `retreat_steps`, столкновение и leash. A4: чистый path-автомат
+      > (`path`/`loop`/`expire`, 32 точки) покрыт тестами; к `Ai::tick`
+      > ещё не подключён. Реального оружия, pathfinding/RNG и интегратора ω
+      > по-прежнему нет.
 - 🟡 `M2.2.8` Мир: двери, переключатели, лифты, коллизии, триггеры.
       > C++ `render/collide.*` (CTest `collide`): 3162 треугольника level0,
       > ray/sphere vs triangle, floor, AABB broad-phase, double, без аллокаций;
