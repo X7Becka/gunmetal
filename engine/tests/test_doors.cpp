@@ -381,6 +381,61 @@ void test_synthetic() {
     }
 }
 
+// QA F4: a pending tail that spans several presses must post every record with
+// the source of *its own* press.  The old code kept one source for the whole
+// tail (the first caller's), so the second press inherited source 2 instead of
+// its own 7.
+void test_switch_source_tail() {
+    std::string error;
+    gm::WorldState state = build_synthetic(&error);
+    CHECK(error.empty());
+
+    // A deliberately tiny queue: two type-2 records fit, the third is refused.
+    gm::EventQueue queue(gm::EventQueue::kType2Size);
+    CHECK(queue.post_switch(9, 0)); // filler, keeps the queue full
+    CHECK(queue.post_switch(9, 0));
+    CHECK(!queue.post_switch(9, 0));
+
+    // First press (source 2) cannot be queued: it stays pending with source 2.
+    CHECK(state.interact(0)); // switch 0 -> door 100
+    CHECK_EQ(state.post_switch_events(queue, 2), 0U);
+    // Second press (source 7) also stays pending, but with *its* source.
+    CHECK(state.interact(1)); // switch 1 -> door 200
+    CHECK_EQ(state.post_switch_events(queue, 7), 0U);
+    state.tick(1); // both pending records survive the tick
+    CHECK_EQ(state.post_switch_events(queue, 3), 0U); // still full, still blocked
+
+    const gm::EventParseResult filler = queue.drain();
+    CHECK_EQ(filler.events.size(), 2u);
+
+    // Retry from a third caller: the per-record sources win over `source=5`.
+    CHECK_EQ(state.post_switch_events(queue, 5), 2U);
+    const gm::EventParseResult tail = queue.drain();
+    CHECK_EQ(tail.events.size(), 2u);
+    if (tail.events.size() == 2) {
+        CHECK(tail.events[0].type == gm::EventType::trigger_switch);
+        CHECK_EQ(tail.events[0].switch_index, 0U);
+        CHECK_EQ(tail.events[0].source, 2);
+        CHECK(tail.events[1].type == gm::EventType::trigger_switch);
+        CHECK_EQ(tail.events[1].switch_index, 1U);
+        CHECK_EQ(tail.events[1].source, 7);
+    }
+    // Fully drained: no duplicate records on a further call.
+    CHECK_EQ(state.post_switch_events(queue, 9), 0U);
+    CHECK(queue.empty());
+
+    // Same rule without a full queue: each press is posted with its own source.
+    state.clear_events();
+    CHECK(state.interact(2));
+    gm::EventQueue single;
+    CHECK_EQ(state.post_switch_events(single, 4), 1U);
+    const gm::EventParseResult first = single.drain();
+    CHECK_EQ(first.events.size(), 1u);
+    if (first.events.size() == 1u) {
+        CHECK_EQ(first.events[0].source, 4);
+    }
+}
+
 void test_negatives() {
     // Out-of-range object: the door exists, is counted, and is left unbound.
     {
@@ -633,6 +688,7 @@ void test_corpus() {
 int main(int argc, char** argv) {
     const bool full = argc > 1 && std::string(argv[1]) == "--full";
     test_synthetic();
+    test_switch_source_tail();
     test_negatives();
     test_real_dm1();
     if (full) {
