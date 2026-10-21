@@ -777,8 +777,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > (13/13 слотов против оракула), `save_sector_stuff`, `vm`. Осталось:
       > `SET_SOURCE/HANDLESECTOR_*` (27–31, 40–45); семантика материалов,
       > overlay/scroll/anim/links, флаги `obj+0x70/0x80/0x90`, конверсия
-      > `f32`-заголовка в `f64`-трансформ (адрес прохода не найден; кадр
-      > `origin + 1.875·local` подтверждён данными).
+      > `f32`-заголовка в `f64`-трансформ — **закрыто**: заголовок уже
+      > `12 × f64`, `world = origin + basis·local`, базис единичный
+      > (CTest `sbw_transform`, `docs/WORLD_FIELDS.md` §3.1).
 - 🟡 `M2.3.3` Thing type / thing instance (`0x776d60`, `0x7ac3ec`, шаг `0x528`).
       > `docs/THING_FIELDS.md` + `tools/re/thing_fields.py`
       > (`--map/--verify/--extract/--self-test`; 36 уровней, 2896/2896 типов
