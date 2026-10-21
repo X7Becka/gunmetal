@@ -543,6 +543,14 @@ std::size_t install_switches(EventDispatcher& dispatcher,
     return installed;
 }
 
+std::size_t EventRuntime::install_switches(std::span<const Switch> switches) {
+    return gm::install_switches(dispatcher_, switches);
+}
+
+EventDispatchResult EventRuntime::pump(std::uint32_t now) {
+    return dispatcher_.dispatch(queue_, now, text_);
+}
+
 std::vector<std::uint8_t> EventDispatcher::serialize() const {
     std::vector<std::uint8_t> out;
     put_u32(out, static_cast<std::uint32_t>(count_));

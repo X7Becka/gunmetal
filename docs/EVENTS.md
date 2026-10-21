@@ -177,7 +177,10 @@ Source-relative вещь без мировой точки даёт коорди�
 (0…0x200) + `count` записей по 0x20 байт в порядке полей выше. C++
 `EventDispatcher::serialize()`/`deserialize()` повторяют этот формат;
 `install_switches()` переносит `ADD_SWITCH` (`Switch::id` → индекс,
-`target` → event id, `kind`/`pos` → поля) в ту же таблицу. Центроид
+`target` → event id, `kind`/`pos` → поля) в ту же таблицу.
+`EventRuntime` связывает `EventQueue` + `EventDispatcher` + `TextRegistry`:
+`install_switches`, `pump(now)` (drain → dispatch) и доступ к частям; тест
+`test_event_runtime`. Центроид
 (`SwitchEffect::centroid`) — runtime-поле и в 0x20-байтовый файл не входит;
 после `serialize→deserialize` запись использует сохранённые `x/y/z`.
 `parse_network_blob`/`parse_event_queue` отвергают type-2 с индексом

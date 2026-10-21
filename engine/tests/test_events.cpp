@@ -561,6 +561,29 @@ void test_thing_events() {
 
 } // namespace
 
+
+void test_event_runtime() {
+    gm::EventRuntime runtime;
+    gm::SwitchEffect effect;
+    effect.kind = 0;
+    effect.event_id = 1234;
+    effect.x = 10;
+    effect.y = 20;
+    effect.z = 30;
+    CHECK(runtime.dispatcher().set_switch(0, effect));
+    CHECK(runtime.queue().post_switch(0, 7));
+    const gm::EventDispatchResult dispatched = runtime.pump(0);
+    CHECK(dispatched.ok);
+    CHECK_EQ(dispatched.generated.size(), 1U);
+    if (dispatched.generated.size() == 1) {
+        CHECK_EQ(dispatched.generated[0].id, 1234);
+        CHECK_EQ(dispatched.generated[0].x, 10);
+        CHECK_EQ(dispatched.generated[0].extra,
+                 static_cast<std::uint32_t>(7 - 0x10000));
+    }
+    CHECK(runtime.queue().empty());
+}
+
 int main() {
     test_type3();
     test_type1();
@@ -570,6 +593,7 @@ int main() {
     test_bad_records();
     test_text_registry();
     test_network_blob();
+    test_event_runtime();
     test_dispatch_switch();
     test_thing_events();
     if (g_failures != 0) {

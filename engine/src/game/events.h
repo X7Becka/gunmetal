@@ -326,4 +326,32 @@ private:
     std::vector<std::uint8_t> bytes_;
 };
 
+/// Small composition of the three runtime event pieces: queue, dispatcher
+/// table and text registry.  The game loop owns one instance and calls
+/// `pump(now)` once per tick; this is the C++ counterpart of the
+/// `event_dispatch` + registry step.
+class EventRuntime {
+public:
+    EventRuntime() = default;
+
+    EventQueue& queue() { return queue_; }
+    const EventQueue& queue() const { return queue_; }
+    EventDispatcher& dispatcher() { return dispatcher_; }
+    const EventDispatcher& dispatcher() const { return dispatcher_; }
+    TextRegistry& text() { return text_; }
+    const TextRegistry& text() const { return text_; }
+
+    /// Install `ADD_SWITCH` records into the dispatcher table.
+    std::size_t install_switches(std::span<const Switch> switches);
+
+    /// Drain the queue through the dispatcher at `now` (91 Hz tick or the
+    /// caller's clock).
+    EventDispatchResult pump(std::uint32_t now);
+
+private:
+    EventQueue queue_;
+    EventDispatcher dispatcher_;
+    TextRegistry text_;
+};
+
 } // namespace gm
