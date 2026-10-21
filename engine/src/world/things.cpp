@@ -790,7 +790,11 @@ int Things::spawn(Thing thing, EventQueue* events) {
     int id = thing.id;
     if (id < 0) {
         id = 0;
-        while (by_id_.find(id) != by_id_.end()) {
+        while (true) {
+            const auto it = by_id_.find(id);
+            if (it == by_id_.end() || !things_[it->second].alive) {
+                break;
+            }
             ++id;
         }
     }

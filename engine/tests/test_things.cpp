@@ -940,6 +940,14 @@ void test_spawn_remove() {
     if (revived_event.events.size() == 1) {
         CHECK_EQ(revived_event.events[0].id, 702);
     }
+
+    // The automatic allocator also reuses a dead slot instead of growing.
+    CHECK(things.remove(id, &queue));
+    const std::size_t slots_before = things.things().size();
+    gm::Thing auto_revived = prototype;
+    auto_revived.create_event = 703;
+    CHECK_EQ(things.spawn(auto_revived, &queue), id);
+    CHECK_EQ(things.things().size(), slots_before);
 }
 
 } // namespace
