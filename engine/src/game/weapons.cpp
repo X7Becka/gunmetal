@@ -860,8 +860,16 @@ std::optional<Weapons> Weapons::load(const std::filesystem::path& level_path,
 
 ChargeOutcome update_charge(const Weapon& weapon, ChargeState& state,
                             bool ready, bool trigger_held, bool trigger_edge,
-                            int ticks) {
+                            int ticks, bool suppress_state_event) {
     ChargeOutcome out;
+    // 0x445a90..0x445a98: a pending state event is posted and +0x35c cleared
+    // *before* the cooldown gate; the trigger's hold bit (player+0x3340 bit
+    // 0x20) suppresses the post in the original.
+    if (state.state_event != 0 && !suppress_state_event) {
+        out.state_event_posted = true;
+        out.state_event = state.state_event;
+        state.state_event = 0;
+    }
     if (!ready) {
         // 0x445aa2: the cooldown gate runs before the charge branch.
         return out;
