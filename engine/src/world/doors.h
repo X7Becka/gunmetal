@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -176,6 +177,12 @@ public:
     /// yet posted.  `source` is copied to the record (the original takes it
     /// from the calling entity); returns the number posted.
     ///
+    /// Every pending record remembers the `source` of the call that first saw
+    /// it (`switch_event_sources_`), so a tail spanning several presses posts
+    /// each record with its own source, not the first caller's.  A record is
+    /// bound to a source exactly once: an already bound pending record keeps it
+    /// when a different caller retries after a full queue.
+    ///
     /// A cursor (`switch_event_cursor_`) advances over the already posted
     /// events, so a second call without a new `interact()` posts nothing.  A
     /// full queue stops the walk without losing the pending record:
@@ -196,9 +203,9 @@ public:
     const std::vector<WorldEvent>& events() const { return events_; }
     void clear_events() {
         events_.clear();
+        switch_event_sources_.clear();
         switch_event_cursor_ = 0;
         switch_post_blocked_ = false;
-        switch_event_source_valid_ = false;
     }
 
     Door* find_door(int id);
@@ -218,11 +225,19 @@ private:
     void advance_door(Door& door, std::uint64_t ticks);
     void advance_lift(Lift& lift, std::uint64_t ticks);
     void start_lift(Lift& lift);
+    /// Append *event* and reserve its source slot, keeping `events_` and
+    /// `switch_event_sources_` index-aligned.  A `SwitchPressed` starts
+    /// unbound: `post_switch_events` binds it to the caller's `source`.
+    void log_event(WorldEvent event);
 
     std::vector<Door> doors_;
     std::vector<Switch> switches_;
     std::vector<Lift> lifts_;
     std::vector<WorldEvent> events_;
+    /// Source bound to each `events_` entry, index-aligned.  Empty optional =
+    /// not bound yet (the press has not been posted).  Mutable because posting
+    /// is logically const, like the cursor below.
+    mutable std::vector<std::optional<std::int16_t>> switch_event_sources_;
     /// Next `events_` entry `post_switch_events` has to look at.  Mutable
     /// because posting is logically const: it does not change the world, only
     /// how far the queue mirror has consumed the event log.
@@ -230,9 +245,6 @@ private:
     /// A full queue left a switch record pending; only then does `tick()` keep
     /// the unposted tail.  Without a failed post the log is still frame-local.
     mutable bool switch_post_blocked_ = false;
-    /// First caller's source for the pending tail; a retry must not rewrite it.
-    mutable std::int16_t switch_event_source_ = 0;
-    mutable bool switch_event_source_valid_ = false;
     WorldStats stats_;
 
     // GENERATE id (any of E1..E3) -> door indices.  A vector keeps the result

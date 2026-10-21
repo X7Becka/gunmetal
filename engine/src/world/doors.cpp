@@ -283,12 +283,17 @@ void WorldState::clear() {
     switches_.clear();
     lifts_.clear();
     events_.clear();
+    switch_event_sources_.clear();
     switch_event_cursor_ = 0;
     switch_post_blocked_ = false;
-    switch_event_source_valid_ = false;
     door_targets_.clear();
     lift_targets_.clear();
     stats_ = WorldStats{};
+}
+
+void WorldState::log_event(WorldEvent event) {
+    events_.push_back(event);
+    switch_event_sources_.push_back(std::nullopt);
 }
 
 void WorldState::add_door(Door door) {
@@ -573,14 +578,20 @@ std::size_t WorldState::post_switch_events(EventQueue& queue,
     if (switch_event_cursor_ > events_.size()) {
         switch_event_cursor_ = events_.size();
     }
+    if (switch_event_sources_.size() != events_.size()) {
+        switch_event_sources_.resize(events_.size());
+    }
     if (switch_event_cursor_ >= events_.size()) {
         switch_post_blocked_ = false;
-        switch_event_source_valid_ = false;
         return 0;
     }
-    if (!switch_event_source_valid_) {
-        switch_event_source_ = source;
-        switch_event_source_valid_ = true;
+    // Bind the source before walking: a full queue stops the walk at the first
+    // pending record, but the records that arrived with *this* call still learn
+    // their own source instead of inheriting an earlier caller's.
+    for (std::size_t i = switch_event_cursor_; i < events_.size(); ++i) {
+        if (!switch_event_sources_[i].has_value()) {
+            switch_event_sources_[i] = source;
+        }
     }
     std::size_t posted = 0;
     while (switch_event_cursor_ < events_.size()) {
@@ -592,8 +603,10 @@ std::size_t WorldState::post_switch_events(EventQueue& queue,
             ++switch_event_cursor_;
             continue;
         }
+        const std::int16_t event_source =
+            switch_event_sources_[switch_event_cursor_].value_or(source);
         if (!queue.post_switch(static_cast<std::uint32_t>(event.switch_id),
-                               switch_event_source_)) {
+                               event_source)) {
             switch_post_blocked_ = true;
             break; // full queue: keep the cursor on the pending record
         }
@@ -602,7 +615,6 @@ std::size_t WorldState::post_switch_events(EventQueue& queue,
     }
     if (switch_event_cursor_ >= events_.size()) {
         switch_post_blocked_ = false;
-        switch_event_source_valid_ = false;
     }
     return posted;
 }
@@ -614,7 +626,7 @@ bool WorldState::interact(int switch_id) {
     Switch& sw = switches_[static_cast<std::size_t>(switch_id)];
     sw.pressed = true;
     ++stats_.switch_interactions;
-    events_.push_back({WorldEvent::Kind::SwitchPressed, sw.id, sw.target, 0, 0});
+    log_event({WorldEvent::Kind::SwitchPressed, sw.id, sw.target, 0, 0});
 
     bool acted = false;
     for (const auto& row : door_targets_) {
@@ -625,8 +637,7 @@ bool WorldState::interact(int switch_id) {
             Door& door = doors_[index];
             if (door.locked) {
                 ++stats_.locked_hits;
-                events_.push_back(
-                    {WorldEvent::Kind::DoorLocked, sw.id, sw.target, door.id, 0});
+                log_event({WorldEvent::Kind::DoorLocked, sw.id, sw.target, door.id, 0});
                 acted = true;
                 continue;
             }
@@ -641,9 +652,9 @@ bool WorldState::interact(int switch_id) {
                 opening = door.phase < kDoorPhaseFull;
             }
             door.state = opening ? DoorState::Opening : DoorState::Closing;
-            events_.push_back({opening ? WorldEvent::Kind::DoorOpening
-                                       : WorldEvent::Kind::DoorClosing,
-                               sw.id, sw.target, door.id, 0});
+            log_event({opening ? WorldEvent::Kind::DoorOpening
+                               : WorldEvent::Kind::DoorClosing,
+                       sw.id, sw.target, door.id, 0});
         }
     }
     for (const auto& row : lift_targets_) {
@@ -654,13 +665,13 @@ bool WorldState::interact(int switch_id) {
         if (!lift.moving) {
             start_lift(lift);
             ++stats_.lift_calls;
-            events_.push_back({WorldEvent::Kind::LiftCalled, sw.id, sw.target, 0, lift.id});
+            log_event({WorldEvent::Kind::LiftCalled, sw.id, sw.target, 0, lift.id});
             acted = true;
         }
     }
     if (!acted) {
         ++stats_.unmatched_targets;
-        events_.push_back({WorldEvent::Kind::NoTarget, sw.id, sw.target, 0, 0});
+        log_event({WorldEvent::Kind::NoTarget, sw.id, sw.target, 0, 0});
     }
     return true;
 }
@@ -694,9 +705,9 @@ void WorldState::advance_door(Door& door, std::uint64_t ticks) {
                 door.phase = target;
                 left -= need;
                 door.state = DoorState::Closed;
-                events_.push_back({opening ? WorldEvent::Kind::DoorOpened
-                                           : WorldEvent::Kind::DoorClosed,
-                                   -1, door.id, door.id, 0});
+                log_event({opening ? WorldEvent::Kind::DoorOpened
+                                   : WorldEvent::Kind::DoorClosed,
+                           -1, door.id, door.id, 0});
                 if (opening && door.hold_ticks > 0) {
                     door.timer = door.hold_ticks;
                 }
@@ -709,8 +720,7 @@ void WorldState::advance_door(Door& door, std::uint64_t ticks) {
                 left -= door.timer;
                 door.timer = 0;
                 door.state = DoorState::Closing;
-                events_.push_back(
-                    {WorldEvent::Kind::DoorClosing, -1, door.id, door.id, 0});
+                log_event({WorldEvent::Kind::DoorClosing, -1, door.id, door.id, 0});
             }
         } else {
             break;
@@ -759,14 +769,23 @@ void WorldState::tick(std::uint64_t ticks) {
     if (switch_event_cursor_ > events_.size()) {
         switch_event_cursor_ = events_.size();
     }
+    if (switch_event_sources_.size() != events_.size()) {
+        // Defensive: keep the per-record source log index-aligned with the
+        // event log even if a caller emptied one of them by hand.
+        switch_event_sources_.resize(events_.size());
+    }
     if (switch_post_blocked_ && switch_event_cursor_ < events_.size()) {
         events_.erase(events_.begin(),
                       events_.begin() +
                           static_cast<std::ptrdiff_t>(switch_event_cursor_));
+        switch_event_sources_.erase(
+            switch_event_sources_.begin(),
+            switch_event_sources_.begin() +
+                static_cast<std::ptrdiff_t>(switch_event_cursor_));
     } else {
         events_.clear();
+        switch_event_sources_.clear();
         switch_post_blocked_ = false;
-        switch_event_source_valid_ = false;
     }
     switch_event_cursor_ = 0;
     if (ticks == 0) {
