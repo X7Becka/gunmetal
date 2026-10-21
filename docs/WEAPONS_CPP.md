@@ -406,7 +406,7 @@ thing[+0x120] = player[+0x2fa0] * FIRE_operand[9] + thing[+0x120]   // 0x46f0f0
 | `+0x2fa0` | игрок (`0x81bfe0 + i*0x3510`) | `charge`: защёлкнутое значение, идёт в спавнер | чтение `0x46f0f0`, запись `0x445afc`, `0x445d37`, сброс `0x45278a` |
 | `+0x2fa8` | игрок (`0x81bfe8`) | `accumulated`: растёт, пока курок удержан | `0x445b21`..`0x445cf1` |
 | `+0x35c` | игрок (`0x81c35c`) | дедуп события «начало заряда» | `0x445a98`, `0x445cdd` |
-| `+0x00` | оружие (f64) | `charge_rate`, прирост за тик (`d12/13`) | `0x445c49` (`FMUL` по `0x80fa00 + slot*0x2a8`) |
+| `+0x00` | оружие (f64) | `charge_rate`, прирост за тик (`d12/13 × 0.91`) | `0x445c49` (`FMUL` по `0x80fa00 + slot*0x2a8`); масштаб — `0x450d34` (`FMUL [0x4a2488]`, 0.91) |
 | `+0x24` | оружие | `fire_mode`, ветвление | `0x445ac6` |
 | `+0x34` | оружие | id события «заряд начат» | `0x445c6c` (`event_post`) |
 | `+0x38` | оружие | значение состояния, зеркалится в `+0x35c` | `0x445ce3` |
@@ -432,18 +432,21 @@ thing[+0x120] = player[+0x2fa0] * FIRE_operand[9] + thing[+0x120]   // 0x46f0f0
   поэтому «заряженное» оружие продолжает стрелять с полным зарядом.
 
 C++: `gm::ChargeState { charge, accumulated, state_event }` и
-`gm::update_charge(weapon, state, trigger_held, trigger_edge, ticks)` →
-`ChargeOutcome { fire, started, start_event, state_value }`. Кулдаун
-обрабатывает `gm::tick`, как и раньше; `update_charge` вызывается только
-когда `can_fire` разрешает. Игровому слою остаётся передать
-`state.charge` в `fire(...)`.
+`gm::update_charge(weapon, state, ready, trigger_held, trigger_edge, ticks)`
+→ `ChargeOutcome { fire, started, start_event, state_value }`. `ready` —
+это `arsenal.cooldown[slot] == 0`: оригинал на `0x445aa2` выходит до ветки
+заряда, пока кулдаун положителен, поэтому остывающее оружие не накапливает
+заряд. Кулдаун по-прежнему ведёт `gm::tick`. Игровому слою остаётся
+передать `state.charge` в `fire(...)`.
 
 Данные `level0` (`DEFINE_WEAPONS`): зарядных оружий два — **GRENADE**
 (слот 4) и **VIRAL AGENT** (слот 5), оба `fire_mode=2`,
-`charge_rate=0.015` за тик (66.7 тика ≈ 0.73 с до полного),
-`fire_period=40`. У остальных 17 записей `fire_mode=1`, `charge_rate=0`.
-Проверка в CTest `weapons`: 66 тиков удержания дают `accumulated=0.99`,
-отпускание стреляет с `charge=0.99` (+1441.4 ед/с к базовой скорости).
+файловый `charge_rate=0.015`, в памяти `× 0.91 = 0.01365` за тик
+(73.26 тика ≈ 0.81 с до полного), `fire_period=40`. У остальных 17 записей
+`fire_mode=1`, `charge_rate=0`. Проверка в CTest `weapons`: 73 тика
+удержания дают `accumulated=0.99645`, отпускание стреляет с тем же
+`charge` (+1450.8 ед/с к базовой скорости); вызов с `ready=false`
+не накапливает и не стреляет.
 
 ---
 

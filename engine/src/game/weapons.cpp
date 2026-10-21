@@ -716,7 +716,9 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
         weapon.weight = as_uint(v[9]);
         weapon.flags = as_uint(v[10]);
         weapon.class_index = static_cast<int>(as_uint(v[11]));
-        weapon.charge_rate = as_real(v[12]);
+        // 0x450d34: the runtime field is the file value scaled by 0.91
+        // (`docs/WEAPON_FIELDS.md` 2.1).  `update_charge` consumes it per tick.
+        weapon.charge_rate = as_real(v[12]) * kWeaponChargeScale;
         weapon.spread = as_real(v[13]);
         weapon.spread_y = as_real(v[14]);
         weapon.range = as_real(v[15]);
@@ -857,8 +859,13 @@ std::optional<Weapons> Weapons::load(const std::filesystem::path& level_path,
 }
 
 ChargeOutcome update_charge(const Weapon& weapon, ChargeState& state,
-                            bool trigger_held, bool trigger_edge, int ticks) {
+                            bool ready, bool trigger_held, bool trigger_edge,
+                            int ticks) {
     ChargeOutcome out;
+    if (!ready) {
+        // 0x445aa2: the cooldown gate runs before the charge branch.
+        return out;
+    }
     if (ticks < 0) {
         ticks = 0;
     }

@@ -62,6 +62,10 @@ constexpr int kWeaponSlots = 12;
 constexpr int kWeaponTableMax = 32;
 /// Fixed tick rate used by the player, HUD playback and this runtime.
 constexpr double kWeaponTickHz = 91.0;
+/// `DEFINE_WEAPONS` charge rate is stored as `file * 0.91` in memory
+/// (`0x450d34` `FMUL [0x4a2488]`, constant 0.91).  The value is a charge
+/// fraction per fixed tick, so `GM_charge_rate` matches the runtime field.
+constexpr double kWeaponChargeScale = 0.91;
 /// Seconds in one tick.
 constexpr double kWeaponTickSeconds = 1.0 / kWeaponTickHz;
 /// Fallback projectile speed when a THING type has no `+0x10` value.  The
@@ -289,7 +293,11 @@ struct ChargeOutcome {
 
 /// One tick of `0x4453d0`'s charge branch.
 ///
-/// `fire_mode` comes from `weapon.fire_mode` (`DEFINE_WEAPONS` d0 -> `+0x24`):
+/// `ready` is `arsenal.cooldown[slot] == 0`: the original decrements the
+/// cooldown at the top of the handler and returns before the charge branch
+/// while it is still positive (`0x445aa2`), so a cooling weapon neither
+/// accumulates nor latches.  `fire_mode` comes from `weapon.fire_mode`
+/// (`DEFINE_WEAPONS` d0 -> `+0x24`):
 /// 0 fires on the trigger edge, 1 fires every tick while held, 2..6 charge.
 /// Charged modes accumulate `ticks * weapon.charge_rate` while held and latch
 /// `charge = accumulated` on release; modes 3 and 5 additionally auto-fire at
@@ -297,7 +305,8 @@ struct ChargeOutcome {
 /// 1.0 boundary is exact in the original (`FCOMP` against `1.0`, equal is
 /// "not yet over"), so a tick that lands on exactly 1.0 does not fire.
 ChargeOutcome update_charge(const Weapon& weapon, ChargeState& state,
-                            bool trigger_held, bool trigger_edge, int ticks);
+                            bool ready, bool trigger_held, bool trigger_edge,
+                            int ticks);
 
 /// Immutable weapon/ammo tables plus the initial loadout from `GameState`.
 

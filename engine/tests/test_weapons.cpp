@@ -469,17 +469,17 @@ void test_charge_state() {
     gm::Weapon single = make_weapon(0, 1, false);
     single.fire_mode = 0;
     gm::ChargeState single_state;
-    CHECK(!gm::update_charge(single, single_state, true, false, 1).fire);
-    CHECK(gm::update_charge(single, single_state, true, true, 1).fire);
-    CHECK(!gm::update_charge(single, single_state, false, false, 1).fire);
+    CHECK(!gm::update_charge(single, single_state, true, true, false, 1).fire);
+    CHECK(gm::update_charge(single, single_state, true, true, true, 1).fire);
+    CHECK(!gm::update_charge(single, single_state, true, false, false, 1).fire);
 
     // 0x445d64: mode 1 is automatic, fires on every held tick.
     gm::Weapon automatic = make_weapon(0, 1, false);
     automatic.fire_mode = 1;
     gm::ChargeState auto_state;
-    CHECK(gm::update_charge(automatic, auto_state, true, false, 1).fire);
-    CHECK(gm::update_charge(automatic, auto_state, true, false, 1).fire);
-    CHECK(!gm::update_charge(automatic, auto_state, false, false, 1).fire);
+    CHECK(gm::update_charge(automatic, auto_state, true, true, false, 1).fire);
+    CHECK(gm::update_charge(automatic, auto_state, true, true, false, 1).fire);
+    CHECK(!gm::update_charge(automatic, auto_state, true, false, false, 1).fire);
 
     // Modes 2..6: accumulation = ticks * charge_rate, no shot while charging.
     // The charge-start event (weapon[+0x34]) is posted once and mirrors
@@ -494,7 +494,7 @@ void test_charge_state() {
     int starts = 0;
     for (int tick = 0; tick < 10; ++tick) {
         const gm::ChargeOutcome outcome =
-            gm::update_charge(charged, state, true, tick == 0, 1);
+            gm::update_charge(charged, state, true, true, tick == 0, 1);
         shots += outcome.fire ? 1 : 0;
         if (outcome.started) {
             ++starts;
@@ -509,7 +509,7 @@ void test_charge_state() {
     CHECK_EQ(state.state_event, std::uint32_t(77));
 
     // Release latches the charge and resolves the shot.
-    const gm::ChargeOutcome release = gm::update_charge(charged, state, false, false, 1);
+    const gm::ChargeOutcome release = gm::update_charge(charged, state, true, false, false, 1);
     CHECK(release.fire);
     CHECK_NEAR(state.charge, 0.5, 1e-15);
     CHECK_NEAR(state.accumulated, 0.0, 0.0);
@@ -537,11 +537,11 @@ void test_charge_state() {
     gm::ChargeState full_state;
     int full_shots = 0;
     for (int tick = 0; tick < 4; ++tick) {
-        full_shots += gm::update_charge(auto_charge, full_state, true, tick == 0, 1).fire;
+        full_shots += gm::update_charge(auto_charge, full_state, true, true, tick == 0, 1).fire;
     }
     CHECK_EQ(full_shots, 0);
     CHECK_NEAR(full_state.accumulated, 1.0, 0.0);
-    CHECK(!gm::update_charge(auto_charge, full_state, true, false, 1).fire);
+    CHECK(!gm::update_charge(auto_charge, full_state, true, true, false, 1).fire);
     CHECK_NEAR(full_state.accumulated, 1.0, 0.0);
 
     // A rate that overshoots does fire: 0.3 + 0.3 + 0.3 + 0.3 = 1.2.
@@ -550,7 +550,7 @@ void test_charge_state() {
     gm::ChargeState over_state;
     int over_shots = 0;
     for (int tick = 0; tick < 4; ++tick) {
-        over_shots += gm::update_charge(overshoot, over_state, true, tick == 0, 1).fire;
+        over_shots += gm::update_charge(overshoot, over_state, true, true, tick == 0, 1).fire;
     }
     CHECK_EQ(over_shots, 1);
     CHECK_NEAR(over_state.charge, 1.0, 0.0);
@@ -558,7 +558,7 @@ void test_charge_state() {
     // After the auto-shot the accumulator restarts from zero; another hold
     // tick only accumulates (the latched charge is not consumed by the shot).
     const gm::ChargeOutcome next =
-        gm::update_charge(overshoot, over_state, true, false, 1);
+        gm::update_charge(overshoot, over_state, true, true, false, 1);
     CHECK(!next.fire);
     CHECK_NEAR(over_state.charge, 1.0, 0.0);
     CHECK_NEAR(over_state.accumulated, 0.3, 1e-15);
@@ -568,14 +568,14 @@ void test_charge_state() {
     gm::ChargeState latched;
     latched.charge = 1.0;
     latched.accumulated = 1.5;
-    CHECK(gm::update_charge(charged, latched, true, false, 1).fire);
+    CHECK(gm::update_charge(charged, latched, true, true, false, 1).fire);
     CHECK_NEAR(latched.accumulated, 0.0, 0.0);
 
     // Negative ticks are clamped, charge rate 0 never charges.
     gm::Weapon flat = charged;
     flat.charge_rate = 0.0;
     gm::ChargeState flat_state;
-    CHECK(!gm::update_charge(flat, flat_state, true, false, -5).fire);
+    CHECK(!gm::update_charge(flat, flat_state, true, true, false, -5).fire);
     CHECK_NEAR(flat_state.accumulated, 0.0, 0.0);
 }
 
@@ -1522,21 +1522,27 @@ void test_real_tables(const gm::Weapons& table) {
         CHECK(!grenade->hitscan);
         CHECK_EQ(grenade->fire_mode, 2); // charge, fire on release
         CHECK_EQ(grenade->fire_ticks, 40);
-        CHECK_NEAR(grenade->charge_rate, 0.015, 0.0); // 66.7 ticks to full
+        // 0x450d34 scales the file value by 0.91: 0.015 -> 0.01365/tick,
+        // so a full charge takes 73.26 ticks.
+        CHECK_NEAR(grenade->charge_rate, 0.01365, 1e-15);
         CHECK_EQ(grenade->thing_type, 28);
         CHECK_NEAR(grenade->projectile_charge, 16.0, 0.0); // air, not water 12
-        // Real charge cycle: 66 held ticks reach 0.99, the release fires and
-        // `fire()` turns the latched value into +0.99*16*91 = +1441.4 units/s.
+        // Real charge cycle: 73 held ticks reach 0.99645, the release fires
+        // and `fire()` turns it into +0.99645*16*91 = +1450.8 units/s.
         gm::ChargeState state;
         int charged_shots = 0;
-        for (int tick = 0; tick < 66; ++tick) {
+        for (int tick = 0; tick < 73; ++tick) {
             charged_shots +=
-                gm::update_charge(*grenade, state, true, tick == 0, 1).fire;
+                gm::update_charge(*grenade, state, true, true, tick == 0, 1).fire;
         }
         CHECK_EQ(charged_shots, 0);
-        CHECK_NEAR(state.accumulated, 0.99, 1e-12);
-        CHECK(gm::update_charge(*grenade, state, false, false, 1).fire);
-        CHECK_NEAR(state.charge, 0.99, 1e-12);
+        CHECK_NEAR(state.accumulated, 73.0 * 0.01365, 1e-12);
+        CHECK(gm::update_charge(*grenade, state, true, false, false, 1).fire);
+        CHECK_NEAR(state.charge, 73.0 * 0.01365, 1e-12);
+        // A cooling weapon neither accumulates nor fires (0x445aa2).
+        gm::ChargeState cooling;
+        CHECK(!gm::update_charge(*grenade, cooling, false, true, true, 1).fire);
+        CHECK_NEAR(cooling.accumulated, 0.0, 0.0);
         CHECK(grenade->impact_blasts.empty());
         CHECK_EQ(grenade->expire_blasts.size(), 2U);
         if (grenade->expire_blasts.size() == 2) {
