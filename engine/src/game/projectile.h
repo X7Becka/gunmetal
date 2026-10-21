@@ -45,6 +45,14 @@ inline constexpr double kProjectileTickHz = 91.0;
 inline constexpr double kProjectileGravityScale = 0.2; // 0x4752d0
 inline constexpr int kProjectileProximitySlots = 8;
 
+/// Minimum `contact_normal.z` for the clean-room "rest on a floor" rule
+/// (docs/PROJECTILE_CPP.md §1.7).  A surface steeper than this (a wall, or a
+/// near-vertical ramp) always takes the ordinary bounce path, even when the
+/// approach is smaller than one gravity step.  The value is a clean-room
+/// threshold: 45 degrees, so only surfaces that can actually hold the sphere
+/// up under gravity qualify.
+inline constexpr double kProjectileRestNormalZ = 0.5;
+
 /// One entry of the proximity table (`THING_TYPES +0x21c..+0x2dc`).
 struct ProximityEntry {
     std::uint32_t event = 0; ///< +0x21c; 0 = inactive
@@ -68,6 +76,12 @@ struct ProjectileSpawn {
     double level_gravity = 0.0; ///< SET_LEVEL_GRAVITY; 0 by default
     int hits_left = 0;          ///< TT+0x1c8; 0 = unlimited
     int life_ticks = 0;         ///< TT+0x1e8; 0 = no lifetime
+    /// Consecutive rest ticks after which the projectile expires (clean-room,
+    /// no original field).  0 = the rest has no timeout (compatibility
+    /// default); a resting projectile then stays `flying` for ever until the
+    /// game layer removes it.  The counter is in 91 Hz ticks and follows the
+    /// accumulated-`dt` rule: a step of `dt` ticks spends `dt` of it.
+    int rest_ticks = 0;
     int shape = 1;              ///< TT+0x1a0: 1 sphere, 2 box
     double radius = 0.0;        ///< TT+0xf8 for shape 1
     std::array<double, 3> box{}; ///< TT+0x100/108/110 for shape 2
@@ -101,6 +115,7 @@ struct ProjectileState {
     int hits_left = 0;
     int life_left = 0;
     int timeout_left = 0;
+    int rest_left = 0;             ///< ticks left in the current rest run
     int cooldown = 0;
     int last_target = -1;          ///< +0x460
     bool spent = false;            ///< expire/destroy already emitted
@@ -179,7 +194,16 @@ struct ProjectileTargets {
 /// A floor contact that cannot separate within one gravity step is a rest, not
 /// a hit (docs/PROJECTILE_CPP.md §1.7): the centre is pushed out along the
 /// normal, the vertical speed is cleared and the status is `flying`, so the
-/// caller does not blast a resting projectile every tick.
+/// caller does not blast a resting projectile every tick.  Only surfaces with
+/// `contact_normal.z >= kProjectileRestNormalZ` qualify; a wall (or any
+/// steeper ramp) keeps the ordinary bounce.  The surface-parallel part of the
+/// step is preserved and `speed` is multiplied by `damping` once per resting
+/// tick while it is non-zero (clean-room ground friction), so a nearly
+/// horizontal shot slides and slows down instead of freezing.  A rest also
+/// never spends hits, halves `damping` or posts events.  When
+/// `ProjectileSpawn::rest_ticks` is positive, `rest_ticks` consecutive rest
+/// ticks expire the record with the ordinary expire event (status `expired`,
+/// `spent` set, record not removed); 0 leaves the rest unbounded.
 ProjectileTickResult projectile_step(ProjectileState& state,
                                      const ProjectileTargets& targets,
                                      const CollisionWorld& world, int dt);

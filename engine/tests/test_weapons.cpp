@@ -2473,14 +2473,14 @@ void test_projectile_floor_bounces() {
 
     // The last bounce leaves too little speed to overcome one gravity step, so
     // the following contacts are rests: frozen damping/hits/position with no
-    // events at all.  Twenty ticks used to burn the remaining hit and decay
-    // `damping` to zero.
+    // events at all.  Twenty-five ticks used to burn the remaining hit and
+    // decay `damping` to zero.
     const double rest_z = state.position.z;
     const double rest_damping = state.damping;
     const double rest_speed = state.speed;
     const int rest_hits = state.hits_left;
     CHECK(rest_hits > 0);
-    for (int tick = 0; tick < 20; ++tick) {
+    for (int tick = 0; tick < 25; ++tick) {
         const gm::ProjectileTickResult rest =
             gm::projectile_step(state, no_targets, world, 1);
         CHECK(rest.status == gm::ProjectileStatus::flying);
@@ -2560,6 +2560,284 @@ void test_projectile_floor_bounces() {
     CHECK(wall_hit.status == gm::ProjectileStatus::bounced);
     CHECK(slow_wall.direction.x < 0.0);
     CHECK_NEAR(slow_wall.position.x, 1.0 + 1e-4, 1e-3);
+}
+
+void test_projectile_rest_contact() {
+    const gm::ProjectileTargets no_targets;
+
+    std::vector<TriSpec> floor;
+    add_quad(floor, {-100.0, 100.0, 0.0}, {-100.0, -100.0, 0.0},
+             {100.0, -100.0, 0.0}, {100.0, 100.0, 0.0});
+    const gm::CollisionWorld world = build_world(floor);
+
+    // A projectile already at rest on the floor: the upward speed (0.05) is
+    // smaller than one gravity step (0.2), so every tick touches the floor with
+    // an approach of 0.15 and the rest branch has to keep it there.
+    gm::ProjectileState rest;
+    rest.spawn.thing_id = 20;
+    rest.spawn.position = {0.0, 0.0, 10.0001};
+    rest.spawn.direction = {0.0, 0.0, 1.0};
+    rest.spawn.speed = 0.05;
+    rest.spawn.gravity = 1.0;
+    rest.spawn.level_gravity = 1.0;
+    rest.spawn.damping = 0.8;
+    rest.spawn.radius = 10.0;
+    rest.spawn.hits_left = 5;
+    rest.spawn.collide_event = 601;
+    rest.spawn.expire_event = 602;
+    rest.position = rest.spawn.position;
+    rest.direction = rest.spawn.direction;
+    rest.speed = rest.spawn.speed;
+    rest.damping = rest.spawn.damping;
+    rest.hits_left = rest.spawn.hits_left;
+
+    // `rest_ticks = 0` (default) is the compatibility path: more than twenty
+    // rest ticks spend no hit, leave damping/speed/position alone, post nothing
+    // and never expire.
+    {
+        gm::ProjectileState idle = rest;
+        for (int tick = 0; tick < 25; ++tick) {
+            const gm::ProjectileTickResult step =
+                gm::projectile_step(idle, no_targets, world, 1);
+            CHECK(step.status == gm::ProjectileStatus::flying);
+            CHECK(step.events.empty());
+        }
+        CHECK_NEAR(idle.position.z, 10.0001, 1e-9);
+        CHECK_NEAR(idle.speed, 0.05, 1e-15);
+        CHECK_NEAR(idle.damping, 0.8, 1e-15);
+        CHECK_EQ(idle.hits_left, 5);
+        CHECK(!idle.spent);
+        CHECK(!idle.dead);
+    }
+
+    // With a timeout the rest is bounded: exactly one expire, and no
+    // hit/damping change before it.  Four 1-tick rest steps expire on the
+    // fourth; the counter follows the accumulated-dt rule.
+    {
+        gm::ProjectileState timed = rest;
+        timed.spawn.rest_ticks = 4;
+        timed.rest_left = 4;
+        for (int tick = 0; tick < 3; ++tick) {
+            const gm::ProjectileTickResult step =
+                gm::projectile_step(timed, no_targets, world, 1);
+            CHECK(step.status == gm::ProjectileStatus::flying);
+            CHECK(step.events.empty());
+        }
+        CHECK_EQ(timed.rest_left, 1);
+        CHECK_EQ(timed.hits_left, 5);
+        CHECK_NEAR(timed.damping, 0.8, 1e-15);
+
+        const gm::ProjectileTickResult last =
+            gm::projectile_step(timed, no_targets, world, 1);
+        CHECK(last.status == gm::ProjectileStatus::expired);
+        CHECK_EQ(last.events.size(), 1U);
+        if (last.events.size() == 1) {
+            CHECK_EQ(last.events[0].id, 602U); // the ordinary expire event
+        }
+        CHECK(timed.spent);
+        CHECK(!timed.dead); // expire never removes the record
+        CHECK_EQ(timed.hits_left, 5);
+        CHECK_NEAR(timed.damping, 0.8, 1e-15);
+        CHECK_NEAR(timed.position.z, 10.0001, 1e-9);
+        const gm::ProjectileTickResult replay =
+            gm::projectile_step(timed, no_targets, world, 1);
+        CHECK(replay.already_spent);
+        CHECK(replay.events.empty());
+    }
+
+    // A single two-tick step spends two rest ticks: 4 -> 2 -> 0.
+    {
+        gm::ProjectileState bulk = rest;
+        bulk.spawn.rest_ticks = 4;
+        bulk.rest_left = 4;
+        CHECK(gm::projectile_step(bulk, no_targets, world, 2).status ==
+              gm::ProjectileStatus::flying);
+        CHECK_EQ(bulk.rest_left, 2);
+        CHECK(!bulk.spent);
+        const gm::ProjectileTickResult step =
+            gm::projectile_step(bulk, no_targets, world, 2);
+        CHECK(step.status == gm::ProjectileStatus::expired);
+        CHECK_EQ(step.events.size(), 1U);
+        CHECK(bulk.spent);
+    }
+
+    // The owner path has to agree: one expire record through EventQueue, and
+    // the record is spent but still present.
+    {
+        gm::ProjectileSpawn spawn = rest.spawn;
+        spawn.thing_id = 21;
+        spawn.rest_ticks = 4;
+        gm::Projectiles projectiles;
+        gm::EventQueue queue;
+        CHECK_EQ(projectiles.spawn(spawn, &queue), 0);
+        std::size_t expire_events = 0;
+        for (int step = 0; step < 4; ++step) {
+            projectiles.tick(1, no_targets, world, &queue);
+            for (const gm::Event& event : queue.drain().events) {
+                if (event.id == 602) {
+                    ++expire_events;
+                }
+            }
+        }
+        CHECK_EQ(expire_events, 1U);
+        const gm::ProjectileState* owner = projectiles.by_thing_id(21);
+        CHECK(owner != nullptr);
+        if (owner != nullptr) {
+            CHECK(owner->spent);
+            CHECK(!owner->dead);
+            CHECK_EQ(owner->hits_left, 5);
+        }
+    }
+
+    // A nearly horizontal shot along the same floor used to be swallowed by
+    // the rest rule: the sweep reports the contact almost immediately, so the
+    // horizontal part of the step was thrown away (0.0025 units/tick, no
+    // damping, no events -- a frozen "rest" for ever).  Now the rest branch
+    // keeps the surface-parallel remainder and applies ground friction, so the
+    // shot slides and slows down; hits and events stay untouched because this
+    // is still not a hit.
+    {
+        gm::ProjectileState graze;
+        graze.spawn.thing_id = 22;
+        graze.spawn.position = {0.0, 0.0, 10.0001};
+        graze.spawn.direction = {1.0, 0.0, 0.0};
+        graze.spawn.speed = 5.0;
+        graze.spawn.gravity = 1.0;
+        graze.spawn.level_gravity = 1.0;
+        graze.spawn.damping = 0.8;
+        graze.spawn.radius = 10.0;
+        graze.spawn.hits_left = 5;
+        graze.spawn.collide_event = 601;
+        graze.spawn.expire_event = 602;
+        graze.position = graze.spawn.position;
+        graze.direction = graze.spawn.direction;
+        graze.speed = graze.spawn.speed;
+        graze.damping = graze.spawn.damping;
+        graze.hits_left = graze.spawn.hits_left;
+
+        const gm::ProjectileTickResult first =
+            gm::projectile_step(graze, no_targets, world, 1);
+        CHECK(first.status == gm::ProjectileStatus::flying);
+        CHECK(first.events.empty());
+        // The whole horizontal step survives (old code kept ~0.0025).
+        CHECK(graze.position.x > 4.99);
+        CHECK_NEAR(graze.position.x, 5.0, 1e-3);
+        // Still on the contact skin, vertical speed cleared by the rest.
+        CHECK_NEAR(graze.position.z, 10.0001, 1e-9);
+        CHECK_NEAR(graze.vertical_speed, 0.0, 0.0);
+        // One ground-friction tick: speed *= damping, damping itself is not
+        // halved and no hit is spent.
+        CHECK_NEAR(graze.speed, 4.0, 1e-12);
+        CHECK_NEAR(graze.damping, 0.8, 1e-15);
+        CHECK_EQ(graze.hits_left, 5);
+
+        double previous_speed = graze.speed;
+        for (int tick = 0; tick < 49; ++tick) {
+            const gm::ProjectileTickResult step =
+                gm::projectile_step(graze, no_targets, world, 1);
+            CHECK(step.status == gm::ProjectileStatus::flying);
+            CHECK(step.events.empty());
+            CHECK(graze.speed < previous_speed); // friction, not a freeze
+            previous_speed = graze.speed;
+        }
+        // Bounded slide: the speed decays below one gravity step and the total
+        // travel stays finite (5/(1-0.8) = 25 units, not an endless creep).
+        CHECK(graze.speed < 0.2);
+        CHECK(graze.position.x > 20.0);
+        CHECK(graze.position.x < 25.01);
+        CHECK_NEAR(graze.position.z, 10.0001, 1e-6);
+        CHECK_EQ(graze.hits_left, 5);
+        CHECK_NEAR(graze.damping, 0.8, 1e-15);
+        CHECK(!graze.spent);
+    }
+
+    // The slide is swept too: the primary cast stops on the floor, so a wall
+    // further along the same step must not be jumped over.  The sphere slides
+    // until the wall (contact centre x = 5 for a radius of 1), then bounces.
+    {
+        std::vector<TriSpec> room = wall_x(6.0);
+        add_quad(room, {-100.0, 100.0, 0.0}, {-100.0, -100.0, 0.0},
+                 {100.0, -100.0, 0.0}, {100.0, 100.0, 0.0});
+        const gm::CollisionWorld room_world = build_world(room);
+
+        gm::ProjectileState slide;
+        slide.spawn.thing_id = 24;
+        slide.spawn.position = {0.0, 0.0, 1.0001};
+        slide.spawn.direction = {1.0, 0.0, 0.0};
+        slide.spawn.speed = 3.0;
+        slide.spawn.gravity = 1.0;
+        slide.spawn.level_gravity = 1.0;
+        slide.spawn.damping = 0.8;
+        slide.spawn.radius = 1.0;
+        slide.spawn.hits_left = 5;
+        slide.spawn.collide_event = 601;
+        slide.position = slide.spawn.position;
+        slide.direction = slide.spawn.direction;
+        slide.speed = slide.spawn.speed;
+        slide.damping = slide.spawn.damping;
+        slide.hits_left = slide.spawn.hits_left;
+
+        double max_x = slide.position.x;
+        bool bounced = false;
+        for (int tick = 0; tick < 10; ++tick) {
+            const gm::ProjectileTickResult step =
+                gm::projectile_step(slide, no_targets, room_world, 1);
+            max_x = std::max(max_x, slide.position.x);
+            if (step.status == gm::ProjectileStatus::bounced) {
+                bounced = true;
+            }
+        }
+        CHECK(bounced);
+        CHECK(max_x <= 5.001); // never crossed the wall at x = 6
+        CHECK(slide.direction.x < 0.0);
+    }
+
+    // A surface whose normal is mostly vertical but below the floor threshold
+    // (z = 0.3, ~72 degrees) is a ramp, not a floor: the same slow contact that
+    // the old `normal.z > 0` rule swallowed as a rest has to bounce, spend one
+    // hit and halve damping.
+    {
+        const double nz = 0.3;
+        const double nx = std::sqrt(1.0 - nz * nz);
+        const gm::Vec3d normal{nx, 0.0, nz};
+        const gm::Vec3d u{0.0, 1.0, 0.0};
+        const gm::Vec3d v = gm::cross(normal, u); // (-nz, 0, nx)
+        std::vector<TriSpec> ramp;
+        add_quad(ramp, u * -50.0 + v * -50.0, u * -50.0 + v * 50.0,
+                 u * 50.0 + v * 50.0, u * 50.0 + v * -50.0);
+        const gm::CollisionWorld ramp_world = build_world(ramp);
+        CHECK(normal.z < gm::kProjectileRestNormalZ);
+
+        gm::ProjectileState slow;
+        slow.spawn.thing_id = 23;
+        // 0.55 from the plane with radius 0.5: a 0.05 gap, so the first tick
+        // touches with an approach of 0.1 + 0.2*0.3 = 0.16 <= one gravity step.
+        slow.spawn.position = normal * 0.55;
+        slow.spawn.direction = normal * -1.0;
+        slow.spawn.speed = 0.1;
+        slow.spawn.gravity = 1.0;
+        slow.spawn.level_gravity = 1.0;
+        slow.spawn.damping = 0.8;
+        slow.spawn.radius = 0.5;
+        slow.spawn.hits_left = 5;
+        slow.spawn.collide_event = 601;
+        slow.spawn.rest_ticks = 2;
+        slow.position = slow.spawn.position;
+        slow.direction = slow.spawn.direction;
+        slow.speed = slow.spawn.speed;
+        slow.damping = slow.spawn.damping;
+        slow.hits_left = slow.spawn.hits_left;
+        slow.rest_left = 2;
+
+        const gm::ProjectileTickResult ramp_hit =
+            gm::projectile_step(slow, no_targets, ramp_world, 1);
+        CHECK(ramp_hit.status == gm::ProjectileStatus::bounced);
+        CHECK_EQ(slow.hits_left, 4);
+        CHECK_NEAR(slow.speed, 0.08, 1e-12); // damping applied on the bounce
+        CHECK(gm::dot(slow.direction, normal) > 0.0); // reflected out
+        // A real contact restarts the rest window instead of counting it.
+        CHECK_EQ(slow.rest_left, 2);
+    }
 }
 
 void test_projectile_accumulated_dt() {
@@ -3090,6 +3368,7 @@ void test_projectile_blast_bridge() {
     }
 }
 
+
 int main() {
     test_fire_rate_quantisation();
     test_single_and_auto();
@@ -3107,6 +3386,7 @@ int main() {
     test_projectile_rgm_homing();
     test_projectile_shot_bridge();
     test_projectile_floor_bounces();
+    test_projectile_rest_contact();
     test_projectile_accumulated_dt();
     test_projectile_remove_events();
     test_projectile_blast_bridge();

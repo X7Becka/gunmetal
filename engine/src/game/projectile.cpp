@@ -336,6 +336,7 @@ ProjectileTickResult projectile_step(ProjectileState& state,
         const ProximityEntry& entry = state.spawn.proximity.front();
         state.last_target = proximity_target;
         state.cooldown += entry.cooldown;
+        state.rest_left = state.spawn.rest_ticks;
         ProjectileTickResult result =
             make_result(state, ProjectileStatus::proximity);
         add_event(result, entry.event, state.position,
@@ -365,6 +366,7 @@ ProjectileTickResult projectile_step(ProjectileState& state,
 
     if (!hit.has_value()) {
         state.position = desired;
+        state.rest_left = state.spawn.rest_ticks;
         return make_result(state, ProjectileStatus::flying);
     }
 
@@ -383,19 +385,72 @@ ProjectileTickResult projectile_step(ProjectileState& state,
     // would silently burn its hits and decay to speed 0.  The contact skin
     // removed the t = 0 contact of a touching sphere; this branch covers the
     // remaining repeated contact.  It is not a hit: push the centre out along
-    // the normal, drop the vertical speed, leave `hits_left`, `damping` and the
-    // events untouched, and report a plain flight so the game layer does not
-    // blast every tick.  Only floors qualify: gravity is what keeps the sphere
-    // pressed against them (a wall or a ceiling is still an ordinary bounce).
+    // the normal, drop the vertical speed, leave `hits_left` and the events
+    // untouched, and report a plain flight so the game layer does not blast
+    // every tick.
+    //
+    // Only floors qualify (`kProjectileRestNormalZ`): gravity is what keeps
+    // the sphere pressed against them, while a wall or a near-vertical ramp is
+    // still an ordinary bounce/slide (QA-3-06: such contacts used to be
+    // swallowed by the rest rule whenever `normal.z > 0`).
     const double gravity_step = kProjectileGravityScale * gravity_scale *
                                 static_cast<double>(dt) * static_cast<double>(dt);
     const double approach = -dot(displacement, contact_normal); // > 0 into surface
-    if (contact_normal.z > 0.0 && approach > 0.0 &&
+    if (contact_normal.z >= kProjectileRestNormalZ && approach > 0.0 &&
         approach <= gravity_step) {
         state.vertical_speed = 0.0;
+        // Keep the surface-parallel remainder of the step.  The sweep already
+        // advanced the centre up to the contact point (`hit->t`), so without
+        // this a grazing shot would be frozen at the contact point instead of
+        // sliding along the floor.
+        const double done = travel > 1e-12 ? hit->t / travel : 1.0;
+        const Vec3d remaining =
+            displacement * std::max(0.0, 1.0 - done);
+        const Vec3d tangent =
+            remaining - contact_normal * dot(remaining, contact_normal);
+        const double slide = length(tangent);
         state.position = resolved;
+        if (slide > 1e-9) {
+            // Ground friction (clean-room): while the sphere really moves
+            // along the floor, one rest tick costs `damping` of its speed, so
+            // a nearly horizontal impact cannot slide for ever.  A purely
+            // vertical rest (tangent == 0) keeps speed, damping and hits
+            // exactly as before.
+            state.speed *= std::clamp(state.damping, 0.0, 1.0);
+            // The primary cast stopped at the floor, so a wall further along
+            // the slide is not in its result; sweep the slide separately
+            // instead of teleporting through it.
+            std::optional<SphereHit> block;
+            if (radius > 0.0 && std::isfinite(slide)) {
+                block = world.sphere_cast(resolved, tangent, radius, slide);
+            }
+            if (block.has_value()) {
+                state.position = block->centre +
+                                 safe_direction(block->normal) * kContactSkin;
+            } else {
+                state.position = resolved + tangent;
+            }
+        }
+        if (state.spawn.rest_ticks > 0) {
+            // Lazy start: a manual `ProjectileState` need not pre-load
+            // `rest_left`; `Projectiles::spawn` does it for the owner path.
+            if (state.rest_left <= 0) {
+                state.rest_left = state.spawn.rest_ticks;
+            }
+            state.rest_left -= dt;
+            if (state.rest_left < 1) {
+                // Clean-room rest timeout: the ordinary expire path (expire
+                // event, `life_left = 0`, `spent`) -- not destroy, so the
+                // record still has to be removed by the game layer.
+                return expire(state);
+            }
+        }
         return make_result(state, ProjectileStatus::flying);
     }
+
+    // Any real contact restarts the rest window: `rest_ticks` counts
+    // consecutive rest ticks only.
+    state.rest_left = state.spawn.rest_ticks;
 
     if (state.hits_left > 0) {
         --state.hits_left;
@@ -601,12 +656,14 @@ int Projectiles::spawn(ProjectileSpawn spawn, EventQueue* events) {
     }
     ProjectileState state;
     state.spawn = std::move(spawn);
+    state.spawn.rest_ticks = std::max(0, state.spawn.rest_ticks);
     state.position = state.spawn.position;
     state.direction = safe_direction(state.spawn.direction);
     state.speed = finite_or(state.spawn.speed, 0.0);
     state.damping = finite_or(state.spawn.damping, 0.0);
     state.hits_left = state.spawn.hits_left;
     state.life_left = state.spawn.life_ticks;
+    state.rest_left = state.spawn.rest_ticks;
     state.homing = state.spawn.homing;
     state.target_index = state.spawn.target_index;
     state.target_point = state.spawn.target_point;
