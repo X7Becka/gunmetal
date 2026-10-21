@@ -130,8 +130,9 @@ projectiles.tick(1, targets, world, &queue);
 раз на результат (повторный вызов с тем же `ProjectileTickResult` запостит их
 снова; `Projectiles::tick` вызывает его один раз). `ProjectileTargets` — spans;
 отсутствующие записи считаются отсутствующими. `Projectiles::spawn` отклоняет
-повторный `thing_id` (`-1`): каждый снаряд должен иметь уникальный runtime-id
-из `Things::spawn`, а не id шаблона типа.
+`thing_id` только пока запись **жива** (`dead=false`). После `remove()` тот же
+runtime-id можно переиспользовать: слот перезаписывается, вектор не растёт.
+Уникальность по-прежнему нужна для одновременных снарядов.
 `ProjectileSpawn::rest_ticks` (`ProjectileState::rest_left` в рантайме) —
 clean-room ограничитель «отдыха» (§1.7): после стольких подряд rest-тиков
 снаряд получает обычный expire (`expired`, `expire_event`, `spent`, запись не
