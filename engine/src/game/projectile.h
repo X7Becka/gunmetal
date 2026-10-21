@@ -31,13 +31,13 @@
 #include <span>
 #include <vector>
 
+#include "game/weapons.h" // Weapon, BlastDamageResult, Vitals, ThingVitals
 #include "render/collide.h"
 
 namespace gm {
 
 class EventQueue;
 struct Thing;
-struct Weapon;     // game/weapons.h
 struct ShotResult; // game/weapons.h
 
 /// Fixed 91 Hz tick used by the projectile step (docs/PROJECTILE_CPP.md §2).
@@ -140,6 +140,10 @@ struct ProjectileTickResult {
     double vertical_speed = 0.0;
     int hits_left = 0;
     int life_left = 0;
+    /// The record was already `spent` when the step started, so this `expired`
+    /// status is a replay of an expiry reported by an earlier step (no events).
+    /// `apply_projectile_blast()` uses it to refuse a second blast.
+    bool already_spent = false;
     std::vector<ProjectileEvent> events; ///< original post order
 };
 
@@ -184,6 +188,66 @@ ProjectileTickResult projectile_step(ProjectileState& state,
 /// the number of accepted records.
 std::size_t post_projectile_events(EventQueue& queue,
                                    const ProjectileTickResult& result);
+
+// --- projectile -> weapon blast bridge -------------------------------------
+
+/// Target arrays for `apply_projectile_blast()`.  They are passed through to
+/// `apply_weapon_blast()`, which forwards them to `apply_blast_damage()`.
+/// Empty spans mean "no such targets".  `apply_blast` counts one hit for every
+/// entry of a position span inside the radius, even when the matching vitals
+/// span is shorter (then the damage part of the hit is skipped).
+struct ProjectileBlastTargets {
+    std::span<const Vec3d> player_positions;
+    std::span<Vitals> player_vitals;
+    std::span<const Vec3d> thing_positions;
+    std::span<const bool> thing_alive;
+    std::span<ThingVitals> thing_vitals;
+};
+
+/// Caller-owned context for `apply_projectile_blast()`.  The values have the
+/// same meaning as in `apply_weapon_blast()`: the medium guards select the
+/// `IF SOURCE_UNDERWATER` / `SOURCE_FROM_GROUND` / `DEATHMATCH_GAME` branches,
+/// `power_up` selects a PLASMA CANNON `ThingVariant` when >= 0, and the source
+/// ids only matter for the `flags & 1` self-hit guard.
+struct ProjectileBlastContext {
+    bool underwater = false;
+    bool from_ground = true;
+    bool deathmatch = true;
+    int source_player = -1;
+    int source_thing = -1;
+    double power_up = -1.0;
+    /// Proximity results do not blast by default: the proximity table posts its
+    /// own event (`THING_TYPES+0x21c`) and there is no proven link from that
+    /// event to the weapon's impact/expire blasts.  Set this to opt in and
+    /// apply the selected branch at `result.position` anyway.
+    bool allow_proximity = false;
+};
+
+/// Bridge one `projectile_step()` result to the weapon's blast layer.
+///
+/// The trigger is the status:
+///   * `bounced`   -> yes (a real contact; the caller already excludes the
+///                    "resting on a floor" contacts that stay `flying`);
+///   * `expired`   -> yes, unless `result.already_spent`, i.e. this is a replay
+///                    of an expiry that was already reported (prevents a blast
+///                    every tick after `ProjectileState::spent`);
+///   * `proximity` -> only when `context.allow_proximity`;
+///   * `flying` / `destroyed` -> never.
+///
+/// The blast is centred on `result.position` (post-step position) and uses
+/// `expired` as the branch context: `false` = impact/collide
+/// (`Weapon::impact_blasts`), `true` = expiry (`Weapon::expire_blasts`).  The
+/// caller picks it (normally `result.status == ProjectileStatus::expired`).
+///
+/// Returns the number of applied hits (`BlastDamageResult::hits.size()`, one
+/// per blast-target pair) and fills `*out` with the full result when `out` is
+/// non-null.  The function is stateless: call it once per `ProjectileTickResult`
+/// (one step), not repeatedly with the same bounce result.
+std::size_t apply_projectile_blast(
+    const Weapon& weapon, const ProjectileTickResult& result, bool expired,
+    const ProjectileBlastContext& context,
+    const ProjectileBlastTargets& targets,
+    BlastDamageResult* out = nullptr);
 
 /// Make a state from a loaded Thing.  Only proven fields are copied; the
 /// caller supplies the current world position, unit direction and the speed

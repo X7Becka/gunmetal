@@ -296,7 +296,9 @@ ProjectileTickResult projectile_step(ProjectileState& state,
         return make_result(state, ProjectileStatus::destroyed);
     }
     if (state.spent) {
-        return make_result(state, ProjectileStatus::expired);
+        ProjectileTickResult result = make_result(state, ProjectileStatus::expired);
+        result.already_spent = true;
+        return result;
     }
     if (dt <= 0) {
         return make_result(state, ProjectileStatus::flying);
@@ -448,6 +450,50 @@ std::size_t post_projectile_events(EventQueue& queue,
         }
     }
     return posted;
+}
+
+std::size_t apply_projectile_blast(const Weapon& weapon,
+                                   const ProjectileTickResult& result,
+                                   bool expired,
+                                   const ProjectileBlastContext& context,
+                                   const ProjectileBlastTargets& targets,
+                                   BlastDamageResult* out) {
+    bool trigger = false;
+    switch (result.status) {
+    case ProjectileStatus::bounced:
+        trigger = true;
+        break;
+    case ProjectileStatus::expired:
+        // A state that was already spent replays `expired` on every step; its
+        // expiry blast belongs to the first (non-replayed) result only.
+        trigger = !result.already_spent;
+        break;
+    case ProjectileStatus::proximity:
+        trigger = context.allow_proximity;
+        break;
+    case ProjectileStatus::flying:
+    case ProjectileStatus::destroyed:
+        trigger = false;
+        break;
+    }
+    if (!trigger) {
+        if (out != nullptr) {
+            *out = BlastDamageResult{};
+        }
+        return 0;
+    }
+
+    BlastDamageResult applied = apply_weapon_blast(
+        weapon, expired, result.position, context.underwater,
+        context.from_ground, context.deathmatch, context.source_player,
+        context.source_thing, targets.player_positions, targets.player_vitals,
+        targets.thing_positions, targets.thing_alive, targets.thing_vitals,
+        context.power_up);
+    const std::size_t hits = applied.hits.size();
+    if (out != nullptr) {
+        *out = std::move(applied);
+    }
+    return hits;
 }
 
 ProjectileState projectile_spawn_from_thing(const Thing& thing,

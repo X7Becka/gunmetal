@@ -115,6 +115,7 @@ struct Arsenal {
 | `apply_blast` | сферический запрос `0x477280` без LOS; цели-игроки/THING, флаги bit0/2/3, событие на попадание. |
 | `apply_blast_damage` | `apply_blast` + `apply_damage_gauge` для игроков и `apply_thing_damage` для THING; возвращает hits с результатами. |
 | `apply_weapon_blast` | выбирает `impact_blasts`/`expire_blasts` по контексту (`expired`, вода, земля, DM) и применяет их через `apply_blast_damage`; события остаются в `hits` для `event_post`. |
+| `apply_projectile_blast` | мост `game/projectile.h`: результат `projectile_step` (`bounced`/`expired`) → `apply_weapon_blast` в `result.position`; `expired` задаёт ветку; повторный `expired` у уже `spent` снаряда blast не даёт; `proximity` — только по явному `allow_proximity`. Возвращает число hits. |
 | `apply_weapon_inline` | применяет `inline_blasts` (EMP-кольца) в точке выстрела; интервалы `SLEEP 22` остаются вызывающему слою. |
 | `post_weapon_impact` | постит hitscan `impact_event` в `ShotResult.point` (`event_post`) **только при `shot.ok && shot.hit && weapon.hitscan`**; для оружия без события или промаха — `false`. |
 | `apply_thing_damage` | точная ветка `0x470500`: без множителей, дефицит щита в HP, `damaged_event`; `max_health == 0` — иммунитет; при `flags2 & 0x1000` — `low_health_event` (`-17`) на переходе через половину HP. |

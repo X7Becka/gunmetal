@@ -2809,6 +2809,287 @@ void test_projectile_remove_events() {
     }
 }
 
+void test_projectile_blast_bridge() {
+    const gm::ProjectileTargets no_targets;
+
+    std::vector<TriSpec> floor;
+    add_quad(floor, {-100.0, 100.0, 0.0}, {-100.0, -100.0, 0.0},
+             {100.0, -100.0, 0.0}, {100.0, 100.0, 0.0});
+    const gm::CollisionWorld world = build_world(floor);
+
+    // Synthetic grenade: the two branches carry distinguishable event ids so a
+    // hit proves which vector was selected.
+    gm::Weapon grenade;
+    grenade.name = "GRENADE";
+    grenade.thing_type = 28;
+    gm::Blast impact;
+    impact.plate = 100;
+    impact.hull = 50;
+    impact.radius = 50;
+    impact.event = 11;
+    grenade.impact_blasts.push_back(impact);
+    gm::Blast expiry;
+    expiry.plate = 200;
+    expiry.hull = 100;
+    expiry.radius = 50;
+    expiry.event = 22;
+    grenade.expire_blasts.push_back(expiry);
+
+    std::array<gm::Vec3d, 1> thing_pos{{{0.0, 0.0, 10.0}}};
+    std::array<bool, 1> thing_alive{true};
+    std::array<gm::ThingVitals, 1> vitals{};
+    vitals[0].hp = 1000;
+    vitals[0].max_hp = 1000;
+    vitals[0].alive = true;
+    gm::ProjectileBlastTargets targets;
+    targets.thing_positions = thing_pos;
+    targets.thing_alive = thing_alive;
+    targets.thing_vitals = vitals;
+    gm::ProjectileBlastContext context;
+
+    // 1. Bounce -> exactly one blast through the impact branch at
+    //    result.position.
+    gm::ProjectileState bounce;
+    bounce.spawn.direction = {0.0, 0.0, -1.0};
+    bounce.spawn.speed = 2.0;
+    bounce.spawn.radius = 10.0;
+    bounce.spawn.damping = 0.8;
+    bounce.spawn.hits_left = 0;
+    bounce.position = {0.0, 0.0, 25.0};
+    bounce.direction = {0.0, 0.0, -1.0};
+    bounce.speed = 2.0;
+    bounce.damping = 0.8;
+    gm::ProjectileTickResult bounced;
+    for (int i = 0; i < 8; ++i) {
+        bounced = gm::projectile_step(bounce, no_targets, world, 1);
+        if (bounced.status == gm::ProjectileStatus::bounced) {
+            break;
+        }
+    }
+    CHECK(bounced.status == gm::ProjectileStatus::bounced);
+    CHECK(!bounced.already_spent);
+    CHECK_NEAR(bounced.position.z, 10.0, 1e-3);
+    thing_pos[0] = bounced.position; // distance 0: both blasts cover it
+    const std::int32_t hp_before_bounce = vitals[0].hp;
+    gm::BlastDamageResult applied_bounce;
+    const std::size_t bounce_hits = gm::apply_projectile_blast(
+        grenade, bounced, false, context, targets, &applied_bounce);
+    CHECK_EQ(bounce_hits, 1U);
+    CHECK_EQ(applied_bounce.hits.size(), 1U);
+    if (!applied_bounce.hits.empty()) {
+        CHECK_EQ(applied_bounce.hits[0].hit.event, 11U);
+    }
+    CHECK(vitals[0].hp < hp_before_bounce);
+    CHECK(applied_bounce.chain_reaction); // plate > 0 detonates type -4
+
+    // A flying / destroyed result never blasts.
+    gm::ProjectileState flying;
+    flying.position = bounced.position;
+    flying.direction = {1.0, 0.0, 0.0};
+    flying.speed = 1.0;
+    const gm::ProjectileTickResult flight =
+        gm::projectile_step(flying, no_targets, gm::CollisionWorld{}, 1);
+    CHECK(flight.status == gm::ProjectileStatus::flying);
+    CHECK_EQ(gm::apply_projectile_blast(grenade, flight, false, context, targets),
+             0U);
+    gm::ProjectileState dead;
+    dead.dead = true;
+    const gm::ProjectileTickResult destroyed =
+        gm::projectile_step(dead, no_targets, world, 1);
+    CHECK(destroyed.status == gm::ProjectileStatus::destroyed);
+    CHECK_EQ(gm::apply_projectile_blast(grenade, destroyed, true, context,
+                                        targets),
+             0U);
+
+    // 2. Expiry (last hit) -> one blast through the expire branch.
+    gm::ProjectileState one_hit;
+    one_hit.spawn.direction = {0.0, 0.0, -1.0};
+    one_hit.spawn.speed = 2.0;
+    one_hit.spawn.radius = 10.0;
+    one_hit.spawn.damping = 0.8;
+    one_hit.spawn.hits_left = 1;
+    one_hit.position = {0.0, 0.0, 25.0};
+    one_hit.direction = {0.0, 0.0, -1.0};
+    one_hit.speed = 2.0;
+    one_hit.damping = 0.8;
+    one_hit.hits_left = 1;
+    gm::ProjectileTickResult expired;
+    for (int i = 0; i < 8; ++i) {
+        expired = gm::projectile_step(one_hit, no_targets, world, 1);
+        if (expired.status == gm::ProjectileStatus::expired) {
+            break;
+        }
+    }
+    CHECK(expired.status == gm::ProjectileStatus::expired);
+    CHECK(!expired.already_spent);
+    CHECK(one_hit.spent);
+    thing_pos[0] = expired.position;
+    const std::int32_t hp_before_expiry = vitals[0].hp;
+    gm::BlastDamageResult applied_expiry;
+    const std::size_t expiry_hits = gm::apply_projectile_blast(
+        grenade, expired, true, context, targets, &applied_expiry);
+    CHECK_EQ(expiry_hits, 1U);
+    CHECK_EQ(applied_expiry.hits.size(), 1U);
+    if (!applied_expiry.hits.empty()) {
+        CHECK_EQ(applied_expiry.hits[0].hit.event, 22U);
+    }
+    CHECK(vitals[0].hp < hp_before_expiry);
+
+    // 3. The spent record replays `expired` on every later step; the bridge
+    //    must not blast again (this is the double-blast regression).
+    const gm::ProjectileTickResult replay =
+        gm::projectile_step(one_hit, no_targets, world, 1);
+    CHECK(replay.status == gm::ProjectileStatus::expired);
+    CHECK(replay.already_spent);
+    CHECK(replay.events.empty());
+    const std::int32_t hp_after_expiry = vitals[0].hp;
+    CHECK_EQ(gm::apply_projectile_blast(grenade, replay, true, context, targets),
+             0U);
+    CHECK_EQ(vitals[0].hp, hp_after_expiry);
+
+    // A lifetime expiry takes the same path: one blast, then silence.
+    gm::ProjectileState timed;
+    timed.position = bounced.position;
+    timed.direction = {1.0, 0.0, 0.0};
+    timed.spawn.life_ticks = 1;
+    timed.life_left = 1;
+    const gm::ProjectileTickResult timed_out =
+        gm::projectile_step(timed, no_targets, gm::CollisionWorld{}, 1);
+    CHECK(timed_out.status == gm::ProjectileStatus::expired);
+    CHECK(!timed_out.already_spent);
+    CHECK_EQ(gm::apply_projectile_blast(grenade, timed_out, true, context,
+                                        targets),
+             1U);
+    const gm::ProjectileTickResult timed_replay =
+        gm::projectile_step(timed, no_targets, gm::CollisionWorld{}, 1);
+    CHECK(timed_replay.already_spent);
+    CHECK_EQ(gm::apply_projectile_blast(grenade, timed_replay, true, context,
+                                        targets),
+             0U);
+
+    // 4. Proximity: no blast by default, one when the caller opts in.
+    const std::array<gm::Vec3d, 1> player_pos = {bounced.position};
+    const std::array<double, 1> player_radius = {{5.0}};
+    const std::array<std::uint8_t, 1> player_kind = {{1}};
+    const std::array<std::uint8_t, 1> player_object = {{1}};
+    gm::ProjectileTargets prox_targets;
+    prox_targets.player_positions = player_pos;
+    prox_targets.player_radii = player_radius;
+    prox_targets.player_kind = player_kind;
+    prox_targets.player_has_object = player_object;
+    gm::ProjectileState prox;
+    prox.spawn.thing_id = 3;
+    prox.spawn.owner_player = -1;
+    prox.spawn.proximity.push_back(gm::ProximityEntry{123, 0, 20, 0, {}});
+    prox.position = bounced.position;
+    prox.direction = {1.0, 0.0, 0.0};
+    prox.speed = 2.0;
+    const gm::ProjectileTickResult proximity =
+        gm::projectile_step(prox, prox_targets, world, 1);
+    CHECK(proximity.status == gm::ProjectileStatus::proximity);
+    std::array<gm::Vitals, 1> player_vitals{};
+    player_vitals[0].armor = 1000;
+    player_vitals[0].armor_max = 1000;
+    gm::ProjectileBlastTargets prox_blast_targets;
+    prox_blast_targets.player_positions = player_pos;
+    prox_blast_targets.player_vitals = player_vitals;
+    const std::int32_t armor_before = player_vitals[0].armor;
+    CHECK_EQ(gm::apply_projectile_blast(grenade, proximity, false, context,
+                                        prox_blast_targets),
+             0U);
+    CHECK_EQ(player_vitals[0].armor, armor_before);
+    gm::ProjectileBlastContext proximity_context;
+    proximity_context.allow_proximity = true;
+    CHECK_EQ(gm::apply_projectile_blast(grenade, proximity, false,
+                                        proximity_context, prox_blast_targets),
+             1U);
+    CHECK(player_vitals[0].armor < armor_before);
+
+    // 5. Real ROCKET from level0: the same bridge picks its two collide/expire
+    //    blasts (docs/WEAPONS_CPP.md §7).
+    std::optional<gm::Weapons> table;
+    if (fs::exists(kGame / "level0.sbt")) {
+        std::string error;
+        table = gm::Weapons::load(kGame / "level0.sbt", &error);
+        CHECK(table.has_value());
+    }
+    if (table) {
+        const gm::Weapon* rocket = nullptr;
+        for (const gm::Weapon& weapon : table->table()) {
+            if (weapon.name == "ROCKET") {
+                rocket = &weapon;
+                break;
+            }
+        }
+        CHECK(rocket != nullptr);
+        if (rocket != nullptr) {
+            std::array<gm::Vec3d, 1> rocket_pos{{{0.0, 0.0, 0.0}}};
+            std::array<bool, 1> rocket_alive{true};
+            std::array<gm::ThingVitals, 1> rocket_vitals{};
+            rocket_vitals[0].hp = 200000;
+            rocket_vitals[0].max_hp = 200000;
+            rocket_vitals[0].alive = true;
+            gm::ProjectileBlastTargets rocket_targets;
+            rocket_targets.thing_positions = rocket_pos;
+            rocket_targets.thing_alive = rocket_alive;
+            rocket_targets.thing_vitals = rocket_vitals;
+
+            gm::ProjectileState rocket_bounce;
+            rocket_bounce.spawn.direction = {0.0, 0.0, -1.0};
+            rocket_bounce.spawn.speed = 2.0;
+            rocket_bounce.spawn.radius = 10.0;
+            rocket_bounce.position = {0.0, 0.0, 25.0};
+            rocket_bounce.direction = {0.0, 0.0, -1.0};
+            rocket_bounce.speed = 2.0;
+            gm::ProjectileTickResult rocket_bounced;
+            for (int i = 0; i < 8; ++i) {
+                rocket_bounced = gm::projectile_step(
+                    rocket_bounce, no_targets, world, 1);
+                if (rocket_bounced.status == gm::ProjectileStatus::bounced) {
+                    break;
+                }
+            }
+            CHECK(rocket_bounced.status == gm::ProjectileStatus::bounced);
+            rocket_pos[0] = rocket_bounced.position;
+            const std::int32_t rocket_hp = rocket_vitals[0].hp;
+            CHECK_EQ(gm::apply_projectile_blast(*rocket, rocket_bounced, false,
+                                                context, rocket_targets),
+                     2U);
+            CHECK(rocket_vitals[0].hp < rocket_hp);
+
+            gm::ProjectileState rocket_expire;
+            rocket_expire.spawn.direction = {0.0, 0.0, -1.0};
+            rocket_expire.spawn.speed = 2.0;
+            rocket_expire.spawn.radius = 10.0;
+            rocket_expire.spawn.hits_left = 1;
+            rocket_expire.position = {0.0, 0.0, 25.0};
+            rocket_expire.direction = {0.0, 0.0, -1.0};
+            rocket_expire.speed = 2.0;
+            rocket_expire.hits_left = 1;
+            gm::ProjectileTickResult rocket_expired;
+            for (int i = 0; i < 8; ++i) {
+                rocket_expired = gm::projectile_step(
+                    rocket_expire, no_targets, world, 1);
+                if (rocket_expired.status == gm::ProjectileStatus::expired) {
+                    break;
+                }
+            }
+            CHECK(rocket_expired.status == gm::ProjectileStatus::expired);
+            rocket_pos[0] = rocket_expired.position;
+            rocket_vitals[0].hp = 200000;
+            CHECK_EQ(gm::apply_projectile_blast(*rocket, rocket_expired, true,
+                                                context, rocket_targets),
+                     2U);
+            const gm::ProjectileTickResult rocket_replay =
+                gm::projectile_step(rocket_expire, no_targets, world, 1);
+            CHECK(rocket_replay.already_spent);
+            CHECK_EQ(gm::apply_projectile_blast(*rocket, rocket_replay, true,
+                                                context, rocket_targets),
+                     0U);
+        }
+    }
+}
+
 int main() {
     test_fire_rate_quantisation();
     test_single_and_auto();
@@ -2828,6 +3109,7 @@ int main() {
     test_projectile_floor_bounces();
     test_projectile_accumulated_dt();
     test_projectile_remove_events();
+    test_projectile_blast_bridge();
     test_weapon_impact_event();
     test_spawned_thing_damage();
 

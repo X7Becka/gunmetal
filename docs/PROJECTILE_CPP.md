@@ -1,13 +1,13 @@
 # Снаряды: `movement_type == 6` и RGM (`8`)
 
 Статус: ядро `game/projectile.*` реализовано и покрыто синтетическими тестами;
-загрузка полей `Thing` из `THING_TYPES` подключена, и есть чистый мост
+загрузка полей `Thing` из `THING_TYPES` подключена, есть чистый мост
 `projectile_spawn_from_shot()`: успешный `ShotResult` (включая заряд) →
-`ProjectileSpawn` с полями `Thing`. Отдельный минимальный режим RGM/homing
-(`movement_type == 8`) реализован в `projectile_step` и включается флагом
-`ProjectileState::homing`; цель задаёт вызывающий слой. Общий игровой цикл
-(`Projectiles::tick` в `main.cpp`, blast, наведение на реальную цель) по-прежнему
-не подключён.
+`ProjectileSpawn` с полями `Thing`, blast-мост
+`apply_projectile_blast()` (`bounced`/`expired` → `apply_weapon_blast`) и
+отдельный режим RGM/homing (`movement_type == 8`, флаг `ProjectileState::homing`).
+Общий игровой цикл (`Projectiles::tick` в `main.cpp`, хранение per-projectile
+результатов, remove) по-прежнему не подключён.
 
 ## 1. Что доказано
 
@@ -106,7 +106,9 @@ projectiles.tick(1, targets, world, &queue);
 пропускает и событий больше не даёт. `dead` — удаление из мира;
 `Projectiles::remove(id, &queue)` постит `destroy_event` ровно один раз
 (повторный `remove` возвращает `false` и ничего не постит), а expire сам запись
-не удаляет.
+не удаляет. `ProjectileTickResult::already_spent` отличает первый expire
+(`false`) от повторного шага уже `spent` записи (`true`, статус `expired`,
+событий нет) — по нему blast-мост не взрывает снаряд второй раз.
 
 `projectile_spawn_from_thing()` копирует только proven-поля; таблица близости
 пока не заполняется в `Things::load` (см. §4).
@@ -165,6 +167,42 @@ int index = projectiles.spawn(spawn, &queue);
 тиками через `Projectiles::by_thing_id(...)`. Если заданы оба, побеждает
 индекс; если индекс отсутствует в `targets`, используется точка.
 
+### Мост в blast-слой
+
+```cpp
+#include "game/projectile.h"
+
+gm::ProjectileTickResult result =
+    gm::projectile_step(state, targets, world, ticks);
+gm::ProjectileBlastContext blast_context; // вода/земля/DM, source ids
+gm::ProjectileBlastTargets blast_targets; // spans игроков и вещей
+const std::size_t hits = gm::apply_projectile_blast(
+    weapon, result, result.status == gm::ProjectileStatus::expired,
+    blast_context, blast_targets);
+```
+
+`apply_projectile_blast(weapon, result, expired, context, targets, out)` —
+тонкий мост к `apply_weapon_blast`; API самого `apply_weapon_blast` не менялся:
+
+* `bounced` → blast в `result.position`; ветку задаёт `expired`
+  (`false` — `impact_blasts`/collide);
+* `expired` → то же, но обычно `expired=true` (`expire_blasts`); если
+  `result.already_spent`, возвращается 0 и blast не применяется — иначе
+  `spent`-снаряд взрывался бы на каждом следующем тике;
+* `proximity` → **по умолчанию ничего**: таблица близости постит собственное
+  событие (`THING_TYPES+0x21c`), проверенной связи этого события с
+  `impact_blasts`/`expire_blasts` нет. `context.allow_proximity = true` —
+  явное синтетическое решение вызывающего;
+* `flying`/`destroyed` → ничего.
+
+Возвращается число применённых hits (`BlastDamageResult::hits.size()`); `out`
+(необязательный) получает полный `BlastDamageResult` с `chain_reaction`.
+Контекст (`underwater`, `from_ground`, `deathmatch`, `source_player`,
+`source_thing`, `power_up`) и target-spans собраны в
+`ProjectileBlastContext`/`ProjectileBlastTargets`. Функция не хранит состояния:
+её вызывают один раз на `ProjectileTickResult`, а не повторно с тем же
+bounce-результатом (каждый отскок — отдельный контакт).
+
 ## 4. Ограничения / что осталось
 
 1. **Таблица близости** (`THING_TYPES+0x218`) загружается в `Thing` /
@@ -179,12 +217,12 @@ int index = projectiles.spawn(spawn, &queue);
    `+0x130`, проверка видимости цели, финальный `FUN_00456de0`) не
    воспроизведена; `homing_turn` задаёт вызывающий слой.
 4. **Игровой слой**: `Weapons::fire` → `projectile_spawn_from_shot` →
-   `Projectiles::spawn/tick` собрано и покрыто тестом, но в `main.cpp` цикл
-   ещё не вызывает `Projectiles::tick`, а blast по `ProjectileStatus::bounced/
-   expired` и удаление (`Projectiles::remove`) остаются за вызывающим слоем.
-   Для RGM не подключены поиск реальной цели (`weapons.cpp`/AI) и blast по
-   `ProjectileStatus::destroyed`. `EventDispatcher` для событий снаряда тоже
-   не подключён.
+   `Projectiles::spawn/tick` и blast-мост `apply_projectile_blast` собраны и
+   покрыты тестами, но в `main.cpp` цикл ещё не вызывает `Projectiles::tick`,
+   не хранит per-projectile результаты (`tick` возвращает `void`) и не
+   применяет blast/remove. Для RGM не подключены поиск реальной цели и blast
+   по `ProjectileStatus::destroyed`; `EventDispatcher` для событий снаряда
+   тоже не подключён.
 5. `collide` при контакте и `expire` при hits/lifetime разделены; не постить
    collide на последнем попадании.
 6. **Условие collide** в C++ — `dt <= |vz_old| + speed_old` (тики слева,
@@ -194,6 +232,12 @@ int index = projectiles.spawn(spawn, &queue);
    т.е. оригинал сравнивает не `dt`. Семантика `+0x68` не доказана
    (QA COL-1), поэтому порт пока оставлен как есть; тесты фиксируют именно
    текущее правило.
+7. **Триггер blast — статус, а не событие.** В оригинале blast живёт в
+   обработчике collide/expire-события. `apply_projectile_blast` реагирует на
+   `ProjectileStatus::bounced`, в том числе когда collide-событие не постилось
+   (гейт из п. 6 или `collide_event == 0`). «Отдых» на полу сюда не попадает
+   (статус остаётся `flying`), но это clean-room упрощение; точная привязка
+   потребует причины события в `ProjectileTickResult`.
 
 ## 5. Тесты
 
@@ -321,3 +365,18 @@ int index = projectiles.spawn(spawn, &queue);
 накопленных смещений; поворот считается по вектору, а не по двум углам, поэтому
 на больших `dt` дуга может отличаться. Цель и `homing_turn` в игре пока никто
 не заполняет — это работа следующего слоя.
+
+Blast-мост:
+
+`test_projectile_blast_bridge` (там же):
+
+* синтетическая граната: `bounced` → ровно один blast в `result.position`,
+  выбран `impact_blasts` (event 11), HP вещи уменьшился; `flying`/`destroyed`
+  — 0 hits;
+* `expired` (последний hit) → ровно один blast из `expire_blasts` (event 22);
+  повторный шаг уже `spent` записи даёт `already_spent`, пустые события и
+  0 hits (HP не меняется); lifetime-expire ведёт себя так же;
+* `proximity` по умолчанию 0 hits и не трогает HP; с
+  `allow_proximity = true` — один blast;
+* реальный `ROCKET` из `level0.sbt`: bounce и expire дают по 2 hits, повторный
+  expire после `spent` — 0.
