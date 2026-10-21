@@ -607,8 +607,8 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > hits/lifetime, proximity-события и `Projectiles`; поля `Thing`
       > (`gravity/damping/shape/radius/box`) читаются из `THING_TYPES`.
       > Таблица близости (`THING_TYPES+0x218`) загружается; цель кодируется
-      > `0..7`/`8+index`, contact-skin убирает залипание, `remove` постит
-      > destroy. RGM/homing ещё не подключены.
+      > `0..7`/`8+index`, contact-skin и floor-rest не тратят hits/damping,
+      > `remove` постит destroy. RGM/homing ещё не подключены.
 - 🟡 `M2.2.7` AI/things: состояния, path, дети, мораль, оружие, события.
       > C++ `world/things.*` (CTest `things`/`things_full`): top-level 4008,
       > recursive 7563, executed 7617, 391 старт, 2896/2896 model refs;
