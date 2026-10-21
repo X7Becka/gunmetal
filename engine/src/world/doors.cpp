@@ -109,6 +109,8 @@ bool parse_door_record(const std::vector<std::uint8_t>& payload, std::size_t off
         return false;
     }
     door.phase = std::min(phase, kDoorPhaseFull);
+    door.phase_prev = door.phase;
+    door.phase_next = door.phase;
     if (!read_i32(payload, offset + 0x94, door.step)) {
         return false;
     }
@@ -133,10 +135,30 @@ bool parse_door_record(const std::vector<std::uint8_t>& payload, std::size_t off
             !read_f64(payload, offset + 0x18 + static_cast<std::size_t>(k) * 8,
                       door.open[static_cast<std::size_t>(k)]) ||
             !read_f64(payload, offset + 0x30 + static_cast<std::size_t>(k) * 8,
-                      door.size[static_cast<std::size_t>(k)])) {
+                      door.size[static_cast<std::size_t>(k)]) ||
+            !read_f64(payload, offset + 0x48 + static_cast<std::size_t>(k) * 8,
+                      door.axis[static_cast<std::size_t>(k)])) {
             return false;
         }
     }
+    if (!read_f64(payload, offset + 0x60, door.sound_level)) {
+        return false;
+    }
+    // +0xa0..+0xa8 are v0/v1/v2, +0xac..+0xb4 n0/n1/n2 (`0x44e250`).
+    for (int k = 0; k < 3; ++k) {
+        int volume = 0;
+        int sample = 0;
+        if (!read_i32(payload, offset + 0xA0 + static_cast<std::size_t>(k) * 4, volume) ||
+            !read_i32(payload, offset + 0xAC + static_cast<std::size_t>(k) * 4, sample)) {
+            return false;
+        }
+        DoorSound sound;
+        sound.volume = volume;
+        sound.sample = sample;
+        (k == 0 ? door.start_sound : (k == 1 ? door.move_sound : door.stop_sound)) = sound;
+    }
+    door.event_open = door.ids[3];
+    door.event_close = door.ids[4];
     door.sliding = false;
     for (int k = 0; k < 3; ++k) {
         if (std::fabs(door.open[static_cast<std::size_t>(k)] -
@@ -155,9 +177,21 @@ Door door_from_scene(const SceneDoor& src) {
     door.flags = src.flags;
     door.kind = src.flags & 0xF;
     door.ids = src.ids;
-    door.closed = {src.values[0], src.values[1], src.values[2]};
-    door.open = {src.values[3], src.values[4], src.values[5]};
-    door.size = {src.values[6], src.values[7], src.values[8]};
+    // The loader folds the size into both corners (+0x00 += +0x30 at
+    // 0x44e368..0x44e3f6), so the runtime record — and the save — hold
+    // ``corner + size``.  The SCRIPT operands are the raw corners.
+    for (int k = 0; k < 3; ++k) {
+        door.size[static_cast<std::size_t>(k)] = src.values[static_cast<std::size_t>(6 + k)];
+    }
+    for (int k = 0; k < 3; ++k) {
+        door.closed[static_cast<std::size_t>(k)] =
+            src.values[static_cast<std::size_t>(k)] + door.size[static_cast<std::size_t>(k)];
+        door.open[static_cast<std::size_t>(k)] =
+            src.values[static_cast<std::size_t>(3 + k)] + door.size[static_cast<std::size_t>(k)];
+        // A1..A3 are radians; the record keeps them divided by 65535.
+        door.axis[static_cast<std::size_t>(k)] =
+            src.angles[static_cast<std::size_t>(k)] * kDoorPhaseMaxToFraction;
+    }
     door.sector = src.params[0];
     door.object = src.params[1];
     door.step = src.params[2];
@@ -167,6 +201,15 @@ Door door_from_scene(const SceneDoor& src) {
     // The scene layer's ``state`` tuple is (state word, phase); +0x80/+0x8c.
     door.state = static_cast<DoorState>(std::clamp(src.params[4], -1, 1));
     door.phase = clamp_phase(src.params[3]);
+    door.phase_prev = door.phase;
+    door.phase_next = door.phase;
+    door.hold_ticks = static_cast<std::uint32_t>(std::max(src.params[5], 0));
+    door.timer = src.params[6] > 0 ? static_cast<std::uint32_t>(src.params[6]) : 0u;
+    door.start_sound = {src.tail[1], src.tail[0]}; // n0/v0
+    door.move_sound = {src.tail[3], src.tail[2]};  // n1/v1
+    door.stop_sound = {src.tail[5], src.tail[4]};  // n2/v2
+    door.event_open = door.ids[3];
+    door.event_close = door.ids[4];
     door.sliding = false;
     for (int k = 0; k < 3; ++k) {
         if (std::fabs(door.open[static_cast<std::size_t>(k)] -
@@ -190,15 +233,38 @@ int effective_door_id(const std::array<int, 5>& ids) {
 void finalise_door(Door& door) {
     door.id = effective_door_id(door.ids);
     door.phase = std::min(door.phase, kDoorPhaseFull);
+    door.phase_prev = door.phase;
+    door.phase_next = door.engine_phase();
     door.open_fraction = static_cast<double>(door.phase) * kDoorPhaseToFraction;
     if (!all_finite(door.closed) || !all_finite(door.open) || !all_finite(door.size)) {
         door.closed = {0.0, 0.0, 0.0};
         door.open = {0.0, 0.0, 0.0};
         door.size = {0.0, 0.0, 0.0};
     }
+    if (!all_finite(door.axis) || !std::isfinite(door.sound_level)) {
+        // A non-finite angle operand would poison the basis; the engine reads
+        // it blindly, the model refuses to.
+        door.axis = {0.0, 0.0, 0.0};
+    }
+    door.event_open = door.ids[3];
+    door.event_close = door.ids[4];
 }
 
 // --- ADD_LIFT ---------------------------------------------------------------
+//
+// ``0x45c9a0`` hands the 37-dword block to ``0x44e800`` as cdecl operands.
+// Operands 9..16 are **doubles** (2 dwords each: the six basis values), so the
+// integer words shift by 8 relative to a naive one-dword-per-operand reading:
+//
+//   head[0] kind        head[1] SOB index     head[2..4] x/y/z
+//   head[5..7] pos delta (scaled by height)   head[8..19] six doubles
+//   head[20] speed      head[21] dwell        head[22] height  head[23] wait
+//   head[24] direction  head[25] stop index   head[26..28] call ids
+//   head[29] call event head[30] call radius
+//   head[31..36] V,N,V,N,V,N: the three sound (volume, sample) pairs.
+//
+// ``docs/DOOR_FIELDS.md`` §3.2 used to claim ``head[16] = speed``; that word is
+// the low half of the fourth basis double (e.g. 1413754135 in dm3).
 
 void collect_lifts(const std::vector<SbtInsn>& insns, const std::vector<std::uint8_t>& code,
                    std::vector<Lift>& lifts) {
@@ -213,15 +279,42 @@ void collect_lifts(const std::vector<SbtInsn>& insns, const std::vector<std::uin
                     std::memcpy(&lift.head[k], code.data() + head + k * 4, 4);
                 }
                 lift.kind = as_i32(lift.head[0]);
-                // `docs/DOOR_FIELDS.md`: word 1 is the entity/SOB id, words
-                // 2..4 the position, 16 the speed, 17 the dwell and 18 the
-                // initial height (`ADD_LIFT` block, proven by 0x450180).
-                lift.id = as_i32(lift.head[1]);
+                lift.sob = as_i32(lift.head[1]);
                 lift.x = as_i32(lift.head[2]);
                 lift.y = as_i32(lift.head[3]);
                 lift.z = as_i32(lift.head[4]);
-                lift.speed = std::max(as_i32(lift.head[16]), 0);
-                lift.height = as_i32(lift.head[18]);
+                for (int k = 0; k < 3; ++k) {
+                    lift.pos_delta[static_cast<std::size_t>(k)] =
+                        as_i32(lift.head[static_cast<std::size_t>(5 + k)]);
+                }
+                for (int k = 0; k < 3; ++k) {
+                    std::memcpy(&lift.basis[static_cast<std::size_t>(k)],
+                                &lift.head[static_cast<std::size_t>(8 + k * 2)], 8);
+                }
+                for (int k = 0; k < 3; ++k) {
+                    std::uint64_t bits = 0;
+                    std::memcpy(&bits, &lift.head[static_cast<std::size_t>(14 + k * 2)], 8);
+                    double angle = 0.0;
+                    std::memcpy(&angle, &bits, 8);
+                    lift.basis[static_cast<std::size_t>(3 + k)] =
+                        angle * kDoorPhaseMaxToFraction;
+                }
+                lift.speed = std::max(as_i32(lift.head[20]), 0);
+                lift.dwell = as_i32(lift.head[21]);
+                lift.height = as_i32(lift.head[22]);
+                lift.wait = as_i32(lift.head[23]);
+                lift.direction = as_i32(lift.head[24]);
+                lift.stop_index = as_i32(lift.head[25]);
+                for (int k = 0; k < 3; ++k) {
+                    lift.call_ids[static_cast<std::size_t>(k)] =
+                        as_i32(lift.head[static_cast<std::size_t>(26 + k)]);
+                }
+                lift.call_event = as_i32(lift.head[29]);
+                lift.call_radius = as_i32(lift.head[30]);
+                lift.call_sound = {as_i32(lift.head[32]), as_i32(lift.head[31])};
+                lift.move_sound = {as_i32(lift.head[34]), as_i32(lift.head[33])};
+                lift.arrive_sound = {as_i32(lift.head[36]), as_i32(lift.head[35])};
+                lift.height_tick = lift.height;
                 lift.target = lift.height;
             }
             const std::size_t count = std::min<std::size_t>(insn.count,
@@ -249,26 +342,58 @@ bool parse_lift_record(const std::vector<std::uint8_t>& payload, std::size_t off
     }
     lift.id = static_cast<int>(index);
     if (!read_i32(payload, offset + 0x34, lift.kind) ||
+        !read_i32(payload, offset + 0x38, lift.sob) ||
         !read_i32(payload, offset + 0x3C, lift.x) ||
         !read_i32(payload, offset + 0x40, lift.y) ||
         !read_i32(payload, offset + 0x44, lift.z) ||
         !read_i32(payload, offset + 0x54, lift.speed) ||
+        !read_i32(payload, offset + 0x58, lift.dwell) ||
         !read_i32(payload, offset + 0x5C, lift.height) ||
-        !read_i32(payload, offset + 0x60, lift.target) ||
-        !read_i32(payload, offset + 0x6C, lift.stop_index)) {
+        !read_i32(payload, offset + 0x60, lift.height_tick) ||
+        !read_i32(payload, offset + 0x64, lift.wait) ||
+        !read_i32(payload, offset + 0x68, lift.direction) ||
+        !read_i32(payload, offset + 0x6C, lift.stop_index) ||
+        !read_i32(payload, offset + 0x7C, lift.call_event) ||
+        !read_i32(payload, offset + 0x80, lift.call_radius)) {
         return false;
     }
+    for (int k = 0; k < 3; ++k) {
+        if (!read_i32(payload, offset + 0x48 + static_cast<std::size_t>(k) * 4,
+                      lift.pos_delta[static_cast<std::size_t>(k)]) ||
+            !read_i32(payload, offset + 0x70 + static_cast<std::size_t>(k) * 4,
+                      lift.call_ids[static_cast<std::size_t>(k)])) {
+            return false;
+        }
+    }
+    for (int k = 0; k < 6; ++k) {
+        if (!read_f64(payload, offset + static_cast<std::size_t>(k) * 8,
+                      lift.basis[static_cast<std::size_t>(k)])) {
+            return false;
+        }
+    }
+    int volume_a = 0;
+    int volume_b = 0;
+    int volume_c = 0;
+    int sample_a = -1;
+    int sample_b = -1;
+    int sample_c = -1;
+    if (!read_i32(payload, offset + 0x84, volume_a) ||
+        !read_i32(payload, offset + 0x88, volume_b) ||
+        !read_i32(payload, offset + 0x8C, volume_c) ||
+        !read_i32(payload, offset + 0x90, sample_a) ||
+        !read_i32(payload, offset + 0x94, sample_b) ||
+        !read_i32(payload, offset + 0x98, sample_c)) {
+        return false;
+    }
+    lift.call_sound = {sample_a, volume_a};
+    lift.move_sound = {sample_b, volume_b};
+    lift.arrive_sound = {sample_c, volume_c};
     int moving = 0;
     if (!read_i32(payload, offset + 0x68, moving)) {
         return false;
     }
     lift.moving = moving != 0;
-    for (int k = 0; k < 3; ++k) {
-        if (!read_i32(payload, offset + 0x70 + static_cast<std::size_t>(k) * 4,
-                      lift.call_ids[static_cast<std::size_t>(k)])) {
-            return false;
-        }
-    }
+    lift.target = lift.height_tick;
     if (lift.speed < 0) {
         lift.speed = 0;
     }
@@ -287,6 +412,137 @@ const char* door_state_name(DoorState state) {
     default:
         return "closed";
     }
+}
+
+// --- leaf / cabin geometry --------------------------------------------------
+//
+// Evidence: the tick 0x44f2e0, the commit 0x44f3f0, the transform update
+// 0x44dfc0 (door) and the cabin update 0x44e6f0 (lift).  Both funnel into
+// generic transform writers: 0x434887 (object origin/basis) and 0x41e025
+// (basis from three angles).  See docs/DOOR_FIELDS.md §1.2 and §3.3.
+
+namespace {
+
+/// sin/cos wrappers of the engine (0x480314 = FSIN, 0x480954 = FCOS).
+double eng_sin(double v) { return std::sin(v); }
+double eng_cos(double v) { return std::cos(v); }
+
+} // namespace
+
+int door_rotation_axis(const Door& door) {
+    // 0x44dfc0 tests delta[2] first, then delta[0]; delta[1] is the fallback.
+    if (door.axis[2] != 0.0) {
+        return 2;
+    }
+    if (door.axis[0] != 0.0) {
+        return 0;
+    }
+    if (door.axis[1] != 0.0) {
+        return 1;
+    }
+    return -1;
+}
+
+DoorTransform door_transform_at(const Door& door, std::uint32_t engine_phase) {
+    DoorTransform transform;
+    const std::uint32_t phase = std::min(engine_phase, kDoorPhaseMax);
+    const double fraction = static_cast<double>(phase) * kDoorPhaseMaxToFraction;
+    for (std::size_t k = 0; k < 3; ++k) {
+        transform.center[k] =
+            door.closed[k] + (door.open[k] - door.closed[k]) * fraction;
+    }
+
+    // Identity unless one of the three angle operands is non-zero.
+    transform.basis = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+    const int axis = door_rotation_axis(door);
+    transform.axis = axis;
+    if (axis >= 0) {
+        // Unit axis as 0x44dfc0 passes it: -x, +y, -z.
+        const double unit[3] = {axis == 0 ? -1.0 : 0.0, axis == 1 ? 1.0 : 0.0,
+                                axis == 2 ? -1.0 : 0.0};
+        const double angle = door.axis[static_cast<std::size_t>(axis)] *
+                             static_cast<double>(phase);
+        transform.angle = angle;
+        const double c = eng_cos(angle);
+        const double s = eng_sin(angle);
+        const double t = 1.0 - c;
+        const double x = unit[0];
+        const double y = unit[1];
+        const double z = unit[2];
+        // 0x434887 ("angle -angle"): the matrix it builds is R(-angle)
+        // about the unit axis, written row-major.
+        transform.basis[0] = x * x * t + c;
+        transform.basis[1] = x * y * t + z * s;
+        transform.basis[2] = x * z * t - y * s;
+        transform.basis[3] = x * y * t - z * s;
+        transform.basis[4] = y * y * t + c;
+        transform.basis[5] = y * z * t + x * s;
+        transform.basis[6] = x * z * t + y * s;
+        transform.basis[7] = y * z * t - x * s;
+        transform.basis[8] = z * z * t + c;
+    }
+    // origin = center - basis^T * size (the three columns of `basis`).
+    for (std::size_t row = 0; row < 3; ++row) {
+        double shifted = 0.0;
+        for (std::size_t k = 0; k < 3; ++k) {
+            shifted += door.size[k] * transform.basis[k * 3 + row];
+        }
+        transform.origin[row] = transform.center[row] - shifted;
+    }
+    return transform;
+}
+
+DoorTransform door_transform(const Door& door) {
+    return door_transform_at(door, door.engine_phase());
+}
+
+std::array<double, 3> door_motion_delta(const Door& door, std::uint32_t phase_prev,
+                                        std::uint32_t phase_next) {
+    const std::int64_t delta = static_cast<std::int64_t>(
+                                   std::min(phase_next, kDoorPhaseMax)) -
+                               static_cast<std::int64_t>(
+                                   std::min(phase_prev, kDoorPhaseMax));
+    const double fraction = static_cast<double>(delta) * kDoorPhaseMaxToFraction;
+    return {(door.open[0] - door.closed[0]) * fraction,
+            (door.open[1] - door.closed[1]) * fraction,
+            (door.open[2] - door.closed[2]) * fraction};
+}
+
+double lift_fraction(const Lift& lift) {
+    const int height = std::clamp(lift.height, 0, static_cast<int>(kDoorPhaseMax));
+    return static_cast<double>(height) * kDoorPhaseMaxToFraction;
+}
+
+LiftTransform lift_transform(const Lift& lift) {
+    LiftTransform transform;
+    const double fraction = lift_fraction(lift);
+    const int base[3] = {lift.x, lift.y, lift.z};
+    for (std::size_t k = 0; k < 3; ++k) {
+        transform.origin[k] = static_cast<double>(base[k]) +
+                              static_cast<double>(lift.pos_delta[k]) * fraction;
+    }
+    // 0x44e6f0 combines the (base, delta) pairs into three angles and hands
+    // them to 0x41e025 in the order (value[1], value[0], value[2]).
+    const double value[3] = {lift.basis[0] + lift.basis[3] * fraction,
+                             lift.basis[1] + lift.basis[4] * fraction,
+                             lift.basis[2] + lift.basis[5] * fraction};
+    transform.angles = {value[1], value[0], value[2]};
+    const double s1 = eng_sin(transform.angles[0]);
+    const double c1 = eng_cos(transform.angles[0]);
+    const double s2 = eng_sin(transform.angles[1]);
+    const double c2 = eng_cos(transform.angles[1]);
+    const double s3 = eng_sin(transform.angles[2]);
+    const double c3 = eng_cos(transform.angles[2]);
+    transform.basis[0] = c3 * c1 - s3 * s2 * s1;
+    transform.basis[1] = -s3 * c1 - c3 * s2 * s1;
+    transform.basis[2] = -c2 * s1;
+    transform.basis[3] = s3 * c2;
+    transform.basis[4] = c3 * c2;
+    transform.basis[5] = -s2;
+    transform.basis[6] = s3 * s2 * c1 + c3 * s1;
+    transform.basis[7] = c3 * s2 * c1 - s3 * s1;
+    transform.basis[8] = c2 * c1;
+    return transform;
 }
 
 // --- WorldState -------------------------------------------------------------
@@ -450,6 +706,8 @@ bool WorldState::build(const SbtLevel& level, const SbwLevel& world, std::string
                         break;
                     }
                 }
+                read_i32(*switch_record, offset + 0x18, sw.aux);
+                read_i32(*switch_record, offset + 0x1C, sw.sound);
                 switches_.push_back(std::move(sw));
             }
             stats_.record_switches = switches_.size();
@@ -462,6 +720,8 @@ bool WorldState::build(const SbtLevel& level, const SbwLevel& world, std::string
             sw.kind = src.kind;
             sw.radius = src.radius;
             sw.pos = src.pos;
+            sw.aux = src.extra[0];
+            sw.sound = src.extra[1];
             switches_.push_back(std::move(sw));
             ++stats_.script_switches;
         }
@@ -558,6 +818,8 @@ bool WorldState::build(const SbtLevel& level, const SbwLevel& world, std::string
         if (!door.bound) {
             ++stats_.bad_bindings;
         }
+        door.phase_prev = door.phase;
+        door.phase_next = door.engine_phase();
         door.open_fraction = static_cast<double>(door.phase) * kDoorPhaseToFraction;
     }
 
@@ -583,7 +845,11 @@ void WorldState::start_lift(Lift& lift) {
     }
     lift.stop_index = static_cast<int>(next);
     lift.target = lift.stops[next].height;
-    lift.moving = lift.target != lift.height;
+    const std::int64_t distance = static_cast<std::int64_t>(lift.target) - lift.height;
+    lift.direction = distance == 0 ? 0 : (distance > 0 ? 1 : -1);
+    lift.moving = lift.direction != 0;
+    lift.wait = 0;
+    lift.height_tick = lift.height;
 }
 
 std::size_t WorldState::post_switch_events(EventQueue& queue,
@@ -640,21 +906,43 @@ bool WorldState::interact(int switch_id) {
     sw.pressed = true;
     ++stats_.switch_interactions;
     log_event({WorldEvent::Kind::SwitchPressed, sw.id, sw.target, 0, 0});
+    press_target(sw.id, sw.target);
+    return true;
+}
 
-    bool acted = false;
+bool WorldState::interact(int switch_id, std::int16_t source) {
+    if (switch_id < 0 || static_cast<std::size_t>(switch_id) >= switches_.size()) {
+        return false;
+    }
+    Switch& sw = switches_[static_cast<std::size_t>(switch_id)];
+    sw.pressed = true;
+    ++stats_.switch_interactions;
+    log_event({WorldEvent::Kind::SwitchPressed, sw.id, sw.target, 0, 0});
+    // Bind the source that 0x479810 puts inside the type-2 record right away;
+    // everything logged before this call already has its own answer.
+    switch_event_sources_.back() = source;
+    press_target(sw.id, sw.target);
+    return true;
+}
+
+std::size_t WorldState::press_target(int switch_id, int target) {
+    std::size_t acted = 0;
     for (const auto& row : door_targets_) {
-        if (row.first != sw.target) {
+        if (row.first != target) {
             continue;
         }
         for (std::size_t index : row.second) {
             Door& door = doors_[index];
             if (door.locked) {
                 ++stats_.locked_hits;
-                log_event({WorldEvent::Kind::DoorLocked, sw.id, sw.target, door.id, 0});
-                acted = true;
+                log_event({WorldEvent::Kind::DoorLocked, switch_id, target, door.id, 0});
+                ++acted;
                 continue;
             }
-            acted = true;
+            if (!door.active()) {
+                continue; // 0x44f690 skips kind 0 doors entirely
+            }
+            ++acted;
             door.timer = 0;
             bool opening = true;
             if (door.state == DoorState::Opening) {
@@ -665,37 +953,164 @@ bool WorldState::interact(int switch_id) {
                 opening = door.phase < kDoorPhaseFull;
             }
             door.state = opening ? DoorState::Opening : DoorState::Closing;
-            log_event({opening ? WorldEvent::Kind::DoorOpening
-                               : WorldEvent::Kind::DoorClosing,
-                       sw.id, sw.target, door.id, 0});
+            // 0x44f690 plays the *start* sound (v0/n0) when a GENERATE id
+            // matches a door; 0x44f3f0 plays the loop separately.
+            WorldEvent event{opening ? WorldEvent::Kind::DoorOpening
+                                     : WorldEvent::Kind::DoorClosing,
+                             switch_id, target, door.id, 0,
+                             door.active() ? door.start_sound.sample : -1,
+                             door.start_sound.volume};
+            log_event(event);
         }
     }
     for (const auto& row : lift_targets_) {
-        if (row.first != sw.target) {
+        if (row.first != target) {
             continue;
         }
         Lift& lift = lifts_[row.second];
         if (!lift.moving) {
             start_lift(lift);
             ++stats_.lift_calls;
-            log_event({WorldEvent::Kind::LiftCalled, sw.id, sw.target, 0, lift.id});
-            acted = true;
+            log_event({WorldEvent::Kind::LiftCalled, switch_id, target, 0, lift.id,
+                       lift.call_sound.sample, lift.call_sound.volume});
+            ++acted;
         }
     }
-    if (!acted) {
+    if (acted == 0) {
         ++stats_.unmatched_targets;
-        log_event({WorldEvent::Kind::NoTarget, sw.id, sw.target, 0, 0});
+        log_event({WorldEvent::Kind::NoTarget, switch_id, target, 0, 0});
     }
-    return true;
+    return acted;
+}
+
+namespace {
+
+/// The engine's proximity metric (``0x4344df``): ``max + (mid + min) / 4``
+/// over the absolute components.  Not Euclidean — an octagon.
+double trigger_distance(double dx, double dy, double dz) {
+    double a = std::fabs(dx);
+    double b = std::fabs(dy);
+    double c = std::fabs(dz);
+    if (a < b) {
+        std::swap(a, b);
+    }
+    if (a < c) {
+        std::swap(a, c);
+    }
+    // a = max, b/c = the other two in some order.
+    return a + (b + c) * 0.25;
+}
+
+} // namespace
+
+std::size_t WorldState::poll_triggers(const std::array<double, 3>& pos,
+                                      std::int16_t source) {
+    std::size_t fired = 0;
+    for (Switch& sw : switches_) {
+        bool inside = false;
+        if (sw.kind == 0) {
+            inside = trigger_distance(pos[0] - sw.pos[0], pos[1] - sw.pos[1],
+                                      pos[2] - sw.pos[2]) < static_cast<double>(sw.radius);
+        } else if (sw.kind == 1) {
+            // 0x44fc30 kind 1: distance to the *leaf origin* of the first door
+            // matching ids[0..2]; no door, no trigger.
+            const Door* target_door = nullptr;
+            for (const auto& row : door_targets_) {
+                if (row.first != sw.target || row.second.empty()) {
+                    continue;
+                }
+                target_door = &doors_[row.second.front()];
+                break;
+            }
+            if (target_door != nullptr) {
+                const DoorTransform transform = door_transform(*target_door);
+                inside = trigger_distance(pos[0] - transform.origin[0],
+                                          pos[1] - transform.origin[1],
+                                          pos[2] - transform.origin[2]) <
+                         static_cast<double>(sw.radius);
+            }
+        }
+        sw.inside = inside;
+        if (!inside) {
+            continue;
+        }
+        sw.pressed = true;
+        ++stats_.switch_interactions;
+        ++stats_.trigger_presses;
+        log_event({WorldEvent::Kind::SwitchPressed, sw.id, sw.target, 0, 0});
+        switch_event_sources_.back() = source;
+        press_target(sw.id, sw.target); // counts the miss itself
+        ++fired;
+    }
+    return fired;
+}
+
+std::size_t WorldState::trigger_at(const std::array<double, 3>& pos, std::int16_t source) {
+    std::size_t fired = 0;
+    for (Switch& sw : switches_) {
+        if (sw.kind != 0x104) {
+            continue;
+        }
+        if (static_cast<int>(pos[0]) != sw.pos[0] || static_cast<int>(pos[1]) != sw.pos[1] ||
+            static_cast<int>(pos[2]) != sw.pos[2]) {
+            continue;
+        }
+        sw.pressed = true;
+        ++stats_.switch_interactions;
+        ++stats_.trigger_presses;
+        log_event({WorldEvent::Kind::SwitchPressed, sw.id, sw.target, 0, 0});
+        switch_event_sources_.back() = source;
+        press_target(sw.id, sw.target);
+        ++fired;
+    }
+    return fired;
+}
+
+bool WorldState::block_contact(int sector, int object) {
+    for (Door& door : doors_) {
+        if (door.sector != sector || door.object != object || !door.active()) {
+            continue;
+        }
+        if (door.kind == 1) {
+            return false; // ordinary door: no reaction, 0x450590 returns early
+        }
+        if (door.kind != 2 && door.kind != 3) {
+            return false;
+        }
+        // Both branches drop the phase the tick just computed and go back to
+        // opening; the golden `phase_prev` copy is at 0x4506b9/0x4506cf.
+        door.phase = door.phase_prev;
+        door.phase_next = door.phase;
+        door.open_fraction = static_cast<double>(door.phase) * kDoorPhaseToFraction;
+        door.timer = 0;
+        door.state = DoorState::Opening;
+        ++stats_.blocked_hits;
+        if (door.kind == 2) {
+            log_event({WorldEvent::Kind::DoorBlocked, -1, 0, door.id, 0});
+        } else {
+            // event_post(-22, sector, object, 0, lerp(closed, open), source)
+            log_event({WorldEvent::Kind::DoorCrush, -1, door.event_close, door.id, 0});
+            ++stats_.crush_hits;
+        }
+        return true;
+    }
+    return false;
 }
 
 void WorldState::advance_door(Door& door, std::uint64_t ticks) {
+    // 0x44f2e0 copies +0x8c into +0x90 before moving; 0x44f3f0 commits it back
+    // (and 0x450590 can throw the whole tick away).  phase_prev is that copy.
+    door.phase_prev = door.engine_phase();
     std::uint64_t left = ticks;
     std::uint32_t step = static_cast<std::uint32_t>(
         std::max<std::int32_t>(door.step, 0));
     const std::uint32_t max_step = 1u << 20; // defensive cap, still > one phase
     if (step > max_step) {
         step = max_step;
+    }
+    if (!door.active()) {
+        // The engine only animates kinds 1..3 (0x44f2e0 low-nibble test).
+        left = 0;
     }
     int guard = 0;
     while (left > 0 && guard++ < 4) {
@@ -718,9 +1133,13 @@ void WorldState::advance_door(Door& door, std::uint64_t ticks) {
                 door.phase = target;
                 left -= need;
                 door.state = DoorState::Closed;
+                // 0x44f3f0 posts ids[4] when fully closed, ids[3] when fully
+                // open, and plays the stop sound (v2/n2) in both cases.
+                const int event_id = opening ? door.event_open : door.event_close;
                 log_event({opening ? WorldEvent::Kind::DoorOpened
                                    : WorldEvent::Kind::DoorClosed,
-                           -1, door.id, door.id, 0});
+                           -1, event_id, door.id, 0, door.stop_sound.sample,
+                           door.stop_sound.volume});
                 if (opening && door.hold_ticks > 0) {
                     door.timer = door.hold_ticks;
                 }
@@ -733,12 +1152,15 @@ void WorldState::advance_door(Door& door, std::uint64_t ticks) {
                 left -= door.timer;
                 door.timer = 0;
                 door.state = DoorState::Closing;
-                log_event({WorldEvent::Kind::DoorClosing, -1, door.id, door.id, 0});
+                // 0x44f3f0 plays v0/n0 when the dwell expires.
+                log_event({WorldEvent::Kind::DoorClosing, -1, door.event_close, door.id, 0,
+                           door.start_sound.sample, door.start_sound.volume});
             }
         } else {
             break;
         }
     }
+    door.phase_next = door.engine_phase();
     door.open_fraction = static_cast<double>(door.phase) * kDoorPhaseToFraction;
 }
 
@@ -766,12 +1188,19 @@ void WorldState::advance_lift(Lift& lift, std::uint64_t ticks) {
             lift.height = lift.target;
             left -= need;
             lift.moving = false;
+            lift.direction = 0;
+            // 0x4502a0: arrival sets +0x68 = 0, posts the stop's sound column
+            // and reloads the dwell into +0x64.  The cabin transform is
+            // refreshed by 0x44e6f0 in the same call.
+            lift.height_tick = lift.height;
+            lift.wait = lift.dwell;
             if (static_cast<std::size_t>(lift.stop_index) < lift.stops.size() &&
                 lift.stops[static_cast<std::size_t>(lift.stop_index)].height ==
                     lift.height) {
                 // already at the requested stop
             }
         }
+        lift.height_tick = lift.height;
     }
 }
 
@@ -829,6 +1258,11 @@ std::vector<ObjectDoorState> WorldState::apply_to_objects() const {
         state.sliding = door.sliding;
         state.linked = door.linked;
         state.bound = door.bound;
+        // The engine writes this transform into the .sbw object every tick
+        // (0x44dfc0 -> 0x434887) and all consumers — render, collision, the
+        // lighting rays — read the mutated object, so the doorway geometry
+        // moves with the leaf.
+        state.transform = door_transform(door);
         out.push_back(state);
     }
     return out;
