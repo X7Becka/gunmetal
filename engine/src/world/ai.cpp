@@ -718,7 +718,8 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                     if (agent.timer > 0.0) {
                         agent.timer -= dt;
                     }
-                    if (agent.timer <= 0.0) {
+                    if (agent.timer <= 0.0 &&
+                        (!standoff_window || engage_distance <= engage_range)) {
                         agent.timer = attack_period;
                         ++stats_.attacks;
                         log(AiEventType::attack, agent,
