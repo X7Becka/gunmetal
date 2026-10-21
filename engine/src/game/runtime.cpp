@@ -348,20 +348,38 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
     const Weapon& weapon, const ProjectileBlastContext& context,
     std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
     bool only_new) {
-    return apply_projectile_blasts_impl(weapon, &context, {}, player_vitals,
-                                        thing_vitals, only_new);
+    return apply_projectile_blasts_impl(&weapon, nullptr, &context, {},
+                                        player_vitals, thing_vitals, only_new);
 }
 
 ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
     const Weapon& weapon, std::span<const ProjectileBlastContext> contexts,
     std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
     bool only_new) {
-    return apply_projectile_blasts_impl(weapon, nullptr, contexts, player_vitals,
-                                        thing_vitals, only_new);
+    return apply_projectile_blasts_impl(&weapon, nullptr, nullptr, contexts,
+                                        player_vitals, thing_vitals, only_new);
+}
+
+ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
+    const EventBlastRegistry& registry, const ProjectileBlastContext& context,
+    std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+    bool only_new) {
+    return apply_projectile_blasts_impl(nullptr, &registry, &context, {},
+                                        player_vitals, thing_vitals, only_new);
+}
+
+ProjectileBlastBatch GameRuntime::apply_projectile_blasts(
+    const EventBlastRegistry& registry,
+    std::span<const ProjectileBlastContext> contexts,
+    std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+    bool only_new) {
+    return apply_projectile_blasts_impl(nullptr, &registry, nullptr, contexts,
+                                        player_vitals, thing_vitals, only_new);
 }
 
 ProjectileBlastBatch GameRuntime::apply_projectile_blasts_impl(
-    const Weapon& weapon, const ProjectileBlastContext* shared,
+    const Weapon* weapon, const EventBlastRegistry* registry,
+    const ProjectileBlastContext* shared,
     std::span<const ProjectileBlastContext> per_record,
     std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
     bool only_new) {
@@ -438,9 +456,46 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts_impl(
         }
 
         BlastDamageResult one;
-        apply_projectile_blast(
-            weapon, projectile_result_of(record),
-            record.status == ProjectileStatus::expired, *context, targets, &one);
+        if (registry != nullptr) {
+            // Event-driven lookup: the round's own collide/expire/destroy id,
+            // exactly the record the original posts from 0x4752d0/0x4703a0.
+            std::uint32_t event_id = 0;
+            switch (record.status) {
+            case ProjectileStatus::expired:
+                event_id = record.expire_event;
+                break;
+            case ProjectileStatus::bounced:
+                event_id = record.collide_event;
+                break;
+            case ProjectileStatus::destroyed:
+                event_id = record.destroy_event;
+                break;
+            case ProjectileStatus::flying:
+            case ProjectileStatus::proximity:
+                break;
+            }
+            if (event_id == 0) {
+                // A proximity result has no proven blast link (its event is
+                // the +0x21c GENERATE id, not THING_TYPES collide/expire), so
+                // it only reaches this path with a caller's opt-in and still
+                // has no id to look up; nothing is applied.
+                ++batch.skipped_no_event;
+                blasted_results_[i] = 1;
+                continue;
+            }
+            one = apply_event_blast(
+                *registry, event_id, record.position, context->underwater,
+                context->from_ground, context->deathmatch,
+                context->source_player, context->source_thing,
+                targets.player_positions, targets.player_vitals,
+                targets.thing_positions, targets.thing_alive,
+                targets.thing_vitals);
+        } else {
+            apply_projectile_blast(
+                *weapon, projectile_result_of(record),
+                record.status == ProjectileStatus::expired, *context, targets,
+                &one);
+        }
 
         // One record per affected target with a non-zero blast event.  The
         // original per-target coordinates are not proven here, so the record
@@ -472,7 +527,7 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts_to_players(
     std::span<ThingVitals> thing_vitals, bool only_new) {
     // Same marks and the same per-record loop: a caller may alternate the two
     // entry points and still blast each generation of records at most once.
-    return apply_projectile_blasts_impl(weapon, &context, {},
+    return apply_projectile_blasts_impl(&weapon, nullptr, &context, {},
                                         std::span<Vitals>(player_vitals_),
                                         thing_vitals, only_new);
 }
@@ -480,7 +535,24 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts_to_players(
 ProjectileBlastBatch GameRuntime::apply_projectile_blasts_to_players(
     const Weapon& weapon, std::span<const ProjectileBlastContext> contexts,
     std::span<ThingVitals> thing_vitals, bool only_new) {
-    return apply_projectile_blasts_impl(weapon, nullptr, contexts,
+    return apply_projectile_blasts_impl(&weapon, nullptr, nullptr, contexts,
+                                        std::span<Vitals>(player_vitals_),
+                                        thing_vitals, only_new);
+}
+
+ProjectileBlastBatch GameRuntime::apply_projectile_blasts_to_players(
+    const EventBlastRegistry& registry, const ProjectileBlastContext& context,
+    std::span<ThingVitals> thing_vitals, bool only_new) {
+    return apply_projectile_blasts_impl(nullptr, &registry, &context, {},
+                                        std::span<Vitals>(player_vitals_),
+                                        thing_vitals, only_new);
+}
+
+ProjectileBlastBatch GameRuntime::apply_projectile_blasts_to_players(
+    const EventBlastRegistry& registry,
+    std::span<const ProjectileBlastContext> contexts,
+    std::span<ThingVitals> thing_vitals, bool only_new) {
+    return apply_projectile_blasts_impl(nullptr, &registry, nullptr, contexts,
                                         std::span<Vitals>(player_vitals_),
                                         thing_vitals, only_new);
 }

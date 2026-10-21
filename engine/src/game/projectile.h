@@ -195,6 +195,13 @@ struct ProjectileTickRecord {
     bool already_spent = false;
     bool spent = false; ///< `ProjectileState::spent` after the step
     bool dead = false;  ///< `ProjectileState::dead` after the step
+    /// Event ids carried by the spawn (`THING_TYPES+0x1c4/+0x1ec/+0x1f8`).
+    /// The event-driven blast bridge (`EventBlastRegistry`) keys its lookups
+    /// on them: a bounce uses `collide_event`, an expiry `expire_event` and an
+    /// RGM destroy `destroy_event`.  0 means "that event is not defined".
+    std::uint32_t collide_event = 0;
+    std::uint32_t expire_event = 0;
+    std::uint32_t destroy_event = 0;
     std::size_t posted_events = 0; ///< queue records accepted (0 without queue)
     std::vector<ProjectileEvent> events; ///< original post order
 };
@@ -290,6 +297,15 @@ struct ProjectileBlastContext {
 };
 
 /// Bridge one `projectile_step()` result to the weapon's blast layer.
+///
+/// **Legacy / player-fire only.**  The original selects a blast by the event id
+/// the round carries (`THING_TYPES+0x1c4/+0x1ec` -> `event_post` -> the entity
+/// sub-script -> `CAUSE_BLAST_RADIUS_DAMAGE`), not by a `Weapon`; that is
+/// `EventBlastRegistry` + `apply_event_blast()` (game/events.h).  This
+/// weapon-keyed bridge stays for the player path because `fire()` already
+/// resolved the same blasts into `Weapon::impact_blasts`/`expire_blasts`.  An
+/// AI round must not use it: `AiWeaponShot::event_id` is the proximity
+/// `GENERATE` id (`THING_TYPES+0x21c`), not a weapon slot.
 ///
 /// The trigger is the status:
 ///   * `bounced`   -> yes (a real contact; the caller already excludes the
