@@ -117,7 +117,9 @@ auto objects = state.apply_to_objects();   // door_id, sector, object, fraction
 `post_switch_events(queue, source)` постит по одному type-2 `Trigger Switch`
 на каждый ещё не отзеркаленный `WorldEvent::SwitchPressed`; `source` — id
 источника (игрок/сущность), `switch_index` — индекс переключателя. Внутренний
-курсор (`switch_event_cursor_`) сдвигается по мере постинга, поэтому повторный
+курсор (`switch_event_cursor_`) сдвигается по мере постинга; id `>= 0x200`
+пропускается как заведомо непостижимый, а false от `post_switch` означает
+только переполнение очереди. Поэтому повторный
 вызов без нового `interact()` ничего не постит и не дублирует события; при
 переполнении очереди курсор остаётся на неотправленной записи.
 `clear_events()` и `build()` сбрасывают курсор. Связка с игровым циклом —
