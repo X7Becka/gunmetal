@@ -440,7 +440,9 @@ Scenario run_scenario() {
         return result;
     }
     CHECK(output->start());
-    std::vector<std::int16_t> source(80);
+    // push() takes frames, each stereo frame is two int16 samples; the last
+    // push starts at sample 40 and must still have 40 frames (80 samples).
+    std::vector<std::int16_t> source(120);
     for (std::size_t i = 0; i < source.size(); ++i) {
         source[i] = static_cast<std::int16_t>((i * 37) % 1000 - 500);
     }
