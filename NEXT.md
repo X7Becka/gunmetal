@@ -82,14 +82,19 @@
    прочитать курок/слот из `input/controls.*` в игровом цикле и передать
    направление/шаблон снаряда.
 
-9. **Урон вещей/игроку через события, а не через `Weapons`.** Проверено:
-   `AiWeaponShot.event_id` — это `THING_TYPES+0x21c` (GENERATE-событие), а не
-   индекс `DEFINE_WEAPONS`; поэтому привязывать AI-снаряды к
-   `Weapon::impact_blasts` **неверно**. Правильный путь: реестр
-   «event id → THING_TYPES[].collide/expire (+0x1c4/+0x1ec) → blast» и
-   применение его в `Projectiles`/`GameRuntime` к игрокам и вещам
-   (`apply_blast_damage` уже готов). Адреса полей — `docs/THING_FIELDS.md`,
-   события — `docs/EVENTS.md` (`event_post 0x4795b0`, `generate_runner 0x45fa00`).
+9. **Урон через события, а не через `Weapons`.** ✅ Реестр
+   `gm::EventBlastRegistry` (`events.{h,cpp}`) + `gm::apply_event_blast`;
+   `ProjectileTickRecord` несёт `collide/expire/destroy_event`;
+   `GameRuntime::apply_projectile_blasts(registry, …)` берёт id снаряда и
+   применяет blast к игрокам и вещам. Цепочка доказана: collide `0x4752d0`
+   (`THING_TYPES+0x1c4`), expire `0x4703a0` (`+0x1ec`), `event_post 0x4795b0`,
+   диспетчер `0x4799b0`/`0x479960`, `generate_runner 0x45fa00` → VM → op 75
+   `0x45775b` → `0x477280` (**единственный** blast-урон в бинаре); игрок
+   `0x453b50` (броня `+0x3244/+0x3248`, плиты `+0x3250..5c`, смерть
+   `0x4536e0`), вещь `0x470500` (`+0x360/+0x398/+0x39c`). Weapon-мост помечен
+   legacy. Осталось: `param`/координаты на цель при постинге, связь
+   proximity-события `+0x21c` с blast (не доказана). Детали —
+   `docs/PROJECTILE_CPP.md` §7.
 
 10. **`SECTOR_STUFF` разобран (парсер).** ✅ `engine/src/res/sbt.{h,cpp}`:
     `SbtSectorSlot` + `parse_sector_stuff`/`encode_sector_stuff` (256 × `0x58`,
