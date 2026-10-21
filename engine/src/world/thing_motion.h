@@ -136,8 +136,9 @@ struct ThingMotionState {
     double thrust_accel = 0.0;     ///< +0x1d8
     double thrust_max = 0.0;       ///< +0x1e0
     int thrust_timer = 0;          ///< +0x51c
-    /// Collision impulses written by 0x472120, both along the object's `right`
-    /// (+0x208) / `up` (+0x210) axes.  Zeroed again by the next tick.
+    /// Collision impulses written by 0x472120: `impulse_side` (+0x208) is
+    /// added along the object's `right` axis in x/y, `impulse_up` (+0x210) is
+    /// added to world z.  Both are cleared again by the next tick.
     double impulse_side = 0.0;     ///< +0x208
     double impulse_side_bias = 0.0;///< +0x20c, +/-2.5 set on a blocked step
     double impulse_up = 0.0;       ///< +0x210
