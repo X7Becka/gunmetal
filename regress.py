@@ -264,12 +264,13 @@ def anim_smoke_checks(G: str, results: list[bool], out: str) -> None:
 def asset_self_checks(G: str, results: list[bool]) -> None:
     """Small self-tests grouped by the asset family they cover."""
     if want("models"):
-        # .soe/THING_TYPES field map: 77 fields, 40 proven by loader/consumers.
+        # .soe/THING_TYPES field map: 77 fields, 41 proven by loader/consumers
+        # (+0x010 is `speed`, proven by 0x46d8b0 copy + 0x4752d0 integration).
         rc, text = run_raw(["soe", "--fields"])
         ok = (rc == 0 and "soe fields: 77" in text
-              and "proven 40" in text and "0x1a4" in text)
+              and "proven 41" in text and "0x1a4" in text)
         results.append(report("soe / THING_TYPES field map", ok,
-                              "77 fields: 40 proven, 22 hypothesis, 15 unknown"))
+                              "77 fields: 41 proven, 21 hypothesis, 15 unknown"))
 
         # .sob writer: 672/672 semantic + raw round-trip, canonical writer.
         p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re", "sob_writer.py"),

@@ -378,14 +378,14 @@ void test_field_map() {
             check(info.stride > 0, std::string(info.name) + " array has a stride");
         }
     }
-    check(proven == 40, "40 proven rows (found " + std::to_string(proven) + ")");
-    check(hypothesis == 22,
-          "22 hypothesis rows (found " + std::to_string(hypothesis) + ")");
+    check(proven == 41, "41 proven rows (found " + std::to_string(proven) + ")");
+    check(hypothesis == 21,
+          "21 hypothesis rows (found " + std::to_string(hypothesis) + ")");
     check(unknown == 15, "15 unknown rows (found " + std::to_string(unknown) + ")");
     check(gm::kSoeRecordSize == 936, "THING_TYPES record is 936 bytes");
     // Generated from gm/soe.py FIELD_MAP: every string, offset, status and
     // xref must stay identical to the Python table.
-    check(fnv1a(0xcbf29ce484222325ull, canonical_map()) == 0xafc1dd8ad74dc639ull,
+    check(fnv1a(0xcbf29ce484222325ull, canonical_map()) == 0x1d4287f700b7c8a4ull,
           "field map matches the gm/soe.py golden hash");
 
     const gm::SoeFieldInfo* sob = gm::label_info("class_name");

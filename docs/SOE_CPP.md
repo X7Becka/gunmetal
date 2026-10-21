@@ -189,14 +189,14 @@ C++ — нет (в поставке не встречаются).
 
 ## 7. Доказано / гипотеза / остаток
 
-Доказано (proven, 40): имена/смещения/роли, подписанные загрузчиком и
+Доказано (proven, 41): имена/смещения/роли, подписанные загрузчиком и
 потребителями — `name`, `sob_index` `+0x1a4`, `collision_kind`, `movement_type`,
 `search_radius` `+0x58`, `target_zone_threshold` `+0x1cc`,
 `target_history_offset` `+0x1d0`, `max_health` `+0x1d4`, щиты, события
 create/expire/damaged/morale/timeout, `sound_id`, `expire_ticks`, текстуры,
 счётчики и массивы оружия/детей/пути, радиусы.
 
-Гипотеза (22): `off_z`, `f20/f28`, `col_f90/98/a0`, `f198/f19c`, флаги
+Гипотеза (21): `f20/f28`, `col_f90/98/a0`, `f198/f19c`, флаги
 `f1a8/f1ac/f1b0`, `event_low_health`/`event_death`/`event_destroy`,
 `hits`, `timer_period/step`, `sound_volume`, `weapon_p0..p2`,
 `leash_distance`.
