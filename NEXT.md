@@ -108,6 +108,22 @@
 
 ## Последний ход
 
+- **Незакоммиченное разобрано.** В master-дереве висели правки `docs/FORMATS.md`
+  (это был отложенный пункт 7) — проверены по картам и закоммичены (`c281e1c`);
+  `sector-stuff` worktree содержал недокоммиченный парсер `SECTOR_STUFF` —
+  собран, прогнан (тест `sector_stuff`: 36/36 уровней без записи 8, блок 8
+  сейвов 13/13 слотов против оракула) и смержен (`7d65c1d`). Старые
+  worktree/ветки (`qa-f4-switch-source`, `feat/entity-fields`,
+  `feat/event-blast`, `feat/player-fire`, `feat/sector-stuff`,
+  detached `runtime-hard`) удалены — все были влиты. `regress.py --full`
+  после слияния — 121/121.
+- **Запущены 4 фоновых агента** (каждый в своём worktree в `/var/tmp`, без push):
+  `feat/player-input` — ввод → `update_charge` → `fire` → `spawn_player_shot`;
+  `feat/sector-save` — блок 8 в `res/save.cpp` + `SET_SECTOR_*` в VM;
+  `feat/blast-damage` — урон от `collide`/`expire`-событий игрокам и вещам;
+  `feat/materials` — потребители таблицы материалов и overlay/scroll/anim
+  (`docs/WORLD_MATERIALS.md`, `tools/re/materials.py`).
+
 - **Пункт 2 (AI wiring) — витали вещи подключены.** `Ai::sync_vitals()`
   зеркалит HP/щиты/hits вещи в агента и убивает агента вместе с вещью;
   `tick()` зовёт её до состоянийной машины, поэтому урон оружия виден на
