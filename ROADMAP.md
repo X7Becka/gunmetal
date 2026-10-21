@@ -758,8 +758,11 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > bounds; полигон `0x80` с material/lightmap/UV/normal/axes/corners/
       > brightness и ссылками `+0x72/74/76`. Материалы `0x5670e0` — 30 ×
       > `0x40` (`0x5670e4 = 0x1e`), индекс `style*6+kind`, `+0x00` бит 0 =
-      > второй проход. Осталось: `SECTOR_STUFF` (256 × `0x58` в `0x800b60`)
-      > в C++ **пропускается** `sbt.cpp skip(0x5800)`; семантика материалов,
+      > второй проход. `SECTOR_STUFF` (256 × `0x58` в `0x800b60`) разобран:
+      > `sbt.{h,cpp}` даёт `SbtSectorSlot`/`parse_sector_stuff`/
+      > `encode_sector_stuff`, тест `sector_stuff` сверяет блок 8 сейвов с
+      > Python-оракулом (13/13 слотов). Осталось: типизировать блок 8 в
+      > `res/save.cpp`, `SET_SECTOR_*` в VM; семантика материалов,
       > overlay/scroll/anim/links, флаги `obj+0x70/0x80/0x90`, конверсия
       > `f32`-заголовка в `f64`-трансформ (адрес прохода не найден; кадр
       > `origin + 1.875·local` подтверждён данными).
