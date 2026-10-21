@@ -30,7 +30,8 @@
      `speed *= damping`;
    * collide-event постится только при `dt <= |vz_old| + speed_old` и с
      **позицией до шага**.
-8. `pos = resolved`.
+8. `pos = resolved + normal * 1e-4` (contact skin, чтобы касание не считалось
+   новым попаданием на следующем тике).
 
 `expire` не удаляет запись: `0x4703a0` только обнуляет lifetime и постит
 событие; удаление — отдельный `0x470290` (destroy).
