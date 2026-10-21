@@ -91,10 +91,14 @@
    (`apply_blast_damage` уже готов). Адреса полей — `docs/THING_FIELDS.md`,
    события — `docs/EVENTS.md` (`event_post 0x4795b0`, `generate_runner 0x45fa00`).
 
-10. **`SECTOR_STUFF` не перенесён.** `engine/src/res/sbt.cpp` делает
-    `skip(0x5800)` (256 × `0x58`, база `0x800b60`); `+0x50` — flags сектора.
-    Карта полей — `docs/THING_FIELDS.md`/`docs/WORLD_FIELDS.md`; нужен парсер
-    в `SbtLevel` + тест, затем использование в `WorldState`/рендере.
+10. **`SECTOR_STUFF` разобран (парсер).** ✅ `engine/src/res/sbt.{h,cpp}`:
+    `SbtSectorSlot` + `parse_sector_stuff`/`encode_sector_stuff` (256 × `0x58`,
+    поля `move/extra/sound_param/event_a/event_b/damage_lo/hi/sound/
+    sound_count/flags/unused` + `raw`), `SbtLevel::sector_stuff`; тест
+    `sector_stuff` — 36/36 уровней без записи 8, `saved0`/`saved1` 13/13
+    слотов против Python-оракула. Осталось: `res/save.cpp` (блок 8 всё ещё
+    сырые `0x5800` байт) и скриптовые `SET_SECTOR_*` (рантайм `0x800b60`) —
+    идут отдельной задачей.
 
 ## Стоп-условия
 
