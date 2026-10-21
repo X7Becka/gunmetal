@@ -11,12 +11,21 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
 namespace {
 
 int g_failures = 0;
+
+void put_u32(std::vector<std::uint8_t>& out, std::size_t offset, std::uint32_t value) {
+    std::memcpy(out.data() + offset, &value, 4);
+}
+
+void put_i32(std::vector<std::uint8_t>& out, std::size_t offset, int value) {
+    std::memcpy(out.data() + offset, &value, 4);
+}
 
 #define CHECK(cond)                                                                          \
     do {                                                                                     \
@@ -559,6 +568,78 @@ void test_thing_events() {
     }
 }
 
+// SwitchPressed -> type-2 -> pump -> GENERATE at the switch position.  The
+// world event log is consumed through a cursor: pumping twice without a new
+// interact() must not duplicate the switch record.
+void test_world_switch_pipeline() {
+    gm::SbtLevel level;
+    gm::SbtRecord switches;
+    switches.type = 1;
+    switches.payload.assign(4 + 0x20, 0);
+    put_u32(switches.payload, 0, 1);  // one ADD_SWITCH record
+    put_i32(switches.payload, 4, 259); // kind >= 0x100, no centroid known
+    put_i32(switches.payload, 8, 4242); // target = GENERATE id
+    put_i32(switches.payload, 12, 96);  // radius
+    put_i32(switches.payload, 16, 11);  // x
+    put_i32(switches.payload, 20, 22);  // y
+    put_i32(switches.payload, 24, 33);  // z
+    level.records.push_back(std::move(switches));
+
+    gm::WorldState world;
+    const gm::SbwLevel sbw;
+    std::string error;
+    CHECK(world.build(level, sbw, &error));
+    CHECK_EQ(world.switches().size(), 1U);
+    if (world.switches().empty()) {
+        return;
+    }
+
+    gm::EventRuntime runtime;
+    CHECK_EQ(runtime.install_switches(world.switches()), 1U);
+
+    CHECK(world.interact(0));
+    CHECK_EQ(gm::post_switch_events(runtime, world, 7), 1U);
+    CHECK_EQ(runtime.queue().size(), gm::EventQueue::kType2Size);
+
+    const gm::EventDispatchResult first = runtime.pump(91);
+    CHECK(first.ok);
+    CHECK_EQ(first.generated.size(), 1U);
+    CHECK_EQ(first.sounds.size(), 0U); // level switches carry no sound fields
+    if (first.generated.size() == 1) {
+        CHECK(first.generated[0].type == gm::EventType::generate);
+        CHECK_EQ(first.generated[0].id, 4242);
+        CHECK_EQ(first.generated[0].x, 11);
+        CHECK_EQ(first.generated[0].y, 22);
+        CHECK_EQ(first.generated[0].z, 33);
+        CHECK_EQ(first.generated[0].extra, static_cast<std::uint32_t>(7 - 0x10000));
+    }
+    CHECK(runtime.queue().empty());
+
+    // No new interact(): the cursor consumed the SwitchPressed event.
+    CHECK_EQ(gm::post_switch_events(runtime, world, 7), 0U);
+    const gm::EventDispatchResult repeat = runtime.pump(92);
+    CHECK(repeat.ok);
+    CHECK(repeat.generated.empty());
+    CHECK(repeat.sounds.empty());
+    CHECK(runtime.queue().empty());
+
+    // A new press is a new record (and a new GENERATE event).
+    CHECK(world.interact(0));
+    CHECK_EQ(gm::post_switch_events(runtime, world, 7), 1U);
+    const gm::EventDispatchResult again = runtime.pump(93);
+    CHECK_EQ(again.generated.size(), 1U);
+    if (again.generated.size() == 1) {
+        CHECK_EQ(again.generated[0].id, 4242);
+        CHECK_EQ(again.generated[0].x, 11);
+    }
+    CHECK(runtime.queue().empty());
+
+    // Explicit clear_events() also rewinds the cursor without duplicating.
+    world.clear_events();
+    CHECK_EQ(gm::post_switch_events(runtime, world, 7), 0U);
+    CHECK(runtime.queue().empty());
+}
+
 } // namespace
 
 
@@ -596,6 +677,7 @@ int main() {
     test_event_runtime();
     test_dispatch_switch();
     test_thing_events();
+    test_world_switch_pipeline();
     if (g_failures != 0) {
         std::fprintf(stderr, "events: %d failure(s)\n", g_failures);
         return 1;

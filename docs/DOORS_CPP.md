@@ -115,10 +115,16 @@ auto objects = state.apply_to_objects();   // door_id, sector, object, fraction
 ```
 
 `post_switch_events(queue, source)` постит по одному type-2 `Trigger Switch`
-на каждый ранее случившийся `WorldEvent::SwitchPressed`; `source` — id
-источника (игрок/сущность), `switch_index` — индекс переключателя. Повторный
-вызов постит события заново, поэтому вызывающий слой очищает `events()` через
-`clear_events()` после обработки.
+на каждый ещё не отзеркаленный `WorldEvent::SwitchPressed`; `source` — id
+источника (игрок/сущность), `switch_index` — индекс переключателя. Внутренний
+курсор (`switch_event_cursor_`) сдвигается по мере постинга, поэтому повторный
+вызов без нового `interact()` ничего не постит и не дублирует события; при
+переполнении очереди курсор остаётся на неотправленной записи.
+`clear_events()` и `build()` сбрасывают курсор. Связка с игровым циклом —
+`gm::post_switch_events(EventRuntime&, const WorldState&, source)` из
+`game/events.h`: она кладёт type-2 в очередь рантайма, после чего
+`runtime.pump(now)` даёт `GENERATED`-событие и (если у переключателя есть
+звук) `SoundCommand`.
 
 ### 2.1. Типы
 

@@ -143,6 +143,7 @@ private:
 bool post_event(TextRegistry& registry, const Event& event, std::uint32_t now);
 
 class EventQueue;
+class WorldState; // world/doors.h
 struct Thing;
 struct Switch; // world/doors.h
 /// Event fields of one THING_TYPES record (docs/THINGS_CPP.md).
@@ -353,5 +354,19 @@ private:
     EventDispatcher dispatcher_;
     TextRegistry text_;
 };
+
+/// Bridge between the world event log and the runtime queue: post every
+/// `WorldEvent::SwitchPressed` the world has not mirrored yet as a type-2
+/// `Trigger Switch` record.  `source` travels into the record and later into
+/// the GENERATE `extra` field (`source - 0x10000`).
+///
+/// The caller installs the table first
+/// (`runtime.install_switches(world.switches())`) and then calls
+/// `runtime.pump(now)`; the type-2 record becomes a GENERATE event at the
+/// switch position (or the sector centroid for `kind >= 0x101`) plus an
+/// optional `SoundCommand`.  Returns the number of queued records; a second
+/// call without a new `WorldState::interact()` returns 0.
+std::size_t post_switch_events(EventRuntime& runtime, const WorldState& world,
+                               std::int16_t source = 0);
 
 } // namespace gm

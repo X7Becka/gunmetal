@@ -172,9 +172,14 @@ public:
     /// only bump the stats.
     bool interact(int switch_id);
 
-    /// Post the type-2 `Trigger Switch` records for every SwitchPressed event
-    /// produced so far.  `source` is copied to the record (the original takes
-    /// it from the calling entity); returns the number posted.
+    /// Post a type-2 `Trigger Switch` record for every SwitchPressed event not
+    /// yet posted.  `source` is copied to the record (the original takes it
+    /// from the calling entity); returns the number posted.
+    ///
+    /// A cursor (`switch_event_cursor_`) advances over the already posted
+    /// events, so a second call without a new `interact()` posts nothing.  A
+    /// full queue stops the walk without losing the pending record:
+    /// `clear_events()` and `clear()` reset the cursor.
     std::size_t post_switch_events(EventQueue& queue, std::int16_t source = 0) const;
 
     /// Door state mapped onto the level objects it owns.  ``bound`` is false
@@ -189,7 +194,10 @@ public:
     const std::vector<Switch>& switches() const { return switches_; }
     const std::vector<Lift>& lifts() const { return lifts_; }
     const std::vector<WorldEvent>& events() const { return events_; }
-    void clear_events() { events_.clear(); }
+    void clear_events() {
+        events_.clear();
+        switch_event_cursor_ = 0;
+    }
 
     Door* find_door(int id);
     const Door* find_door(int id) const;
@@ -213,6 +221,10 @@ private:
     std::vector<Switch> switches_;
     std::vector<Lift> lifts_;
     std::vector<WorldEvent> events_;
+    /// Next `events_` entry `post_switch_events` has to look at.  Mutable
+    /// because posting is logically const: it does not change the world, only
+    /// how far the queue mirror has consumed the event log.
+    mutable std::size_t switch_event_cursor_ = 0;
     WorldStats stats_;
 
     // GENERATE id (any of E1..E3) -> door indices.  A vector keeps the result

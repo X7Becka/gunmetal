@@ -180,7 +180,13 @@ Source-relative вещь без мировой точки даёт коорди�
 `target` → event id, `kind`/`pos` → поля) в ту же таблицу.
 `EventRuntime` связывает `EventQueue` + `EventDispatcher` + `TextRegistry`:
 `install_switches`, `pump(now)` (drain → dispatch) и доступ к частям; тест
-`test_event_runtime`. Центроид
+`test_event_runtime`. Мост из мира в рантайм —
+`gm::post_switch_events(EventRuntime&, const WorldState&, source)`
+(`game/events.h`): он переносит ещё не отзеркаленные `SwitchPressed` в type-2
+записи очереди, а `pump(now)` превращает их в `generated`/`sounds`
+(интеграционный тест `test_world_switch_pipeline`). Очередь мира использует
+курсор, поэтому повторный вызов без нового `interact()` не дублирует запись.
+Центроид
 (`SwitchEffect::centroid`) — runtime-поле и в 0x20-байтовый файл не входит;
 после `serialize→deserialize` запись использует сохранённые `x/y/z`.
 `parse_network_blob`/`parse_event_queue` отвергают type-2 с индексом

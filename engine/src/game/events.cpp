@@ -551,6 +551,11 @@ EventDispatchResult EventRuntime::pump(std::uint32_t now) {
     return dispatcher_.dispatch(queue_, now, text_);
 }
 
+std::size_t post_switch_events(EventRuntime& runtime, const WorldState& world,
+                               std::int16_t source) {
+    return world.post_switch_events(runtime.queue(), source);
+}
+
 std::vector<std::uint8_t> EventDispatcher::serialize() const {
     std::vector<std::uint8_t> out;
     put_u32(out, static_cast<std::uint32_t>(count_));

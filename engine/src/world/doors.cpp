@@ -283,6 +283,7 @@ void WorldState::clear() {
     switches_.clear();
     lifts_.clear();
     events_.clear();
+    switch_event_cursor_ = 0;
     door_targets_.clear();
     lift_targets_.clear();
     stats_ = WorldStats{};
@@ -567,14 +568,21 @@ void WorldState::start_lift(Lift& lift) {
 
 std::size_t WorldState::post_switch_events(EventQueue& queue,
                                            std::int16_t source) const {
+    if (switch_event_cursor_ > events_.size()) {
+        switch_event_cursor_ = events_.size();
+    }
     std::size_t posted = 0;
-    for (const WorldEvent& event : events_) {
+    while (switch_event_cursor_ < events_.size()) {
+        const WorldEvent& event = events_[switch_event_cursor_];
         if (event.kind != WorldEvent::Kind::SwitchPressed || event.switch_id < 0) {
+            ++switch_event_cursor_;
             continue;
         }
-        if (queue.post_switch(static_cast<std::uint32_t>(event.switch_id), source)) {
-            ++posted;
+        if (!queue.post_switch(static_cast<std::uint32_t>(event.switch_id), source)) {
+            break; // full queue: keep the cursor on the pending record
         }
+        ++posted;
+        ++switch_event_cursor_;
     }
     return posted;
 }
