@@ -119,12 +119,47 @@ std::optional<VmCommandInfo> vm_condition_info(std::string_view name);
 // State model
 // ---------------------------------------------------------------------------
 
+/// One row of the entity table (docs/ENTITY_FIELDS.md §3): ``flags``, ``id``
+/// and the sub-script ``offset``.  There is nothing else in a row.
 struct VmEntity {
     int id = 0;
     std::uint32_t flags = 0x3FF;
     std::uint32_t offset = 0; // sub-script byte offset
 
+    /// Any source may run this row (``flags & 0x1ff``: a player bit, 0x100 or
+    /// both).  A fired one-shot (0x200 only) and a ``DISABLED`` row are not.
     bool enabled() const { return (flags & 0x1FFu) != 0; }
+    /// Bit 9: 0x45fa95 `TEST AH,0x2`; cleared against 0x1ff at 0x45fa9e.
+    bool one_shot() const { return (flags & 0x200u) != 0; }
+};
+
+/// One slot of the sleeping-script table (docs/ENTITY_FIELDS.md §8).  The
+/// engine keeps nine parallel 256-entry arrays; a slot is free when the
+/// *offset* array holds a negative value (`0x5e3df0`, checked at 0x45c442
+/// and freed by writing -1 at 0x45b962 / 0x45731d).
+struct VmSleepSlot {
+    std::int32_t offset = -1; ///< 0x5e3df0 continuation PC (-1: free)
+    std::int32_t ticks = 0;   ///< 0x5e4278 remaining ticks
+    /// 0x616258, 0x5e5e58, 0x5e2dd8, 0x5e39d8, 0x5e35d8, 0x5e31d8: the six
+    /// opaque ``0x457390`` arguments (param 3..8) saved by SLEEP and handed
+    /// back by the ticker 0x457230.
+    std::array<std::uint32_t, 6> params{};
+    std::uint32_t source = 0xFFFFFFFFu; ///< 0x5b29c8 source handle (param 9)
+
+    bool active() const { return offset >= 0; }
+};
+
+/// ``0x400``: the loader cap of the sleeping arrays (0x462cxx reads nine
+/// blocks of 0x400 bytes; the SLEEP scan stops at 0x5e41f0 = 0x5e3df0+0x400).
+constexpr std::size_t kVmSleepSlots = 256;
+
+/// A sleeping script the ticker woke: continue *offset* with *carry* ticks
+/// already elapsed (0x457230 calls 0x457390(offset, -remaining, ...)).
+struct VmWake {
+    std::uint32_t offset = 0;
+    int carry = 0;
+    std::uint32_t source = 0xFFFFFFFFu;
+    std::array<std::uint32_t, 6> params{};
 };
 
 struct VmPlayer {
@@ -325,14 +360,37 @@ struct VmTraceEvent {
 struct VmStackFrame {
     std::size_t return_pc = 0;
     std::optional<int> source;
+    /// Multi-row ``GENERATE``: 0x45fa58 walks the whole id column and runs
+    /// *every* matching row, one after another, so the rows after the first
+    /// are launched when the previous sub-script returns.  The scan resumes at
+    /// ``row_cursor``; ``site`` is the GENERATE pc (0x45fa00's caller) for
+    /// diagnostics and ``carry`` restores the SLEEP carry of the caller.
+    std::optional<int> generate_id;
+    std::size_t row_cursor = 0;
+    std::uint32_t site = 0;
+    int carry = 0;
 };
 
 struct VmState {
     std::span<const std::uint8_t> code;
 
-    std::map<int, VmEntity> entities; // id -> entity
-    std::vector<int> order;           // ids in table order
+    /// **Every** row of the table in table order (``0x5e4680``): duplicate ids
+    /// are legal and all of their rows run (249 duplicate rows in the shipped
+    /// 36 levels).  ``entity(id)`` returns the first row, which is what
+    /// single-row lookups (ENABLE/... and the old map API) see.
+    std::vector<VmEntity> entities;
+    std::vector<int> order;           // ids in table order (one per row)
     std::map<int, VmPlayer> players;  // index -> player
+
+    /// Sleeping-script table (0x5e3df0/0x5e4278/..., docs/ENTITY_FIELDS.md §8).
+    /// Read from the ``.sbt`` SCRIPT tail when its ``flag`` byte is set
+    /// (``vm_load_sleeping_scripts``); filled by SLEEP when
+    /// ``VmOptions::sleep_queue`` is on and drained by ``vm_tick_sleepers``.
+    std::array<VmSleepSlot, kVmSleepSlots> sleeping{};
+    /// Ticks already elapsed for the current invocation (the engine's second
+    /// ``0x457390`` argument, 0x457390/0x45c43b: ``timer = operand - carry``).
+    /// Only a woken script starts with a non-zero carry; GENERATE passes 0.
+    int sleep_carry = 0;
 
     std::optional<int> source_player;
     std::optional<int> source_entity;
@@ -378,6 +436,13 @@ struct VmState {
     VmPlayer* player();
     VmPlayer* player(int index);
 
+    /// The first row with *id* (table order), or nullptr.  The engine has no
+    /// single-row lookup: ENABLE/DISABLE and GENERATE walk the whole column,
+    /// which is what ``entities`` + ``entity()`` allow here.
+    VmEntity* entity(int id);
+    const VmEntity* entity(int id) const;
+    std::size_t entity_count(int id) const;
+
     /// ``rand() & 0xfff`` scaled by 1/4095 (constant 0x4a2580).
     double rnd();
 };
@@ -409,6 +474,25 @@ VmState vm_state_from_level(const SbtLevel& level, const VmContext& context = {}
 /// loader 0x46b1b0 produces before 0x46b7b0 reads the block.
 void vm_load_sector_stuff(VmState& state, std::span<const SbtSectorSlot> slots);
 
+/// Seed the sleeping-script table from the SCRIPT tail (the nine 0x400-byte
+/// arrays that follow ``flag != 0``, loader 0x462a80).  File order, each
+/// 256 x u32: remaining ticks (0x5e4278), sub-script offset (0x5e3df0), then
+/// the six parameters 0x616258/0x5e5e58/0x5e2dd8/0x5e39d8/0x5e35d8/0x5e31d8
+/// and the source handle 0x5b29c8.  Anything but 9*0x400 bytes clears the
+/// table (all 36 shipped levels carry ``flag = 0``).
+void vm_load_sleeping_scripts(VmState& state, std::span<const std::uint8_t> tables);
+
+/// Ticker 0x457230: subtract *ticks* from every occupied slot and return the
+/// scripts whose timer ran out, in slot order (the engine resumes them inside
+/// the same loop).  A woken slot is freed (offset = -1); the returned carry is
+/// the overshoot (ticks elapsed past the deadline), which is what 0x457356
+/// passes as ``0x457390``'s second argument.
+std::vector<VmWake> vm_tick_sleepers(VmState& state, int ticks);
+
+/// ``STOP_SOURCEPLAYER_SLEEPING_SCRIPTS`` (cid 198, 0x45b93e): free every slot
+/// whose saved source handle (low 16 bits) equals *handle*; returns the count.
+std::size_t vm_stop_sleeping(VmState& state, std::uint32_t handle);
+
 struct VmPathResult {
     VmReason reason = VmReason::End;
     std::size_t pc = 0;
@@ -437,6 +521,12 @@ struct VmOptions {
     bool random_unknown = false;
     bool trace = false;
     std::size_t trace_limit = 5000;
+    /// Model SLEEP the way 0x457390 case 7 does (0x45c43b): the rest of the
+    /// (sub-)script goes into the 256-slot table and the caller continues,
+    /// instead of the exploration shortcut ``clock += n`` that keeps the
+    /// remainder inline (default: the shortcut, which is what the Python
+    /// reference and the level goldens assume).
+    bool sleep_queue = false;
 };
 
 /// Run SCRIPT byte code over a :class:`VmState`.
@@ -495,10 +585,19 @@ private:
 
     void install_handlers();
 
+    // Row selection of 0x45fa00 (0x45fa58..0x45fb1c) and the frame return
+    // path shared by END (0xff) and EXIT_EVENT.
+    std::optional<std::uint32_t> next_generate_row(VmState& state, int gid,
+                                                   std::size_t& cursor);
+    std::size_t enter_generate(VmState& state, int gid, std::uint32_t offset,
+                               std::size_t cursor, const VmInsn& insn);
+    std::optional<std::size_t> leave_frame(VmState& state);
+
     // flow
     std::optional<std::size_t> h_exit_event(VmState&, const VmInsn&);
     std::optional<std::size_t> h_exit_program(VmState&, const VmInsn&);
     std::optional<std::size_t> h_sleep(VmState&, const VmInsn&);
+    std::optional<std::size_t> h_stop_sleeping(VmState&, const VmInsn&);
     std::optional<std::size_t> h_generate(VmState&, const VmInsn&);
     std::optional<std::size_t> h_transition(VmState&, const VmInsn&);
     // entity flags

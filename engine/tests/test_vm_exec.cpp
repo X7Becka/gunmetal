@@ -139,6 +139,13 @@ const LevelGolden* find_golden(std::string_view name) {
 
 /// Main script (offset 0, follow_generate=true): steps and reason for all 36
 /// levels.  Python: 36/36 reach END.
+///
+/// The steps are the Python golden except ``level20.sbt``: its startup script
+/// GENERATEs -30065, a row with ``flags = 0`` (a ``DISABLED`` entity,
+/// 0x4607c5).  The engine skips it (0x45fa74 tests the source bit) and so does
+/// the C++ executor; the Python reference launches every id-matched row, which
+/// costs the two instructions of that block (DEFINE_PLAYER_TYPES + END).  All
+/// other levels are unchanged.
 struct MainGolden {
     const char* name;
     int steps;
@@ -150,7 +157,7 @@ constexpr MainGolden kMain[] = {
     {"level0b.sbt", 22}, {"level1.sbt", 28},  {"level10.sbt", 23},  {"level11.sbt", 23},
     {"level12.sbt", 23}, {"level13.sbt", 23}, {"level14.sbt", 23},  {"level15.sbt", 16},
     {"level16.sbt", 23}, {"level17.sbt", 23}, {"level18.sbt", 22},  {"level19.sbt", 22},
-    {"level2.sbt", 24},  {"level20.sbt", 36}, {"level21.sbt", 22},  {"level22.sbt", 22},
+    {"level2.sbt", 24},  {"level20.sbt", 34}, {"level21.sbt", 22},  {"level22.sbt", 22},
     {"level23.sbt", 22}, {"level24.sbt", 22}, {"level3.sbt", 24},   {"level4.sbt", 24},
     {"level5.sbt", 24},  {"level6.sbt", 24},  {"level7.sbt", 24},   {"level8.sbt", 24},
     {"level9.sbt", 24},  {"secrt1.sbt", 24},  {"secrt2.sbt", 23},   {"temple.sbt", 22},
@@ -292,6 +299,12 @@ struct SyntheticEntity {
     std::uint32_t flags = 0x3FF; // the `VmEntity` default (data: 0/0x1FF/0x3FF)
 };
 
+/// Flags of the first row with *id* (0 when the state has no such row).
+std::uint32_t flags_of(const gm::VmState& state, int id) {
+    const gm::VmEntity* row = state.entity(id);
+    return row != nullptr ? row->flags : 0u;
+}
+
 std::vector<gm::VmPathResult> run_bytes(const Bytes& code, gm::VmOptions options = {},
                                        std::vector<SyntheticEntity> entities = {},
                                        int difficulty = 1,
@@ -308,7 +321,7 @@ std::vector<gm::VmPathResult> run_bytes(const Bytes& code, gm::VmOptions options
         entity.id = row.id;
         entity.offset = row.offset;
         entity.flags = row.flags;
-        state.entities[row.id] = entity;
+        state.entities.push_back(entity);
         state.order.push_back(row.id);
     }
     gm::VmExecutor executor(std::move(state), options);
@@ -412,11 +425,13 @@ void test_synthetic() {
     results = run_bytes(truncated);
     CHECK(results[0].reason == gm::VmReason::BadOperand);
 
-    // 8. Recursion: GENERATE itself.
+    // 8. Recursion: GENERATE itself.  The row must not be a one-shot: 0x200
+    // fires before the call (0x45fa9e), which turns the self-GENERATE into a
+    // no-op — the separate case below proves exactly that.
     Bytes generate;
     cmd(generate, "GENERATE", {u(7)});
     generate.push_back(0xFF);
-    results = run_bytes(generate, {}, {{7, 0}});
+    results = run_bytes(generate, {}, {{7, 0, 0x1FF}});
     CHECK(results[0].reason == gm::VmReason::Recursion);
 
     // 9. Stack overflow: 40 entities, each GENERATEing the next.
@@ -486,7 +501,7 @@ void test_synthetic() {
     cmd(disable, "DISABLE", {u(9)});
     disable.push_back(0xFF);
     results = run_bytes(disable, {}, {{9, 0}});
-    CHECK_EQ(results[0].state.entities.at(9).flags & 0x1FFu, 0u);
+    CHECK_EQ(flags_of(results[0].state, 9) & 0x1FFu, 0u);
 
     // 13b. SP_ENABLE/SP_DISABLE: source player 3 sets bit 3; a non-player
     // source sets 0x100 (`0x457c80`, `docs/ENTITY_FIELDS.md`).
@@ -494,15 +509,15 @@ void test_synthetic() {
     cmd(sp_enable, "SOURCEPLAYER_ENABLE", {u(9)});
     sp_enable.push_back(0xFF);
     results = run_bytes(sp_enable, {}, {{9, 0, 0}}, 1, 3);
-    CHECK_EQ(results[0].state.entities.at(9).flags, 1u << 3);
+    CHECK_EQ(flags_of(results[0].state, 9), 1u << 3);
     results = run_bytes(sp_enable, {}, {{9, 0, 0}}, 1, std::nullopt);
-    CHECK_EQ(results[0].state.entities.at(9).flags, 0x100u);
+    CHECK_EQ(flags_of(results[0].state, 9), 0x100u);
 
     Bytes sp_disable;
     cmd(sp_disable, "SOURCEPLAYER_DISABLE", {u(9)});
     sp_disable.push_back(0xFF);
     results = run_bytes(sp_disable, {}, {{9, 0, 0}}, 1, 3);
-    CHECK_EQ(results[0].state.entities.at(9).flags & (1u << 3), 0u);
+    CHECK_EQ(flags_of(results[0].state, 9) & (1u << 3), 0u);
 
     // 14. IF false with size 4 is an idle test (no else code).
     Bytes idle;
@@ -767,6 +782,21 @@ std::vector<gm::VmPathResult> run_state(gm::VmState state, const Bytes& code) {
     return executor.run(0);
 }
 
+/// Same, with explicit options and a start PC (woken sleeping scripts resume
+/// at a saved offset, docs/ENTITY_FIELDS.md §8).
+std::vector<gm::VmPathResult> run_from(gm::VmState state, const Bytes& code,
+                                       std::size_t start, gm::VmOptions options = {}) {
+    options.max_time = 0.0;
+    state.code = code;
+    state.difficulty = 1;
+    state.rng = 1;
+    if (state.players.empty()) {
+        state.players[0] = gm::VmPlayer{};
+    }
+    gm::VmExecutor executor(std::move(state), options);
+    return executor.run(start);
+}
+
 bool same_slot(const gm::VmSectorSlot& a, const gm::VmSectorSlot& b) {
     return dbits(a.move[0]) == dbits(b.move[0]) && dbits(a.move[1]) == dbits(b.move[1]) &&
            dbits(a.move[2]) == dbits(b.move[2]) &&
@@ -965,6 +995,409 @@ void test_sector_stuff() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Entity rows: one-shot (0x200), flag-driven row selection and duplicate ids
+// (docs/ENTITY_FIELDS.md §4, §5, §12)
+// ---------------------------------------------------------------------------
+
+Bytes location_code(int thing_id) {
+    Bytes code;
+    cmd(code, "ADD_LOCATION", {u(static_cast<std::uint32_t>(thing_id)), u(1), u(2), u(3), d(0.0),
+                               d(0.0), d(0.0)});
+    code.push_back(0xFF);
+    return code;
+}
+
+void test_entity_rows() {
+    // 1. One-shot: 0x45fa95 `TEST AH,0x2` -> 0x45fa9e `AND EAX,0xfffffe00`
+    // *before* the call, so the second GENERATE finds flags == 0x200 and the
+    // row is not eligible any more (0x45fa74 tests the source bit).
+    {
+        Bytes sub = location_code(1);
+        Bytes code;
+        cmd(code, "GENERATE", {u(5)});
+        cmd(code, "GENERATE", {u(5)});
+        code.push_back(0xFF);
+        const auto offset = static_cast<std::uint32_t>(code.size());
+        code.insert(code.end(), sub.begin(), sub.end());
+
+        auto results = run_bytes(code, {}, {{5, offset, 0x3FF}});
+        CHECK_EQ(results.size(), std::size_t{1});
+        CHECK(results[0].reason == gm::VmReason::End);
+        CHECK_EQ(results[0].state.scene.locations.size(), std::size_t{1});
+        CHECK_EQ(flags_of(results[0].state, 5), 0x200u); // 0x1ff cleared, 0x200 kept
+
+        // ENABLE adds 0x1ff back (0x457c80) and re-arms the one-shot.
+        Bytes again;
+        cmd(again, "GENERATE", {u(5)});
+        cmd(again, "ENABLE", {u(5)});
+        cmd(again, "GENERATE", {u(5)});
+        again.push_back(0xFF);
+        const auto again_offset = static_cast<std::uint32_t>(again.size());
+        again.insert(again.end(), sub.begin(), sub.end());
+        results = run_bytes(again, {}, {{5, again_offset, 0x3FF}});
+        CHECK_EQ(results[0].state.scene.locations.size(), std::size_t{2});
+        CHECK_EQ(flags_of(results[0].state, 5), 0x200u);
+
+        // DISABLE clears 0x1ff but not 0x200 (0x457c49), so the row stays out.
+        Bytes disabled;
+        cmd(disabled, "DISABLE", {u(5)});
+        disabled.push_back(0xFF);
+        results = run_bytes(disabled, {}, {{5, 0, 0x3FF}});
+        CHECK_EQ(flags_of(results[0].state, 5), 0x200u);
+        CHECK_EQ(results[0].state.entity(5)->one_shot(), true);
+    }
+
+    // 2. The reset precedes the call: a one-shot row that GENERATEs itself does
+    // not re-enter (the engine would loop; the model reports no recursion).
+    {
+        Bytes code;
+        cmd(code, "GENERATE", {u(7)});
+        code.push_back(0xFF);
+        const auto results = run_bytes(code, {}, {{7, 0, 0x3FF}});
+        CHECK(results[0].reason == gm::VmReason::End);
+        CHECK_EQ(results[0].steps, 4);
+        CHECK_EQ(flags_of(results[0].state, 7), 0x200u);
+    }
+
+    // 3. Row selection by the source bit (0x45fa8a `SHL EDX,CL` for a player,
+    // 0x45facf `TEST AH,0x1` for anything else).
+    {
+        Bytes sub = location_code(2);
+        Bytes code;
+        cmd(code, "GENERATE", {u(9)});
+        code.push_back(0xFF);
+        const auto offset = static_cast<std::uint32_t>(code.size());
+        code.insert(code.end(), sub.begin(), sub.end());
+
+        const std::vector<SyntheticEntity> rows = {{9, offset, 1u << 3}};
+        CHECK_EQ(run_bytes(code, {}, rows, 1, 3)[0].state.scene.locations.size(),
+                 std::size_t{1}); // player 3 owns bit 3
+        CHECK_EQ(run_bytes(code, {}, rows, 1, 0)[0].state.scene.locations.size(),
+                 std::size_t{0}); // player 0 does not
+        CHECK_EQ(run_bytes(code, {}, rows, 1, std::nullopt)[0]
+                     .state.scene.locations.size(),
+                 std::size_t{1}); // no source: the union of all sources
+    }
+
+    // 4. Duplicate ids: 0x45fa58 walks the whole column and runs *every*
+    // matching row, in table order (249 such rows in the shipped levels).
+    {
+        const Bytes first = location_code(1);
+        const Bytes second = location_code(2);
+        Bytes code;
+        cmd(code, "GENERATE", {u(7)});
+        code.push_back(0xFF);
+        const auto off1 = static_cast<std::uint32_t>(code.size());
+        code.insert(code.end(), first.begin(), first.end());
+        const auto off2 = static_cast<std::uint32_t>(code.size());
+        code.insert(code.end(), second.begin(), second.end());
+
+        auto results = run_bytes(code, {}, {{7, off1, 0x1FF}, {7, off2, 0x1FF}});
+        CHECK_EQ(results.size(), std::size_t{1});
+        CHECK(results[0].reason == gm::VmReason::End);
+        CHECK_EQ(results[0].state.entity_count(7), std::size_t{2});
+        CHECK_EQ(results[0].state.entities.size(), std::size_t{2});
+        CHECK_EQ(results[0].state.scene.locations.size(), std::size_t{2});
+        if (results[0].state.scene.locations.size() == 2) {
+            CHECK_EQ(results[0].state.scene.locations[0].thing_id, 1); // table order
+            CHECK_EQ(results[0].state.scene.locations[1].thing_id, 2);
+        }
+
+        // Each duplicate has its own flags: a disabled or already-fired row is
+        // skipped while the others still run.
+        results = run_bytes(code, {}, {{7, off1, 0x1FF}, {7, off2, 0x000}});
+        CHECK_EQ(results[0].state.scene.locations.size(), std::size_t{1});
+        results = run_bytes(code, {}, {{7, off1, 0x000}, {7, off2, 0x200}});
+        CHECK_EQ(results[0].state.scene.locations.size(), std::size_t{0});
+
+        // Both one-shot rows fire once and each clears its own 0x1ff.
+        results = run_bytes(code, {}, {{7, off1, 0x3FF}, {7, off2, 0x3FF}});
+        CHECK_EQ(results[0].state.scene.locations.size(), std::size_t{2});
+        CHECK_EQ(results[0].state.entities[0].flags, 0x200u);
+        CHECK_EQ(results[0].state.entities[1].flags, 0x200u);
+    }
+
+    // 5. The rows of one id run one after another in the same state: row A's
+    // ENABLE is visible to row B's GENERATE (0x45fb1c loops back to 0x45fa58
+    // after the previous sub-script returned).
+    {
+        Bytes enable8;
+        cmd(enable8, "ENABLE", {u(8)});
+        enable8.push_back(0xFF);
+        Bytes generate8;
+        cmd(generate8, "GENERATE", {u(8)});
+        generate8.push_back(0xFF);
+        Bytes row8 = location_code(3);
+
+        Bytes code;
+        cmd(code, "GENERATE", {u(7)});
+        code.push_back(0xFF);
+        const auto offA = static_cast<std::uint32_t>(code.size());
+        code.insert(code.end(), enable8.begin(), enable8.end());
+        const auto offB = static_cast<std::uint32_t>(code.size());
+        code.insert(code.end(), generate8.begin(), generate8.end());
+        const auto off8 = static_cast<std::uint32_t>(code.size());
+        code.insert(code.end(), row8.begin(), row8.end());
+
+        const auto results =
+            run_bytes(code, {}, {{7, offA, 0x1FF}, {7, offB, 0x1FF}, {8, off8, 0x000}});
+        CHECK_EQ(results[0].state.scene.locations.size(), std::size_t{1});
+        if (!results[0].state.scene.locations.empty()) {
+            CHECK_EQ(results[0].state.scene.locations[0].thing_id, 3);
+        }
+        CHECK_EQ(flags_of(results[0].state, 8), 0x1FFu);
+    }
+
+    // 6. Real data: vm_state_from_level keeps every row.  dm1 has 363 rows and
+    // 8 duplicate ids (docs/ENTITY_FIELDS.md §10).
+    if (fs::exists(fs::path(kGameDir) / "dm1.sbt")) {
+        gm::SbtLevel level;
+        if (load_level(fs::path(kGameDir) / "dm1.sbt", level)) {
+            const gm::VmState state = gm::vm_state_from_level(level);
+            CHECK_EQ(state.entities.size(), level.script.handles);
+            std::set<int> ids;
+            for (const gm::VmEntity& row : state.entities) {
+                ids.insert(row.id);
+            }
+            CHECK_EQ(state.entities.size() - ids.size(), std::size_t{8}); // 363 - 355
+            CHECK(std::any_of(ids.begin(), ids.end(), [&state](int id) {
+                return state.entity_count(id) > 1;
+            }));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sleeping-script table (0x5e3df0..0x5b29c8, docs/ENTITY_FIELDS.md §8)
+// ---------------------------------------------------------------------------
+
+void test_sleep_table() {
+    // SLEEP 5; SLEEP 5; ADD_LOCATION (SLEEP is 1 + 4 bytes, so the second one
+    // starts at pc 5 and the location body at pc 10).
+    const Bytes program = [] {
+        Bytes code;
+        cmd(code, "SLEEP", {u(5)});
+        cmd(code, "SLEEP", {u(5)});
+        cmd(code, "ADD_LOCATION", {u(1), u(1), u(2), u(3), d(0.0), d(0.0), d(0.0)});
+        code.push_back(0xFF);
+        return code;
+    }();
+
+    // 1. Default (exploration) model: SLEEP is `clock += operand`, inline.
+    {
+        const auto results = run_bytes(program);
+        CHECK_EQ(results.size(), std::size_t{1});
+        CHECK_EQ(results[0].state.clock, 10);
+        CHECK(!results[0].state.sleeping[0].active());
+        CHECK_EQ(results[0].state.scene.locations.size(), std::size_t{1});
+    }
+
+    // 2. Engine model (sleep_queue): the rest of the script is suspended, the
+    // slot keeps the continuation PC and the delay (0x45c49e/0x45c46c).
+    gm::VmOptions options;
+    options.sleep_queue = true;
+    auto results = run_bytes(program, options);
+    CHECK_EQ(results.size(), std::size_t{1});
+    CHECK(results[0].reason == gm::VmReason::End);
+    CHECK_EQ(results[0].state.clock, 0);
+    CHECK(results[0].state.scene.locations.empty());
+    const gm::VmSleepSlot& slot = results[0].state.sleeping[0];
+    CHECK(slot.active());
+    CHECK_EQ(slot.ticks, 5);
+    CHECK_EQ(slot.offset, 5); // pc right after SLEEP
+    CHECK_EQ(slot.source, 0xFFFFu); // no source player -> "no source" handle
+
+    // 3. Ticker 0x457230: subtract, wake only when the timer runs out, and
+    // report the overshoot as the carry (0x457356 passes -remaining).
+    gm::VmState state = results[0].state;
+    auto wakes = gm::vm_tick_sleepers(state, 3);
+    CHECK(wakes.empty());
+    CHECK_EQ(state.sleeping[0].ticks, 2);
+    CHECK_EQ(state.clock, 3);
+    wakes = gm::vm_tick_sleepers(state, 4);
+    CHECK_EQ(wakes.size(), std::size_t{1});
+    if (wakes.size() == 1) {
+        CHECK_EQ(wakes[0].offset, 5u);
+        CHECK_EQ(wakes[0].carry, 2);
+    }
+    CHECK(!state.sleeping[0].active()); // freed: offset = -1
+    CHECK_EQ(state.sleeping[0].ticks, -2); // only the offset array is cleared
+
+    // 4. Resume: the saved offset continues with the carry applied to the next
+    // SLEEP (`delay = operand - carry`, 0x45c43b) — the second SLEEP asks for
+    // 5 but 2 ticks were already spent past the deadline.
+    if (wakes.size() == 1) {
+        state.sleep_carry = wakes[0].carry;
+        const auto resumed = run_from(state, program, wakes[0].offset, options);
+        CHECK_EQ(resumed.size(), std::size_t{1});
+        CHECK_EQ(resumed[0].state.scene.locations.size(), std::size_t{0});
+        CHECK(resumed[0].state.sleeping[0].active());
+        CHECK_EQ(resumed[0].state.sleeping[0].ticks, 3); // 5 - carry 2
+        CHECK_EQ(resumed[0].state.sleeping[0].offset, 10);
+
+        // And the last wake reaches the body: the script finally runs.
+        gm::VmState after = resumed[0].state;
+        const auto second = gm::vm_tick_sleepers(after, 3);
+        CHECK_EQ(second.size(), std::size_t{1});
+        if (second.size() == 1) {
+            after.sleep_carry = second[0].carry;
+            const auto done = run_from(after, program, second[0].offset, options);
+            CHECK_EQ(done[0].state.scene.locations.size(), std::size_t{1});
+        }
+    }
+
+    // 5. A SLEEP inside a generated sub-script suspends only that script: the
+    // caller continues (the engine's nested 0x457390 returns, 0x45c4ba).
+    {
+        Bytes sub;
+        cmd(sub, "SLEEP", {u(4)});
+        cmd(sub, "ADD_LOCATION", {u(1), u(1), u(2), u(3), d(0.0), d(0.0), d(0.0)});
+        sub.push_back(0xFF);
+        Bytes code;
+        cmd(code, "GENERATE", {u(5)});
+        cmd(code, "ADD_LOCATION", {u(2), u(4), u(5), u(6), d(0.0), d(0.0), d(0.0)});
+        code.push_back(0xFF);
+        const auto offset = static_cast<std::uint32_t>(code.size());
+        code.insert(code.end(), sub.begin(), sub.end());
+
+        const auto nested = run_bytes(code, options, {{5, offset, 0x1FF}});
+        CHECK_EQ(nested.size(), std::size_t{1});
+        CHECK(nested[0].reason == gm::VmReason::End);
+        CHECK_EQ(nested[0].state.scene.locations.size(), std::size_t{1});
+        if (!nested[0].state.scene.locations.empty()) {
+            CHECK_EQ(nested[0].state.scene.locations[0].thing_id, 2); // the caller
+        }
+        CHECK(nested[0].state.sleeping[0].active());
+        CHECK_EQ(nested[0].state.sleeping[0].ticks, 4);
+        CHECK_EQ(nested[0].state.sleeping[0].offset, offset + 5); // sub-script body
+    }
+
+    // 6. Slot exhaustion: "Maximum sleeping scripts (256 reached)" (0x4b8134)
+    // drops the rest of the script (the engine returns from 0x457390).
+    {
+        gm::VmState full;
+        for (gm::VmSleepSlot& s : full.sleeping) {
+            s.offset = 0;
+            s.ticks = 100;
+        }
+        const auto capped = run_from(std::move(full), program, 0, options);
+        CHECK_EQ(capped.size(), std::size_t{1});
+        CHECK(capped[0].reason == gm::VmReason::End);
+        CHECK(capped[0].detail.find("maximum sleeping scripts") != std::string::npos);
+        CHECK(capped[0].state.scene.locations.empty());
+
+        // Inside a sub-script the caller continues: 0x457390 returns, exactly
+        // like a successful SLEEP, and only the callee's remainder is lost.
+        gm::VmState full2;
+        for (gm::VmSleepSlot& s : full2.sleeping) {
+            s.offset = 0;
+            s.ticks = 100;
+        }
+        Bytes sub;
+        cmd(sub, "SLEEP", {u(4)});
+        cmd(sub, "ADD_LOCATION", {u(1), u(1), u(2), u(3), d(0.0), d(0.0), d(0.0)});
+        sub.push_back(0xFF);
+        Bytes caller;
+        cmd(caller, "GENERATE", {u(5)});
+        cmd(caller, "ADD_LOCATION", {u(2), u(4), u(5), u(6), d(0.0), d(0.0), d(0.0)});
+        caller.push_back(0xFF);
+        const auto sub_offset = static_cast<std::uint32_t>(caller.size());
+        caller.insert(caller.end(), sub.begin(), sub.end());
+        full2.entities.push_back(gm::VmEntity{5, 0x1FF, sub_offset});
+        const auto nested = run_from(std::move(full2), caller, 0, options);
+        CHECK_EQ(nested.size(), std::size_t{1});
+        CHECK(nested[0].reason == gm::VmReason::End);
+        CHECK_EQ(nested[0].state.scene.locations.size(), std::size_t{1});
+        if (!nested[0].state.scene.locations.empty()) {
+            CHECK_EQ(nested[0].state.scene.locations[0].thing_id, 2); // the caller
+        }
+    }
+
+    // 7. Loader layout (0x462a80): nine 256-word arrays, ticks first, offset
+    // second, then the six parameters and the source handle.
+    {
+        Bytes tables(gm::kVmSleepSlots * 4 * 9, 0);
+        auto put = [&tables](std::size_t table, std::size_t slot, std::uint32_t value) {
+            const std::size_t at = (table * gm::kVmSleepSlots + slot) * 4;
+            tables[at] = static_cast<std::uint8_t>(value & 0xFF);
+            tables[at + 1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
+            tables[at + 2] = static_cast<std::uint8_t>((value >> 16) & 0xFF);
+            tables[at + 3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
+        };
+        for (std::size_t i = 0; i < gm::kVmSleepSlots; ++i) {
+            put(0, i, static_cast<std::uint32_t>(100 + i)); // 0x5e4278 ticks
+            put(1, i, static_cast<std::uint32_t>(1000 + i)); // 0x5e3df0 offset
+            for (std::size_t k = 0; k < 6; ++k) {
+                put(2 + k, i, static_cast<std::uint32_t>(10 * k + i));
+            }
+            put(8, i, 7); // 0x5b29c8 source handle
+        }
+        gm::VmState loaded;
+        gm::vm_load_sleeping_scripts(loaded, tables);
+        CHECK_EQ(loaded.sleeping[3].ticks, 103);
+        CHECK_EQ(loaded.sleeping[3].offset, 1003);
+        for (std::size_t k = 0; k < 6; ++k) {
+            CHECK_EQ(loaded.sleeping[3].params[k], static_cast<std::uint32_t>(10 * k + 3));
+        }
+        CHECK_EQ(loaded.sleeping[3].source, 7u);
+        CHECK_EQ(loaded.sleeping[255].offset, 1255);
+
+        // All 36 shipped levels carry flag = 0; a wrong size clears the table.
+        gm::vm_load_sleeping_scripts(loaded, std::span<const std::uint8_t>(tables).first(16));
+        CHECK(!loaded.sleeping[3].active());
+        CHECK_EQ(loaded.sleeping[3].ticks, 0);
+    }
+
+    // 8. STOP_SOURCEPLAYER_SLEEPING_SCRIPTS (cid 198, 0x45b93e) frees every
+    // slot whose saved source handle matches, and only those.
+    {
+        gm::VmState state2;
+        state2.sleeping[0] = gm::VmSleepSlot{5, 3, {}, 3};
+        state2.sleeping[1] = gm::VmSleepSlot{9, 4, {}, 5};
+        state2.sleeping[2] = gm::VmSleepSlot{11, 5, {}, 3};
+        CHECK_EQ(gm::vm_stop_sleeping(state2, 3), std::size_t{2});
+        CHECK(!state2.sleeping[0].active());
+        CHECK(state2.sleeping[1].active());
+        CHECK(!state2.sleeping[2].active());
+        CHECK_EQ(gm::vm_stop_sleeping(state2, 0xFFFF), std::size_t{0});
+
+        // Through the command: the handler uses the source player's handle.
+        gm::VmState state3;
+        state3.sleeping[0] = gm::VmSleepSlot{5, 3, {}, 4};
+        state3.source_player = 4;
+        Bytes code;
+        cmd(code, "STOP_SOURCEPLAYER_SLEEPING_SCRIPTS", {});
+        code.push_back(0xFF);
+        const auto stopped = run_from(state3, code, 0);
+        CHECK(!stopped[0].state.sleeping[0].active());
+    }
+
+    // 9. Wake order is slot order (0x457230 walks 0..255); the table of a
+    // shipped level is empty (flag = 0 in all 36 files).
+    {
+        gm::VmState state4;
+        state4.sleeping[0] = gm::VmSleepSlot{5, 1, {}, 1};
+        state4.sleeping[2] = gm::VmSleepSlot{9, 1, {}, 2};
+        const auto order = gm::vm_tick_sleepers(state4, 1);
+        CHECK_EQ(order.size(), std::size_t{2});
+        if (order.size() == 2) {
+            CHECK_EQ(order[0].offset, 5u);
+            CHECK_EQ(order[1].offset, 9u);
+            CHECK_EQ(order[0].carry, 0);
+        }
+        if (fs::exists(fs::path(kGameDir) / "dm1.sbt")) {
+            gm::SbtLevel level;
+            if (load_level(fs::path(kGameDir) / "dm1.sbt", level)) {
+                const gm::VmState level_state = gm::vm_state_from_level(level);
+                for (const gm::VmSleepSlot& s : level_state.sleeping) {
+                    CHECK(!s.active());
+                }
+            }
+        }
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -977,6 +1410,8 @@ int main(int argc, char** argv) {
 
     test_synthetic();
     test_sector_stuff();
+    test_entity_rows();
+    test_sleep_table();
 
     std::error_code ec;
     if (!fs::is_directory(kGameDir, ec)) {
