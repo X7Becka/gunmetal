@@ -360,6 +360,7 @@ void test_synthetic() {
     while (full.post_switch(0, 0)) {
     }
     CHECK_EQ(state.post_switch_events(full, 2), 0U);
+    state.tick(1); // pending tail survives the tick
     const gm::EventParseResult full_events = full.drain();
     CHECK(!full_events.events.empty()); // queue was reset by drain
     CHECK_EQ(state.post_switch_events(full, 2), 1U);

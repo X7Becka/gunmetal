@@ -736,7 +736,19 @@ void WorldState::advance_lift(Lift& lift, std::uint64_t ticks) {
 }
 
 void WorldState::tick(std::uint64_t ticks) {
-    events_.clear();
+    // A full queue can leave the tail unposted.  Keep that pending tail across
+    // the tick instead of silently dropping the switch press; fully consumed
+    // logs are cleared as before.
+    if (switch_event_cursor_ > events_.size()) {
+        switch_event_cursor_ = events_.size();
+    }
+    if (switch_event_cursor_ < events_.size()) {
+        events_.erase(events_.begin(),
+                      events_.begin() +
+                          static_cast<std::ptrdiff_t>(switch_event_cursor_));
+    } else {
+        events_.clear();
+    }
     switch_event_cursor_ = 0;
     if (ticks == 0) {
         return;
