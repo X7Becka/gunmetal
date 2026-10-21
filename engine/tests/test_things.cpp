@@ -504,10 +504,13 @@ void test_generate_and_cycle() {
     CHECK_EQ(plain.things()[0].parent, 2);
 
     // GENERATE self-cycle stops with the VM's recursion reason, not a hang.
+    // The row must not be a one-shot: 0x200 is cleared before the call
+    // (0x45fa9e), which turns a self-GENERATE into a no-op (see
+    // test_vm_exec's test_entity_rows).
     std::vector<std::uint8_t> cycle_code;
     generate(cycle_code, 1);
     cycle_code.push_back(0xFF);
-    std::vector<Row> cycle_rows = {{0x3FF, 1, 0}};
+    std::vector<Row> cycle_rows = {{0x1FF, 1, 0}};
     gm::Things cycle = load_synthetic(cycle_code, cycle_rows, single_context(true));
     CHECK(cycle.stats().reasons.count("recursion") >= 1u);
     CHECK_EQ(cycle.stats().executed, 0u);

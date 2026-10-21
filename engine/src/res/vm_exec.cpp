@@ -493,6 +493,27 @@ std::string hexs8(unsigned value) {
     return buffer;
 }
 
+/// Flag bit ``GENERATE`` tests for a known source (0x45fa8a `SHL EDX,CL` with
+/// CL = player 0..7 vs 0x45facf `TEST AH,0x1`), and the bit
+/// ``SOURCEPLAYER_ENABLE``/``_DISABLE`` touch (0x457c80/0x457c49).
+std::uint32_t source_player_bit(const VmState& state) {
+    if (!state.source_player || *state.source_player < 0 || *state.source_player > 7) {
+        return 0x100u;
+    }
+    // `1 << player`: bits 0..7 are the eight players, 0x100 is a non-player
+    // source (`0x457c80`, docs/ENTITY_FIELDS.md §5); `9 + player` was wrong.
+    return 1u << static_cast<unsigned>(*state.source_player);
+}
+
+/// The source handle 0x457390 carries in param 9: a player index, or 0xffff
+/// for "no source" (``SOURCE_CLEAR`` writes `&0xffff0000 | 0xffff`).
+std::uint32_t source_handle(const VmState& state) {
+    if (!state.source_player || *state.source_player < 0 || *state.source_player > 7) {
+        return 0xFFFFu;
+    }
+    return static_cast<std::uint32_t>(*state.source_player);
+}
+
 // ---------------------------------------------------------------------------
 // Operand reader.  `pos` never moves past the end of the block.
 // ---------------------------------------------------------------------------
@@ -1056,6 +1077,34 @@ double VmState::rnd() {
     return static_cast<double>(rng & 0xFFFu) / 4095.0;
 }
 
+VmEntity* VmState::entity(int id) {
+    for (VmEntity& row : entities) {
+        if (row.id == id) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+const VmEntity* VmState::entity(int id) const {
+    for (const VmEntity& row : entities) {
+        if (row.id == id) {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+std::size_t VmState::entity_count(int id) const {
+    std::size_t count = 0;
+    for (const VmEntity& row : entities) {
+        if (row.id == id) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 VmState vm_state_from_level(const SbtLevel& level, const VmContext& context) {
     VmState state;
     state.code = level.script_code;
@@ -1079,19 +1128,82 @@ VmState vm_state_from_level(const SbtLevel& level, const VmContext& context) {
     const std::size_t n = level.script.handles;
     if (n > 0 && level.script_handles_data.size() >= n * 12) {
         const auto* data = level.script_handles_data.data();
+        state.entities.reserve(n);
         for (std::size_t i = 0; i < n; ++i) {
             VmEntity entity;
             entity.flags = rd32(data + i * 4);
             entity.id = static_cast<std::int32_t>(rd32(data + (n + i) * 4));
             entity.offset = rd32(data + (2 * n + i) * 4);
             state.order.push_back(entity.id);
-            state.entities[entity.id] = entity;
+            // Every row is kept, duplicate ids included: 0x45fa00 runs each of
+            // them and ENABLE/DISABLE edit every match (docs/ENTITY_FIELDS §4).
+            state.entities.push_back(entity);
         }
     }
     // Levels do not carry SECTOR_STUFF (36/36, docs/RECORDS.md §1), but a
     // level loaded from a save stream does; keep the same seeding path.
     vm_load_sector_stuff(state, level.sector_stuff);
+    // Nine sleeping tables follow the code when SCRIPT's flag byte is set.
+    vm_load_sleeping_scripts(state, level.script_tables);
     return state;
+}
+
+void vm_load_sleeping_scripts(VmState& state, std::span<const std::uint8_t> tables) {
+    state.sleeping = {};
+    if (tables.size() != kVmSleepSlots * 4 * 9) {
+        return;
+    }
+    const auto* data = tables.data();
+    // 0x462cxx reads the nine arrays in this order (each 0x400 bytes).
+    auto word = [data](std::size_t table, std::size_t slot) {
+        return rd32(data + (table * kVmSleepSlots + slot) * 4);
+    };
+    for (std::size_t i = 0; i < kVmSleepSlots; ++i) {
+        VmSleepSlot& slot = state.sleeping[i];
+        slot.ticks = static_cast<std::int32_t>(word(0, i));  // 0x5e4278
+        slot.offset = static_cast<std::int32_t>(word(1, i)); // 0x5e3df0
+        for (std::size_t k = 0; k < slot.params.size(); ++k) {
+            slot.params[k] = word(2 + k, i); // 0x616258 ... 0x5e31d8
+        }
+        slot.source = word(8, i); // 0x5b29c8
+    }
+}
+
+std::vector<VmWake> vm_tick_sleepers(VmState& state, int ticks) {
+    std::vector<VmWake> out;
+    state.clock += ticks;
+    // 0x457230: `remaining -= dt; if (remaining < 1) run and free the slot`,
+    // walking the slots in ascending order inside the same frame.
+    for (VmSleepSlot& slot : state.sleeping) {
+        if (!slot.active()) {
+            continue;
+        }
+        slot.ticks -= ticks;
+        if (slot.ticks >= 1) {
+            continue;
+        }
+        VmWake wake;
+        wake.offset = static_cast<std::uint32_t>(slot.offset);
+        wake.carry = -slot.ticks; // 0x457356 pushes -iVar1
+        wake.source = slot.source;
+        wake.params = slot.params;
+        out.push_back(wake);
+        slot.offset = -1; // 0x45731d: only the offset array is cleared
+    }
+    return out;
+}
+
+std::size_t vm_stop_sleeping(VmState& state, std::uint32_t handle) {
+    std::size_t freed = 0;
+    // 0x45b93e: `if (offset >= 0 && (source & 0xffff) == handle) offset = -1`.
+    for (VmSleepSlot& slot : state.sleeping) {
+        if (!slot.active() || (slot.source & 0xFFFFu) != (handle & 0xFFFFu)) {
+            continue;
+        }
+        slot.offset = -1;
+        ++freed;
+    }
+    return freed;
 }
 
 void vm_load_sector_stuff(VmState& state, std::span<const SbtSectorSlot> slots) {
@@ -1169,6 +1281,7 @@ void VmExecutor::install_handlers() {
     set("EXIT_EVENT", &VmExecutor::h_exit_event);
     set("EXIT_PROGRAM", &VmExecutor::h_exit_program);
     set("SLEEP", &VmExecutor::h_sleep);
+    set("STOP_SOURCEPLAYER_SLEEPING_SCRIPTS", &VmExecutor::h_stop_sleeping);
     set("GENERATE", &VmExecutor::h_generate);
     set("NEW_GAME", &VmExecutor::h_transition);
     set("NEW_LEVEL", &VmExecutor::h_transition);
@@ -1357,18 +1470,14 @@ VmExecutor::Stop VmExecutor::run_path(VmState& state, std::size_t pc, Frontier& 
         trace(state, insn);
 
         switch (insn.kind) {
-        case VmInsnKind::End:
-            if (!state.stack.empty()) {
-                const VmStackFrame frame = state.stack.back();
-                state.stack.pop_back();
-                if (!state.active.empty()) {
-                    state.active.pop_back();
-                }
-                state.source_entity = frame.source;
-                pc = frame.return_pc;
-                continue;
+        case VmInsnKind::End: {
+            const auto next = leave_frame(state);
+            if (!next) {
+                return Stop{VmReason::End, pc, ""};
             }
-            return Stop{VmReason::End, pc, ""};
+            pc = *next;
+            continue;
+        }
 
         case VmInsnKind::If:
             pc = do_if(state, insn, frontier);
@@ -1702,16 +1811,11 @@ void VmExecutor::structural(VmState& state, const VmInsn& insn) {
 // -- flow ------------------------------------------------------------------
 
 std::optional<std::size_t> VmExecutor::h_exit_event(VmState& state, const VmInsn& insn) {
-    if (state.stack.empty()) {
+    const auto next = leave_frame(state);
+    if (!next) {
         throw HaltSignal{VmReason::End, insn.pc, "EXIT_EVENT at depth 0"};
     }
-    const VmStackFrame frame = state.stack.back();
-    state.stack.pop_back();
-    if (!state.active.empty()) {
-        state.active.pop_back();
-    }
-    state.source_entity = frame.source;
-    return frame.return_pc;
+    return *next;
 }
 
 std::optional<std::size_t> VmExecutor::h_exit_program(VmState& /*state*/,
@@ -1721,8 +1825,58 @@ std::optional<std::size_t> VmExecutor::h_exit_program(VmState& /*state*/,
 
 std::optional<std::size_t> VmExecutor::h_sleep(VmState& state, const VmInsn& insn) {
     const int value = arg_i32(insn.args.at(0));
-    state.clock += value;
-    event(state, insn, "sleep " + std::to_string(value));
+    if (!options_.sleep_queue) {
+        // Exploration shortcut (Python reference): keep the remainder inline.
+        state.clock += value;
+        event(state, insn, "sleep " + std::to_string(value));
+        return std::nullopt;
+    }
+
+    // 0x457390 case 7 (0x45c43b): `delay = operand - carry`.  A non-positive
+    // delay is consumed at once and the leftover becomes the new carry
+    // (0x45c4b8: `param_2 = -iVar19`); a positive one suspends the script.
+    const int delay = value - state.sleep_carry;
+    if (delay <= 0) {
+        state.sleep_carry = -delay;
+        event(state, insn, "sleep " + std::to_string(value) + " (elapsed)");
+        return std::nullopt;
+    }
+
+    state.sleep_carry = 0;
+    for (VmSleepSlot& slot : state.sleeping) {
+        if (slot.active()) {
+            continue;
+        }
+        slot.offset = static_cast<std::int32_t>(insn.next);
+        slot.ticks = delay;
+        slot.params = {};
+        slot.source = source_handle(state);
+        event(state, insn,
+              "sleep " + std::to_string(value) + " ticks=" + std::to_string(delay) +
+                  " at " + hexs(insn.next));
+        // 0x45c4ba: return from 0x457390 — the remainder of this script (and
+        // of the caller's, since the engine called us) continues later.
+        const auto next = leave_frame(state);
+        if (!next) {
+            throw HaltSignal{VmReason::End, insn.pc, "SLEEP at depth 0"};
+        }
+        return *next;
+    }
+    // "Maximum sleeping scripts (256 reached)" (0x4b8134): the engine prints
+    // it and returns from 0x457390 — the rest of this script is dropped, the
+    // caller (if any) continues.
+    note("maximum sleeping scripts (256 reached)");
+    event(state, insn, "maximum sleeping scripts (256 reached)");
+    const auto next = leave_frame(state);
+    if (!next) {
+        throw HaltSignal{VmReason::End, insn.pc, "maximum sleeping scripts"};
+    }
+    return *next;
+}
+
+std::optional<std::size_t> VmExecutor::h_stop_sleeping(VmState& state, const VmInsn& insn) {
+    const std::size_t freed = vm_stop_sleeping(state, source_handle(state));
+    event(state, insn, freed == 0 ? "" : "stopped " + std::to_string(freed) + " sleeping");
     return std::nullopt;
 }
 
@@ -1730,6 +1884,102 @@ std::optional<std::size_t> VmExecutor::h_transition(VmState& /*state*/,
                                                     const VmInsn& insn) {
     throw HaltSignal{VmReason::LevelTransition, insn.pc,
                      insn.name + " " + args_text(insn.args)};
+}
+
+std::optional<std::uint32_t> VmExecutor::next_generate_row(VmState& state, int gid,
+                                                          std::size_t& cursor) {
+    // Which flag bit the source needs (0x45fa74..0x45fad2).  Without a source
+    // the model cannot pick one bit, so it takes the union of all sources
+    // (`flags & 0x1ff`), i.e. runs any row that is enabled at all — a fired
+    // one-shot (0x200 alone) and a DISABLED row (0) stay out, like the engine.
+    const std::optional<std::uint32_t> bit = state.source_player
+                                                 ? std::optional<std::uint32_t>(
+                                                       source_player_bit(state))
+                                                 : std::nullopt;
+    for (std::size_t i = cursor; i < state.entities.size(); ++i) {
+        VmEntity& row = state.entities[i];
+        if (row.id != gid) {
+            continue;
+        }
+        if (bit ? (row.flags & *bit) == 0 : !row.enabled()) {
+            continue;
+        }
+        // 0x45fa9e / 0x45fad9: the one-shot bit clears 0x1ff *before* the
+        // sub-script runs (0x45fac6 `JMP` into the call), so the run sees the
+        // row disabled and a self-GENERATE cannot re-enter it.
+        if (row.one_shot()) {
+            row.flags &= 0xFFFFFE00u;
+        }
+        cursor = i + 1;
+        return row.offset;
+    }
+    cursor = state.entities.size();
+    return std::nullopt;
+}
+
+std::size_t VmExecutor::enter_generate(VmState& state, int gid, std::uint32_t offset,
+                                       std::size_t cursor, const VmInsn& insn) {
+    if (offset >= state.code.size()) {
+        throw HaltSignal{VmReason::BadPC, insn.pc, "entity offset " + hexs(offset)};
+    }
+    if (std::find(state.active.begin(), state.active.end(), offset) !=
+        state.active.end()) {
+        throw HaltSignal{VmReason::Recursion, insn.pc,
+                         "GENERATE " + std::to_string(gid) + " re-enters offset " +
+                             hexs(offset)};
+    }
+    if (state.stack.size() >= kMaxDepth) {
+        throw HaltSignal{VmReason::StackOverflow, insn.pc,
+                         "depth " + std::to_string(state.stack.size())};
+    }
+    state.stack.push_back(VmStackFrame{insn.next, state.source_entity, gid, cursor,
+                                       static_cast<std::uint32_t>(insn.pc), state.sleep_carry});
+    state.active.push_back(offset);
+    state.source_entity = gid;
+    state.sleep_carry = 0; // 0x45fac3 pushes 0 as 0x457390's second argument
+    return offset;
+}
+
+std::optional<std::size_t> VmExecutor::leave_frame(VmState& state) {
+    if (state.stack.empty()) {
+        return std::nullopt;
+    }
+    VmStackFrame frame = state.stack.back();
+    state.stack.pop_back();
+    if (!state.active.empty()) {
+        state.active.pop_back();
+    }
+    state.source_entity = frame.source;
+    state.sleep_carry = frame.carry;
+    if (frame.generate_id) {
+        std::size_t cursor = frame.row_cursor;
+        const auto offset = next_generate_row(state, *frame.generate_id, cursor);
+        if (offset) {
+            // The remaining rows of the same id run one by one (0x45fb1c
+            // loops back to 0x45fa58 after the call returns).
+            if (*offset >= state.code.size()) {
+                throw HaltSignal{VmReason::BadPC, frame.site,
+                                 "entity offset " + hexs(*offset)};
+            }
+            if (std::find(state.active.begin(), state.active.end(), *offset) !=
+                state.active.end()) {
+                throw HaltSignal{VmReason::Recursion, frame.site,
+                                 "GENERATE " + std::to_string(*frame.generate_id) +
+                                     " re-enters offset " + hexs(*offset)};
+            }
+            if (state.stack.size() >= kMaxDepth) {
+                throw HaltSignal{VmReason::StackOverflow, frame.site,
+                                 "depth " + std::to_string(state.stack.size())};
+            }
+            state.stack.push_back(VmStackFrame{frame.return_pc, frame.source,
+                                               frame.generate_id, cursor, frame.site, 0});
+            state.active.push_back(*offset);
+            state.source_entity = *frame.generate_id;
+            state.sleep_carry = 0;
+            return *offset;
+        }
+    }
+    return frame.return_pc;
 }
 
 std::optional<std::size_t> VmExecutor::h_generate(VmState& state, const VmInsn& insn) {
@@ -1742,79 +1992,64 @@ std::optional<std::size_t> VmExecutor::h_generate(VmState& state, const VmInsn& 
         }
     }
 
-    const auto entity = state.entities.find(gid);
-    event(state, insn,
-          "generate id=" + std::to_string(gid) +
-              (entity == state.entities.end() ? " (no entity)" : ""));
+    // 0x45fa00 counts every matching row (local_4) before the flag tests; the
+    // "event not defined" warning at 0x45fb2e only fires when there is none.
+    const bool known = state.entity(gid) != nullptr;
+    event(state, insn, "generate id=" + std::to_string(gid) + (known ? "" : " (no entity)"));
 
-    if (!options_.follow_generate || entity == state.entities.end()) {
+    if (!options_.follow_generate) {
         return std::nullopt;
     }
-    const std::uint32_t offset = entity->second.offset;
-    if (offset >= state.code.size()) {
-        throw HaltSignal{VmReason::BadPC, insn.pc,
-                         "entity offset " + hexs(offset)};
+    std::size_t cursor = 0;
+    const auto offset = next_generate_row(state, gid, cursor);
+    if (!offset) {
+        return std::nullopt;
     }
-    if (std::find(state.active.begin(), state.active.end(), offset) !=
-        state.active.end()) {
-        throw HaltSignal{VmReason::Recursion, insn.pc,
-                         "GENERATE " + std::to_string(gid) + " re-enters offset " +
-                             hexs(offset)};
-    }
-    if (state.stack.size() >= kMaxDepth) {
-        throw HaltSignal{VmReason::StackOverflow, insn.pc,
-                         "depth " + std::to_string(state.stack.size())};
-    }
-    state.stack.push_back(VmStackFrame{insn.next, state.source_entity});
-    state.active.push_back(offset);
-    state.source_entity = gid;
-    return offset;
+    return enter_generate(state, gid, *offset, cursor, insn);
 }
 
 // -- entity flags ----------------------------------------------------------
 
 std::optional<std::size_t> VmExecutor::h_enable(VmState& state, const VmInsn& insn) {
-    const auto it = state.entities.find(arg_i32(insn.args.at(0)));
-    if (it != state.entities.end()) {
-        it->second.flags |= 0x1FFu;
+    // 0x457c67 walks the whole id column, no break: every match changes.
+    const int id = arg_i32(insn.args.at(0));
+    for (VmEntity& row : state.entities) {
+        if (row.id == id) {
+            row.flags |= 0x1FFu;
+        }
     }
     event(state, insn);
     return std::nullopt;
 }
 
 std::optional<std::size_t> VmExecutor::h_disable(VmState& state, const VmInsn& insn) {
-    const auto it = state.entities.find(arg_i32(insn.args.at(0)));
-    if (it != state.entities.end()) {
-        it->second.flags &= ~0x1FFu;
+    const int id = arg_i32(insn.args.at(0));
+    for (VmEntity& row : state.entities) {
+        if (row.id == id) {
+            row.flags &= ~0x1FFu;
+        }
     }
     event(state, insn);
     return std::nullopt;
 }
 
-namespace {
-std::uint32_t source_player_bit(const VmState& state) {
-    if (!state.source_player || *state.source_player < 0 || *state.source_player > 7) {
-        return 0x100u;
-    }
-    // `0x457c80`/`0x457c49` (`docs/ENTITY_FIELDS.md`): bits 0..7 are the eight
-    // players, 0x100 is a non-player source.  The old `9 + player` was wrong.
-    return 1u << static_cast<unsigned>(*state.source_player);
-}
-} // namespace
-
 std::optional<std::size_t> VmExecutor::h_sp_enable(VmState& state, const VmInsn& insn) {
-    const auto it = state.entities.find(arg_i32(insn.args.at(0)));
-    if (it != state.entities.end()) {
-        it->second.flags |= source_player_bit(state);
+    const int id = arg_i32(insn.args.at(0));
+    for (VmEntity& row : state.entities) {
+        if (row.id == id) {
+            row.flags |= source_player_bit(state);
+        }
     }
     event(state, insn);
     return std::nullopt;
 }
 
 std::optional<std::size_t> VmExecutor::h_sp_disable(VmState& state, const VmInsn& insn) {
-    const auto it = state.entities.find(arg_i32(insn.args.at(0)));
-    if (it != state.entities.end()) {
-        it->second.flags &= ~source_player_bit(state);
+    const int id = arg_i32(insn.args.at(0));
+    for (VmEntity& row : state.entities) {
+        if (row.id == id) {
+            row.flags &= ~source_player_bit(state);
+        }
     }
     event(state, insn);
     return std::nullopt;

@@ -59,8 +59,8 @@ then-ветки**, а не разделителем после неё (прим�
 | поле | смысл | источник |
 |---|---|---|
 | `code`, `pc` | байткод и текущий PC | запись `SCRIPT` |
-| `entities[id] = Entity(flags, offset)` | таблица сущностей | три колонки `flags/id/offset` (`gm.scene.entities`) |
-| `stack`, `active` | стек подскриптов `GENERATE` (return PC, source) и множество активных offset | `0x479960` → `0x45fa00` → `0x457390` |
+| `entities[] = Entity(flags, id, offset)` | **все строки** таблицы сущностей в табличном порядке (дубли id сохраняются) | три колонки `flags/id/offset` (`gm.scene.entities`) |
+| `stack`, `active` | стек подскриптов `GENERATE` (return PC, source, `generate_id`/`row_cursor` для дублей id, carry) и множество активных offset | `0x479960` → `0x45fa00` → `0x457390` |
 | `players[i]` | `playertype`, `key/weapon/equipment/behaviour/extra` биты, `cash` (+0x36c), `health`, `shield`, `ammo[]`, `equipment_active`, `weapon_index`, `salvage/morale/secrets` | поля структуры игрока `0x81c000 + i*0x110` |
 | `source_player`, `source_entity`, `source_alt` | контекст «источника» (кто вызвал подскрипт) | `[ebp+0x28]`, `SOURCE_SWAP` |
 | `game_mode`, `mp_flags`, `player_count`, `difficulty`, `level_number`, `god_mode` | контекст игры | `0x83d2c8`, `0x83d184`, `0x83d62c`, `0x80f9cc`, `0x62cad4` |
@@ -69,7 +69,9 @@ then-ветки**, а не разделителем после неё (прим�
 | `scene` | `lights/locations/items/named_items/attached/sounds/sprites/things/doors/switches/lifts/spawns` | команды и `ADD_THING*` |
 | `sectors[256]` | `SECTOR_STUFF` (`0x800b60`, шаг `0x58`): `move`, `extra`, `sound_param`, `event_a/b`, `damage_a/b`, `sound`, `sound_count`, `flags` | блок 8 сейва (`vm_load_sector_stuff`) и `SET_SECTOR_*`; карта полей — `docs/RECORDS.md` §2 |
 | `events` | всё исполненное, что не влияет на модель (звук, экран, камера, мир) | — |
-| `clock`, `rng`, `occ`, `steps`, `trace` | виртуальное время `SLEEP`, ГПСЧ, счётчик повторных исполнений точки, бюджет, трасса | — |
+| `sleeping[256]` | sleeping-таблица (`0x5e3df0`, `0x5e4278`, `0x616258`…`0x5b29c8`): `offset`, `ticks`, шесть параметров, хэндл источника; `offset < 0` = слот свободен | девять массивов хвоста `SCRIPT` (`vm_load_sleeping_scripts`), `SLEEP`, `vm_tick_sleepers`; семантика — `docs/ENTITY_FIELDS.md` §8 |
+| `sleep_carry` | «сколько тиков уже прошло» — второй аргумент `0x457390`, который вычитается из операнда `SLEEP` | `0x457356`, `0x45c4b8` |
+| `clock`, `rng`, `occ`, `steps`, `trace` | виртуальное время, ГПСЧ, счётчик повторных исполнений точки, бюджет, трасса | — |
 
 Ограничения (все настраиваются): `max_steps` (по умолчанию 200 000),
 `max_time` (5 с на прогон), `max_paths` (64), глубина стека `MAX_DEPTH = 32`.
@@ -85,8 +87,16 @@ then-ветки**, а не разделителем после неё (прим�
 
 `GENERATE id` (`0x4575a3` → `0x479960`) переключает дверь с этим id и
 исполняет подскрипт сущности (`0x45fa00` → `0x457390`), т.е. моделируется
-настоящий вызов. `--script all` по умолчанию вызовы не разворачивает,
-иначе один и тот же подскрипт считался бы дважды.
+настоящий вызов. `0x45fa00` идёт по **всей** колонке id: запускаются все
+подходящие строки (в порядке таблицы, одна за другой), каждая проверяется по
+биту источника (`1 << player` для игрока 0..7, иначе `0x100`), а строка с
+битом `0x200` перед запуском теряет `0x1ff` (one-shot). Поэтому
+`VmState::entities` — вектор строк, а не `map<id, …>`: в поставке 249 строк
+делят id с другой строкой. `--script all` по умолчанию вызовы не
+разворачивает, иначе один и тот же подскрипт считался бы дважды.
+`SLEEP` в этом режиме — сокращение `clock += n`; движковая модель
+(приостановка подскрипта и sleeping-таблица) включается
+`VmOptions::sleep_queue`.
 
 ## 3. Команды: адреса, семантика, статус
 
@@ -113,7 +123,7 @@ then-ветки**, а не разделителем после неё (прим�
 | 4 | `GENERATE_FOR_PARENT` | `E` | event | 0x4576b1 |
 | 5 | `ENABLE` | `E` | state | 0x457c67 |
 | 6 | `DISABLE` | `E` | state | 0x457c30 |
-| 7 | `SLEEP` | `P` | flow | 0x457729 |
+| 7 | `SLEEP` | `P` | flow | 0x457729 (тикер 0x457230) |
 | 8 | `SET_SECTOR_MOVEMENT` | `LLLLAAA` | event | 0x457815 |
 | 9 | `SET_SECTOR_BRIGHTNESS` | `LL` | event | 0x4578d6 |
 | 10 | `SET_SECTOR_TYPE` | `LL` | event | 0x457a1c |
@@ -312,13 +322,13 @@ then-ветки**, а не разделителем после неё (прим�
 | команда | операнды | что делает executor | доказательство |
 |---|---|---|---|
 | `IF` / `ELSE` / `EVAL` / `END` | см. §1 | ветвление/переход/выход | `0x4574db`, `0x45757a`, `0x4573db`, `0x4573d1` |
-| `GENERATE` | `E` id | дверь: `toggles += 1`; сущность: вызов подскрипта | `0x4575a3` → `0x479960`, `0x44f690`, `0x45fa00` |
-| `ENABLE` / `DISABLE` | `E` id | `flags |= 0x1ff` / `&= ~0x1ff` | `0x457c67` / `0x457c30` |
-| `SOURCEPLAYER_ENABLE` / `_DISABLE` | `E` id | бит игрока `1<<(9+src)` (или `0x100`) в `flags` сущности | `0x457cef` / `0x457c9e` |
+| `GENERATE` | `E` id | дверь: `toggles += 1`; сущность: вызов подскрипта **каждой** подходящей строки id (флаг источника, one-shot `0x200` сбрасывает `0x1ff` до входа) | `0x4575a3` → `0x479960`, `0x44f690`, `0x45fa00` |
+| `ENABLE` / `DISABLE` | `E` id | `flags |= 0x1ff` / `&= ~0x1ff` во **всех** строках id | `0x457c67` / `0x457c30` |
+| `SOURCEPLAYER_ENABLE` / `_DISABLE` | `E` id | бит игрока `1<<player` (или `0x100`) в `flags` всех строк id | `0x457cef` / `0x457c9e` |
 | `EXIT_EVENT` | — | возврат из подскрипта (`END` на глубине 0) | `0x45c4f9` |
 | `EXIT_PROGRAM` | — | остановка (`program-exit`) | `0x457585` |
 | `NEW_GAME/NEW_LEVEL/NEXT_LEVEL/END_GAME` | —/`S` | `level-transition` (чистая остановка) | `0x457b39/0x457af3/0x457b11/0x45758f` |
-| `SLEEP` | `P` (4 байта) | `clock += operand`, пауза не блокирует | `0x457729` (сравнение с `[ebp+0xc]`) |
+| `SLEEP` | `P` (4 байта) | `clock += operand` (по умолчанию) или приостановка: `timer = operand − carry`, слот `offset = next`, `ticks`, 6 параметров, хэндл; пробуждение — `vm_tick_sleepers` | `0x45c43b` (запись слота), `0x457230` (тикер) |
 | `SOURCE_CLEAR` | — | `source = none` | `0x457749` (`&0xffff0000 | 0xffff`) |
 | `SOURCEPLAYER_KILL` | — | `health = 0` | `0x45a557` |
 | `OR_LEVEL_OBJECTIVES_BITS` | `L` | `objectives_bits |= a0` | `0x45be40` (`0x80f9d0`) |
@@ -550,6 +560,28 @@ EVAL ADD_THING_RELATIVE … } }` — статически 9 вещей, испо
 `difficulty=4`, «все цели выполнены» и `source_player=0` доводит все 7
 затронутых уровней до **0** неисполненных точек. То есть это не
 недостижимый код, а состояния игры, которых нет в базовом контексте.
+
+### 6.4. Отличия C++-исполнителя от Python-референса
+
+Три места, где `engine/src/res/vm_exec.cpp` следует байтам движка, а
+`gm/sbtvm_exec.py` — нет (golden-числа §6 сняты вторым, поэтому они
+совпадают везде, кроме первого пункта):
+
+1. **`GENERATE` проверяет флаги и сбрасывает one-shot** (`0x45fa74`,
+   `0x45fa9e`). Python запускает любую строку с этим id без проверки, а
+   C++ — только подходящую по биту источника, и строку с `0x200` перед
+   входом лишает `0x1ff`. Единственное расхождение в main-скриптах:
+   `level20` — 34 инструкции вместо 36, потому что его стартовый скрипт
+   делает `GENERATE -30065`, а эта строка имеет `flags = 0` (`DISABLED`) и
+   в игре не запускается (её блок — `DEFINE_PLAYER_TYPES` + `END`).
+2. **Дубли id**: `entities` — вектор всех строк, поэтому при
+   `--follow`/`follow_generate` исполняются все 249 «лишних» строк
+   поставки. Все golden-прогоны §6 идут с `follow=False`, где подскрипты не
+   запускаются, так что счётчики не меняются.
+3. **`SLEEP`**: по умолчанию то же сокращение `clock += n`, что и в Python.
+   Движковая модель (приостановка + sleeping-таблица) включается
+   `VmOptions::sleep_queue` и живёт в `VmState::sleeping`,
+   `vm_tick_sleepers`, `vm_stop_sleeping` (`docs/ENTITY_FIELDS.md` §8).
 
 ## 7. Ограничения и недоказанное
 
