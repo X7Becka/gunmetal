@@ -380,7 +380,8 @@ def _scan_level(path: str) -> tuple:
                               for k in range(3))
                     if ext > 4000:  # sky box
                         continue
-                    for v in vs:
+                    # world frame: origin + basis * local (basis = identity)
+                    for v in o.world_vertices():
                         for k in range(3):
                             lo[k] = min(lo[k], v[k])
                             hi[k] = max(hi[k], v[k])
@@ -678,17 +679,17 @@ def scene_checks(G: str, results: list[bool], out: str,
         "%d failed" % (len(scans), tot["lights"], tot["locations"], tot["items"],
                        tot["sounds"], tot["sprites"], bad)))
 
-    # Coordinate frame: scripted coordinates are engine world, i.e. 1.875x the
-    # .sbw file frame (the object header basis).  Unlike the biased "inside the
-    # AABB" test, this spread ratio is scale-covariant: sprite positions are
-    # props that must sit inside their level, so the ratio has to come out as
-    # the basis itself.
+    # Coordinate frame: the scripted positions are engine world coordinates and
+    # the `.sbw` header basis is the identity (`world = origin + basis*local`,
+    # docs/WORLD_FIELDS.md §3), so a sprite's spread over a level must not
+    # exceed that level's geometry spread -- a same-frame reading gives a ratio
+    # <= 1, the old `1.875 * local` artifact gave 1.5-1.9.
     import statistics
 
     ratios = [r for _f, _c, r, _t in scans if r is not None]
     med = statistics.median(ratios) if ratios else 0.0
-    results.append(report("scene / world frame is the 1.875 basis",
-                          1.2 <= med <= 2.4 and len(ratios) >= 15,
+    results.append(report("scene / sprite spread inside the world frame",
+                          0.02 <= med <= 1.0 and len(ratios) >= 15,
                           "sprite/geometry spread ratio %.2f over %d levels"
                           % (med, len(ratios))))
 
@@ -1210,8 +1211,8 @@ def main() -> int:
                               and "spawns" in p.stdout,
                               "all main scripts reach END; 391 spawns match"))
     render_checks(G, results, out, opts.full)
-    # One shared sweep feeds "all levels decode", the 1.875 world-frame ratio
-    # and the ADD_THING check below.
+    # One shared sweep feeds "all levels decode", the sprite/geometry spread
+    # ratio and the ADD_THING check below.
     level_scans = None
     if want("scene"):
         level_scans = _pool_map(_scan_level,
@@ -1408,22 +1409,33 @@ def main() -> int:
         from gm import render as rendermod
         ok_tf = 0
         offs = []
+        lo = [1e30] * 3
+        hi = [-1e30] * 3
         for sec in lvl.sectors:
             for o in sec.objects:
                 if not o.vertices:
                     continue
                 wv = o.world_vertices()
                 B = o.points
+                for v in wv:
+                    for k in range(3):
+                        lo[k] = min(lo[k], v[k])
+                        hi[k] = max(hi[k], v[k])
+                if len(offs) >= 50:
+                    continue
                 ok_tf += 1 if all(
                     abs(wv[i][k] - (B[0][k] + B[1][k] * o.vertices[i][0] +
                                     B[2][k] * o.vertices[i][1] +
                                     B[3][k] * o.vertices[i][2])) < 1e-3
                     for i in range(min(len(wv), 20)) for k in range(3)) else 0
-                offs.append(max(abs(c) for c in o.points[0]))
-                if len(offs) >= 50:
-                    break
-            if len(offs) >= 50:
-                break
+                offs.append(o.points[0])
+        # The origin is the world translation of the object, so it has to sit
+        # inside the level's world AABB (the old model's "±8" origin was the
+        # artefact of reading the high dword of the double as an f32).
+        offs_inside = sum(1 for o in offs
+                          if all(lo[k] - 1.0 <= o[k] <= hi[k] + 1.0
+                                 for k in range(3)))
+        max_origin = max(max(abs(c) for c in o) for o in offs)
         # the transform must not change the texture mapping
         obj = lvl.sectors[0].objects[0]
         lm = rendermod.LevelMesh(obj, [t.name for t in lvl.tex], None, 0)
@@ -1438,9 +1450,10 @@ def main() -> int:
                      and abs(uv_a[1] - uv_b[1]) < 0.5)
         results.append(report(
             "sbw / object header transform",
-            ok_tf == len(offs) and uv_ok and max(offs) < 16,
-            "%d objects: world = origin + basis*local, max |origin| %.1f, "
-            "UV kept: %s" % (len(offs), max(offs), uv_ok)))
+            ok_tf == len(offs) and uv_ok and offs_inside == len(offs),
+            "%d objects: world = origin + basis*local, %d/%d origins inside "
+            "the world AABB, max |origin| %.1f, UV kept: %s"
+            % (len(offs), offs_inside, len(offs), max_origin, uv_ok)))
 
     # --- savegame layout (tools/re/savegame.py) ---------------------------
     if want("save"):
@@ -1492,6 +1505,11 @@ def main() -> int:
             return best ** 0.5
 
         sc_scale = scenemod.SCALE
+        # NOTE: the switch operands are compared against the *file-local*
+        # vertex frame (scale 1/1.875); the world frame (`origin + basis*local`)
+        # is the proven one for spawns/sprites/things, but the shipped switch
+        # data numerically matches the local frame 85 % of the time -- see
+        # docs/WORLD_FIELDS.md §3.1.  This check pins that (open) behaviour.
         sw = sorted(_nearest(tuple(c * sc_scale for c in x.pos))
                     for x in sc_dm1.switches)
         dr = sorted(min(math.dist(tuple(c * sc_scale for c in d.corner), v)

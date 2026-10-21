@@ -33,10 +33,14 @@ loop at ``0x42ad65`` and the stage-2 loop ``0x425f4c`` -> ``0x422b88`` /
                                 // 0x42d9a0 divides by 6); render never reads it
         u8  sub;                // sector sub-flag
         objects * {
-            u32 id;             // object id
-            u8 header[96];      // 4 points x 3 components; each component is
-                                // stored as (u32 pad=0, f32 value): origin +
-                                // basis, always exactly diag(1.875)
+            u32 id;             // object id (runtime: obj+0x70 flags word)
+            u8 header[96];      // 12 f64: origin[3] + basis[3][3] (row-major);
+                                // world = origin + basis * local.  The loader
+                                // copies it verbatim (0x42ae86 .. 0x42aee9) and
+                                // the runtime transform 0x437af8 reads FLD
+                                // double.  Basis is the identity in all 84 576
+                                // shipped rows; reading the high dword as f32
+                                // gives the artefact "diag(1.875)".
         }
     }
 
@@ -202,7 +206,7 @@ class Poly:
 class Object:
     id: int
     header: bytes
-    points: tuple[Vec3, ...] = ()   # origin + 3 basis vectors (diag 1.875)
+    points: tuple[Vec3, ...] = ()   # origin + 3 basis rows (identity in shipped data)
     n_verts: int = 0
     vertices: tuple[Vec3, ...] = ()
     radius: float = 0.0             # 0x60: |bounds| (bounding-sphere radius)
@@ -218,11 +222,13 @@ class Object:
     def world_vertices(self) -> tuple[Vec3, ...]:
         """Vertices in the engine world frame: ``origin + basis * local``.
 
-        The loader (``0x42ad65`` stage 1) keeps the 96-byte header as the
-        object's transform: ``points[0]`` is the origin and ``points[1:4]`` the
-        basis.  In every shipped object the basis is ``diag(1.875)`` and the
-        origin is within +-8, so the world frame is almost ``1.875 * local`` --
-        but the small origin shift is real and this is the exact placement.
+        The loader (``0x42ad65`` stage 1, four ``fread`` of 24 bytes at
+        ``0x42ae86``..``0x42aee9``) keeps the 96-byte header as the object's
+        transform: ``points[0]`` is the origin and ``points[1:4]`` the rows of
+        the basis.  Both are ``f64``; the runtime transform ``0x437af8`` uses
+        ``FLD double``/``FMUL``/``FADD double`` on a ``FLD float`` local vertex.
+        In every shipped object the basis is the identity, so the placement is
+        a pure translation ``origin + local``.
         """
         if len(self.points) < 4:
             return tuple(self.vertices)
@@ -298,12 +304,22 @@ def _vec3(data: bytes, o: int) -> Vec3:
 
 
 def _points(header: bytes) -> tuple[Vec3, ...]:
-    """Decode the 4 points of an object header.
+    """Decode the object header: 12 little-endian ``f64``.
 
-    Each of the 12 components is written as an 8-byte ``(u32 pad, f32 value)``
-    pair; the pad is always 0 in shipped data.  The result is (origin, x, y, z).
+    The layout is ``origin[3] + basis[3][3]`` (row-major), i.e.
+    ``world = origin + basis * local`` — the same 12 doubles the loader copies
+    verbatim into ``obj+0x00/+0x18/+0x30/+0x48`` (``0x42ae86``/``0x42aea7``/
+    ``0x42aec8``/``0x42aee9``) and the runtime transform ``0x437af8`` reads
+    with ``FLD double``.  The basis is the identity in every shipped object.
+
+    The old reading — ``(u32 pad, f32 value)`` pairs, i.e. the *high* dword of
+    each double — is an artefact: the bits of the double ``1.0``
+    (``0x3FF00000``) are the float ``1.875``, which is where the imaginary
+    ``diag(1.875)`` basis and the garbage origin came from.
+
+    The result is ``(origin, bx, by, bz)``.
     """
-    vals = [struct.unpack_from("<f", header, 8 * i + 4)[0] for i in range(12)]
+    vals = struct.unpack_from("<12d", header, 0)
     return (tuple(vals[0:3]), tuple(vals[3:6]), tuple(vals[6:9]), tuple(vals[9:12]))
 
 
@@ -457,9 +473,8 @@ def to_obj(w: Sbw, path: str, transform: bool = False, tex: bool = False) -> int
 
     Every object becomes a group; its polygons reference the object-local
     vertices.  With ``transform=True`` each vertex is placed by the object's
-    header (origin + 1.875-scaled basis); note the shipped headers keep every
-    object near the world origin, so the untransformed (default) local meshes
-    are the more faithful dump.  Returns the number of polygons written.
+    header (``origin + basis * local``, basis = identity in shipped data).
+    Returns the number of polygons written.
     """
     n = 0
     with open(path, "w") as f:

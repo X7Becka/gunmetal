@@ -23,10 +23,10 @@
 //   * projection focal scales `+0x90 = zoom`, `+0x94 = zoom·4H/(3W)`
 //     (docs/CAMERA.md §7).
 //
-// Everything is in the engine world frame.  The `.sbw` object-header basis
-// `diag(1.875)` (docs/FORMATS.md §12.4) is already applied by res/sbw and
-// render/collide, so `PlayerState::pos`, spawns and collision results are the
-// same frame; never scale the eye or target by 1.875 again.
+// Everything is in the engine world frame.  The `.sbw` object header is
+// `12 x f64` (`origin + basis * local`, identity basis; docs/WORLD_FIELDS.md
+// §3) and is already applied by render/collide, so `PlayerState::pos`, spawns
+// and collision results are the same frame; never rescale the eye or target.
 //
 // Third person, smoothing and the near plane are explicitly hypotheses
 // (docs/CAMERA_CPP.md §7): the shipped game only builds the first-person and

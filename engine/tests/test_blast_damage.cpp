@@ -83,10 +83,10 @@ void write_identity_object_header(std::array<std::uint8_t, 96>& header) {
     header.fill(0);
     for (int point = 0; point < 4; ++point) {
         for (int component = 0; component < 3; ++component) {
-            const float value =
-                (point == 0) ? 0.0f : (component == point - 1 ? 1.0f : 0.0f);
-            std::memcpy(header.data() + 8 * (point * 3 + component) + 4,
-                        &value, sizeof(value));
+            const double value =
+                (point == 0) ? 0.0 : (component == point - 1 ? 1.0 : 0.0);
+            std::memcpy(header.data() + 8 * (point * 3 + component), &value,
+                        sizeof(value));
         }
     }
 }

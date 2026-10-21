@@ -1381,7 +1381,7 @@ void test_render() {
             const auto image = gm::render_scene(meshes, options, &pool, lightmaps);
             CHECK_EQ(image.width, 320);
             CHECK_EQ(image.height, 200);
-            CHECK_EQ(fnv_rgb(image.rgb), 0x20e80d077fd4f6bcull);
+            CHECK_EQ(fnv_rgb(image.rgb), 0x0f3642dba39e87beull);
 
             // The engine-faithful frame (lightmaps sampled in the polygon's
             // local frame) must differ, but stay close: same geometry, other
@@ -1391,50 +1391,35 @@ void test_render() {
             CHECK(local.rgb != image.rgb);
             CHECK_EQ(local.rgb.size(), image.rgb.size());
 
-            // LEVEL10 interior: the same eye/target as gm/render.py's pos/look,
-            // derived from the scene bounds (the scene is far larger, so this
-            // also exercises the z-buffer over more polygons).
+            // LEVEL10: the whole (much larger) level through the auto-fitted
+            // camera, i.e. the same view gm/render.py frames by default.  It
+            // exercises the z-buffer over ~2000 more polygons; the old
+            // centre-of-bounds eye now lands in empty space (a blank frame).
             if (fs::is_regular_file(game / "LEVEL10.sbw", ec)) {
                 const auto big = gm::load_level(game, "LEVEL10", error);
                 CHECK(big.has_value());
                 if (big && big->world) {
                     const gm::Sbc* maps = big->lightmaps ? &*big->lightmaps : nullptr;
                     const auto big_meshes = gm::build_level_meshes(*big->world, maps);
-                    gm::Vec3d lo{1e30, 1e30, 1e30};
-                    gm::Vec3d hi{-1e30, -1e30, -1e30};
-                    for (const auto& mesh : big_meshes) {
-                        for (const auto& v : mesh.vertices) {
-                            lo = {std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z)};
-                            hi = {std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z)};
-                        }
-                    }
-                    const gm::Vec3d center{(lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0,
-                                           (lo.z + hi.z) / 2.0};
-                    const double dx = hi.x - lo.x;
-                    const double dy = hi.y - lo.y;
-                    const double dz = hi.z - lo.z;
-                    const double big_radius =
-                        std::max(1e-6, 0.5 * std::sqrt(dx * dx + dy * dy + dz * dz));
                     gm::RenderOptions inner;
                     inner.width = 320;
                     inner.height = 200;
                     inner.lightmap_world = true;
-                    inner.camera_override = true;
-                    inner.eye = center;
-                    inner.eye.z += big_radius * 0.6;
-                    inner.target = center;
                     const auto image = gm::render_scene(big_meshes, inner, &pool, maps);
-                    CHECK_EQ(fnv_rgb(image.rgb), 0x25e40d77af2f01baull);
+                    CHECK_EQ(fnv_rgb(image.rgb), 0xc4231f6cae99b7cdull);
                 }
             }
 
             // Explicit camera (pos/look) and face clipping, both identical to
-            // gm/render.py's output for the same parameters.
+            // gm/render.py's output for the same parameters.  gm/render.py
+            // always samples the lightmap with the world vertex, so the pins
+            // below are the lightmap_world = true frames.
+            options.lightmap_world = true;
             options.camera_override = true;
             options.eye = {0.0, 0.0, 600.0};
             options.target = {0.0, 0.0, 0.0};
             const auto view = gm::render_scene(meshes, options, &pool, lightmaps);
-            CHECK_EQ(fnv_rgb(view.rgb), 0x9e54d79f29ac47c6ull);
+            CHECK_EQ(fnv_rgb(view.rgb), 0x960866d8cf1acfa1ull);
 
             // Opt-in mip 1 + bilinear + palette-index-0 alpha test: the same
             // frame as gm/render.py (mip=1, filter="bilinear", alpha_test).
@@ -1442,12 +1427,17 @@ void test_render() {
             options.bilinear = true;
             options.alpha_test = true;
             const auto sampled = gm::render_scene(meshes, options, &pool, lightmaps);
-            CHECK_EQ(fnv_rgb(sampled.rgb), 0x2d456b5942c1cac5ull);
+            CHECK_EQ(fnv_rgb(sampled.rgb), 0x4003bc511bbd8301ull);
 
             // Screen-space LOD ("auto", bias -0.75): same frame as Python.
+            // The mip/bilinear/alpha-test switches are reset first so this
+            // frame is exactly gm/render.py's mip="auto" render.
+            options.mip = 0;
+            options.bilinear = false;
+            options.alpha_test = false;
             options.mip_auto = true;
             const auto lod = gm::render_scene(meshes, options, &pool, lightmaps);
-            CHECK_EQ(fnv_rgb(lod.rgb), 0x6bcef1ef53276aceull);
+            CHECK_EQ(fnv_rgb(lod.rgb), 0x608f93cf56260860ull);
             options.mip_auto = false;
             options.mip = 0;
             options.bilinear = false;
@@ -1459,9 +1449,9 @@ void test_render() {
             options.camera_override = false;
             options.clip = 0.0f;
 
-            // --things: the six absolute things (four models) placed with
-            // gm/scene.py's 1/1.875 scene scale; the frame matches the Python
-            // viewer bit for bit.
+            // --things: the six absolute things (four models) placed in the
+            // world frame (scale 1.0, gm/scene.py VOLUME_SCALE); the frame
+            // matches the Python viewer bit for bit.
             if (level->entities) {
                 std::string scene_error;
                 const auto scene = gm::extract_scene(*level->entities, scene_error);
@@ -1469,7 +1459,10 @@ void test_render() {
                 if (scene) {
                     auto with_things = meshes;
                     std::map<std::string, std::optional<gm::Sob>> cache;
-                    constexpr double kSceneToWorld = 1.0 / 1.875;
+                    // Script coordinates are engine world coordinates: the
+                    // proven header frame is `origin + basis*local`, so the
+                    // old `1/1.875` file-frame factor is gone.
+                    constexpr double kSceneToWorld = 1.0;
                     for (const auto& thing : scene->things) {
                         if (!thing.absolute || thing.model.empty()) {
                             continue;
@@ -1505,7 +1498,7 @@ void test_render() {
                     thing_options.target = {0.0, 0.0, 0.0};
                     const auto things_image =
                         gm::render_scene(with_things, thing_options, &pool, lightmaps);
-                    CHECK_EQ(fnv_rgb(things_image.rgb), 0xee632c08abaee0eeull);
+                    CHECK_EQ(fnv_rgb(things_image.rgb), 0x02be67042ced3c0cull);
                 }
             }
 
@@ -1554,7 +1547,7 @@ void test_render() {
                             spawn_options.eye.z + forward.z * 100.0};
                         const auto spawn_image = gm::render_scene(
                             meshes, spawn_options, &pool, lightmaps);
-                        CHECK_EQ(fnv_rgb(spawn_image.rgb), 0x4bb462b101263118ull);
+                        CHECK_EQ(fnv_rgb(spawn_image.rgb), 0x1a66a07d54d35667ull);
                     }
                 }
             }

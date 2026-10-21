@@ -89,7 +89,7 @@ struct TriSpec {
     gm::Vec3d c;
 };
 
-void put_f32(std::uint8_t* p, float value) {
+void put_f64(std::uint8_t* p, double value) {
     std::memcpy(p, &value, sizeof(value));
 }
 
@@ -97,9 +97,9 @@ void write_identity_header(std::array<std::uint8_t, 96>& header) {
     header.fill(0);
     for (int point = 0; point < 4; ++point) {
         for (int component = 0; component < 3; ++component) {
-            const float value =
-                (point == 0) ? 0.0f : (component == point - 1 ? 1.0f : 0.0f);
-            put_f32(header.data() + 8 * (point * 3 + component) + 4, value);
+            const double value =
+                (point == 0) ? 0.0 : (component == point - 1 ? 1.0 : 0.0);
+            put_f64(header.data() + 8 * (point * 3 + component), value);
         }
     }
 }

@@ -192,10 +192,10 @@ golden-хешами ниже.
 | `code492.sob` | 160x160 | `d3fa091674e86a7a` |
 | `desertpc.sob` | 160x160 | `1de0c4538c49b7c7` |
 | `moonfb.sob` | 160x160 | `4fb421bc5a2ff221` |
-| `level0` | 320x200, orbit | `20e80d077fd4f6bc` |
-| `level0` | 320x200, pos (0,0,600) -> (0,0,0) | `9e54d79f29ac47c6` |
+| `level0` | 320x200, orbit | `0f3642dba39e87be` |
+| `level0` | 320x200, pos (0,0,600) -> (0,0,0) | `960866d8cf1acfa1` |
 | `level0` | то же + `clip=300` | `a4ccdd84a43ca565` |
-| `LEVEL10` | 320x200, интерьер | `25e40d77af2f01ba` |
+| `LEVEL10` | 320x200, авто-кадр камеры | `c4231f6cae99b7cd` |
 
 Дополнительно скрипт проверяет:
 
@@ -263,8 +263,10 @@ gunmetal --level level0 --mip 1 --filter bilinear --alpha-test \
 
 `RenderOptions::{mip,mip_auto,bilinear,alpha_test,transparent_index}` sample
 the stored `TextureLevel` chain (RGB + palette indices) and skip keyed texels
-before the z-write, exactly like `gm/render.py`.  The level0 frame at 320x200
-is bit-identical to Python for mip 1 + bilinear + alpha (`2d456b5942c1cac5`)
-and for `--mip auto` + bilinear + alpha (`6bcef1ef53276ace`), both pinned in
-`gm_tests`; defaults keep the historical mip0/nearest output.  Trilinear
-blending and Glide's dither are not implemented.
+before the z-write, exactly like `gm/render.py`.  At the explicit camera
+`pos 0,0,600 -> look 0,0,0`, 320x200, `--lm-world`, the level0 frame is
+bit-identical to Python for mip 1 + bilinear + alpha (`4003bc511bbd8301`) and
+for `--mip auto` with nearest filtering (`608f93cf56260860`), both pinned in
+`gm_tests`; `--mip auto` + bilinear + alpha gives `6814658ff6cba1eb` (checked
+by `tools/parity_mip.py`).  Defaults keep the historical mip0/nearest output.
+Trilinear blending and Glide's dither are not implemented.

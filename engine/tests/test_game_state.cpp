@@ -319,16 +319,16 @@ gm::SbwLevel make_runtime_geometry() {
     return geometry;
 }
 
-/// Identity `.sbw` object transform (`test_weapons.cpp`): the header stores
-/// origin/axis as four padded `vec3`s at `8 * i + 4`.
+/// Identity `.sbw` object transform (`test_weapons.cpp`): the header is twelve
+/// little-endian `f64` — `origin[3]` followed by the nine basis entries.
 void write_identity_object_header(std::array<std::uint8_t, 96>& header) {
     header.fill(0);
     for (int point = 0; point < 4; ++point) {
         for (int component = 0; component < 3; ++component) {
-            const float value =
-                (point == 0) ? 0.0f : (component == point - 1 ? 1.0f : 0.0f);
-            std::memcpy(header.data() + 8 * (point * 3 + component) + 4,
-                        &value, sizeof(value));
+            const double value =
+                (point == 0) ? 0.0 : (component == point - 1 ? 1.0 : 0.0);
+            std::memcpy(header.data() + 8 * (point * 3 + component), &value,
+                        sizeof(value));
         }
     }
 }

@@ -1779,7 +1779,8 @@ def cmd_view(opts) -> int:
                 if lms:
                     kind += f" +{len(lms.records)} lightmaps"
                 if opts.scene or opts.scene_lights:
-                    scale = scenemod.SCALE if opts.scene_scale is None else opts.scene_scale
+                    scale = (scenemod.VOLUME_SCALE if opts.scene_scale is None
+                             else opts.scene_scale)
                     sc = scenemod.load(os.path.splitext(p)[0] + ".sbt")
                     cnt = sc.counts()
                     kind += (f" +scene {cnt['lights']}L/{cnt['locations']}T/"
@@ -1789,7 +1790,8 @@ def cmd_view(opts) -> int:
                     if opts.scene_lights:
                         lights = sc.render_lights(scale)
                 if opts.things:
-                    scale = scenemod.SCALE if opts.scene_scale is None else opts.scene_scale
+                    scale = (scenemod.VOLUME_SCALE if opts.scene_scale is None
+                             else opts.scene_scale)
                     sc = scenemod.load(os.path.splitext(p)[0] + ".sbt")
                     placed = _place_things(sc, opts.game, scale, opts.thing_scale,
                                            meshes, render)
@@ -2298,7 +2300,8 @@ def main(argv=None) -> int:
                         "scripted light sources (approximation)")
     p.add_argument("--scene-scale", type=float,
                    help="scale scripted scene coordinates into the mesh frame "
-                        "(default 1/1.875, the .sbw object basis)")
+                        "(default 1.0: script = engine world frame, the .sbw "
+                        "object basis is the identity)")
     p.add_argument("--scene-markers-depth", action="store_true",
                    help="depth-test the scene markers (hide them behind geometry)")
     p.add_argument("--transform", action="store_true",

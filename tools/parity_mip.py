@@ -19,7 +19,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import math
 import os
 import sys
 
@@ -41,10 +40,10 @@ MODEL_GOLDENS = (
     ("desertpc.sob", 0x1DE0C4538C49B7C7),
     ("moonfb.sob", 0x4FB421BC5A2FF221),
 )
-LEVEL0_ORBIT = 0x20E80D077FD4F6BC
-LEVEL0_POS = 0x9E54D79F29AC47C6
+LEVEL0_ORBIT = 0x0F3642DBA39E87BE
+LEVEL0_POS = 0x960866D8CF1ACFA1
 LEVEL0_CLIP = 0xA4CCDD84A43CA565
-LEVEL10_INTERIOR = 0x25E40D77AF2F01BA
+LEVEL10_INTERIOR = 0xC4231F6CAE99B7CD
 
 
 class Report:
@@ -124,19 +123,9 @@ def golden_checks(rep: Report, G: str, pool: render.TexturePool) -> dict:
         sbc = os.path.join(G, "LEVEL10.sbc")
         lms10 = render.import_lightmaps(sbc) if os.path.isfile(sbc) else None
         meshes10 = render.level_meshes(w10, lms10, transform=True)
-        lo = [1e30] * 3
-        hi = [-1e30] * 3
-        for mesh in meshes10:
-            for v in mesh.vertices:
-                for k in range(3):
-                    lo[k] = min(lo[k], v[k])
-                    hi[k] = max(hi[k], v[k])
-        center = tuple((lo[k] + hi[k]) / 2.0 for k in range(3))
-        radius = max(1e-6, 0.5 * math.sqrt(sum((hi[k] - lo[k]) ** 2
-                                               for k in range(3))))
-        eye = (center[0], center[1], center[2] + radius * 0.6)
-        got = render_hash(meshes10, 320, 200, pool=pool,
-                          pos=eye, look=center)
+        # Same view as the C++ test: the default auto-fitted camera (the old
+        # centre-of-bounds eye now lands in empty space, i.e. a blank frame).
+        got = render_hash(meshes10, 320, 200, pool=pool)
         rep.check("golden LEVEL10 interior", got == LEVEL10_INTERIOR,
                   "%016x == %016x" % (got, LEVEL10_INTERIOR))
     return {"level0": meshes, "world": world}

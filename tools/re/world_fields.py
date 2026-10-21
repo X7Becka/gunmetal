@@ -230,8 +230,15 @@ def _cstr(data, off):
 
 
 def _points(header):
-    """96-byte object header -> (origin, bx, by, bz); each word is (pad u32, f32)."""
-    vals = [struct.unpack_from("<f", header, 8 * i + 4)[0] for i in range(12)]
+    """96-byte object header -> (origin, bx, by, bz); 12 little-endian f64.
+
+    The loader copies the 96 bytes verbatim into ``obj+0x00/+0x18/+0x30/+0x48``
+    and ``0x437af8`` reads them with ``FLD double``: the header is
+    ``origin[3] + basis[3][3]``, ``world = origin + basis * local``, and the
+    basis is the identity in all shipped objects.  Reading the high dword as
+    ``f32`` (the older map) turns the double ``1.0`` into the float ``1.875``.
+    """
+    vals = struct.unpack_from("<12d", header, 0)
     return (tuple(vals[0:3]), tuple(vals[3:6]), tuple(vals[6:9]), tuple(vals[9:12]))
 
 
@@ -539,7 +546,7 @@ def verify_levels(paths, oracle=True):
           % (cov_ok, cov_total))
 
     check("all files end exactly at EOF", bad_end == 0, "%d bad" % bad_end)
-    check("object header low dwords are 0 (f32 pairs)", bad_header == 0,
+    check("object header low dwords are 0 (12 x f64)", bad_header == 0,
           "%d bad of %d" % (bad_header, totals["objects"]))
     check("bounds == half extents of vertices", bad_bounds == 0,
           "%d bad" % bad_bounds)
@@ -604,9 +611,9 @@ def _synthetic_sbw():
     out += struct.pack("<I", 0)                     # effects
     out += struct.pack("<I", 2)                     # sectors
     def header(origin, basis):
-        return b"".join(struct.pack("<If", 0, value)
+        return b"".join(struct.pack("<d", value)
                         for value in list(origin) + list(basis[0]) + list(basis[1]) + list(basis[2]))
-    hdr0 = header((1.5, -2.0, 0.25), ((1.875, 0.0, 0.0), (0.0, 1.875, 0.0), (0.0, 0.0, 1.875)))
+    hdr0 = header((1.5, -2.0, 0.25), ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
     hdr1 = header((0.0, 0.0, 0.0), ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
     out += struct.pack("<IHB", 1, 12, 1) + struct.pack("<I", 0x10010) + hdr0
     out += struct.pack("<IHB", 1, 0, 0) + struct.pack("<I", 0x20) + hdr1

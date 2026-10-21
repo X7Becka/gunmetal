@@ -270,7 +270,7 @@ up      = ( sin(yaw)·sin(pitch),  cos(yaw)·sin(pitch),  cos(pitch)  )
 в спавнах всегда 0, но в общем случае `a0` — pitch, `a1` — roll.
 `gm.scene.first_person`, `gm.py spawn` и C++ `--spawn-camera` используют эту
 формулу; кадр level0 200x200 побитово совпадает в Python и C++
-(FNV `4bb462b101263118`).
+(FNV `1a66a07d54d35667`).
 
 Названия первых двух величин (`pitch`/`roll`) — только позиционные: они
 всегда нули, проверить их семантику на данных нельзя.
