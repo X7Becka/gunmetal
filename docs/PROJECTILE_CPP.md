@@ -116,10 +116,10 @@ if (auto spawn = gm::projectile_spawn_from_shot(weapon, shot, &thing_type,
 
 ## 4. Ограничения / что осталось
 
-1. **Таблица близости** (`THING_TYPES+0x218`): API и фильтры готовы, но
-   загрузчик `ThingTypeEvents` её пока не переносит. Для гранаты 28/29
-   сейчас `proximity` пуст, поэтому хит по игроку возможен только через
-   явно заполненный `ProjectileSpawn`.
+1. **Таблица близости** (`THING_TYPES+0x218`) загружается в `Thing` /
+   `ThingTypeEvents`: count 0..8, event (`+0x21c`), low (`+0x23c`), high
+   (`+0x25c`), cooldown (`+0x27c`), offset (`+0x29c/+0x2bc/+0x2dc`). Для
+   гранаты 28 тест фиксирует `event=-30095, high=20`; у ракеты таблица пуста.
 2. **Shape 2**: `sphere_cast` с радиусом `max(box)` — консервативное
    приближение; точного box-sweep в `CollisionWorld` нет.
 3. **RGM / homing** (`movement_type == 8`) не реализован: другой финал

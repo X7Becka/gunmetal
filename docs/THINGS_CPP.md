@@ -144,7 +144,7 @@ struct Thing {
     std::vector<std::string> path; bool executed; std::uint64_t age;
     bool expired; int expire_ticks; int movement_type; double speed; double search_radius; int target_zone_threshold;
     double gravity, damping, radius, turn_accel, turn_max, arrive_radius, leash_distance;
-    int collision_shape; std::array<double,3> box;
+    int collision_shape; std::array<double,3> box; std::vector<ProximityEntry> proximity;
     int target_history_offset; int max_health; int health;
     std::array<int,4> shields; std::array<int,4> shield_max;
     int hits_left; std::uint32_t timeout_event, collide_event, expire_event;
@@ -165,7 +165,7 @@ struct Thing {
 `speed` (`+0x10`, double) — мировые единицы за тик; `0x4752d0` двигает
 снаряд как `pos += speed·dt`, поэтому оружие переводит её в ед/с (`×91`).
 `gravity` (`+0x78`), `damping` (`+0x80`), `collision_shape` (`+0x1a0`),
-`radius` (`+0x30`), `box` (`+0x38/+0x40/+0x48`), `turn_accel` (`+0x20`),
+`radius` (`+0x30`), `box` (`+0x38/+0x40/+0x48`), таблица близости (`+0x218`), `turn_accel` (`+0x20`),
 `turn_max` (`+0x28`), `arrive_radius` (`+0x70`), `leash_distance` (`+0xd0`)
 читаются в том же проходе; `standoff` — уже существующее
 `target_zone_threshold` (`+0x1cc`).

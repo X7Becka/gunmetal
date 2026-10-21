@@ -647,6 +647,7 @@ void test_type_events() {
         CHECK_NEAR(rocket->box[0], 4.0, 0.0);
         CHECK_NEAR(rocket->box[1], 10.0, 0.0);
         CHECK_NEAR(rocket->box[2], 4.0, 0.0);
+        CHECK_EQ(rocket->proximity.size(), 0U);
     }
     const auto grenade = gm::thing_type_events(level, 28);
     CHECK(grenade.has_value());
@@ -659,6 +660,12 @@ void test_type_events() {
         CHECK_NEAR(grenade->damping, 0.8, 0.0);
         CHECK_EQ(grenade->collision_shape, 1);
         CHECK_NEAR(grenade->radius, 10.0, 0.0);
+        CHECK_EQ(grenade->proximity.size(), 1U);
+        if (grenade->proximity.size() == 1) {
+            CHECK_EQ(grenade->proximity[0].event,
+                     static_cast<std::uint32_t>(-30095));
+            CHECK_EQ(grenade->proximity[0].high, 20);
+        }
     }
     CHECK(!gm::thing_type_events(level, -1).has_value());
     CHECK(!gm::thing_type_events(level, 100000).has_value());

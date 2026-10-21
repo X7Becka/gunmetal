@@ -324,6 +324,7 @@ ProjectileState projectile_spawn_from_thing(const Thing& thing,
     state.spawn.shape = thing.collision_shape;
     state.spawn.radius = thing.radius;
     state.spawn.box = thing.box;
+    state.spawn.proximity = thing.proximity;
     state.spawn.collide_event = thing.collide_event;
     state.spawn.expire_event = thing.expire_event;
     state.spawn.destroy_event = thing.destroy_event;
@@ -378,6 +379,7 @@ std::optional<ProjectileSpawn> projectile_spawn_from_shot(
         spawn.box = {std::max(0.0, finite_or(thing.box[0], 0.0)),
                      std::max(0.0, finite_or(thing.box[1], 0.0)),
                      std::max(0.0, finite_or(thing.box[2], 0.0))};
+        spawn.proximity = thing.proximity;
         spawn.hits_left = std::max(0, thing.hits_left);
         spawn.life_ticks = std::max(0, thing.expire_ticks);
         spawn.collide_event = thing.collide_event;

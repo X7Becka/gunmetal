@@ -70,6 +70,7 @@ struct TypeTable {
     std::vector<int> collision_shapes;
     std::vector<double> radii;
     std::vector<std::array<double, 3>> boxes;
+    std::vector<std::vector<ProximityEntry>> proximities;
     std::vector<double> search_radii;
     std::vector<int> target_zone_thresholds;
     std::vector<int> target_history_offsets;
@@ -116,6 +117,7 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.collision_shapes.reserve(count);
         table.radii.reserve(count);
         table.boxes.reserve(count);
+        table.proximities.reserve(count);
         table.search_radii.reserve(count);
         table.target_zone_thresholds.reserve(count);
         table.target_history_offsets.reserve(count);
@@ -158,6 +160,23 @@ TypeTable resolve_types(const SbtLevel& level) {
                 box[b] = std::bit_cast<double>(rd64(entry + 0x38 + b * 8));
             }
             table.boxes.push_back(box);
+            const std::int32_t proximity_count =
+                static_cast<std::int32_t>(rd32(entry + 0x218));
+            std::vector<ProximityEntry> proximity;
+            const int clamped_count = std::max(0, std::min(8, proximity_count));
+            proximity.reserve(static_cast<std::size_t>(clamped_count));
+            for (int p = 0; p < clamped_count; ++p) {
+                ProximityEntry item;
+                item.event = rd32(entry + 0x21c + p * 4);
+                item.low = static_cast<std::int32_t>(rd32(entry + 0x23c + p * 4));
+                item.high = static_cast<std::int32_t>(rd32(entry + 0x25c + p * 4));
+                item.cooldown = static_cast<std::int32_t>(rd32(entry + 0x27c + p * 4));
+                item.offset.x = std::bit_cast<double>(rd64(entry + 0x29c + p * 8));
+                item.offset.y = std::bit_cast<double>(rd64(entry + 0x2bc + p * 8));
+                item.offset.z = std::bit_cast<double>(rd64(entry + 0x2dc + p * 8));
+                proximity.push_back(item);
+            }
+            table.proximities.push_back(std::move(proximity));
             table.search_radii.push_back(std::bit_cast<double>(rd64(entry + 0x58)));
             table.target_zone_thresholds.push_back(
                 static_cast<std::int32_t>(rd32(entry + 0x1cc)));
@@ -201,6 +220,7 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.collision_shape = types.collision_shapes[i];
     thing.radius = types.radii[i];
     thing.box = types.boxes[i];
+    thing.proximity = types.proximities[i];
     thing.search_radius = types.search_radii[i];
     thing.target_zone_threshold = types.target_zone_thresholds[i];
     thing.target_history_offset = types.target_history_offsets[i];
@@ -443,6 +463,7 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     out.collision_shape = types.collision_shapes[index];
     out.radius = types.radii[index];
     out.box = types.boxes[index];
+    out.proximity = types.proximities[index];
     out.expire_ticks = types.expire_ticks[index];
     out.collide_event = types.collide_events[index];
     out.expire_event = types.expire_events[index];

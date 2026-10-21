@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "game/projectile.h"
 #include "res/sbt.h"
 #include "res/vm_exec.h"
 
@@ -68,6 +69,7 @@ struct Thing {
     int collision_shape = 1;         // +0x1a0, 1 = sphere, 2 = box
     double radius = 0.0;             // +0xf8, sphere radius
     std::array<double, 3> box{};     // +0x100/+0x108/+0x110, box half-extents
+    std::vector<ProximityEntry> proximity; // THING_TYPES+0x218, 8 records
     double search_radius = 0.0;      // +0x58 (double), target search radius
     int target_zone_threshold = 200; // +0x1cc, default 200
     int target_history_offset = 0;   // +0x1d0, target position-history lag
@@ -107,6 +109,7 @@ struct ThingTypeEvents {
     int collision_shape = 1; ///< +0x1a0, 1 = sphere, 2 = box
     double radius = 0.0; ///< +0xf8, sphere radius
     std::array<double, 3> box{}; ///< +0x100/+0x108/+0x110
+    std::vector<ProximityEntry> proximity; ///< THING_TYPES+0x218, up to 8
     int expire_ticks = 0; ///< +0x1e8 lifetime in ticks
     std::uint32_t collide_event = 0;
     std::uint32_t expire_event = 0;
