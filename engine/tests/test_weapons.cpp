@@ -1903,6 +1903,7 @@ void test_projectile_core() {
     spawn.life_ticks = 2;
     spawn.create_event = 55;
     spawn.expire_event = 66;
+    spawn.destroy_event = 67;
     gm::Projectiles projectiles;
     gm::EventQueue queue;
     CHECK_EQ(projectiles.spawn(spawn, &queue), 0);
@@ -1923,7 +1924,14 @@ void test_projectile_core() {
         CHECK_EQ(expired_owner.events[0].id, 66);
     }
     CHECK(projectiles.by_thing_id(5)->spent);
-    CHECK(!projectiles.remove(5) || projectiles.by_thing_id(5)->dead);
+    CHECK(projectiles.remove(5, &queue));
+    const gm::EventParseResult destroy = queue.drain();
+    CHECK_EQ(destroy.events.size(), 1U);
+    if (destroy.events.size() == 1) {
+        CHECK_EQ(destroy.events[0].id, 67);
+    }
+    CHECK(projectiles.by_thing_id(5)->dead);
+    CHECK(!projectiles.remove(5, &queue));
 
     // The Thing adapter copies only the proven THING_TYPES fields.
     gm::Thing source;

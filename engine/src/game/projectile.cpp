@@ -450,10 +450,17 @@ const ProjectileState* Projectiles::by_thing_id(int thing_id) const {
     return nullptr;
 }
 
-bool Projectiles::remove(int thing_id) {
+bool Projectiles::remove(int thing_id, EventQueue* events) {
     ProjectileState* projectile = by_thing_id(thing_id);
     if (projectile == nullptr || projectile->dead) {
         return false;
+    }
+    if (events != nullptr && projectile->spawn.destroy_event != 0) {
+        events->post_generate(
+            static_cast<std::int32_t>(projectile->spawn.destroy_event), 0,
+            projectile->position.x, projectile->position.y,
+            projectile->position.z,
+            event_extra(projectile->spawn.thing_id));
     }
     projectile->dead = true;
     projectile->spent = true;

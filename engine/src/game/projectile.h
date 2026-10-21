@@ -199,9 +199,10 @@ public:
     ProjectileState* by_thing_id(int thing_id);
     const ProjectileState* by_thing_id(int thing_id) const;
 
-    /// Mark a projectile dead and spent.  No destroy event is posted here; use
-    /// the original removal/event path when the game layer actually deletes it.
-    bool remove(int thing_id);
+    /// Mark a projectile dead and spent.  When `events` is non-null, post the
+    /// original +0x1f8 destroy event at the current position (expire alone
+    /// does not remove the record).
+    bool remove(int thing_id, EventQueue* events = nullptr);
 
 private:
     std::vector<ProjectileState> projectiles_;

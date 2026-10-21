@@ -77,7 +77,8 @@ projectiles.tick(1, targets, world, &queue);
 событиями в порядке оригинала. `post_projectile_events()` — тонкий слой в
 `EventQueue`. `ProjectileTargets` — spans; отсутствующие записи считаются
 отсутствующими. `ProjectileState::spent` означает, что expire уже постился;
-`dead` — удаление из мира.
+`dead` — удаление из мира. `Projectiles::remove(id, &queue)` постит
+`destroy_event` (expire сам запись не удаляет).
 
 `projectile_spawn_from_thing()` копирует только proven-поля; таблица близости
 пока не заполняется в `Things::load` (см. §4).
