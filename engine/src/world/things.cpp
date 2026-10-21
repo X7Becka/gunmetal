@@ -793,24 +793,38 @@ int Things::spawn(Thing thing, EventQueue* events) {
         while (by_id_.find(id) != by_id_.end()) {
             ++id;
         }
-    } else if (by_id_.find(id) != by_id_.end()) {
-        return -1;
     }
     thing.id = id;
     thing.alive = true;
     thing.executed = true;
     thing.age = 0;
     thing.expired = false;
-    things_.push_back(std::move(thing));
-    by_id_.emplace(id, things_.size() - 1);
+
+    std::size_t index = 0;
+    const auto existing = by_id_.find(id);
+    if (existing != by_id_.end()) {
+        Thing& slot = things_[existing->second];
+        if (slot.alive) {
+            return -1;
+        }
+        // A removed runtime instance may be reused by a later spawn (projectiles
+        // and scripted things do this); keep the vector index stable.
+        index = existing->second;
+        slot = std::move(thing);
+    } else {
+        index = things_.size();
+        things_.push_back(std::move(thing));
+        by_id_.emplace(id, index);
+    }
+    Thing& spawned = things_[index];
     ++stats_.executed;
-    if (things_.back().depth > 0) {
+    if (spawned.depth > 0) {
         ++stats_.executed_nested;
     } else {
         ++stats_.executed_top_level;
     }
     if (events != nullptr) {
-        post_thing_event(*events, things_.back(), ThingEventKind::create);
+        post_thing_event(*events, spawned, ThingEventKind::create);
     }
     return id;
 }

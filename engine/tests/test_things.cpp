@@ -922,6 +922,24 @@ void test_spawn_remove() {
     }
     CHECK(!things.remove(id, &queue)); // already dead
     CHECK(!things.remove(999, &queue));
+
+    // A dead runtime id can be reused (projectile/thing respawn) without
+    // growing the vector or duplicating by_id_.
+    gm::Thing revived = prototype;
+    revived.id = id;
+    revived.create_event = 702;
+    CHECK_EQ(things.spawn(revived, &queue), id);
+    const gm::Thing* again = things.by_id(id);
+    CHECK(again != nullptr);
+    if (again != nullptr) {
+        CHECK(again->alive);
+        CHECK_EQ(again->type, 7);
+    }
+    const gm::EventParseResult revived_event = queue.drain();
+    CHECK_EQ(revived_event.events.size(), 1U);
+    if (revived_event.events.size() == 1) {
+        CHECK_EQ(revived_event.events[0].id, 702);
+    }
 }
 
 } // namespace
