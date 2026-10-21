@@ -3,9 +3,11 @@
 #include "world/doors.h"
 #include "world/things.h"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace gm {
 namespace {
@@ -639,6 +641,155 @@ bool post_thing_event(EventQueue& queue, const Thing& thing, ThingEventKind kind
     return queue.post_generate(static_cast<std::int32_t>(id), 0,
                                static_cast<double>(x), static_cast<double>(y),
                                static_cast<double>(z), extra);
+}
+
+std::span<const Blast> EventBlastRegistry::find(std::uint32_t event_id) const {
+    const auto it = std::lower_bound(
+        entries_.begin(), entries_.end(), event_id,
+        [](const Entry& entry, std::uint32_t id) { return entry.event_id < id; });
+    if (it == entries_.end() || it->event_id != event_id) {
+        return {};
+    }
+    return it->blasts;
+}
+
+void EventBlastRegistry::set(std::uint32_t event_id, std::vector<Blast> blasts) {
+    if (blasts.empty()) {
+        remove(event_id);
+        return;
+    }
+    const auto it = std::lower_bound(
+        entries_.begin(), entries_.end(), event_id,
+        [](const Entry& entry, std::uint32_t id) { return entry.event_id < id; });
+    if (it != entries_.end() && it->event_id == event_id) {
+        it->blasts = std::move(blasts);
+        return;
+    }
+    entries_.insert(it, Entry{event_id, std::move(blasts)});
+}
+
+bool EventBlastRegistry::add(std::uint32_t event_id, const Blast& blast) {
+    return add(event_id, std::span<const Blast>(&blast, 1));
+}
+
+bool EventBlastRegistry::add(std::uint32_t event_id,
+                             std::span<const Blast> blasts) {
+    if (blasts.empty()) {
+        return false;
+    }
+    const auto it = std::lower_bound(
+        entries_.begin(), entries_.end(), event_id,
+        [](const Entry& entry, std::uint32_t id) { return entry.event_id < id; });
+    if (it != entries_.end() && it->event_id == event_id) {
+        it->blasts.insert(it->blasts.end(), blasts.begin(), blasts.end());
+        return true;
+    }
+    Entry entry;
+    entry.event_id = event_id;
+    entry.blasts.assign(blasts.begin(), blasts.end());
+    entries_.insert(it, std::move(entry));
+    return true;
+}
+
+bool EventBlastRegistry::remove(std::uint32_t event_id) {
+    const auto it = std::lower_bound(
+        entries_.begin(), entries_.end(), event_id,
+        [](const Entry& entry, std::uint32_t id) { return entry.event_id < id; });
+    if (it == entries_.end() || it->event_id != event_id) {
+        return false;
+    }
+    entries_.erase(it);
+    return true;
+}
+
+void EventBlastRegistry::clear() {
+    entries_.clear();
+}
+
+std::size_t EventBlastRegistry::blast_count() const {
+    std::size_t count = 0;
+    for (const Entry& entry : entries_) {
+        count += entry.blasts.size();
+    }
+    return count;
+}
+
+std::vector<std::uint32_t> EventBlastRegistry::event_ids() const {
+    std::vector<std::uint32_t> ids;
+    ids.reserve(entries_.size());
+    for (const Entry& entry : entries_) {
+        ids.push_back(entry.event_id);
+    }
+    return ids;
+}
+
+std::size_t EventBlastRegistry::add_from_weapons(const Weapons& weapons,
+                                                 const SbtLevel& level) {
+    std::size_t added = 0;
+    const auto add_type = [&](int thing_type,
+                              const std::vector<Blast>& impact,
+                              const std::vector<Blast>& expire) {
+        if (thing_type < 0) {
+            return;
+        }
+        const auto events = thing_type_events(level, thing_type);
+        if (!events) {
+            return;
+        }
+        const auto store = [&](std::uint32_t id, const std::vector<Blast>& list) {
+            if (id == 0 || list.empty()) {
+                return;
+            }
+            if (!contains(id)) {
+                ++added;
+            }
+            set(id, list);
+        };
+        store(events->collide_event, impact);
+        store(events->expire_event, expire);
+    };
+    for (const Weapon& weapon : weapons.table()) {
+        add_type(weapon.thing_type, weapon.impact_blasts, weapon.expire_blasts);
+        for (const ThingVariant& variant : weapon.thing_variants) {
+            add_type(variant.thing_type, variant.impact_blasts,
+                     variant.expire_blasts);
+        }
+    }
+    return added;
+}
+
+BlastDamageResult apply_event_blast(
+    const EventBlastRegistry& registry, std::uint32_t event_id,
+    const Vec3d& center, bool underwater, bool from_ground, bool deathmatch,
+    int source_player, int source_thing,
+    std::span<const Vec3d> player_positions, std::span<Vitals> player_vitals,
+    std::span<const Vec3d> thing_positions, std::span<const bool> thing_alive,
+    std::span<ThingVitals> thing_vitals, std::size_t* matched) {
+    BlastDamageResult result;
+    if (matched != nullptr) {
+        *matched = 0;
+    }
+    for (const Blast& blast : registry.find(event_id)) {
+        // Same medium guards as `Weapon::select_blasts()`.
+        if (!(underwater ? blast.water : blast.air)) {
+            continue;
+        }
+        if (!(from_ground ? blast.ground : blast.not_ground)) {
+            continue;
+        }
+        if (!(deathmatch ? blast.deathmatch : blast.not_deathmatch)) {
+            continue;
+        }
+        if (matched != nullptr) {
+            ++*matched;
+        }
+        BlastDamageResult one = apply_blast_damage(
+            center, blast, source_player, source_thing, player_positions,
+            player_vitals, thing_positions, thing_alive, thing_vitals);
+        result.chain_reaction = result.chain_reaction || one.chain_reaction;
+        result.hits.insert(result.hits.end(), one.hits.begin(), one.hits.end());
+    }
+    return result;
 }
 
 EventParseResult EventQueue::parse_network_blob(std::span<const std::uint8_t> bytes) {

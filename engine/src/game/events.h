@@ -35,6 +35,8 @@
 #include <string_view>
 #include <vector>
 
+#include "game/weapons.h" // Blast, BlastDamageResult, Vitals, ThingVitals
+
 namespace gm {
 
 enum class EventType : std::uint8_t {
@@ -165,6 +167,77 @@ std::uint32_t thing_event_id(const Thing& thing, ThingEventKind kind);
 /// zero coordinates (the original resolves a transform, which the C++ level
 /// view does not retain).  Returns false for a zero event id or a full queue.
 bool post_thing_event(EventQueue& queue, const Thing& thing, ThingEventKind kind);
+
+struct SbtLevel; // res/sbt.h
+
+/// Registry "THING_TYPES collide/expire event id -> CAUSE_BLAST_RADIUS_DAMAGE".
+///
+/// The original never attaches a blast to a weapon record: `event_post`
+/// (`0x4795b0`) queues the collide (`THING_TYPES+0x1c4`, posted by `0x4752d0`)
+/// or expire (`+0x1ec`, posted by `0x4703a0`) id, `event_dispatch` (`0x4799b0`)
+/// turns it into `GENERATE`, and `generate_runner` (`0x45fa00`) executes the
+/// entity sub-script, whose VM op 75 (`0x45775b`) calls the blast
+/// (`0x477280`).  The blast therefore belongs to the *event id*, not to a
+/// `Weapon`.
+///
+/// A registry instance is a deterministic, event-id-sorted map.  Build it once
+/// from the loaded weapon table (`add_from_weapons`, which reuses the
+/// `collect_event_blasts` result that `Weapons::load` already computed for
+/// every THING weapon type) or fill it entry-by-entry.
+class EventBlastRegistry {
+public:
+    /// Number of `CAUSE_BLAST_RADIUS_DAMAGE` entries of one event id.
+    std::span<const Blast> find(std::uint32_t event_id) const;
+    bool contains(std::uint32_t event_id) const { return !find(event_id).empty(); }
+
+    /// Replace the blast list of `event_id`.
+    void set(std::uint32_t event_id, std::vector<Blast> blasts);
+    /// Append one blast (merges with an existing list).
+    bool add(std::uint32_t event_id, const Blast& blast);
+    /// Append every blast; false when `blasts` is empty.
+    bool add(std::uint32_t event_id, std::span<const Blast> blasts);
+    bool remove(std::uint32_t event_id);
+
+    void clear();
+    [[nodiscard]] bool empty() const { return entries_.empty(); }
+    /// Number of registered event ids.
+    [[nodiscard]] std::size_t size() const { return entries_.size(); }
+    /// Total number of blasts over all event ids.
+    [[nodiscard]] std::size_t blast_count() const;
+    /// Registered event ids, ascending.
+    std::vector<std::uint32_t> event_ids() const;
+
+    /// Add the collide/expire blasts of every THING weapon type in `weapons`.
+    /// `Weapons::load` already resolved `Weapon::impact_blasts` (collide event)
+    /// and `expire_blasts` (expire event) with `collect_event_blasts`; this
+    /// only re-reads the event ids from `THING_TYPES` (`thing_type_events`).
+    /// Returns the number of newly registered event ids.  An existing id is
+    /// overwritten (the same script yields the same blasts).
+    std::size_t add_from_weapons(const Weapons& weapons, const SbtLevel& level);
+
+private:
+    struct Entry {
+        std::uint32_t event_id = 0;
+        std::vector<Blast> blasts;
+    };
+    std::vector<Entry> entries_; ///< sorted by event_id
+};
+
+/// Apply every blast registered for `event_id` at `center`.
+///
+/// This is the event-driven counterpart of `apply_weapon_blast()`: the medium
+/// guards (`underwater`, `from_ground`, `deathmatch`) filter the collected
+/// ops exactly like `Weapon::select_blasts()`, and the targets are passed to
+/// `apply_blast_damage()` (`0x477280` -> `0x453b50` / `0x470500`).  A missing
+/// event id returns an empty result.  `matched` (optional) receives the number
+/// of blasts that passed the guards.
+BlastDamageResult apply_event_blast(
+    const EventBlastRegistry& registry, std::uint32_t event_id,
+    const Vec3d& center, bool underwater, bool from_ground, bool deathmatch,
+    int source_player, int source_thing,
+    std::span<const Vec3d> player_positions, std::span<Vitals> player_vitals,
+    std::span<const Vec3d> thing_positions, std::span<const bool> thing_alive,
+    std::span<ThingVitals> thing_vitals, std::size_t* matched = nullptr);
 
 /// One entry of the original runtime switch table `0x5a4af0` (stride 0x20),
 /// written by the level/trigger setup and consumed by `FUN_0044f960`.

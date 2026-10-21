@@ -360,6 +360,15 @@ target_link_libraries(gm_events_tests PRIVATE gm_engine)
 add_test(NAME events COMMAND gm_events_tests)
 gm_label(events quick)
 
+# Event-driven blast damage (docs/PROJECTILE_CPP.md §7): THING_TYPES
+# collide/expire event id -> EventBlastRegistry -> apply_blast_damage for all
+# eight players and the things, through the runtime bridge.  Synthetic worlds
+# plus the real level0.sbt collide/expire ids of ROCKET.
+add_executable(gm_blast_damage_tests test_blast_damage.cpp)
+target_link_libraries(gm_blast_damage_tests PRIVATE gm_engine)
+add_test(NAME blast_damage COMMAND gm_blast_damage_tests)
+gm_label(blast_damage quick)
+
 add_executable(gm_game_state_tests test_game_state.cpp)
 target_link_libraries(gm_game_state_tests PRIVATE gm_engine)
 add_test(NAME game_state COMMAND gm_game_state_tests)

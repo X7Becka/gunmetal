@@ -295,7 +295,9 @@ bounce-результатом (каждый отскок — отдельный 
    снаряд (id, слот, статус, позиция, `spent`/`dead`, события), `tick()`
    оставлен совместимой обёрткой. Для RGM не подключены поиск реальной цели и
    blast по `ProjectileStatus::destroyed`; `EventDispatcher` для событий
-   снаряда тоже не подключён.
+   снаряда тоже не подключён. Событийный blast-мост (§7) готов на уровне
+   `GameRuntime::apply_projectile_blasts(registry, …)`, но игровой цикл его
+   пока не зовёт автоматически.
 5. `collide` при контакте и `expire` при hits/lifetime разделены; не постить
    collide на последнем попадании.
 6. **Условие collide** в C++ — `dt <= |vz_old| + speed_old` (тики слева,
@@ -306,11 +308,13 @@ bounce-результатом (каждый отскок — отдельный 
    (QA COL-1), поэтому порт пока оставлен как есть; тесты фиксируют именно
    текущее правило.
 7. **Триггер blast — статус, а не событие.** В оригинале blast живёт в
-   обработчике collide/expire-события. `apply_projectile_blast` реагирует на
-   `ProjectileStatus::bounced`, в том числе когда collide-событие не постилось
-   (гейт из п. 6 или `collide_event == 0`). «Отдых» на полу сюда не попадает
-   (статус остаётся `flying`), но это clean-room упрощение; точная привязка
-   потребует причины события в `ProjectileTickResult`.
+   обработчике collide/expire-события. Старый weapon-мост
+   `apply_projectile_blast` реагирует на `ProjectileStatus::bounced`, в том
+   числе когда collide-событие не постилось (гейт из п. 6 или
+   `collide_event == 0`). «Отдых» на полу сюда не попадает (статус остаётся
+   `flying`), но это clean-room упрощение. Событийный путь (§7) смотрит на
+   `ProjectileTickRecord::collide_event`/`expire_event`/`destroy_event`: без id
+   он ничего не применяет и пишет `skipped_no_event`.
 8. **Порог «пола», трение и таймаут отдыха — clean-room.** В оригинале нет ни
    rest-ветки, ни `rest_ticks`, ни трения о пол: `kProjectileRestNormalZ = 0.5`
    (45°) и `speed *= damping` на скользящем rest-тике — наши правила, они
@@ -514,3 +518,171 @@ Blast-мост:
   `allow_proximity = true` — один blast;
 * реальный `ROCKET` из `level0.sbt`: bounce и expire дают по 2 hits, повторный
   expire после `spent` — 0.
+
+## 7. События `collide`/`expire` → blast → урон
+
+Статус: цепочка доказана по декомпиляции/дизассемблеру Ghidra 12.1.4
+(2026-10-21); C++ — `gm::EventBlastRegistry` + `gm::apply_event_blast()`
+(`engine/src/game/events.*`) и мост `GameRuntime::apply_projectile_blasts(
+const EventBlastRegistry&, ...)`.  Это **оригинальный** путь урона: blast
+принадлежит id события, а не записи `Weapon`.
+
+### 7.1. Цепочка адресов
+
+| шаг | адрес | что делает | статус |
+|---|---|---|---|
+| collide | `0x4752d0` | на контакте постит `event_post(*(thing+0x328), …)`: `+0x328` = `THING_TYPES+0x1c4` (`event_death`, в C++ `Thing::collide_event`) | доказано |
+| expire | `0x4703a0` | обнуляет `+0x370` (lifetime), постит `*(thing+0x374)` = `THING_TYPES+0x1ec`; при отсутствии мировой точки — `0x470290` destroy | доказано |
+| очередь | `0x4795b0` | `event_post` только пишет запись (тип 1/3) в буфер; не спавнит объект | доказано (`docs/EVENTS.md` §1) |
+| диспетчер | `0x4799b0` | тип 1/3 → `generate_event` (`0x479960`) | доказано |
+| запуск | `0x45fa00` | `generate_runner`: ищет id сущности и вызывает VM-исполнитель; единственный вызов `0x457390` — `0x45fb01` | доказано (`list_xrefs 0x457390`) |
+| VM | `0x457390` | исполняет подскрипт сущности | доказано |
+| op 75 | `0x45775b` | `CAUSE_BLAST_RADIUS_DAMAGE`: 6 операндов `LLLLLE` (flags, no_direction, plate, hull, radius, event) + координаты источника, `CALL 0x477280` в `0x45778a` | доказано (дизасм) |
+| blast | `0x477280` | сферический запрос и урон; **единственный** `CALL` на весь бинарь — из `0x45778a` | доказано (`list_xrefs 0x477280`) |
+| игрок | `0x453b50` | плита/корпус игрока | доказано |
+| вещь | `0x470500` | попадание в вещь | доказано |
+
+`0x477280` (`param_1` = источник, `param_2` = flags, `param_3` = no_direction,
+`param_4..6` = x/y/z центра, `param_7` = plate, `param_8` = hull,
+`param_9` = radius, `param_10` = event id):
+
+* **игроки.** База `0x819040`, шаг `0x3510`; берутся слоты с `action_state`
+  (`+0x3210`) не `0` и не `7`.  Расстояние — `FUN_004344df` (евклидово),
+  усечение `__ftol`; цель в радиусе при `distance <= radius`.  Урон:
+  `plate * (radius-d)/radius`, `hull * (radius-d)/radius` (при `plate < 0` —
+  статус, без масштабирования).  На каждую цель постится событие blast'а
+  (`param_10`) с `param` = `player+0x323c` (model id) и
+  `extra = source + player_index*0x10000`, затем `FUN_00453b50`;
+* **вещи.** База `0x7ac080`, шаг `0x528`, живые по `flags_a & 1`
+  (`+0x360`).  Позиция — `FUN_004277cd`; вещь без мировой позиции
+  уничтожается (`0x470290`).  То же расстояние/затухание; событие с `param` =
+  `thing+0x3c8` (сектор), `extra = source + 0x80000 + index*0x10000`, затем
+  `FUN_00470500`;
+* `flags & 1` — не бить источник (`param_1`), `flags & 4` — пропустить
+  игроков, `flags & 8` — пропустить вещи; `flags & 2` — «полный урон в
+  каждую плиту» (см. ниже).
+
+### 7.2. Игрок: `0x453b50`
+
+Запись игрока — `0x819040`, шаг `0x3510` (`docs/PLAYER_FIELDS.md` §11).
+
+| поле | смещение | смысл |
+|---|---|---|
+| `flags` | `+0x3200` | бит `0x10` — неуязвимость (ранний выход) |
+| `body_object_id` | `+0x3178` | `0` → выхода нет (слот мёртв/пуст) |
+| `armor_max` | `+0x3244` | максимум брони (сотые) |
+| `armor` | `+0x3248` | текущая броня/HP |
+| `shield_max` | `+0x324c` | максимум одной плиты |
+| `shields[4]` | `+0x3250..+0x325c` | front/right/back/left |
+| `timer_flag20` | `+0x3224` | статус `-1` (burn): `+= hull*91/100`, бит `0x20` |
+| `model_id` | `+0x323c` | `param` события blast'а |
+| `hitstun` | `+0x33c8` | `0x81c408`, порог `0x10000..0x80000` |
+
+Алгоритм:
+
+1. статусы: `plate == -1` — burn, `-2` — freeze (`status_flags |= 0xc0`);
+2. без `flags & 2` `plate >>= 2` (делится на четыре плиты), затем каждая плита
+   `shields[i] -= plate`; пустая/пробитая плита добавляет `plate` в урон
+   корпусу (`flags & 2` — четверть);
+3. отрицательные плиты обнуляются, их дефицит добавляется к урону корпусу,
+   `broken[i] = true`;
+4. `armor -= spill`; `armor < 0` обрезается до 0; `armor == 0` — смерть
+   через `0x4536e0`;
+5. события: переход через половину — `-17`/`-18`; пробитые плиты —
+   `-12` (front), `-15` (right), `-13` (back), `-14` (left)
+   (`docs/EVENTS.md` §4.1).
+
+### 7.3. Вещь: `0x470500`
+
+Запись вещи — `0x7ac080`, шаг `0x528` (`docs/THING_FIELDS.md` §5).
+
+| поле | смещение | смысл |
+|---|---|---|
+| `flags_a` | `+0x360` | бит 0 — жива; `0x40` — burn, `0x18` — frozen |
+| `health` | `+0x398` | текущее HP |
+| `max_health` | `+0x39c` | `0` = неуязвима (ранний выход) |
+| `shields[4]` | `+0x3a0..+0x3ac` | текущие плиты |
+| `shield_max[4]` | `+0x3b0..+0x3bc` | максимумы |
+| `flags2` | `+0x364` (`flags_b`) | бит `0x20000` — снаряд, `0x1000` — событие полуздоровья; заполняется вызывающим в `ThingVitals::flags2` |
+| `damaged_event` | `+0x518` | `event_post` после не смертельного попадания |
+
+Алгоритм: `max_health < 1` → выход; `plate < 0` — статус (`-1` burn,
+`-2` freeze); иначе плиты гасят `plate` (без направления — по
+`plate >> 2` на плиту), дефицит плит уходит в `health`; `health < 1` →
+`0x470290` (**destroy**), при `flags2 & 0x20000` и не-deathmatch
+увеличивается счётчик убийств источника; иначе — событие `-17` при переходе
+через половину (если `flags2 & 0x1000`) и затем `+0x518` (`event_damaged`).
+Порог/событие полуздоровья и `damaged` уже есть в C++
+(`ThingDamageResult::low_health_event`/`damaged_event`).
+
+### 7.4. C++
+
+```cpp
+#include "game/events.h"
+#include "game/runtime.h"
+
+gm::EventBlastRegistry registry;
+registry.add_from_weapons(weapons, level); // collide/expire id -> Blast
+runtime.apply_projectile_blasts(registry, context, player_vitals, thing_vitals);
+```
+
+* `EventBlastRegistry` — сортированный по event id набор; `find(id)` отдаёт
+  `span<const Blast>`, `add/set/remove/event_ids/blast_count`;
+* `add_from_weapons` не парсит скрипты заново: `Weapons::load` уже прогнал
+  `collect_event_blasts` для `THING_TYPES` collide/expire каждого оружейного
+  типа, здесь только перечитываются id событий через `thing_type_events`;
+* `apply_event_blast` фильтрует blast'ы теми же medium-guard'ами, что
+  `Weapon::select_blasts` (`underwater`/`from_ground`/`deathmatch`), и зовёт
+  `apply_blast_damage` (игроки — `apply_damage_gauge`, вещи —
+  `apply_thing_damage`);
+* `ProjectileTickRecord` теперь несёт `collide_event`/`expire_event`/
+  `destroy_event` из spawn'а; мост выбирает: `bounced` → collide,
+  `expired` → expire, `destroyed` → destroy.  Нет id — запись попадает в
+  `ProjectileBlastBatch::skipped_no_event` и ничего не применяет;
+* marks `blasted_results_` общие с weapon-формой: за одно поколение запись
+  взрывается не более одного раза, повторный вызов даёт `already_applied`;
+* события попаданий постятся в очередь тем же правилом, что и раньше (центр
+  blast'а, `extra = 0`), — точные `param`/`extra`/координаты на цель в C++ не
+  перенесены.
+
+**Устаревший путь.** `GameRuntime::apply_projectile_blasts(const Weapon&, …)` и
+`apply_projectile_blast()` остаются только для игрока: `fire()` уже собрал те
+же blast'ы в `Weapon::impact_blasts`/`expire_blasts`.  Для AI-снарядов этот
+путь неверен: `AiWeaponShot::event_id` — это `THING_TYPES+0x21c`
+(GENERATE-событие, instance `+0x3f8`), а не индекс `DEFINE_WEAPONS`
+(`0x4752d0`: `event_post(*(thing+0x3f8), …)` для proximity-таблицы).
+
+### 7.5. Доказано / гипотеза
+
+| утверждение | статус |
+|---|---|
+| collide-event = `THING_TYPES+0x1c4` (instance `+0x328`), expire = `+0x1ec` (`+0x374`) | доказано |
+| `event_post` → `generate_event` → `generate_runner` → VM → op 75 → `0x477280` | доказано (xrefs/disasm) |
+| `0x477280` — единственная точка blast-урона | доказано (`list_xrefs`: один CALL из `0x45778a`) |
+| радиусы/затухание `(radius-d)/radius`, `__ftol`, `<= radius` | доказано |
+| плиты/корпус/статусы игрока `0x453b50` и вещи `0x470500` | доказано (C++ уже был) |
+| `flags & 4/8` — пропуск игроков/вещей, `& 1` — источник, `& 2` — полный урон в плиту | доказано по декомпиляции |
+| `param` события = model id игрока / сектор вещи; `extra` кодирует источник и индекс | доказано по декомпиляции, в C++ не воспроизведено |
+| выбор ближайшей цели/приоритеты внутри радиуса | **гипотеза/не перенесено**: оригинал бьёт все цели в радиусе, порядок — слои игроков, затем вещей |
+| связь proximity-события (`+0x21c`) с blast'ом | **не доказана**: реестр её не содержит, `allow_proximity` остаётся ручным opt-in |
+| точное смещение `hitstun` (`0x81c408`) в записи игрока | **гипотеза** (в C++ `Vitals::hitstun`) |
+
+### 7.6. Тесты
+
+`engine/tests/test_blast_damage.cpp` (CTest `blast_damage`, label `quick`):
+
+* карта реестра: сортировка id, merge `add`, replace `set`, `remove`, пустой
+  `find`;
+* `collide_event` на отскоке: игрок 0 и ящик в радиусе получают урон,
+  остальные семь игроков — нет; повторный вызов не взрывает второй раз;
+* `expire_event`: смертельный blast убивает ящик и игрока, постит по событию
+  на цель; `store_thing_vitals` переносит смерть в `Things`;
+* отскок без `collide_event`: `skipped_no_event = 1`, HP не меняются (нет
+  фолбэка на `Weapon`);
+* радиус 10 при целях на 100/200: blast применяется (`matched = 1`),
+  hits пусты;
+* плиты/броня игрока: `4000 >> 2 = 1000` в каждую из четырёх плит, затем
+  `32000` пробивает их и дефицит `4×1000` уходит в броню (10000 → 6000);
+* реальный `level0.sbt`: `add_from_weapons` кладёт `ROCKET` collide/expire
+  blast'ы ровно под id из `thing_type_events`, а `apply_event_blast` даёт те
+  же hits, что `Weapon::select_blasts`.

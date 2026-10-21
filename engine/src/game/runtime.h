@@ -139,6 +139,11 @@ struct ProjectileBlastBatch {
     /// counted: whether it triggers is decided by the missing context's
     /// `allow_proximity`.
     std::size_t skipped_no_context = 0;
+    /// Result records that would blast but carry no event id for their trigger
+    /// (`collide_event == 0` on a bounce, `expire_event == 0` on an expiry,
+    /// `destroy_event == 0` on an RGM destroy) in the `EventBlastRegistry`
+    /// overloads.  Nothing is applied for them.
+    std::size_t skipped_no_event = 0;
     /// Blast event records the queue accepted (0 for `event == 0` hits and for
     /// a full queue, which drops the record like every other runtime post).
     std::size_t posted_events = 0;
@@ -302,6 +307,12 @@ public:
     /// queue.  This is the explicit weapon seam: the runtime does not choose a
     /// weapon and does not call this from `tick()`.
     ///
+    /// **Legacy for AI rounds.**  The original picks the blast by the event id
+    /// the round carries, not by a weapon record; use the
+    /// `EventBlastRegistry` overloads below for AI/generic projectiles.  This
+    /// form stays for the player FIRE path, where `fire()` already resolved
+    /// the blasts into `Weapon::impact_blasts`/`expire_blasts`.
+    ///
     /// Only trigger statuses are blasted: `bounced`, `expired` (unless the
     /// record is a replay, `already_spent`) and `proximity` only when
     /// `context.allow_proximity` (the same contract as
@@ -375,6 +386,46 @@ public:
         const Weapon& weapon, std::span<const ProjectileBlastContext> contexts,
         std::span<ThingVitals> thing_vitals = {}, bool only_new = true);
 
+    /// Event-driven blast bridge: the same per-generation marks and target
+    /// arrays as the `Weapon` forms above, but the blast branch is selected by
+    /// the *event id the round itself carries*, not by a `Weapon`.
+    ///
+    /// `Projectiles::tick_results()` records the spawn's `collide_event`
+    /// (`THING_TYPES+0x1c4`), `expire_event` (`+0x1ec`) and `destroy_event`
+    /// (`+0x1f8`).  A bounce looks up `collide_event`, a non-replayed expiry
+    /// `expire_event`, an RGM destroy `destroy_event`; a record without an id
+    /// is counted in `skipped_no_event` and applies nothing.  This is the
+    /// original path (`0x4752d0`/`0x4703a0` post the id, the entity sub-script
+    /// runs `CAUSE_BLAST_RADIUS_DAMAGE`), and it is the only correct one for
+    /// AI rounds: `AiWeaponShot::event_id` is the proximity `GENERATE` id
+    /// (`THING_TYPES+0x21c`), not a `DEFINE_WEAPONS` slot.
+    ///
+    /// The registry is caller-owned
+    /// (`EventBlastRegistry::add_from_weapons(weapons, level)`) because the
+    /// runtime does not retain the `.sbt`; vitals, marks, `only_new` and the
+    /// posted hit events are identical to the `Weapon` overloads.
+    ProjectileBlastBatch apply_projectile_blasts(
+        const EventBlastRegistry& registry,
+        const ProjectileBlastContext& context,
+        std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+        bool only_new = true);
+
+    ProjectileBlastBatch apply_projectile_blasts(
+        const EventBlastRegistry& registry,
+        std::span<const ProjectileBlastContext> contexts,
+        std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+        bool only_new = true);
+
+    ProjectileBlastBatch apply_projectile_blasts_to_players(
+        const EventBlastRegistry& registry,
+        const ProjectileBlastContext& context,
+        std::span<ThingVitals> thing_vitals = {}, bool only_new = true);
+
+    ProjectileBlastBatch apply_projectile_blasts_to_players(
+        const EventBlastRegistry& registry,
+        std::span<const ProjectileBlastContext> contexts,
+        std::span<ThingVitals> thing_vitals = {}, bool only_new = true);
+
     // --- spawn --------------------------------------------------------------
 
     /// Append a thing, assign an id when `thing.id < 0` and post its create
@@ -436,12 +487,14 @@ private:
     /// `kAiProjectileRuntimeIdBase`).
     int take_ai_projectile_id();
     ProjectileTargets projectile_targets();
-    /// Shared body of the two `apply_projectile_blasts()` forms: `shared`
-    /// non-null means one context for the whole fleet, otherwise
+    /// Shared body of the `apply_projectile_blasts()` forms: exactly one of
+    /// `weapon`/`registry` is non-null and selects the blast source.  A
+    /// non-null `shared` means one context for the whole fleet, otherwise
     /// `per_record[i]` is the context of result record `i` and records outside
     /// the span are skipped.
     ProjectileBlastBatch apply_projectile_blasts_impl(
-        const Weapon& weapon, const ProjectileBlastContext* shared,
+        const Weapon* weapon, const EventBlastRegistry* registry,
+        const ProjectileBlastContext* shared,
         std::span<const ProjectileBlastContext> per_record,
         std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
         bool only_new);

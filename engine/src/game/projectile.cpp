@@ -797,6 +797,9 @@ std::vector<ProjectileTickRecord> Projectiles::tick_results(
         record.already_spent = result.already_spent || was_dead;
         record.spent = projectile.spent;
         record.dead = projectile.dead;
+        record.collide_event = projectile.spawn.collide_event;
+        record.expire_event = projectile.spawn.expire_event;
+        record.destroy_event = projectile.spawn.destroy_event;
         if (events != nullptr) {
             record.posted_events = post_projectile_events(*events, result);
         }
