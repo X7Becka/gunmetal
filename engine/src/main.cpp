@@ -780,8 +780,9 @@ int render_image(const gm::Options& options) {
                         continue;
                     }
                     // gm/scene.py and the C++ .sbw renderer both use the
-                    // engine world frame (origin + 1.875 * local).  Do not
-                    // rescale ADD_THING positions: they are already world.
+                    // engine world frame (`origin + basis * local`, basis =
+                    // identity, docs/WORLD_FIELDS.md §3).  Do not rescale
+                    // ADD_THING positions: they are already world.
                     auto placed_meshes = gm::place_model_meshes(
                         *it->second,
                         {static_cast<double>(thing.x), static_cast<double>(thing.y),
@@ -1720,8 +1721,9 @@ int run(const gm::Options& options) {
                         continue;
                     }
                     // gm/scene.py and the C++ .sbw renderer both use the
-                    // engine world frame (origin + 1.875 * local).  Do not
-                    // rescale ADD_THING positions: they are already world.
+                    // engine world frame (`origin + basis * local`, basis =
+                    // identity, docs/WORLD_FIELDS.md §3).  Do not rescale
+                    // ADD_THING positions: they are already world.
                     auto placed_meshes = gm::place_model_meshes(
                         *it->second,
                         {static_cast<double>(thing.x), static_cast<double>(thing.y),

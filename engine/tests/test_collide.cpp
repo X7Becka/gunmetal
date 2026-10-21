@@ -5,21 +5,16 @@
 // `SbwLevel`s so the pipeline `SbwLevel -> world triangles -> Top` is exercised.
 //
 // Real part: `level0.sbw` (game install, skipped when absent).  The goldens are
-// reproduced by Python with the same Möller-Trumbore formulation used here:
-//
-//   python3 - <<'PY'
-//   import math, sys
-//   sys.path.insert(0, '.')
-//   from gm import sbw
-//   w = sbw.parse_file('/mnt/d/games/Gunmetal 3dfx/level0.sbw')
-//   # triangles = fan(obj.world_vertices()[poly.indices]) for every polygon
-//   # raycast  = nearest t of the double-sided Möller-Trumbore test
-//   # floor    = same ray with d=(0,0,-1) and the floor filter
-//   PY
+// reproduced by an independent Python parse + triangulation,
+// `tools/re/collide_goldens.py`, with the same Möller-Trumbore formulation used
+// here.  The object frame is the proven one: the 96-byte header is 12 f64
+// (`origin + basis * local`, basis = identity in all shipped objects), so the
+// level spans the object origins — the old `origin32 + 1.875 * local` model was
+// the high dword of the doubles read as f32.
 //
 // Pinned values below were cross-checked against tools/re/spawn.py
-// `TriGrid.floor` (48.546875 at the level0 spawn) and against a direct
-// all-triangles sweep with the reference formulation.
+// `TriGrid.floor` (0.0 at the level0 spawn) and against a direct all-triangles
+// sweep with the reference formulation.
 #include "render/collide.h"
 
 #include "res/sbw.h"
@@ -75,18 +70,19 @@ struct TriSpec {
     std::uint16_t material = 0;
 };
 
-void put_f32(std::uint8_t* p, float value) {
+void put_f64(std::uint8_t* p, double value) {
     std::memcpy(p, &value, sizeof(value));
 }
 
 /// Identity object transform: origin (0,0,0), basis diag(1,1,1).
-/// The header stores 4 points as 12 `(u32 pad, f32)` pairs.
+/// The header is 12 little-endian `f64`: `origin[3] + basis[3][3]` (row-major),
+/// i.e. `world = origin + basis * local`.
 void write_identity_header(std::array<std::uint8_t, 96>& header) {
     header.fill(0);
     for (int point = 0; point < 4; ++point) {
         for (int component = 0; component < 3; ++component) {
-            const float value = (point == 0) ? 0.0f : (component == point - 1 ? 1.0f : 0.0f);
-            put_f32(header.data() + 8 * (point * 3 + component) + 4, value);
+            const double value = (point == 0) ? 0.0 : (component == point - 1 ? 1.0 : 0.0);
+            put_f64(header.data() + 8 * (point * 3 + component), value);
         }
     }
 }
@@ -600,39 +596,47 @@ void test_level0() {
     CHECK(walls == 2082);
     CHECK(ceilings == 558);
 
-    // World AABB and sector 10 AABB, produced by the Python sweep.
+    // World AABB and sector 10 AABB, produced by the Python oracle
+    // (`tools/re/collide_goldens.py`, an independent parse + triangulation).
+    // The frame is the proven one: the 96-byte header is 12 f64
+    // (`origin + basis * local`, basis = identity), so the world spans the
+    // object origins, not `origin32 + 1.875 * local`.
     const gm::Aabb& bounds = world.bounds();
-    CHECK_NEAR(bounds.lo.x, -1077.0, 1e-9);
-    CHECK_NEAR(bounds.lo.y, -1075.8125, 1e-9);
-    CHECK_NEAR(bounds.lo.z, -1279.60546875, 1e-9);
-    CHECK_NEAR(bounds.hi.x, 1083.0, 1e-9);
-    CHECK_NEAR(bounds.hi.y, 1084.1875, 1e-9);
-    CHECK_NEAR(bounds.hi.z, 1270.39453125, 1e-9);
+    CHECK_NEAR(bounds.lo.x, -3080.0, 1e-9);
+    CHECK_NEAR(bounds.lo.y, -408.0, 1e-9);
+    CHECK_NEAR(bounds.lo.z, -1920.0, 1e-9);
+    CHECK_NEAR(bounds.hi.x, 1616.0, 1e-9);
+    CHECK_NEAR(bounds.hi.y, 8836.0, 1e-9);
+    CHECK_NEAR(bounds.hi.z, 288.0, 1e-9);
 
     const gm::Aabb& sector10 = world.sector_bounds(10);
-    CHECK_NEAR(sector10.lo.x, -250.609375, 1e-9);
-    CHECK_NEAR(sector10.lo.y, -580.83984375, 1e-9);
-    CHECK_NEAR(sector10.lo.z, -41.453125, 1e-9);
-    CHECK_NEAR(sector10.hi.x, 259.390625, 1e-9);
-    CHECK_NEAR(sector10.hi.y, 589.16015625, 1e-9);
-    CHECK_NEAR(sector10.hi.z, 48.546875, 1e-9);
+    CHECK_NEAR(sector10.lo.x, 776.0, 1e-9);
+    CHECK_NEAR(sector10.lo.y, 364.0, 1e-9);
+    CHECK_NEAR(sector10.lo.z, 128.0, 1e-9);
+    CHECK_NEAR(sector10.hi.x, 1048.0, 1e-9);
+    CHECK_NEAR(sector10.hi.y, 988.0, 1e-9);
+    CHECK_NEAR(sector10.hi.z, 176.0, 1e-9);
 
-    // Spawn eye (24, -208, 58): floor straight down.
+    // Spawn eye (24, -208, 58): the highest floor below is the room's ground
+    // plane at z = 0, 58 units under the eye.
     CHECK(world.floor_at(24, -208, 58).has_value());
     if (const auto z = world.floor_at(24, -208, 58)) {
-        CHECK_NEAR(*z, 48.546875, 1e-9); // TriGrid.floor agrees
+        CHECK_NEAR(*z, 0.0, 1e-9); // TriGrid.floor agrees
     }
     {
+        // Straight down the first surface is the alcove ceiling at z = 16
+        // (wound downwards, so the reported normal is flipped towards the ray).
         const auto hit = world.raycast({24, -208, 58}, {0, 0, -1});
         CHECK(hit.has_value());
         if (hit) {
-            CHECK_NEAR(hit->t, 9.453125, 1e-9);
-            CHECK_NEAR(hit->point.z, 48.546875, 1e-9);
+            CHECK_NEAR(hit->t, 42.0, 1e-9);
+            CHECK_NEAR(hit->point.z, 16.0, 1e-9);
             CHECK_NEAR(hit->normal.z, 1.0, 1e-12);
-            CHECK(hit->sector == 10);
-            CHECK(hit->triangle->object == 0);
-            CHECK(hit->triangle->texture == 1);
-            CHECK(hit->front_face);
+            CHECK(hit->sector == 56);
+            CHECK(hit->triangle->object == 1);
+            CHECK(hit->triangle->texture == 3);
+            CHECK(!hit->front_face);
+            CHECK(gm::surface_of(*hit->triangle) == gm::Surface::ceiling);
         }
     }
 
@@ -641,11 +645,11 @@ void test_level0() {
         const auto hit = world.raycast({24, -208, 58}, {1, 0, 0});
         CHECK(hit.has_value());
         if (hit) {
-            CHECK_NEAR(hit->t, 70.671875, 1e-9);
-            CHECK_NEAR(hit->point.x, 94.671875, 1e-9);
+            CHECK_NEAR(hit->t, 56.0, 1e-9);
+            CHECK_NEAR(hit->point.x, 80.0, 1e-9);
             CHECK_NEAR(hit->normal.x, -1.0, 1e-12);
-            CHECK(hit->sector == 54);
-            CHECK(hit->triangle->texture == 59);
+            CHECK(hit->sector == 56);
+            CHECK(hit->triangle->texture == 34);
             CHECK(gm::surface_of(*hit->triangle) == gm::Surface::wall);
         }
     }
@@ -653,71 +657,75 @@ void test_level0() {
         const auto hit = world.raycast({24, -208, 58}, {-1, 0, 0});
         CHECK(hit.has_value());
         if (hit) {
-            CHECK_NEAR(hit->t, 4.8359375, 1e-9);
-            CHECK_NEAR(hit->point.x, 19.1640625, 1e-9);
+            CHECK_NEAR(hit->t, 72.0, 1e-9);
+            CHECK_NEAR(hit->point.x, -48.0, 1e-9);
             CHECK_NEAR(hit->normal.x, 1.0, 1e-12);
-            CHECK(hit->sector == 7);
+            CHECK(hit->sector == 47);
         }
     }
     {
-        // Slanted ceiling piece: face normal z is below -0.8.
         const auto hit = world.raycast({24, -208, 58}, {0, 1, 0});
         CHECK(hit.has_value());
         if (hit) {
-            CHECK_NEAR(hit->t, 5.2421875, 1e-9);
-            CHECK_NEAR(hit->normal.y, -0.28408832969137399, 1e-12);
-            CHECK_NEAR(hit->normal.z, -0.95879811270838722, 1e-12);
+            CHECK_NEAR(hit->t, 336.0, 1e-9);
+            CHECK_NEAR(hit->point.y, 128.0, 1e-9);
+            CHECK_NEAR(hit->normal.y, -1.0, 1e-12);
             CHECK(hit->sector == 14);
-            CHECK(hit->triangle->texture == 3);
-            CHECK(gm::surface_of(*hit->triangle) == gm::Surface::ceiling);
+            CHECK(gm::surface_of(*hit->triangle) == gm::Surface::wall);
         }
     }
     {
         const auto hit = world.raycast({24, -208, 58}, {0, -1, 0});
         CHECK(hit.has_value());
         if (hit) {
-            CHECK_NEAR(hit->t, 19.2353515625, 1e-9);
-            CHECK_NEAR(hit->point.y, -227.2353515625, 1e-9);
+            CHECK_NEAR(hit->t, 80.0, 1e-9);
+            CHECK_NEAR(hit->point.y, -288.0, 1e-9);
             CHECK_NEAR(hit->normal.y, 1.0, 1e-12);
-            CHECK(hit->sector == 13);
+            CHECK(hit->sector == 1);
         }
     }
 
-    // Filtered sweeps change where the first hit lands (same Python goldens).
+    // Filtered sweeps change where the first hit lands (same Python oracle).
     {
-        gm::CollideFilter walls;
-        walls.floors = false;
-        walls.ceilings = false;
-        const auto hit = world.raycast({24, -208, 58}, {0, 1, 0}, gm::kCollideInfinity, walls);
+        // Ceilings only: the same downwards ceiling as above.
+        gm::CollideFilter ceilings;
+        ceilings.floors = false;
+        ceilings.walls = false;
+        const auto hit = world.raycast({24, -208, 58}, {0, 0, -1}, gm::kCollideInfinity, ceilings);
         CHECK(hit.has_value());
         if (hit) {
-            CHECK_NEAR(hit->t, 17.65625, 1e-9);
-            CHECK_NEAR(hit->normal.y, -0.97014250014533188, 1e-12);
-            CHECK_NEAR(hit->normal.z, 0.24253562503633297, 1e-12);
-            CHECK(hit->sector == 2);
-            CHECK(hit->triangle->texture == 1);
-        }
-    }
-    {
-        gm::CollideFilter floors;
-        floors.walls = false;
-        floors.ceilings = false;
-        const auto hit = world.raycast({24, -208, 58}, {0, -1, 0}, gm::kCollideInfinity, floors);
-        CHECK(hit.has_value());
-        if (hit) {
-            CHECK_NEAR(hit->t, 44.2890625, 1e-9);
-            CHECK_NEAR(hit->normal.y, 0.28216632399155017, 1e-12);
-            CHECK_NEAR(hit->normal.z, 0.95936550157127054, 1e-12);
-            CHECK(hit->sector == 14);
+            CHECK_NEAR(hit->t, 42.0, 1e-9);
+            CHECK(hit->sector == 56);
             CHECK(hit->triangle->texture == 3);
         }
     }
-
-    // Sector restriction: floor lives in sector 10, not in sector 7.
     {
-        const std::uint32_t only10[1] = {10};
+        // Floors only, straight down: the ground plane at z = 0.
+        gm::CollideFilter floors;
+        floors.walls = false;
+        floors.ceilings = false;
+        const auto hit = world.raycast({24, -208, 58}, {0, 0, -1}, gm::kCollideInfinity, floors);
+        CHECK(hit.has_value());
+        if (hit) {
+            CHECK_NEAR(hit->t, 58.0, 1e-9);
+            CHECK_NEAR(hit->point.z, 0.0, 1e-9);
+            CHECK_NEAR(hit->normal.z, 1.0, 1e-12);
+            CHECK(hit->sector == 56);
+            CHECK(hit->triangle->texture == 0);
+        }
+    }
+    {
+        // The only surface along +y is a wall, so a floors+ceilings sweep misses.
+        gm::CollideFilter no_walls;
+        no_walls.walls = false;
+        CHECK(!world.raycast({24, -208, 58}, {0, 1, 0}, gm::kCollideInfinity, no_walls).has_value());
+    }
+
+    // Sector restriction: the floor at (24, -208) lives in sector 56, not 7.
+    {
+        const std::uint32_t only56[1] = {56};
         gm::CollideFilter filter;
-        filter.sectors = only10;
+        filter.sectors = only56;
         CHECK(world.raycast({24, -208, 58}, {0, 0, -1}, gm::kCollideInfinity, filter).has_value());
         const std::uint32_t only7[1] = {7};
         filter.sectors = only7;
@@ -734,18 +742,18 @@ void test_level0() {
         CHECK(world.overlap_aabb(bounds, out, walls) == 2082);
     }
 
-    // Sphere of radius 10 over the first floor below z = 300 (the straight-down
-    // raycast from the same origin lands at z = 243.125, so face contact is at
-    // t = 300 - 243.125 - 10).
+    // Sphere of radius 10 over the first surface below z = 300 (the straight
+    // down raycast from the same origin lands at z = 112, so face contact is at
+    // t = 300 - 112 - 10).
     {
         const auto hit = world.sphere_cast({24, -208, 300}, {0, 0, -1}, 10.0);
         CHECK(hit.has_value());
         if (hit) {
-            CHECK_NEAR(hit->t, 46.875, 1e-9);
-            CHECK_NEAR(hit->centre.z, 253.125, 1e-9);
-            CHECK_NEAR(hit->point.z, 243.125, 1e-9);
+            CHECK_NEAR(hit->t, 178.0, 1e-9);
+            CHECK_NEAR(hit->centre.z, 122.0, 1e-9);
+            CHECK_NEAR(hit->point.z, 112.0, 1e-9);
             CHECK_NEAR(hit->normal.z, 1.0, 1e-12);
-            CHECK(hit->sector == 0);
+            CHECK(hit->sector == 56);
         }
     }
 }

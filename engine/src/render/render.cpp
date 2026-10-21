@@ -555,13 +555,14 @@ void draw_line(std::vector<std::uint8_t>& buf, int width, int height, Projected 
 }
 
 std::array<V3, 4> header_points(const std::array<std::uint8_t, 96>& header) {
+    // 12 little-endian f64: origin + 3x3 basis (`world = origin + basis*local`).
     std::array<V3, 4> out{};
     for (int vec = 0; vec < 4; ++vec) {
         double xyz[3];
         for (int axis = 0; axis < 3; ++axis) {
-            const std::size_t off = static_cast<std::size_t>(vec * 3 + axis) * 8 + 4;
-            float value = 0.0f;
-            std::memcpy(&value, header.data() + off, 4);
+            const std::size_t off = static_cast<std::size_t>(vec * 3 + axis) * 8;
+            double value = 0.0;
+            std::memcpy(&value, header.data() + off, sizeof(value));
             xyz[axis] = value;
         }
         out[vec] = {xyz[0], xyz[1], xyz[2]};

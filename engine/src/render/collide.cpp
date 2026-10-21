@@ -66,13 +66,19 @@ bool sector_allowed(const CollideFilter& filter, std::uint32_t sector) {
     return false;
 }
 
-double read_f32(const std::uint8_t* p) {
-    float value = 0.0f;
+double read_f64(const std::uint8_t* p) {
+    double value = 0.0;
     std::memcpy(&value, p, sizeof(value));
-    return static_cast<double>(value);
+    return value;
 }
 
-/// Object header: 4 points, each component stored as `(u32 pad, f32 value)`.
+/// Object header: 12 little-endian `f64` = `origin[3]` + `basis[3][3]`
+/// (row-major, `world = origin + basis * local`).  The loader copies the 96
+/// bytes unchanged into `obj+0x00/+0x18/+0x30/+0x48` (`0x42ae86`, `0x42aea7`,
+/// `0x42aec8`, `0x42aee9`) and the runtime transform `0x437af8` reads them with
+/// `FLD double`; the basis is the identity in every shipped object.  Reading
+/// the high dword as `f32` (the old model) produced `origin32 + 1.875 * local`
+/// because the bits of the double `1.0` (`0x3FF00000`) are the float `1.875`.
 struct ObjectTransform {
     Vec3d origin;
     Vec3d bx;
@@ -91,7 +97,7 @@ struct ObjectTransform {
 ObjectTransform decode_transform(const std::array<std::uint8_t, 96>& header) {
     double v[12];
     for (int i = 0; i < 12; ++i) {
-        v[i] = read_f32(header.data() + 8 * i + 4);
+        v[i] = read_f64(header.data() + 8 * i);
     }
     ObjectTransform out;
     out.origin = {v[0], v[1], v[2]};

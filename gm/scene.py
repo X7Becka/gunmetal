@@ -54,27 +54,25 @@ commands whose operand layout is proven from the engine handlers:
 
 Coordinate frame
 ----------------
-Script coordinates are **engine world** coordinates, and the engine scales every
-``.sbw`` object by the diagonal basis of its 96-byte header (``1.875``) at load
-(``object.points[0]`` is the origin).  That is, ``world = origin + 1.875 * v``
-for the file's vertex ``v``, while the renderer and every lightmap projection
-work in the raw file frame.  ``SCALE`` below is the factor that maps world
-coordinates into the file frame.
+Script coordinates are **engine world** coordinates and the ``.sbw`` header is
+``12 x f64``: ``world = origin + basis * local`` with an identity basis in every
+shipped object (``docs/WORLD_FIELDS.md`` §3, ``docs/WORLD_MATERIALS.md`` §6).
+So the world frame is a pure translation of the file's vertex frame, and every
+placement command that carries a position -- ``SET_PLAYER_START``,
+``ADD_THING``, ``ADD_SPRITE``, ``ADD_ITEM``, ``ADD_LOCATION`` -- is used as is
+(``VOLUME_SCALE = 1.0``): over the 36 levels 96 % of the ``ADD_SPRITE``
+positions land within 5 units of their level's mesh and the ``ADD_THING``
+median is 30-60 units, while the old ``1.875 * local`` frame put them 400-1500
+units away.
 
-The frame is supported by a scale-covariant argument: sprite positions are props
-that must sit **inside** their level, so over one level the sprite spread cannot
-exceed the geometry spread of that same level.  Measured over 23 levels (levels
-with at least four ``ADD_SPRITE`` commands) the median ratio between the two
-spreads is **1.52** (1.88 if levels with three sprites are included) -- i.e. the
-script coordinates are ~1.5-1.9x the raw file frame, which only the 1.875 basis
-explains (a same-frame reading would have to come out at <= 1).  The earlier
-"fraction of positions inside the level AABB" test points the same way but is
-biased (shrinking the positions towards the origin raises it monotonically), and
-so is "distance to the nearest vertex"; the baked lightmaps do not correlate
-with the light positions at all (|r| < 0.18), and the ``ADD_LIGHT_SOURCE`` /
-``ADD_SOUND_SOURCE`` operands do not fit this frame either (their spread is ~5x
-the level's), so those two positions stay unproven: use them for markers only or
-tune ``--scene-scale``.
+``SCALE = 1/1.875`` is **not** a world factor.  It is only used by the
+switch/door alignment checks (``tools/re/doors.py`` and the ``regress.py``
+"switch positions land on the mesh" check), because the ``ADD_SWITCH``
+operands 3..5 of the shipped data numerically match ``1.875 * local`` (the
+``f64`` basis ``1.0`` read as its high ``f32`` dword) 85 % of the time, while
+the engine itself compares them with the player position directly
+(``0x44fc30``).  That is an open data question, not a transform question; see
+``docs/WORLD_FIELDS.md`` §3.1.
 """
 
 from __future__ import annotations
@@ -84,8 +82,14 @@ from dataclasses import dataclass, field, replace
 
 from . import sbt, sbtvm
 
-#: Engine world -> raw ``.sbw`` frame (the object header basis).
+#: Script frame -> ``.sbw`` *local* frame.  Kept for the switch/door checks
+#: only (see the "Coordinate frame" note); positions that are world
+#: coordinates must not be scaled by it.
 SCALE = 1.0 / 1.875
+
+#: Script (and engine world) -> world.  The header basis is the identity, so
+#: scene positions are already world coordinates.
+VOLUME_SCALE = 1.0
 
 
 def _s32(x: int) -> int:
@@ -477,7 +481,7 @@ class Scene:
         self.executed_for = context
         return list(self.executed_things)
 
-    def scaled(self, factor: float = SCALE) -> Scene:
+    def scaled(self, factor: float = VOLUME_SCALE) -> Scene:
         """A copy with every position multiplied by ``factor``."""
 
         def s(p):
@@ -508,7 +512,7 @@ class Scene:
             _sbt=self._sbt,
         )
 
-    def markers(self, scale: float = SCALE):
+    def markers(self, scale: float = VOLUME_SCALE):
         """``(pos, rgb)`` triples ready for :func:`gm.render.render`."""
         out = []
         for l in self.lights:
@@ -532,7 +536,7 @@ class Scene:
                 out.append((tuple(v * scale for v in d.open_pos), (200, 255, 200)))
         return out
 
-    def render_lights(self, scale: float = SCALE):
+    def render_lights(self, scale: float = VOLUME_SCALE):
         """``(pos, rgb, power)`` triples ready for :func:`gm.render.render`."""
         out = []
         for l in self.lights:

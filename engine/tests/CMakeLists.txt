@@ -63,12 +63,12 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbw")
     set_tests_properties(cli_level_frames PROPERTIES PASS_REGULAR_EXPRESSION "frames=2")
     gm_label(cli_level_frames quick)
 
-    # LIGHT chassis (TICK.sob) at a proven-open level0 hangar bay, camera
-    # behind it.  The spawn alcove itself is too tight for a 140-unit boom,
-    # hence the --third-pos photo override.
+    # LIGHT chassis (TICK.sob) on the level0 spawn alcove floor, camera behind
+    # it.  The shell's interior floor is z = 16 (the spawn at z = 48 floats 32
+    # units above it); the boom is shortened so it stays inside the room.
     add_test(NAME cli_third_person COMMAND gunmetal --level level0 --third-person
-        --third-pos 0,-550,11.5 --third-yaw 90 --third-distance 140
-        --third-height 45 --fov 60 --render
+        --third-pos 24,-208,16 --third-yaw 90 --third-distance 60
+        --third-height 30 --fov 60 --render
         ${CMAKE_CURRENT_BINARY_DIR}/third_person.png --width 320 --height 200)
     set_tests_properties(cli_third_person PROPERTIES PASS_REGULAR_EXPRESSION
         "third-person: model=TICK;output: .*third_person\\.png")
@@ -83,12 +83,23 @@ add_test(NAME cli_dump_missing COMMAND gunmetal --dump ${CMAKE_CURRENT_SOURCE_DI
 set_tests_properties(cli_dump_missing PROPERTIES WILL_FAIL TRUE)
 gm_label(cli_dump_missing quick)
 
+# The `.sbw` object transform codec (docs/WORLD_FIELDS.md §3): 12 f64 =
+# origin + 3x3 basis, `world = origin + basis * local`.  Every shipped object
+# (36 levels, 28 192 objects, 338 304 header words) must decode with a zero low
+# dword and an identity basis, and a synthetic rotated/scaled basis must match
+# the Python `gm/sbw.py::Object.world_vertices` values to 1e-12.
+add_executable(gm_sbw_transform_tests test_sbw_transform.cpp)
+target_link_libraries(gm_sbw_transform_tests PRIVATE gm_engine)
+add_test(NAME sbw_transform COMMAND gm_sbw_transform_tests)
+gm_label(sbw_transform quick)
+
 add_executable(gm_collide_tests test_collide.cpp)
 target_link_libraries(gm_collide_tests PRIVATE gm_engine)
 # Ray/sphere casts over .sbw triangles (docs/COLLIDE.md): cube, floor and
 # two standalone triangles for exact t/point/normal, misses, parallel rays,
 # origins inside, radius/edge/vertex contacts, degenerate polygons, NaN/inf,
-# plus level0 floor/wall/AABB goldens from the Python sweep.
+# plus level0 floor/wall/AABB goldens from the Python oracle
+# (tools/re/collide_goldens.py).
 add_test(NAME collide COMMAND gm_collide_tests)
 gm_label(collide quick)
 
