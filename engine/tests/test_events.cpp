@@ -536,6 +536,44 @@ void test_dispatch_switch() {
         CHECK_EQ(from_level.switch_at(3)->z, 6);
     }
 
+    // A kind >= 0x101 level switch carries the centroid WorldState::build
+    // resolved from the .sbw triple; without it the dispatcher would use the
+    // (sector, object, polygon) operands as coordinates.
+    gm::Switch poly = source;
+    poly.id = 4;
+    poly.target = 903;
+    poly.kind = 0x101;
+    poly.pos = {1, 2, 3};
+    poly.world_position = std::array<double, 3>{10.5, 20.5, 30.5};
+    gm::Switch poly_missing = poly;
+    poly_missing.id = 5;
+    poly_missing.world_position.reset();
+    gm::EventDispatcher centred_level;
+    const std::array<gm::Switch, 2> poly_switches{poly, poly_missing};
+    CHECK_EQ(gm::install_switches(centred_level, poly_switches), 2U);
+    CHECK(centred_level.switch_at(4) != nullptr);
+    if (centred_level.switch_at(4) != nullptr) {
+        CHECK(centred_level.switch_at(4)->has_centroid);
+        CHECK(centred_level.switch_at(4)->centroid[0] == 10.5);
+        CHECK(centred_level.switch_at(4)->centroid[1] == 20.5);
+        CHECK(centred_level.switch_at(4)->centroid[2] == 30.5);
+    }
+    CHECK(centred_level.switch_at(5) != nullptr);
+    if (centred_level.switch_at(5) != nullptr) {
+        CHECK(!centred_level.switch_at(5)->has_centroid);
+    }
+    gm::EventQueue centred_queue;
+    gm::TextRegistry centred_text;
+    CHECK(centred_queue.post_switch(4, 0));
+    const gm::EventDispatchResult centred_event =
+        centred_level.dispatch(centred_queue, 10, centred_text);
+    CHECK_EQ(centred_event.generated.size(), 1U);
+    if (centred_event.generated.size() == 1) {
+        CHECK_EQ(centred_event.generated[0].x, 10);
+        CHECK_EQ(centred_event.generated[0].y, 20);
+        CHECK_EQ(centred_event.generated[0].z, 30);
+    }
+
     std::vector<std::uint8_t> too_many(4, 0);
     too_many[0] = 0x01;
     too_many[1] = 0x02; // 0x201

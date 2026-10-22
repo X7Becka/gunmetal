@@ -242,7 +242,7 @@ BlastDamageResult apply_event_blast(
 /// One entry of the original runtime switch table `0x5a4af0` (stride 0x20),
 /// written by the level/trigger setup and consumed by `FUN_0044f960`.
 struct SwitchEffect {
-    std::uint32_t kind = 0;     ///< +0x00; >= 0x101 uses the sector centroid
+    std::uint32_t kind = 0;     ///< +0x00; >= 0x101 uses the polygon centroid
     std::uint32_t event_id = 0; ///< +0x04; 0 = inactive
     std::uint32_t reserved = 0; ///< +0x08, written by FUN_0044e5f0
     std::int32_t x = 0;         ///< +0x0c
@@ -250,7 +250,7 @@ struct SwitchEffect {
     std::int32_t z = 0;         ///< +0x14
     std::uint32_t sound_id = 0; ///< +0x18
     std::int32_t sound_index = 0; ///< +0x1c; positive = play
-    std::array<double, 3> centroid{}; ///< sector centroid for kind >= 0x101
+    std::array<double, 3> centroid{}; ///< polygon centroid for kind >= 0x101
     bool has_centroid = false;
 };
 

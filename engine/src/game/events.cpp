@@ -545,6 +545,12 @@ std::size_t install_switches(EventDispatcher& dispatcher,
         effect.x = source.pos[0];
         effect.y = source.pos[1];
         effect.z = source.pos[2];
+        // `0x43577c` resolves kind >= 0x101 to the polygon centroid;
+        // WorldState::build already computed it from the .sbw triple.
+        if (source.is_poly() && source.world_position.has_value()) {
+            effect.centroid = *source.world_position;
+            effect.has_centroid = true;
+        }
         if (dispatcher.set_switch(static_cast<std::uint32_t>(source.id), effect)) {
             ++installed;
         }
