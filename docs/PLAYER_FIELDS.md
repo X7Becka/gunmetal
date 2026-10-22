@@ -311,7 +311,7 @@ m   = +0x2fe0            // делитель ускорения от массы
 | `+0x3320` | i32 | `equipment_index` | доказано | `0x445fd6`/`0x446053` (next), `0x4461a5` (prev), `0x45bdd9` (sell-all → `-1`), HUD `0x492b32`; `-1` = ничего не выбрано (было `fire_anim`, гипотеза — эти же адреса и есть выбор экипировки, `docs/EQUIPMENT.md` §4.1) |
 | `+0x3324` | u32 | `equipment_mask` | доказано | биты таблицы `0x814c8c` (`0x47ac..`) |
 | `+0x3328` | u32 | `equipment_active_mask` | доказано | `0x47aad1` снимает бит при снятии предмета |
-| `+0x332c` | i32 | `equipment_cost_total` | доказано | `0x47b0xx` (2000 в saved0) |
+| `+0x332c` | i32 | `cash` | доказано | op114 `0x459d99` (зажим 0), условие 34 `0x45e572`, витрины `0x47b8c7`/`0x47b881`, HUD `0x4927e0` (`CASH: %ld`), сейв `0x4671c0` (2000 в saved0) — `docs/ECONOMY.md` §2.3 (прежняя метка `equipment_cost_total` неверна) |
 | `+0x3330` | i32 | `equipment_slot` | неизвестно | `0x4422c7` |
 | `+0x3334` | i32 | `mass_total` | доказано | `0x4524d0`: сумма щитов/100·4 + веса оружия + оборудования + патроны·вес |
 | `+0x3338` | i32 | `mass_limit` | доказано | `0x4524d0`, из шасси `+0x148` (500) |
@@ -685,7 +685,7 @@ python3 tools/ghidra/mcp.py disasm 0x444118 --count 12 --bytes   # yaw -> cos/si
 | `+0x3320` | 22 | `0x445fd6` `0x44601e` `0x446053` | equipment_index | proven |
 | `+0x3324` | 33 | `0x445fe6` `0x446038` `0x4460d8` | equipment_mask | proven |
 | `+0x3328` | 26 | `0x4461cd` `0x4463a9` `0x4464db` | equipment_active_mask | proven |
-| `+0x332c` | 65 | `0x452e61` `0x452eaa` `0x452ec3` | equipment_cost_total | proven |
+| `+0x332c` | 65 | `0x452e61` `0x452eaa` `0x452ec3` | cash | proven |
 | `+0x3330` | 7 | `0x4422c7` `0x452e4f` `0x452f85` | equipment_slot | unknown |
 | `+0x3334` | 16 | `0x4524f4` `0x45251a` `0x452526` | mass_total | proven |
 | `+0x3338` | 3 | `0x4525e7` `0x47aa6b` `0x47aca1` | mass_limit | proven |

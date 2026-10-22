@@ -66,7 +66,10 @@ def level(path):
         for strings, vals in ins.data:
             rows.append({
                 "name": strings[0], "hull": strings[1], "icon": strings[2],
-                "mass_limit": vals[0], "armor": vals[2], "armor_cap": vals[3],
+                "mass_limit": vals[0],
+                # vals[2] is the shield maximum (80 -> 8000 in saved0),
+                # vals[3] the armour maximum (100 -> 10000), docs/ECONOMY.md §10.7.
+                "shield": vals[2], "armor": vals[3],
                 "max_speed": vals[4], "op5": vals[5], "price": vals[10],
                 "sound": vals[11],
                 "sound_name": (sounds[vals[11]] if 0 <= vals[11] < len(sounds)
