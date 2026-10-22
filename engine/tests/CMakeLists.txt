@@ -494,7 +494,7 @@ endif()
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
     # Tools that read the installation: same idea, one test each.
     foreach(tool equipment effects hud_icons hud_compose_ref oracle_render
-                sector_stuff)
+                oracle_fit sector_stuff)
         add_test(NAME re_${tool}
                  COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/${tool}.py
                          --self-test)

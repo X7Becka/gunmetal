@@ -45,6 +45,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import frame_metric  # noqa: E402
 import oracle_compare as oc  # noqa: E402
 
 DEFAULT_GAME = os.environ.get("GUNMETAL_GAME",
@@ -82,17 +83,44 @@ def look_from(eye, pitch: float, yaw: float, distance: float = 100.0):
             eye[2] + fz * distance)
 
 
-def score_frames(oracle, ours, world_end: float = 0.7) -> dict:
-    """The two numbers the search uses, from oracle_compare.metrics."""
+def score_frames(oracle, ours, world_end: float = 0.7,
+                 metric: str = "corr") -> dict:
+    """Numbers the search uses: ``corr`` (historical) or the frame metric.
+
+    ``corr`` punishes structure and rewards "grain" (docs/FRAME_METRIC.md):
+    the composite of ``tools/re/frame_metric.py`` is the authoritative score,
+    so ``metric="frame"`` fits the camera against the same numbers the
+    verdict uses.
+    """
     m = oc.metrics(oracle, ours, world_end)
     world = m.get("world", {})
-    return {"corr": float(world.get("corr", 0.0)),
-            "edges": float(world.get("edges", 0.0)),
-            "mad": float(world.get("mad", 0.0))}
+    out = {"corr": float(world.get("corr", 0.0)),
+           "edges": float(world.get("edges", 0.0)),
+           "mad": float(world.get("mad", 0.0)),
+           "score": 0.0, "fit": 0.0}
+    if metric == "frame":
+        try:
+            fm = frame_metric.compare_images(oracle, ours, band="world",
+                                             world_end=world_end)
+            parts = fm["metrics"]
+            out["score"] = float(fm.get("score", 0.0))
+            # The verdict gates the composite (no common colour/structure ->
+            # 0).  A search needs a continuous gradient, so it sorts by the
+            # weighted mean *before* the gate.
+            out["fit"] = (
+                frame_metric.WEIGHTS["edge"]
+                * max(0.0, min(1.0, parts["edge_f1"]["f1"]))
+                + frame_metric.WEIGHTS["colour"]
+                * max(0.0, min(1.0, parts["colour"]["score"]))
+                + frame_metric.WEIGHTS["ncc"]
+                * max(0.0, min(1.0, parts["ncc"]["score"])))
+        except Exception:  # the metric needs equal sizes; fall back to corr
+            out["fit"] = 0.0
+    return out
 
 
-def fit(score, combos, progress=None, origin=None) -> list[dict]:
-    """Run ``score(combo) -> dict`` over ``combos``, best ``corr`` first.
+def fit(score, combos, progress=None, origin=None, key: str = "corr") -> list[dict]:
+    """Run ``score(combo) -> dict`` over ``combos``, best *key* first.
 
     ``combos`` are ``(yaw, pitch, focal_y, eye_z)`` tuples.  Ties on ``corr``
     are broken by ``edges`` (higher is better), then by the distance from
@@ -110,11 +138,12 @@ def fit(score, combos, progress=None, origin=None) -> list[dict]:
         rows.append({"yaw": yaw, "pitch": pitch, "focal_y": focal_y,
                      "eye_z": eye_z,
                      "corr": s["corr"], "edges": s["edges"],
-                     "mad": s["mad"]})
+                     "mad": s["mad"], "score": s.get("score", 0.0),
+                     "fit": s.get("fit", 0.0)})
         if progress is not None:
             progress(i, len(combos), rows[-1])
     oy, op, oz = origin[0], origin[1], origin[2]
-    rows.sort(key=lambda r: (-r["corr"], -r["edges"],
+    rows.sort(key=lambda r: (-r[key], -r["edges"],
                              abs(r["yaw"] - oy) + abs(r["pitch"] - op)
                              + abs(r["eye_z"] - oz) / 10.0))
     return rows
@@ -208,6 +237,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--sidecar", help="oracle state JSON (out/oracle/winN.json)")
     ap.add_argument("--oracle", help="reference PNG (out/oracle/winN.png)")
     ap.add_argument("--out", help="best-fit PNG (optional, keep out of git)")
+    ap.add_argument("--metric", choices=("corr", "frame"), default="corr",
+                    help="sort by the historical corr or by the frame metric "
+                         "composite (docs/FRAME_METRIC.md)")
     ap.add_argument("--width", type=int, default=320)
     ap.add_argument("--height", type=int, default=200)
     ap.add_argument("--yaw", default="0",
@@ -272,7 +304,8 @@ def main(argv: list[str]) -> int:
         if combo not in cache:
             ours = png.decode(render_at(combo))
             cache[combo] = score_frames(
-                ref, (opts.width, opts.height, bytes(ours.pixels)), WORLD_END)
+                ref, (opts.width, opts.height, bytes(ours.pixels)), WORLD_END,
+                opts.metric)
         return cache[combo]
 
     def progress(i, total, row):
@@ -280,10 +313,12 @@ def main(argv: list[str]) -> int:
             print(f"[{i:>3}/{total}] yaw {math.degrees(row['yaw'] - base_yaw):+6.2f}"
                   f"  pitch {math.degrees(row['pitch'] - base_pitch):+6.2f}"
                   f"  focal_y {row['focal_y']:7.2f}"
-                  f"  corr {row['corr']:+.4f}  edges {row['edges']:.3f}",
+                  f"  corr {row['corr']:+.4f}  edges {row['edges']:.3f}"
+                  f"  fit {row['fit']:.4f}",
                   flush=True)
 
-    rows = fit(score, combos, progress, origin=(base_yaw, base_pitch, 0.0))
+    rows = fit(score, combos, progress, origin=(base_yaw, base_pitch, 0.0),
+               key="fit" if opts.metric == "frame" else "corr")
     for r in rows:
         r["yaw_delta_deg"] = math.degrees(r["yaw"] - base_yaw)
         r["pitch_delta_deg"] = math.degrees(r["pitch"] - base_pitch)
