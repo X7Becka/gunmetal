@@ -413,6 +413,19 @@ void test_hitscan_hit_miss() {
     CHECK_NEAR(behind.point.x, -100.0, 1e-12);
     CHECK_NEAR(behind.normal.x, 0.0, 0.0);
 
+    // A hitscan weapon uses the FIRE operand (hitscan_max_distance) as the
+    // bound when the loader resolved it; 5 < the wall at 10 is a clean miss.
+    gm::Weapon short_range = weapon;
+    short_range.hitscan_max_distance = 5.0;
+    gm::Weapons short_table({short_range});
+    gm::Arsenal short_arsenal = make_arsenal(0x1, 0, 5);
+    const gm::ShotResult limited = gm::fire(short_table, short_arsenal,
+                                            {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, world);
+    CHECK(limited.ok);
+    CHECK(!limited.hit);
+    CHECK_NEAR(limited.distance, 5.0, 1e-12);
+    CHECK_NEAR(limited.point.x, 5.0, 1e-12);
+
     gm::CollisionWorld empty;
     gm::Arsenal empty_arsenal = make_arsenal(0x1, 0, 5);
     const gm::ShotResult no_world =
@@ -1665,7 +1678,8 @@ struct GoldenSave {
     std::int32_t current;
     std::array<std::uint32_t, 2> ammo;
     int fire_ticks;
-    double range;
+    double range;      ///< weapon record +0x18 (projectile path)
+    double fire_range; ///< FIRE operand: hitscan max distance (0x4780a9)
     std::uint32_t ammo_left;
     double spread_x;
     double spread_y;
@@ -1674,10 +1688,10 @@ struct GoldenSave {
 };
 
 constexpr std::array<GoldenSave, 2> kSaves = {{
-    {"saved0.sbt", 0, {{2000, 90}}, 17, 7000.0, 1999, -0.2421790113617004,
-     -0.646618239477736, 4.0, true},
-    {"saved1.sbt", 1, {{1975, 87}}, 80, 8000.0, 86, 0.26468357609715865,
-     0.61488239516758347, 15.0, true},
+    {"saved0.sbt", 0, {{2000, 90}}, 17, 7000.0, 9999.0, 1999,
+     -0.2421790113617004, -0.646618239477736, 4.0, true},
+    {"saved1.sbt", 1, {{1975, 87}}, 80, 8000.0, 9000.0, 86,
+     0.26468357609715865, 0.61488239516758347, 15.0, true},
 }};
 
 std::vector<std::uint8_t> read_all(const fs::path& path) {
@@ -1883,7 +1897,13 @@ void test_real_save(const GoldenSave& golden) {
     CHECK(first.fired);
     CHECK(first.projectile == !golden.hitscan);
     CHECK(!first.hit);
-    CHECK_NEAR(first.distance, golden.range, 1e-12);
+    // The hitscan bound is the FIRE sub-script operand (0x4780a9), not the
+    // weapon record's +0x18: MG 9999 vs 7000, CANNON 9000 vs 8000.
+    const double expected_distance = golden.hitscan ? golden.fire_range : golden.range;
+    CHECK_NEAR(first.distance, expected_distance, 1e-12);
+    if (golden.hitscan) {
+        CHECK_NEAR(weapon->hitscan_max_distance, golden.fire_range, 0.0);
+    }
     CHECK_NEAR(first.time, golden.hitscan ? 0.0 : golden.range / gm::kDefaultProjectileSpeed,
                1e-12);
     CHECK_NEAR(first.damage, golden.damage, 0.0);

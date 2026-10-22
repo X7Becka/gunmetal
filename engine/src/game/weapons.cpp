@@ -250,6 +250,7 @@ namespace {
 struct FireScriptInfo {
     bool found = false;
     bool hitscan = false;
+    int max_distance = 0; ///< BULLET dword 0 / LASER dword 1 of the block
     int damage_gauge = 0;
     int thing_type = -1;
     int spawn_type = -1; ///< ADD_THING* G operand outside SOURCE_UNDERWATER
@@ -324,10 +325,22 @@ bool scan_fire_script(const std::vector<SbtInsn>& insns, FireScriptInfo& info,
                                     (info.underwater && !underwater);
                 if (prefer) {
                     info.hitscan = insn.condition != "FIRE_SOURCEPLAYER_THING";
+                    info.max_distance = 0;
                     info.damage_gauge = 0;
                     info.impact_event = 0;
                     info.inline_body.clear();
                     if (info.hitscan) {
+                        // 0x45e0a4 pushes block dwords 0x00..0x30, so BULLET's
+                        // first operand (block+0x00) is the max distance;
+                        // 0x45e119 pushes 0x00..0x3c and the LASER block is
+                        // shifted by one dword (block+0x00 is the type), so its
+                        // distance is operand 1.
+                        const std::size_t distance_arg =
+                            insn.condition == "FIRE_SOURCEPLAYER_LASER" ? 1 : 0;
+                        if (insn.args.size() > distance_arg) {
+                            info.max_distance =
+                                static_cast<int>(as_uint(insn.args[distance_arg]));
+                        }
                         const std::size_t damage_arg =
                             insn.condition == "FIRE_SOURCEPLAYER_LASER" ? 4 : 2;
                         if (insn.args.size() > damage_arg) {
@@ -766,6 +779,8 @@ bool parse_tables(const std::filesystem::path& level_path, std::string* error,
         if (resolve_fire_script(*level, weapon.projectile_id, fire) && fire.found) {
             weapon.hitscan = fire.hitscan;
             if (fire.hitscan) {
+                weapon.hitscan_max_distance =
+                    static_cast<double>(fire.max_distance);
                 // A real zero gauge is zero damage (EMP/DISRUPTOR/MICROWAVE);
                 // the old fallback to 1.00 was a loader shortcut.
                 weapon.damage =
@@ -1059,7 +1074,12 @@ ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
     arsenal.cooldown[index] = weapon->fire_ticks;
     ++arsenal.shot_index;
 
-    const double max_t = weapon->range > 0.0 ? weapon->range : kCollideInfinity;
+    double max_t = weapon->range > 0.0 ? weapon->range : kCollideInfinity;
+    if (weapon->hitscan && weapon->hitscan_max_distance > 0.0) {
+        // The FIRE sub-script operand is the proven bound of 0x4780a9; the
+        // weapon record's +0x18 is not read by the hitscan path.
+        max_t = weapon->hitscan_max_distance;
+    }
     const std::optional<RayHit> hit = world.raycast(origin, shot_dir, max_t);
 
     result.ok = true;

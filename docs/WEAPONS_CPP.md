@@ -277,6 +277,7 @@ if (eax > 0) { eax -= dt; [player+0x81c358] = eax; if (eax < 0) = 0; }
 | `reload_ticks` | `0` | механики перезарядки в оригинале не найдено; 0 = мгновенно, но `reload()` для `magazine == 0` возвращает `no_magazine`. |
 | `damage` | резолвится для BULLET/LASER, иначе `1.0` | `load()` ищет `projectile_id` в entity-таблице, декодирует подскрипт и берёт `L2` у BULLET / `L4` у LASER: MG 4.00, CANNON/AUTOCANNON 15.00, RAILGUN 60.00. Для THING остаётся placeholder 1.0, но урон снаряда теперь считается через `apply_blast`/`apply_thing_damage` по таблице §7 Ghidra, а не по этому полю. |
 | `hitscan` | резолвится | первый `FIRE_SOURCEPLAYER_BULLET`/`_LASER` → true, `_THING` → false (`0x478520`/`0x478be0`/`0x45e19d`). |
+| `hitscan_max_distance` | первый операнд блока FIRE (`0` → fallback `range`) | `0x45e0a4` кладёт BULLET dwords `0x00..0x30`, значит дистанция — dword 0; `0x45e119` для LASER сдвинут на dword (dword 0 — тип), дистанция — dword 1. Это значение получает `0x477f90` (`FILD`/`0x4780a9`), а не `+0x18`: MG 9999 при `range = 7000`. `fire()` берёт его границей луча. |
 | `projectile_speed` | `THING_TYPES[type].+0x10 × 91` ед/с; `12000` — fallback | `0x46f0f0` читает double `+0x10` (ед/тик), `0x4752d0` делает `pos += speed·dt`; 91 тик = 1 с, поэтому ROCKET 18→1638, MRL 25→2275, NUKE 10→910. `charge*operand[9]` добавляет `fire(..., charge)`. |
 
 `hitscan` для поставочных BULLET/LASER теперь `true`; THING (GRENADE/ROCKET/
@@ -605,8 +606,8 @@ CTest `player_trigger` (label `quick`) проверяет: полуавтома�
 
 | сейв | slot | ammo[0] | ammo[1] | mask | первый выстрел: ammo_left | cooldown | distance | time | damage |
 |---|---|---|---|---|---|---|---|---|---|
-| `saved0.sbt` | 0 (MACHINE GUN) | 2000 | 90 | 3 | 1999 | 2 | 7000 | 0 | 4.0 |
-| `saved1.sbt` | 1 (CANNON) | 1975 | 87 | 3 | 86 | 8 | 8000 | 0 | 15.0 |
+| `saved0.sbt` | 0 (MACHINE GUN) | 2000 | 90 | 3 | 1999 | 2 | 9999 | 0 | 4.0 |
+| `saved1.sbt` | 1 (CANNON) | 1975 | 87 | 3 | 86 | 8 | 9000 | 0 | 15.0 |
 
 Первый выстрел сделан из `origin = (0,0,0)`, `dir = (1,0,0)` в пустой
 `CollisionWorld` (промах, `hit == false`). Оба оружия — hitscan, поэтому
@@ -767,8 +768,9 @@ CTest `player_trigger` (label `quick`) проверяет: полуавтома�
    **Что осталось (гипотеза / не подключено):**
    * `weapon[+0x18]` (`range`): в таблице значение есть, но в доказанном
      hitscan-пути оно **не используется** — верхняя граница приходит из
-     подскрипта. Потребитель поля не найден (у `fire()` С++ пока берёт
-     `range` как `max_t` — это гипотеза С++).
+     подскрипта. C++ теперь хранит её в `Weapon::hitscan_max_distance`
+     (BULLET dword 0 / LASER dword 1) и `fire()` берёт границей луча;
+     `range` остался fallback'ом для синтетики и снарядного пути.
    * Смысл полей `0x81c020` (масштаб разброса) и `0x81c028`/`0x81c030`
      (множители цели) не установлен; в C++ это параметры, а не константы.
    * Разброс в оригинале — **не угол луча**: точку попадания сдвигает

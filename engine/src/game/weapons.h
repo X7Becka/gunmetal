@@ -147,6 +147,12 @@ struct Weapon {
     int magazine = 0;           ///< capacity; 0 = direct feed (original)
     int reload_ticks = 0;       ///< 0 = instant (original has no reload)
     bool hitscan = false;       ///< resolved: first BULLET/LASER true, THING false
+    /// The max-distance operand of the FIRE sub-script, the value `0x478520` /
+    /// `0x478be0` receive: BULLET dword 0, LASER dword 1 (`L`/`M` in the
+    /// signature, 0x45e0a9 / 0x45e15a).  It is *not* `+0x18` (`range`): the
+    /// MACHINE GUN fires 9999 here while its record says 7000.  `0` keeps the
+    /// `range` fallback for synthetic weapons.
+    double hitscan_max_distance = 0.0;
     double projectile_speed = 0.0; ///< units/s when !hitscan; 0 = invalid
     int thing_type = -1;        ///< FIRE_SOURCEPLAYER_THING operand 2
     double projectile_charge = 0.0; ///< operand 9, air branch
