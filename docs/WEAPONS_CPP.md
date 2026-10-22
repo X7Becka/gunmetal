@@ -136,6 +136,10 @@ struct Arsenal {
 `distance` на промахе равно `range`; `time` = 0 для hitscan и
 `distance / projectile_speed` для снаряда. `spread_x/y` — сэмплы в
 `[-1, 1]`, `ammo_left` — магазин при `magazine > 0`, иначе резерв.
+`sector`/`object`/`polygon` — точная тройка треугольника попадания
+(`RayHit::triangle`, та же, что `0x43c51f` отдаёт `0x44fad0`); на промахе
+нули. Игровой мост к switch-триггеру и `impact_event` —
+`GameRuntime::resolve_hitscan_impact` (docs/DOORS_CPP.md §2.3).
 
 ---
 

@@ -210,6 +210,56 @@ void test_aim_ignores_other_kinds() {
     }
 }
 
+// `0x477f90` hands the world point of a hitscan shot to the exact-polygon
+// trigger `0x44fad0` (kind 0x102).  `ShotResult` now carries the triangle
+// triple `0x43c51f` would return, so the runtime can fire that switch without
+// a second ray.
+void test_hitscan_impact_switch() {
+    const std::vector<SwitchSpec> switches = {
+        {0x102, 999, 0, {0, 0, 0}}, // exact triple of the wall
+        {0x102, 998, 0, {0, 0, 1}}, // wrong polygon
+        {0x101, 997, 200, {0, 0, 0}}, // aimed kind: 0x44fad0 ignores it
+    };
+    const gm::SbtLevel level = make_level(switches);
+    gm::GameRuntime runtime;
+    const gm::SbwLevel wall = make_wall();
+    build(runtime, level, wall);
+    CHECK_EQ(runtime.world().switches().size(), std::size_t{3});
+
+    gm::ShotResult shot;
+    shot.ok = true;
+    shot.fired = true;
+    shot.hit = true;
+    shot.distance = 100.0;
+    shot.point = gm::Vec3d{100.0, 0.0, 0.0};
+    shot.sector = 0;
+    shot.object = 0;
+    shot.polygon = 0;
+
+    const gm::GameRuntime::ImpactResult fired =
+        runtime.resolve_hitscan_impact(0, shot);
+    CHECK_EQ(fired.switches, std::size_t{1});
+    CHECK(!fired.impact_event); // no player weapon tables installed
+    CHECK_EQ(runtime.world().stats().switch_interactions, std::size_t{1});
+    CHECK(runtime.world().switches()[0].pressed);
+    CHECK(!runtime.world().switches()[1].pressed);
+    CHECK(!runtime.world().switches()[2].pressed);
+
+    // 0x44fad0 has no latch either: the same triple fires again.
+    CHECK_EQ(runtime.resolve_hitscan_impact(0, shot).switches, std::size_t{1});
+    CHECK_EQ(runtime.world().stats().switch_interactions, std::size_t{2});
+
+    // A miss and a different triangle do nothing.
+    shot.hit = false;
+    CHECK_EQ(runtime.resolve_hitscan_impact(0, shot).switches, std::size_t{0});
+    shot.hit = true;
+    shot.polygon = 9;
+    CHECK_EQ(runtime.resolve_hitscan_impact(0, shot).switches, std::size_t{0});
+    shot.ok = false;
+    shot.polygon = 0;
+    CHECK_EQ(runtime.resolve_hitscan_impact(0, shot).switches, std::size_t{0});
+}
+
 void test_aim_is_deterministic() {
     const std::vector<SwitchSpec> switches = {{0x101, 999, 200, {0, 0, 0}}};
     const gm::SbtLevel level = make_level(switches);
@@ -283,6 +333,7 @@ void test_aim_from_camera() {
 int main() {
     test_aim_hits_the_matching_polygon();
     test_aim_ignores_other_kinds();
+    test_hitscan_impact_switch();
     test_aim_is_deterministic();
     test_aim_from_camera();
     if (g_failures != 0) {

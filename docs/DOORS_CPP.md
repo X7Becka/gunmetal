@@ -277,6 +277,16 @@ max_distance)`; ручной `aim_switch(player, direction)` остаётся д
 нет, pitch `π/2` (вниз) — нет, roll forward не меняет, `max_distance`,
 NaN и неизвестный игрок — 0.
 
+`GameRuntime::resolve_hitscan_impact(player, shot)` — мост hitscan →
+exact-switch: `ShotResult` несёт точную тройку треугольника из
+`RayHit::triangle` (`sector`/`object`/`polygon`), метод зовёт
+`WorldState::trigger_poly` (`0x44fad0`, kind `0x102`, без защёлки) и, если
+таблицы оружия установлены, постит `impact_event` через
+`post_weapon_impact`. Урон и перебор сущностей-целей этот шов не делает —
+вызывающий сам применяет конус `hitscan_in_cone`/урон. CTest
+`hitscan_impact_switch` (верная тройка, повтор без защёлки, промах, чужая
+тройка, kind `0x101` не срабатывает).
+
 `trigger_poly(hit, source)` — exact-ветка `0x44fad0` (её зовут диспетчеры
 `0x478520`/`0x478be0`): срабатывает только `kind == 0x102`, тройка должна
 совпасть **точно**, дистанция не проверяется вовсе (тройка пришла из записи

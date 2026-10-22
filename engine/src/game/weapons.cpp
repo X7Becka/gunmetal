@@ -1073,6 +1073,11 @@ ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
         result.distance = hit->t;
         result.point = hit->point;
         result.normal = hit->normal;
+        result.sector = hit->sector;
+        if (hit->triangle != nullptr) {
+            result.object = hit->triangle->object;
+            result.polygon = hit->triangle->source_poly;
+        }
     } else {
         result.distance = max_t;
         result.point = origin + shot_dir * max_t;

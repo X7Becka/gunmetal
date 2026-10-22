@@ -395,6 +395,10 @@ void test_hitscan_hit_miss() {
     CHECK_NEAR(hit.point.z, 0.0, 1e-9);
     CHECK_NEAR(hit.time, 0.0, 0.0);
     CHECK_NEAR(hit.damage, 25.0, 0.0);
+    // The triangle triple 0x43c51f hands to the impact trigger 0x44fad0.
+    CHECK_EQ(hit.sector, 0u);
+    CHECK_EQ(hit.object, 0u);
+    CHECK_EQ(hit.polygon, 0u);
 
     // Target behind the shooter: a +X wall is invisible to a -X ray.
     gm::Arsenal miss_arsenal = make_arsenal(0x1, 0, 5);
@@ -402,6 +406,9 @@ void test_hitscan_hit_miss() {
         gm::fire(table, miss_arsenal, {0.0, 0.0, 0.0}, {-1.0, 0.0, 0.0}, world);
     CHECK(behind.ok);
     CHECK(!behind.hit);
+    CHECK_EQ(behind.sector, 0u);
+    CHECK_EQ(behind.object, 0u);
+    CHECK_EQ(behind.polygon, 0u);
     CHECK_NEAR(behind.distance, 100.0, 1e-12);
     CHECK_NEAR(behind.point.x, -100.0, 1e-12);
     CHECK_NEAR(behind.normal.x, 0.0, 0.0);

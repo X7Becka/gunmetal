@@ -305,6 +305,24 @@ public:
                                        double pitch, double yaw,
                                        double max_distance = 10000.0);
 
+    /// What one resolved hitscan shot did to the world.
+    struct ImpactResult {
+        /// Exact-polygon switches (`kind == 0x102`) that fired on the hit
+        /// triple (`0x44fad0`).
+        std::size_t switches = 0;
+        /// `weapon.impact_event` was posted for the shot (BULLET/LASER
+        /// sub-script id); false when the shot missed or the weapon is not a
+        /// hitscan weapon.
+        bool impact_event = false;
+    };
+
+    /// Resolve the world side of a hitscan shot: the original takes the world
+    /// point from `0x43c51f`, the exact triangle from `ShotResult` here, and
+    /// calls `0x44fad0` plus the weapon's impact event.  No entity targets and
+    /// no damage are applied by this seam; the caller owns those (the cone
+    /// test is `hitscan_in_cone`).
+    ImpactResult resolve_hitscan_impact(std::size_t player, const ShotResult& shot);
+
     // --- AI shot template ---------------------------------------------------
 
     /// Set the projectile template of the AI->projectile bridge: a `Thing`

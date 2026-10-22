@@ -267,6 +267,11 @@ struct ShotResult {
     std::uint32_t consumed = 0;
     std::uint32_t ammo_left = 0; ///< magazine when capacity > 0, else ammo
     int cooldown_left = 0;       ///< fire_ticks of the shot
+    /// Exact world triple of the hit triangle (`0x43c51f` returns the same
+    /// three ints to the impact trigger `0x44fad0`); zero when `!hit`.
+    std::uint32_t sector = 0;
+    std::uint32_t object = 0;
+    std::uint32_t polygon = 0;
 };
 
 /// Charge accumulator for the charge-capable fire modes (`0x4453d0`).

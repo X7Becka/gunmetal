@@ -259,8 +259,11 @@
     (`0x437909`), глубина строго > 0.32 (`0x4a2658`), строгие боковые
     сравнения, масштабы `0x81c020/0x81c028/0x81c030`, `hitscan_cos_limit`,
     `hitscan_scale_spread`. CTest `test_hitscan_ray`/`test_hitscan_cone`.
-    Осталось: жертва/`event_post` impact (`0x44fad0`), точка мира `0x43c51f`,
-    вызов из игрового выстрела.
+    `GameRuntime::resolve_hitscan_impact` — мост к exact-switch `0x44fad0`
+    (kind `0x102`) и `impact_event`; `ShotResult` несёт тройку
+    `sector/object/polygon`. CTest `hitscan_impact_switch`.
+    Осталось: выбор жертвы/урон по сущностям (`0x478520`/конус), вызов из
+    игрового выстрела.
   * **Выбор остановки лифта по `0x44f690`**: три alias-кнопки
     (`call_ids[0]` — следующая с переносом, `[1]`/`[2]` — вверх/вниз с
     зажимом), совпавший `floor_id` перекрывает выбор, пустой выбор молчит;

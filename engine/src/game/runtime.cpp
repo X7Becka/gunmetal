@@ -239,6 +239,35 @@ std::size_t GameRuntime::aim_switch(std::size_t player, const Vec3d& direction,
     return fired;
 }
 
+GameRuntime::ImpactResult GameRuntime::resolve_hitscan_impact(
+    std::size_t player, const ShotResult& shot) {
+    ImpactResult out;
+    if (!shot.ok || !shot.fired || !shot.hit) {
+        return out;
+    }
+    if (player_weapons_.has_value()) {
+        const Weapon* weapon = player_weapons_->at(shot.slot);
+        if (weapon != nullptr && weapon->hitscan &&
+            post_weapon_impact(events_.queue(), *weapon, shot,
+                               static_cast<std::uint32_t>(player))) {
+            out.impact_event = true;
+        }
+    }
+    PolygonHit polygon;
+    polygon.sector = shot.sector;
+    polygon.object = shot.object;
+    polygon.polygon = shot.polygon;
+    polygon.distance = shot.distance;
+    // 0x44fad0 compares only the triple; the object gate belongs to the blast
+    // path (`0x44fb30`), so the impact passes zero flags.
+    polygon.object_flags = 0;
+    out.switches = world_.trigger_poly(polygon, static_cast<std::int16_t>(player));
+    if (out.switches > 0) {
+        post_switch_events(events_, world_, static_cast<std::int16_t>(player));
+    }
+    return out;
+}
+
 std::size_t GameRuntime::aim_switch_from_basis(std::size_t player,
                                                const CameraBasis& basis,
                                                double max_distance) {
