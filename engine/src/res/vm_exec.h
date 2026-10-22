@@ -180,7 +180,9 @@ struct VmPlayer {
     std::map<int, int> ammo_max;
     std::uint32_t equipment_active = 0; // +0x368
     int weapon_index = 0;               // +0x2d4
-    int equipment_index = 0;
+    // -1 = no equipment selected: the original initialises +0x3320 to -1
+    // (docs/EQUIPMENT.md section 5); 0 would select the first record at load.
+    int equipment_index = -1;
     int movement_type = 0;
     int salvage = 0;
     int morale = 0;

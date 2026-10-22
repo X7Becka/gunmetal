@@ -299,8 +299,8 @@ next/prev; в поставочных данных он **везде 0** (соб�
 
 Сейчас в `engine/` есть только VM-половина:
 `engine/src/res/vm_exec.h:172` (`equipment_bits`), `:181`
-(`equipment_active`), `:183` (`equipment_index`, инициализирован `0`, а в
-оригинале `-1`); обработчики `VmExecutor::h_equip` (op130,
+(`equipment_active`), `:185` (`equipment_index`, с 2026-10-23 инициализирован
+`-1`, как в оригинале); обработчики `VmExecutor::h_equip` (op130,
 `vm_exec.cpp:2861`) и `h_index` (op136, `:2880`), биты 110/111 (`:2988`);
 op129 при этом попадает в набор `kEvent` (`vm_exec.cpp:417`) — событие
 учитывается, но эффект (бит фар) не применяется. Таблицы `DEFINE_EQUIPMENT`
@@ -315,8 +315,8 @@ op129 при этом попадает в набор `kEvent` (`vm_exec.cpp:417`
    (смещения — §2; предел 31, счётчик `0x815420`).
 2. **Состояние в `Player`.** `int equipment_index = -1; uint32_t equipment_owned,
    equipment_active; int32_t equipment_cost_total, equipment_refit_base;
-   uint32_t action_flags;` — сейчас в C++ есть только `bits/active/index`, и
-   `index` инициализирован `0`, а в оригинале `-1` (`0x45bdd9`).
+   uint32_t action_flags;` — в C++ есть `bits/active/index`; `index`
+   инициализирован `-1`, как в оригинале (`0x45bdd9`).
 3. **Тик** (`FUN_00445fa0`): next/prev по `owned & !(flags&4)`, toggle
    (постит `E3`/`E4`, бит не меняет), горячие клавиши
    `0x40000 << object_id` через `equipment_post_state(object_id)`, затем
