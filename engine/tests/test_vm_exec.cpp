@@ -2269,9 +2269,17 @@ void test_equipment() {
             if (want.last != nullptr && !parsed->empty()) {
                 CHECK_EQ(parsed->defs.back().name, std::string(want.last));
             }
+            std::set<int> object_ids;
             for (const gm::EquipmentDef& def : parsed->defs) {
                 CHECK(def.ammo_type() < 16);
                 CHECK(def.ammo_per_tick() >= 0);
+                // `object_id` is 0 (no hotkey) or 1..10 and never repeats, so
+                // `0x40000 << object_id` has exactly one target (checked over
+                // the whole corpus with tools/re/equipment.py).
+                CHECK(def.object_id() >= 0 && def.object_id() <= 10);
+                if (def.object_id() != 0) {
+                    CHECK(object_ids.insert(def.object_id()).second);
+                }
             }
             // Real hotkey map: `0x40000 << object_id` selects the record whose
             // E11 is that id (docs/EQUIPMENT.md §4.1).
