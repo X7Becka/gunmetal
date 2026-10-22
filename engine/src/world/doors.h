@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -116,14 +117,31 @@ struct Door {
     }
 };
 
+/// One polygon hit as the aimed/blast triggers see it: the engine's
+/// ``(sector, object, polygon)`` triple plus the distance that the trigger
+/// compares with ``Switch::radius``.  For ``kind == 0x101`` that is the length
+/// of the aim ray (``0x43c51f``'s ``local_58``), for ``0x102``/``0x103`` the
+/// euclidean distance from the blast point to the polygon (``0x43e541``).
+struct PolygonHit {
+    std::uint32_t sector = 0;
+    std::uint32_t object = 0;
+    std::uint32_t polygon = 0;
+    double distance = 0.0;
+};
+
 /// One ``ADD_SWITCH`` record.  ``id`` is the record index (the level format has
 /// no separate switch identity), ``target`` is the GENERATE id (operand 2).
+///
+/// Operands 4..6 are **polymorphic** (``docs/DOOR_FIELDS.md`` §2.2):
+/// ``kind == 0`` stores a world position, every ``kind >= 0x101`` stores a
+/// ``(sector, object, polygon)`` triple.  The engine never converts them.
 struct Switch {
     int id = 0;
     int target = 0;
     bool pressed = false;
     int kind = 0;
     int radius = 0;
+    /// ``kind 0``: world x/y/z.  ``kind >= 0x101``: (sector, object, polygon).
     std::array<int, 3> pos{};
     int aux = 0;             // +0x18, second sound argument
     int sound = -1;          // +0x1c SOUND_SAMPLE_TABLE index, -1 = silent
@@ -132,9 +150,13 @@ struct Switch {
     /// for callers that want a rising edge).
     bool inside = false;
 
-    /// Transformed/aimed trigger kinds cannot be evaluated from a bare
-    /// position; ``0x44fc30`` needs the aim ray (``0x43c51f``).
+    /// ``0x44fc30`` can evaluate ``kind 0/1`` from a bare position; the aimed
+    /// (``0x101``) and blast (``0x102``/``0x103``) kinds need a polygon hit.
     bool proximity() const { return kind == 0 || kind == 1; }
+    /// Operands 4..6 are a polygon index, not a coordinate.
+    bool is_poly() const { return kind >= 0x101; }
+    /// The ``(sector, object, polygon)`` triple (meaningless for ``kind 0``).
+    std::array<int, 3> poly() const { return pos; }
 };
 
 /// One stop of a runtime ``LIFT`` record: ``(floor/button id, height, sound)``.
@@ -276,6 +298,10 @@ struct WorldStats {
     std::size_t unmatched_targets = 0;
     std::size_t lift_calls = 0;
     std::size_t trigger_presses = 0;
+    /// ``0x44fc30`` aimed-ray presses (``kind 0x101``).
+    std::size_t aim_presses = 0;
+    /// ``0x44fb30`` blast/proximity presses (``kind 0x102``/``0x103``).
+    std::size_t blast_presses = 0;
     std::size_t blocked_hits = 0;
     std::size_t crush_hits = 0;
     std::uint64_t ticks = 0;
@@ -322,6 +348,20 @@ public:
     /// are not proximity triggers and are left alone here; ``0x104`` has
     /// `trigger_at`.
     std::size_t poll_triggers(const std::array<double, 3>& pos, std::int16_t source = 0);
+
+    /// ``0x44fc30`` aimed half: a ``kind == 0x101`` switch fires when the aim
+    /// ray hit **exactly** its ``(sector, object, polygon)`` and the ray length
+    /// is ``<= radius`` (``local_58 <= piVar6[-1]``).  ``hit`` is what the
+    /// caller's ray query returned (``CollisionWorld::raycast`` ->
+    /// ``RayHit::triangle`` carries ``sector``/``object``/``source_poly``).
+    std::size_t poll_aim(const PolygonHit& hit, std::int16_t source = 0);
+
+    /// ``0x44fb30``: ``kind 0x102``/``0x103`` fire when the blast point is
+    /// within ``radius`` of the polygon (euclidean distance to its vertices,
+    /// ``0x43e541``); the original also requires ``0x428399(object, ?) == 0``,
+    /// whose meaning is unproven -- the caller passes the distance it measured
+    /// and this function applies only the proven ``<= radius`` rule.
+    std::size_t poll_blast(const PolygonHit& hit, std::int16_t source = 0);
 
     /// ``0x44fbd0``: a ``kind == 0x104`` switch fires on an exact position
     /// match (the engine compares the three integers, not a distance).
@@ -390,6 +430,11 @@ private:
     /// door whose ``ids[0..2]`` match *target* and call every lift whose
     /// call id matches.  Returns the number of doors/lifts that reacted.
     std::size_t press_target(int switch_id, int target);
+    /// Shared body of `poll_aim`/`poll_blast`: fire every switch whose `kind`
+    /// is in *kinds*, whose `(sector, object, polygon)` equals the hit and
+    /// whose radius covers `hit.distance`.  `counter` is the per-trigger stat.
+    std::size_t press_polygon(const PolygonHit& hit, std::int16_t source,
+                              std::span<const int> kinds, std::size_t& counter);
     /// Append *event* and reserve its source slot, keeping `events_` and
     /// `switch_event_sources_` index-aligned.  A `SwitchPressed` starts
     /// unbound: `post_switch_events` binds it to the caller's `source`.

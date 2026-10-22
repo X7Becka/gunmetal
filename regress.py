@@ -79,6 +79,29 @@ def stamp() -> str:
     return "t+%5.1fs" % (time.time() - T0)
 
 
+def gp(G: str, *parts: str) -> str:
+    """``G/parts...`` resolved case-insensitively.
+
+    The shipped install sits on a case-insensitive Windows mount, so scripts
+    happily hardcode ``LEVEL0.SBW``; a local mirror on ext4 would fail.  Every
+    game file access in this suite goes through here.
+    """
+    cur = G
+    for part in parts:
+        cand = os.path.join(cur, part)
+        if os.path.exists(cand):
+            cur = cand
+            continue
+        try:
+            names = os.listdir(cur)
+        except OSError:
+            return cand
+        low = part.lower()
+        hit = next((n for n in names if n.lower() == low), None)
+        cur = os.path.join(cur, hit) if hit else cand
+    return cur
+
+
 def run_raw(args: list[str]) -> tuple[int, str]:
     p = subprocess.run(
         [sys.executable, GM, *args],
@@ -97,7 +120,7 @@ def config_checks(G: str, results: list[bool]) -> None:
     """GUNMETAL.CFG field map and the opaque CONTROLS.CFG container."""
     if not want("config"):
         return
-    rc, text = run_raw(["misc", os.path.join(G, "GUNMETAL.CFG"), "--json"])
+    rc, text = run_raw(["misc", gp(G, "GUNMETAL.CFG"), "--json"])
     rows = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
     row = rows[0] if rows else {}
     ok = (rc == 0 and row.get("width") == 800 and row.get("height") == 600
@@ -107,7 +130,7 @@ def config_checks(G: str, results: list[bool]) -> None:
     results.append(report("config / GUNMETAL.CFG fields", ok,
                           "800x600x8, keys PERFECT/SPLIT1"))
 
-    rc, text = run_raw(["misc", os.path.join(G, "CONTROLS.CFG"), "--json"])
+    rc, text = run_raw(["misc", gp(G, "CONTROLS.CFG"), "--json"])
     rows = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
     row = rows[0] if rows else {}
     results.append(report("config / CONTROLS.CFG is opaque",
@@ -131,20 +154,20 @@ def trust_checks(G: str, results: list[bool], out: str) -> None:
         return path
 
     # An index offset past EOF must be rejected before any read.
-    idx = bytearray(open(os.path.join(G, "PICS", "SBM.IDX"), "rb").read())
+    idx = bytearray(open(gp(G, "PICS", "SBM.IDX"), "rb").read())
     struct.pack_into("<I", idx, 20, 0xFFFFFF00)
     rc, text = run_raw(["list", write("bad.IDX", bytes(idx))])
     results.append(report("trust / out-of-range archive offset rejected",
                           rc != 0 and "Traceback" not in text, "exit 1, no traceback"))
 
     # Truncated geometry and impossible video dimensions fail with one line.
-    with open(os.path.join(G, "LEVEL0.SBW"), "rb") as f:
+    with open(gp(G, "level0.sbw"), "rb") as f:
         sbw_cut = f.read(100)
     rc, text = run_raw(["sbw", write("trunc.SBW", sbw_cut)])
     results.append(report("trust / truncated .sbw rejected",
                           rc != 0 and "Traceback" not in text, "exit 1, no traceback"))
 
-    with open(os.path.join(G, "Vid", "Intro.sbv"), "rb") as f:
+    with open(gp(G, "Vid", "Intro.sbv"), "rb") as f:
         sbv_blob = bytearray(f.read())
     struct.pack_into("<I", sbv_blob, 8, 0)          # height = 0
     rc, text = run_raw(["sbv", write("bad.sbv", bytes(sbv_blob)), "--list-only"])
@@ -337,7 +360,7 @@ def asset_self_checks(G: str, results: list[bool]) -> None:
         results.append(report("sbv / pixel codec self-test", p.returncode == 0
                               and "26/26 self-test" in p.stdout,
                               "YUV planes, entropy blocks, 26 trust cases"))
-        rc, text = run_raw(["sbv", os.path.join(G, "Vid", "Intro.sbv"),
+        rc, text = run_raw(["sbv", gp(G, "Vid", "Intro.sbv"),
                             "--verify", "--frames", "0"])
         results.append(report("sbv / frame encode/decode", rc == 0
                               and "pixel round-trip 1/1" in text,
@@ -592,7 +615,7 @@ def sbv_checks(G: str, results: list[bool], out: str) -> None:
 
     raw = os.path.join(out, "sbv_raw")
     built = os.path.join(out, "sbv_built.sbv")
-    src = os.path.join(G, "Vid", "Intro.sbv")
+    src = gp(G, "Vid", "Intro.sbv")
     run(["sbv", src, raw])
     run(["sbv", raw, built])
     ok = os.path.exists(built) and open(built, "rb").read() == open(src, "rb").read()

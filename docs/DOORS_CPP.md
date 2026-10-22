@@ -88,7 +88,10 @@
 * `Switch.aux` (`+0x18`) и `Switch.sound` (`+0x1c`, `-1` = тишина) — звук
   переключателя (`0x44f960`);
 * `Switch.inside` — runtime-флаг: последний ответ `poll_triggers`
-  (`0x44fc30` защёлки не имеет).
+  (`0x44fc30` защёлки не имеет);
+* операнды 4..6 **полиморфны** (`docs/DOOR_FIELDS.md` §2.2): `kind == 0` —
+  мировые `x/y/z`, `kind >= 0x101` — `(sector, object, polygon)`.
+  `Switch::is_poly()`/`Switch::poly()` отделяют одно от другого.
 
 `interact(switch_id)` принимает именно индекс переключателя.
 
@@ -126,6 +129,8 @@ if (!state.build(sbt_level, sbw_level, &error)) { /* нет источников
 state.interact(51);            // нажать переключатель №51 (индекс)
 state.interact(51, /*source=*/3); // то же, но source сразу в записи
 state.poll_triggers({x,y,z}, 3); // 0x44fc30: proximity kind 0/1
+state.poll_aim({sector, object, polygon, t}, 3);  // 0x44fc30: kind 0x101
+state.poll_blast({sector, object, polygon, d}, 3); // 0x44fb30: kinds 0x102/3
 state.trigger_at({x,y,z}, 3);    // 0x44fbd0: kind 0x104, точная точка
 state.block_contact(sector, object); // 0x450590: кто-то в проёме
 gm::EventQueue queue;
@@ -223,9 +228,30 @@ source)` из `game/events.h`: она кладёт type-2 в очередь ра
   `ids[0..2] == target`;
 * защёлки нет: пока условие выполнено, каждый вызов постит новое нажатие;
   `Switch::inside` даёт материал для фронта на стороне вызывающего;
-* `kind 0x101` (прицел) и `0x102/0x103` (source-варианты скрипта) не
-  позиционные и здесь не срабатывают; `kind 0x104` — это `trigger_at`
-  (точное совпадение трёх `int`).
+* `kind 0x101` (прицел) и `0x102/0x103` (взрыв) не позиционные и здесь не
+  срабатывают; `kind 0x104` — это `trigger_at` (точное совпадение трёх `int`).
+
+`poll_aim(hit, source)` — прицельная половина `0x44fc30`:
+
+* `hit` — `PolygonHit{sector, object, polygon, distance}`, ровно то, что
+  вернул луч `0x43c51f` (в C++ — `CollisionWorld::raycast` →
+  `RayHit::triangle->sector/object/source_poly`, длина луча — `RayHit::t`);
+* срабатывает только `kind == 0x101`, у которого тройка совпала **точно** и
+  `distance <= radius` (`local_58 <= piVar6[-1]` — нестрогое, в отличие от
+  октагонального `<`);
+* как и у proximity, защёлки нет: повторный вызов с тем же попаданием постит
+  новое нажатие; `stats().aim_presses` считает срабатывания.
+
+`poll_blast(hit, source)` — `0x44fb30` (его вызывает **опкод 75**, то есть
+уже посчитанный взрыв):
+
+* срабатывают `kind == 0x102`/`0x103`, тройка совпала точно и
+  `distance <= radius`;
+* `distance` вызывающий считает сам (евклид до вершин полигона, `0x43e541`);
+  в оригинале есть ещё гейт `0x428399(object, ?) == 0`, смысл которого не
+  доказан, поэтому в модели его нет — это записано в §7;
+* `stats().blast_presses` считает срабатывания. `0x102` вдобавок имеет
+  exact-ветку `0x44fad0` (событие из диспетчера), она пока не портирована.
 
 `block_contact(sector, object)` — `0x450590`: `kind 2` откатывает фазу тика
 (`phase = phase_prev`) и переводит дверь в открывание (`DoorBlocked`);
@@ -430,6 +456,7 @@ auto counted = gm::encode_counted(bytes, n);   // .sbt payload (u32 count + body
 | `kind = 0` | дверь инертна: `interact` не находит target, `tick` не двигает фазу |
 | геометрия (`test_geometry`) | скользящая дверь: базис единичный, `origin(0) = D1..D3`, `origin(0xffff) = D4..D6`, `delta = (open-closed)*1500/65535`; вращающаяся: `angle(0xffff) = A`, базис ортонормирован, `origin = center - Bᵀ·size`; приоритет осей `z > x > y`; кабина: `origin = pos + pos_delta*frac`, базис единичный при нулевых углах |
 | звук (`test_door_sounds`) | `v0/n0` в `DoorOpening`, `v2/n2` в `DoorOpened`, `target = ids[3]`; `-1` и `>=300` — тишина |
+| полигональные триггеры (`test_polygon_triggers`) | `0x101` — точная тройка и `t <= radius`; граница `50 <= 50`; промах по полигону и по дистанции; `0x102/0x103` — `d <= radius`, `0x101` их не задевает и наоборот; `0x104` — только `trigger_at`; kind 0 не срабатывает ни от луча, ни от взрыва; детерминизм двух прогонов; на `dm1` — 124 полигональных/5 мировых, реальный выстрел по полигону открывает дверь |
 | триггеры (`test_triggers`) | kind 0/1 по октагональной метрике; `(0.75r,0.75r,0.1r)` внутри, хотя евклидово `1.065r`; kind `0x101` по позиции не срабатывает; `0x104` — только точная точка; source переживает `post_switch_events(q, 99)`; повторов нет-защёлки: два `poll` → два пресса |
 | блокировка (`test_block_contact`) | kind 1 — без реакции; kind 2 — `phase = phase_prev`, `Opening`, `DoorBlocked`; kind 3 — плюс `DoorCrush`, `crush_hits = 1` |
 | writer (`test_sbt_writer`) | синтетика `encode(parse(x)) == x`; реальные `saved0/1.sbt`: 25 дверей и 24 переключателя байт-в-байт; 45 лифтов / 151 остановка: `encode(parse(x)) == x` и поля; битые размеры и `stop_count` за границей отвергаются |
@@ -513,8 +540,10 @@ ctest --test-dir build/sandbox -R doors --output-on-failure
    открывания в геометрии нет.
 2. **Диспетчеризация событий двери** (`ids[3]/ids[4]`, `-22`) — модель
    логирует, но не исполняет: нужен `game/events.*` + VM.
-3. **Прицельный триггер `0x101`** — требует луча `0x43c51f` и таблицы
-   `sector/object/poly`; позицией не заменяется.
+3. **Прицельный триггер `0x101`** — логика портирована (`poll_aim`), но
+   вызывающий слой ещё не подключает к нему `CollisionWorld::raycast` из
+   камеры игрока; `0x102`-exact (`0x44fad0`) и гейт `0x428399` в
+   `poll_blast` не портированы.
 4. **Звук** — индексы сэмплов и места вызова доказаны; связка с
    микшером/`SOUND_SAMPLE_TABLE` вне модуля.
 5. **Кабина лифта** — базис из трёх углов воспроизведён по asm `0x41e025`,

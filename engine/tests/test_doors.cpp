@@ -1342,6 +1342,146 @@ void test_sbt_writer(bool full) {
 }
 
 
+void test_polygon_triggers() {
+    // `ADD_SWITCH` operands 4..6 are a (sector, object, polygon) triple for
+    // every kind >= 0x101 (docs/DOOR_FIELDS.md §2.2); `0x101` is the aim ray
+    // (`0x44fc30`), `0x102`/`0x103` the blast proximity (`0x44fb30`, called
+    // from opcode 75) and `0x104` the exact-triple trigger (`0x44fbd0`).
+    std::vector<SwitchSpec> switches = {
+        // 0: aimed, max ray length 100.
+        {0x101, 100, 100, {2, 3, 4}, 0, -1},
+        // 1: same polygon, tighter limit (boundary test for `<=`).
+        {0x101, 101, 50, {2, 3, 4}, 0, -1},
+        // 2: aimed at another polygon.
+        {0x101, 102, 100, {5, 6, 7}, 0, -1},
+        // 3: blast proximity, radius 40.
+        {0x102, 103, 40, {2, 3, 4}, 0, -1},
+        // 4: blast proximity, radius 10.
+        {0x103, 104, 10, {2, 3, 4}, 0, -1},
+        // 5: exact triple (0x44fbd0), never fires from a hit.
+        {0x104, 105, 0, {2, 3, 4}, 0, -1},
+        // 6: plain world position that happens to look like a triple.
+        {0, 106, 10, {2, 3, 4}, 0, -1},
+    };
+    gm::SbtLevel level;
+    gm::SbtRecord switch_record;
+    switch_record.type = 1;
+    switch_record.payload = make_switch_payload(switches);
+    level.records = {std::move(switch_record)};
+
+    gm::WorldState state;
+    CHECK(state.build(level, make_world(4), nullptr));
+    CHECK_EQ(state.switches().size(), switches.size());
+    for (const gm::Switch& sw : state.switches()) {
+        CHECK(sw.is_poly() == (sw.kind >= 0x101));
+    }
+
+    const auto fired = [&state]() { return fired_switches(state); };
+    const auto hit = [](std::uint32_t s, std::uint32_t o, std::uint32_t p, double d) {
+        gm::PolygonHit h;
+        h.sector = s;
+        h.object = o;
+        h.polygon = p;
+        h.distance = d;
+        return h;
+    };
+
+    // The ray hit (2, 3, 4) at 60: only switch 0 covers it.
+    CHECK_EQ(state.poll_aim(hit(2, 3, 4, 60.0), 3), 1u);
+    {
+        const std::vector<int> f = fired();
+        CHECK(f.size() == 1u && f[0] == 0);
+    }
+    CHECK_EQ(state.stats().aim_presses, 1u);
+    CHECK(state.switches()[0].pressed);
+
+    // Exactly at the limit (50 <= 50): switches 0 and 1.
+    state.clear_events();
+    CHECK_EQ(state.poll_aim(hit(2, 3, 4, 50.0), 3), 2u);
+    {
+        const std::vector<int> f = fired();
+        CHECK(f.size() == 2u && f[0] == 0 && f[1] == 1);
+    }
+
+    // Too far: no switch.
+    state.clear_events();
+    CHECK_EQ(state.poll_aim(hit(2, 3, 4, 100.5), 3), 0u);
+    CHECK(fired().empty());
+
+    // Right distance, wrong polygon.
+    state.clear_events();
+    CHECK_EQ(state.poll_aim(hit(2, 3, 5, 1.0), 3), 0u);
+    CHECK(fired().empty());
+
+    // The other polygon only matches switch 2.
+    state.clear_events();
+    CHECK_EQ(state.poll_aim(hit(5, 6, 7, 90.0), 3), 1u);
+    {
+        const std::vector<int> f = fired();
+        CHECK(f.size() == 1u && f[0] == 2);
+    }
+
+    // The aim ray must not fire the blast kinds, nor kind 0/0x104.
+    state.clear_events();
+    CHECK_EQ(state.poll_aim(hit(2, 3, 4, 5.0), 3), 2u);
+    {
+        const std::vector<int> f = fired();
+        CHECK(f.size() == 2u && f[0] == 0 && f[1] == 1);
+    }
+
+    // Blast proximity: 30 is inside 40 but outside 10.
+    state.clear_events();
+    CHECK_EQ(state.poll_blast(hit(2, 3, 4, 30.0), 4), 1u);
+    {
+        const std::vector<int> f = fired();
+        CHECK(f.size() == 1u && f[0] == 3);
+    }
+    CHECK_EQ(state.stats().blast_presses, 1u);
+
+    // 10 is the inclusive limit: both blast switches fire.
+    state.clear_events();
+    CHECK_EQ(state.poll_blast(hit(2, 3, 4, 10.0), 4), 2u);
+    {
+        const std::vector<int> f = fired();
+        CHECK(f.size() == 2u && f[0] == 3 && f[1] == 4);
+    }
+
+    // Blast must not fire aimed switches, and a miss fires nothing.
+    state.clear_events();
+    CHECK_EQ(state.poll_blast(hit(2, 3, 4, 41.0), 4), 0u);
+    CHECK_EQ(state.poll_blast(hit(9, 9, 9, 0.0), 4), 0u);
+    CHECK(fired().empty());
+
+    // 0x104 stays on `trigger_at`: an exact integer triple, not a hit.
+    state.clear_events();
+    CHECK_EQ(state.trigger_at({2.0, 3.0, 4.0}, 5), 1u);
+    {
+        const std::vector<int> f = fired();
+        CHECK(f.size() == 1u && f[0] == 5);
+    }
+
+    // The kind-0 switch is untouched by both polygon paths.
+    state.clear_events();
+    CHECK_EQ(state.poll_aim(hit(2, 3, 4, 0.0), 3), 2u);
+    CHECK_EQ(state.poll_blast(hit(2, 3, 4, 0.0), 3), 2u);
+    CHECK(!state.switches()[6].pressed);
+
+    // Determinism: the same call sequence twice yields the same counters.
+    gm::WorldState a;
+    gm::WorldState b;
+    CHECK(a.build(level, make_world(4), nullptr));
+    CHECK(b.build(level, make_world(4), nullptr));
+    for (gm::WorldState* st : {&a, &b}) {
+        st->poll_aim(hit(2, 3, 4, 20.0), 1);
+        st->poll_blast(hit(2, 3, 4, 5.0), 2);
+        st->trigger_at({2.0, 3.0, 4.0}, 3);
+    }
+    CHECK_EQ(a.stats().aim_presses, b.stats().aim_presses);
+    CHECK_EQ(a.stats().blast_presses, b.stats().blast_presses);
+    CHECK_EQ(a.stats().trigger_presses, b.stats().trigger_presses);
+    CHECK_EQ(a.events().size(), b.events().size());
+}
+
 void test_real_dm1() {
     const fs::path sbt_path = kGame / "dm1.sbt";
     const fs::path sbw_path = kGame / "dm1.sbw";
@@ -1370,6 +1510,50 @@ void test_real_dm1() {
     CHECK_EQ(stats.doors_distinct_objects, 61u);
     CHECK_EQ(stats.script_doors, 61u);
     CHECK_EQ(stats.script_switches, 129u);
+
+    // Switch operands 4..6 are polymorphic: dm1 has 5 kind-0 world points and
+    // 124 polygon switches (docs/DOOR_FIELDS.md §2.2, tools/re/doors.py).
+    std::size_t poly = 0;
+    std::size_t world_points = 0;
+    for (const gm::Switch& sw : state.switches()) {
+        if (sw.is_poly()) {
+            ++poly;
+        } else if (sw.kind == 0) {
+            ++world_points;
+        }
+    }
+    CHECK_EQ(poly, 124u);
+    CHECK_EQ(world_points, 5u);
+    {
+        // An aimed hit on a real switch's polygon fires exactly that switch.
+        // Uses a throwaway world: firing a switch opens doors, and the
+        // geometry block below assumes the pristine phase 0.
+        gm::WorldState probe;
+        CHECK(probe.build(level.sbt, level.sbw, nullptr));
+        const gm::Switch* aimed_ptr = nullptr;
+        for (const gm::Switch& sw : probe.switches()) {
+            if (sw.kind == 0x101) {
+                aimed_ptr = &sw;
+                break;
+            }
+        }
+        CHECK(aimed_ptr != nullptr);
+        if (aimed_ptr != nullptr) {
+            const gm::Switch aimed = *aimed_ptr;
+            gm::PolygonHit hit;
+            hit.sector = static_cast<std::uint32_t>(aimed.pos[0]);
+            hit.object = static_cast<std::uint32_t>(aimed.pos[1]);
+            hit.polygon = static_cast<std::uint32_t>(aimed.pos[2]);
+            hit.distance = static_cast<double>(aimed.radius);
+            CHECK_EQ(probe.poll_aim(hit, 2), 1u);
+            const std::vector<int> f = fired_switches(probe);
+            CHECK(f.size() == 1u && f[0] == aimed.id);
+            // ... and the same triple with a distance over the limit does not.
+            probe.clear_events();
+            hit.distance = static_cast<double>(aimed.radius) + 1.0;
+            CHECK_EQ(probe.poll_aim(hit, 2), 0u);
+        }
+    }
 
     // Every door has a finite fraction in [0, 1] and a bound object.
     for (const gm::Door& door : state.doors()) {
@@ -1557,6 +1741,7 @@ int main(int argc, char** argv) {
     test_door_sounds();
     test_triggers();
     test_block_contact();
+    test_polygon_triggers();
     test_sbt_writer(full);
     test_real_dm1();
     if (full) {

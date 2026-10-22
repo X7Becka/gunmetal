@@ -245,7 +245,11 @@ next)` — тот самый вектор `obj+0x90`.
 
 C++: `interact(id)` / `interact(id, source)` — это `0x44f960`+`0x44f690`
 (скрипт уже разрешён в `target`); `poll_triggers(pos, source)` — половина
-`0x44fc30` для `kind 0/1`; `trigger_at(pos, source)` — `0x44fbd0`;
+`0x44fc30` для `kind 0/1`; `poll_aim(PolygonHit, source)` — прицельная
+половина `0x44fc30` (`kind 0x101`, точная тройка + `t <= radius`);
+`poll_blast(PolygonHit, source)` — `0x44fb30` (`kind 0x102/0x103`, точная
+тройка + `d <= radius`, вызывающий считает евклид `0x43e541`);
+`trigger_at(pos, source)` — `0x44fbd0`;
 `block_contact(sector, object)` — `0x450590`. Событийная половина
 (`event_post(ids[3]/ids[4])` при полном открытии/закрытии) модель только
 логирует (`WorldEvent::target`), диспетчеризация — дело `game/events.*` +

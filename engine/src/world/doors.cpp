@@ -1045,6 +1045,51 @@ std::size_t WorldState::poll_triggers(const std::array<double, 3>& pos,
     return fired;
 }
 
+std::size_t WorldState::press_polygon(const PolygonHit& hit, std::int16_t source,
+                                      std::span<const int> kinds,
+                                      std::size_t& counter) {
+    std::size_t fired = 0;
+    for (Switch& sw : switches_) {
+        if (std::find(kinds.begin(), kinds.end(), sw.kind) == kinds.end()) {
+            continue;
+        }
+        if (sw.pos[0] != static_cast<int>(hit.sector) ||
+            sw.pos[1] != static_cast<int>(hit.object) ||
+            sw.pos[2] != static_cast<int>(hit.polygon)) {
+            continue;
+        }
+        // 0x44fc30 (`local_58 <= radius`) and 0x44fb30 (`fVar4 <= radius`)
+        // both use `<=`, unlike the strict `<` of the octagonal proximity.
+        if (!(hit.distance <= static_cast<double>(sw.radius))) {
+            continue;
+        }
+        sw.pressed = true;
+        sw.inside = true;
+        ++counter;
+        log_event({WorldEvent::Kind::SwitchPressed, sw.id, sw.target, 0, 0});
+        switch_event_sources_.back() = source;
+        press_target(sw.id, sw.target);
+        ++fired;
+    }
+    return fired;
+}
+
+std::size_t WorldState::poll_aim(const PolygonHit& hit, std::int16_t source) {
+    static constexpr std::array<int, 1> kKinds{0x101};
+    const std::size_t fired = press_polygon(hit, source, kKinds, stats_.aim_presses);
+    stats_.switch_interactions += fired;
+    stats_.trigger_presses += fired;
+    return fired;
+}
+
+std::size_t WorldState::poll_blast(const PolygonHit& hit, std::int16_t source) {
+    static constexpr std::array<int, 2> kKinds{0x102, 0x103};
+    const std::size_t fired = press_polygon(hit, source, kKinds, stats_.blast_presses);
+    stats_.switch_interactions += fired;
+    stats_.trigger_presses += fired;
+    return fired;
+}
+
 std::size_t WorldState::trigger_at(const std::array<double, 3>& pos, std::int16_t source) {
     std::size_t fired = 0;
     for (Switch& sw : switches_) {
