@@ -437,7 +437,8 @@ class Camera:
     def __init__(self, center: Vec3, radius: float, width: int, height: int,
                  az: float = 35.0, el: float = 22.0, zoom: float = 1.0,
                  fov: float = 45.0, pos: Vec3 | None = None,
-                 look: Vec3 | None = None):
+                 look: Vec3 | None = None,
+                 focal: tuple[float, float] | None = None):
         self.width, self.height = width, height
         if pos is not None:
             self.eye = pos
@@ -457,7 +458,15 @@ class Camera:
             up = (0.0, 1.0, 0.0)
         self.right = _norm(_cross(self.fwd, up))
         self.up = _cross(self.right, self.fwd)
-        self.scale = (height / 2) / math.tan(math.radians(fov) / 2)
+        if focal is None:
+            self.scale_x = self.scale_y = ((height / 2) /
+                                           math.tan(math.radians(fov) / 2))
+        else:
+            # The original game has separate focal lengths (docs/CAMERA.md 7:
+            # 1.0 horizontal, 5/6 vertical at 320x200), so an oracle frame
+            # cannot be matched with one square-pixel scale.
+            self.scale_x, self.scale_y = float(focal[0]), float(focal[1])
+        self.scale = self.scale_y
         self.cx, self.cy = width / 2.0, height / 2.0
         self.near = max(0.02, min(dist, radius) * 0.05)
 
@@ -475,7 +484,7 @@ class Camera:
         x, y, z = v
         if z <= 0.0:
             return None
-        return (self.cx + x / z * self.scale, self.cy - y / z * self.scale,
+        return (self.cx + x / z * self.scale_x, self.cy - y / z * self.scale_y,
                 1.0 / z, z)
 
     def project(self, p: Vec3):
@@ -484,7 +493,8 @@ class Camera:
 
     def plane_limits(self) -> tuple[float, float]:
         """Half-extent of the view frustum per unit of depth (x, y)."""
-        return (self.width / 2.0) / self.scale, (self.height / 2.0) / self.scale
+        return ((self.width / 2.0) / self.scale_x,
+                (self.height / 2.0) / self.scale_y)
 
     def aabb_visible(self, lo: Vec3, hi: Vec3) -> bool:
         """Conservative test: can a view-space AABB touch the frustum?
@@ -621,7 +631,8 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
            marker_depth: bool = False, mip: int | str = 0,
            filter: str = "nearest", alpha_test: bool = False,
            transparent_index: int | None = 0,
-           lod_bias: float = -0.75) -> bytes:
+           lod_bias: float = -0.75,
+           focal: tuple[float, float] | None = None) -> bytes:
     """Render one mesh or a list of meshes into an RGB PNG.
 
     ``pos``/``look`` override the auto-fitted camera (for level interiors),
@@ -654,7 +665,8 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
     if only_sector is not None:
         meshes = [m for m in meshes if getattr(m, "sector", None) == only_sector]
     center, radius = _bounds(meshes)
-    cam = Camera(center, radius, width, height, az, el, zoom, fov, pos, look)
+    cam = Camera(center, radius, width, height, az, el, zoom, fov, pos, look,
+                 focal=focal)
     eye = cam.eye
 
     boxes = [_mesh_aabb(m) for m in meshes]

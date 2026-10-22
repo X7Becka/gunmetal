@@ -52,18 +52,18 @@ $base = 0x819040 + $Player * 0x3510
 $record = New-Object byte[] 0x48
 $read = [IntPtr]::Zero
 $ok = [GmMem]::ReadProcessMemory($handle, [IntPtr]$base, $record, $record.Length, [ref]$read)
-[void][GmMem]::CloseHandle($handle)
 if (-not $ok) {
     Write-Error ("ReadProcessMemory failed at 0x{0:X}: {1}" -f $base, [Runtime.InteropServices.Marshal]::GetLastWin32Error())
     exit 3
 }
 
 $levelBuf = New-Object byte[] 0x50
-$levelOk = [GmMem]::ReadProcessMemory($handle, [IntPtr]0x5a4818, $levelBuf, $levelBuf.Length, [ref]$read)
+$levelOk = [GmMem]::ReadProcessMemory($handle, [IntPtr]0x5a4868, $levelBuf, $levelBuf.Length, [ref]$read)
 $level = ""
 if ($levelOk) {
     $level = ([System.Text.Encoding]::ASCII.GetString($levelBuf) -split "`0")[0]
 }
+[void][GmMem]::CloseHandle($handle)
 
 $d = @(0..8 | ForEach-Object { [BitConverter]::ToDouble($record, $_ * 8) })
 [pscustomobject]@{
