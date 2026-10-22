@@ -10,7 +10,7 @@
 | `docs/ADR/0002-scope.md` | 2 | 0 | ADR 0002 — что считается «готовым движком» |
 | `docs/ADR/0003-saves.md` | 2 | 0 | ADR 0003 — сохранения: читать оригинал, писать совместимо где возможно |
 | `docs/ADR/0004-re-infrastructure.md` | 3 | 0 | ADR 0004 — инфраструктура реверса: кэш, зеркало, бюджет контекста |
-| `docs/AI_CPP.md` | 76 | 72 | Gunmetal — минимальный C++ AI вещей (`Ai`) |
+| `docs/AI_CPP.md` | 77 | 75 | Gunmetal — минимальный C++ AI вещей (`Ai`) |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |
 | `docs/BASELINE.md` | 10 | 0 | Baseline: установка, инвентарь и регрессия |
@@ -77,8 +77,8 @@
 | `docs/SPRITE.md` | 11 | 0 | Спрайтовый блиттер: индексированные `.sbm` в RGB-кадр |
 | `docs/SUB.md` | 18 | 102 | `.sub` — таблицы подстановок спрайтов/текстур |
 | `docs/TEXT_LAYOUT.md` | 23 | 91 | SML: раскладка текста, шрифтовые атласы и пагинация |
-| `docs/THINGS_CPP.md` | 24 | 15 | Gunmetal — C++-runtime вещей (`Thing`) |
-| `docs/THING_FIELDS.md` | 52 | 450 | Thing type (`0x776d60`) и thing instance (`0x7ac080`): карта полей (M2.3.3) |
+| `docs/THINGS_CPP.md` | 25 | 19 | Gunmetal — C++-runtime вещей (`Thing`) |
+| `docs/THING_FIELDS.md` | 53 | 453 | Thing type (`0x776d60`) и thing instance (`0x7ac080`): карта полей (M2.3.3) |
 | `docs/TOOLCHAIN.md` | 2 | 1 | Инструменты и версии |
 | `docs/TOOLING.md` | 8 | 2 | Инструменты помимо Ghidra: что брать и зачем |
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |
