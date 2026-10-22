@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1092,6 +1093,137 @@ void test_seek_step() {
 
 // A4: pure `0x475f10` automaton over a linear waypoint list.  Four points,
 // loop 0,1,2,3,0; expire on the last; empty list; repeated advance.
+void test_path_random() {
+    const std::array<gm::Vec3d, 4> points{{
+        {10.0, 0.0, 0.0},
+        {20.0, 0.0, 0.0},
+        {30.0, 0.0, 0.0},
+        {40.0, 0.0, 0.0},
+    }};
+
+    // Without an RNG the mode selects nothing: no point, no expiry.
+    {
+        gm::AiPathState state;
+        const gm::AiPathStep step =
+            gm::path_advance(state, points, gm::AiPathMode::random);
+        CHECK(!step.selected);
+        CHECK(!step.waiting);
+        CHECK(!step.expired);
+        CHECK_EQ(step.index, -1);
+        CHECK(!state.expired);
+    }
+
+    // Empty list: `pathrandom` does not expire (only pathexpire does).
+    {
+        gm::MsvcRand rng(7u);
+        gm::AiPathState state;
+        const gm::AiPathStep step =
+            gm::path_advance(state, std::span<const gm::Vec3d>{}, gm::AiPathMode::random, &rng);
+        CHECK(!step.selected);
+        CHECK(!step.expired);
+    }
+
+    // Each arrival draws a fresh `rand() % count` (0x475f10 case 11): the RNG
+    // advances only when a point is selected, and the index repeats while the
+    // body is still walking.
+    {
+        gm::MsvcRand rng(12345u);
+        gm::MsvcRand reference(12345u);
+        const int expected_first = reference.next() % 4;
+        gm::AiPathState state;
+        const gm::AiPathStep first =
+            gm::path_advance(state, points, gm::AiPathMode::random, &rng);
+        CHECK(first.selected);
+        CHECK(first.waiting);
+        CHECK(!first.expired);
+        CHECK_EQ(first.index, expected_first);
+        CHECK_NEAR(first.point.x, points[static_cast<std::size_t>(expected_first)].x, 0.0);
+
+        // Still waiting: the pending point is returned and the RNG is untouched.
+        state = first.state;
+        const gm::AiPathStep again =
+            gm::path_advance(state, points, gm::AiPathMode::random, &rng);
+        CHECK(!again.selected);
+        CHECK(again.waiting);
+        CHECK_EQ(again.index, expected_first);
+
+        const int expected_second = reference.next() % 4;
+        state = again.state;
+        gm::path_mark_arrived(state);
+        const gm::AiPathStep second =
+            gm::path_advance(state, points, gm::AiPathMode::random, &rng);
+        CHECK(second.selected);
+        CHECK_EQ(second.index, expected_second);
+    }
+
+    // Determinism: identical seeds produce identical index sequences.
+    {
+        gm::MsvcRand left(999u);
+        gm::MsvcRand right(999u);
+        gm::AiPathState a;
+        gm::AiPathState b;
+        for (int arrival = 0; arrival < 12; ++arrival) {
+            const gm::AiPathStep sa =
+                gm::path_advance(a, points, gm::AiPathMode::random, &left);
+            const gm::AiPathStep sb =
+                gm::path_advance(b, points, gm::AiPathMode::random, &right);
+            CHECK_EQ(sa.index, sb.index);
+            CHECK_EQ(sa.selected, sb.selected);
+            CHECK(sa.index >= 0 && sa.index < 4);
+            a = sa.state;
+            b = sb.state;
+            gm::path_mark_arrived(a);
+            gm::path_mark_arrived(b);
+        }
+    }
+}
+
+void test_tick_path_random() {
+    // `Ai::tick` enters the route branch for a type-11 agent only when the
+    // caller enabled `use_path_random` *and* supplied the generator.
+    const gm::CollisionWorld empty;
+    const auto make_ai = [](gm::MsvcRand* rng, bool enable) {
+        gm::Things things = make_waypoint_things();
+        gm::AiConfig config;
+        config.use_path = true;
+        config.use_move_step = true;
+        config.use_path_random = enable;
+        config.load_path_from_types = true;
+        config.patrol_after_seconds = 0.005; // idle -> patrol on the first tick
+        auto ai = std::make_unique<gm::Ai>(config);
+        ai->set_path_rng(rng);
+        ai->attach(things);
+        return std::make_pair(std::move(ai), std::move(things));
+    };
+
+    {
+        gm::MsvcRand rng(4u);
+        auto [ai, things] = make_ai(&rng, true);
+        CHECK(ai->agent(3) != nullptr);
+        // type 3 is WAY_RANDOM: 2 waypoints, mode random.
+        CHECK_EQ(ai->agent(3)->path_mode, gm::AiPathMode::random);
+        ai->tick(empty, 1.0 / 91.0);
+        const gm::AiAgent* walker = ai->agent(3);
+        CHECK(walker != nullptr);
+        if (walker != nullptr) {
+            CHECK(walker->path.waiting || walker->path.index >= 0);
+            CHECK(walker->path.index >= 0 && walker->path.index < 2);
+        }
+    }
+    {
+        gm::MsvcRand rng(4u);
+        auto [ai, things] = make_ai(&rng, false);
+        // Opt-in is off: no waypoint is selected even though the RNG exists.
+        ai->tick(empty, 1.0 / 91.0);
+        const gm::AiAgent* walker = ai->agent(3);
+        CHECK(walker != nullptr);
+        if (walker != nullptr) {
+            CHECK_EQ(walker->path.index, -1);
+            CHECK(!walker->path.waiting);
+        }
+    }
+}
+
 void test_path_loop() {
     const std::array<gm::Vec3d, 4> points{{
         {10.0, 0.0, 0.0},
@@ -1543,8 +1675,10 @@ void test_path_mode_map() {
     CHECK(mode == gm::AiPathMode::loop);
     CHECK(gm::ai_path_mode(12, mode));
     CHECK(mode == gm::AiPathMode::expire);
-    // `pathrandom` (11) is the rand() branch and is not modelled.
-    CHECK(!gm::ai_path_mode(11, mode));
+    // `pathrandom` (11) maps to the RNG branch; `Ai` only runs it when the
+    // caller opted in and supplied the generator.
+    CHECK(gm::ai_path_mode(11, mode));
+    CHECK(mode == gm::AiPathMode::random);
     CHECK(!gm::ai_path_mode(0, mode));
     CHECK(!gm::ai_path_mode(18, mode));
     CHECK(!gm::ai_path_mode(-1, mode));
@@ -1614,10 +1748,15 @@ void test_path_from_thing_load() {
         CHECK_EQ(expire->path_waypoints.size(), 2u);
         CHECK_EQ(expire->path_mode, gm::AiPathMode::expire);
     }
-    // Empty type data and the unsupported pathrandom branch keep no route.
+    // Empty type data keeps no route; `pathrandom` (type 11) now loads its
+    // route with `AiPathMode::random` (it stays inert until an RNG is set and
+    // `use_path_random` is on).
     CHECK(ai.agent(2) != nullptr && ai.agent(2)->path_waypoints.empty());
-    CHECK(ai.agent(3) != nullptr && ai.agent(3)->path_waypoints.empty());
-    CHECK_EQ(ai.agent(3)->path_mode, gm::AiPathMode::loop);
+    CHECK(ai.agent(3) != nullptr);
+    if (ai.agent(3) != nullptr) {
+        CHECK_EQ(ai.agent(3)->path_waypoints.size(), 2u);
+        CHECK_EQ(ai.agent(3)->path_mode, gm::AiPathMode::random);
+    }
     // All ids of WAY_MISSING are absent from 0x80d8e0: no route is invented.
     CHECK(ai.agent(4) != nullptr && ai.agent(4)->path_waypoints.empty());
 
@@ -2587,6 +2726,8 @@ int main() {
     test_octagonal_distance();
     test_seek_step();
     test_path_loop();
+    test_path_random();
+    test_tick_path_random();
     test_path_expire();
     test_path_empty();
     test_path_repeat_advance();

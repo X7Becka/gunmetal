@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <span>
 
+#include "game/rng.h"
 #include "render/collide.h"
 
 namespace gm {
@@ -61,6 +62,7 @@ AiSeekResult ai_retreat_step(const Vec3d& from, const Vec3d& threat,
 enum class AiPathMode : std::uint8_t {
     path = 9,    ///< `0x475f10` case 9: walk to the last point, then stand
     loop = 10,   ///< case 10: pathloop, wrap 3 -> 0
+    random = 11, ///< case 11: pathrandom, pick `rand() % count` every arrival
     expire = 12, ///< case 12: pathexpire, die after reaching the last point
 };
 
@@ -89,8 +91,12 @@ struct AiPathStep {
     AiPathState state{};   ///< state to pass to the next call
 };
 
-/// One step of `0x475f10` over `waypoints`, in order, without randomness and
-/// without touching any global.  Semantics (report §6.8):
+/// One step of `0x475f10` over `waypoints`, in order, without touching any
+/// global.  `mode == random` needs *rng*: the original assigns
+/// `+0x504 = rand() % path_count` on every call that is not waiting for the
+/// body (`0x475f10`, case 11), i.e. a fresh random waypoint per arrival.
+/// Without *rng* (or with an empty list) the mode selects nothing and does not
+/// expire, exactly like the other modes without a point.  Semantics:
 ///
 /// * while `state.waiting` is set nothing new is chosen (the walker is still
 ///   on its way); `selected` is false and the pending point is returned;
@@ -101,7 +107,8 @@ struct AiPathStep {
 /// * an out-of-range index (corrupt save/type) restarts from -1 instead of
 ///   reading outside the list.
 AiPathStep path_advance(const AiPathState& state,
-                        std::span<const Vec3d> waypoints, AiPathMode mode);
+                        std::span<const Vec3d> waypoints, AiPathMode mode,
+                        MsvcRand* rng = nullptr);
 
 /// Clear the pending flag when the body reached `point` (the arrival branch of
 /// `0x476a50`); the next `path_advance` then selects the following waypoint.

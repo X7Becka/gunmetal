@@ -227,6 +227,12 @@ struct AiConfig {
     /// `THING_TYPES +0x1b4` movement type 9/10/12 (`path`/`pathloop`/
     /// `pathexpire`).  Ignored while `use_path` is false.
     AiPathMode path_mode = AiPathMode::loop;
+
+    /// `pathrandom` (movement type 11) is non-deterministic in the original
+    /// (`rand() % path_count` on every arrival).  It is opt-in twice: this
+    /// switch must be on *and* `Ai::set_path_rng` must have provided the
+    /// generator, otherwise a type-11 agent does not enter the route branch.
+    bool use_path_random = false;
     /// Opt-in: fill every agent's route from the type's `+0x324[]` location
     /// ids through `Things::locations()` (`0x80d8e0`) and let the movement
     /// type (`+0x1b4`, 9/10/12) override `path_mode` per agent (A6).
@@ -439,6 +445,12 @@ public:
     /// are the raw integer operands (`fild` at `0x47602e`), at most 32 points;
     /// ids missing from the table are skipped, exactly like the original's
     /// `0x476023` miss branch leaves that point unset.  Movement type 9/10/12
+    /// Generator for `pathrandom` (movement type 11, `0x480e30`).  A null
+    /// pointer (the default) keeps the mode inert; the state is caller-owned
+    /// so a replay can restore the original's sequence.
+    void set_path_rng(MsvcRand* rng) { path_rng_ = rng; }
+    MsvcRand* path_rng() const { return path_rng_; }
+
     /// also sets `AiAgent::path_mode`.  Returns false for an unknown/dead
     /// agent, a thing without ids, an unattached `Things`, or a route where no
     /// id resolved; the previous route is untouched then.
@@ -486,6 +498,7 @@ private:
     void refresh_stats();
 
     AiConfig config_;
+    MsvcRand* path_rng_ = nullptr;
     std::vector<AiAgent> agents_;
     std::vector<AiEvent> events_;
     std::vector<AiWeaponShot> weapon_shots_;

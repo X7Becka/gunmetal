@@ -19,8 +19,8 @@ state machine для runtime-вещей `Things`. Модуль **не порт**
 Навигация — A2 (один waypoint, столкновения, leash) плюс A3
 (`standoff`-окно: seek / hold+fire / retreat, §7), opt-in A4
 (`patrol` по списку точек, §8) и A6 (маршрут из `THING_TYPES +0x324[]`
-через таблицу локаций, §8.2); `pathrandom`, реального оружия и решений
-по истории по-прежнему нет, см. §6.
+через таблицу локаций, §8.2) и `pathrandom` (тип 11) с внедряемым
+`MsvcRand`; реального оружия и решений по истории по-прежнему нет, см. §6.
 
 ---
 
@@ -385,11 +385,13 @@ SBT/SCRIPT: два абсолютных `ADD_THING` в `(0,0,0)` и `(1000,0,0)`
 | A4: expire | 2 точки `10/20` → на следующем advance после `(20,0)` `state=dead`, `path.expired`, `path_expiries=1`, один `death`, дальше тишина |
 | A4: стена | маршрут `(0,182,0)`, низкая стена `y=100`, radius 10 → `position.y=90`, `path.waiting`, `blocked_steps>0` |
 | A4: alert | `use_path=true`, маршрут в `-y`, игрок `(0,300,0)` → `alert`, 1-й тик `y=2`, `path.index=-1` (маршрут не выбран) |
-| A6: режимы | `ai_path_mode(9/10/12)` → `path/loop/expire`; 11 (`pathrandom`) и прочие → `false` |
+| A6: режимы | `ai_path_mode(9/10/12/11)` → `path/loop/expire/random`; прочие → `false` |
 | A6: default | таблица локаций (7 записей, дубликат id → первая) и `+0x324[]` (4 id) на месте, но `load_path_from_types=false` → маршрут пуст у всех 5 агентов |
-| A6: load | `load_path_from_types=true` → loop-агент 3 точки (битый id пропущен), expire-агент 2 точки, `NO_PATH`/`pathrandom`/«все id битые» пусты; неизвестный/мёртвый id → `false`; 40 id → 32 |
+| A6: load | `load_path_from_types=true` → loop-агент 3 точки (битый id пропущен), expire-агент 2 точки, `pathrandom`-агент 2 точки с `path_mode=random`, `NO_PATH`/«все id битые» пусты; неизвестный/мёртвый id → `false`; 40 id → 32 |
 | A6: patrol | loop идёт `0,1,2,0`; expire доходит до последней и умирает (`path_expiries=1`); агенты без маршрута стоят |
 | A6: level0 | `BAGCRTHQ`, 9 id → 9 точек, первая `(24,1128,-72)`, последняя `(-360,1000,-80)`, `path_mode=loop` |
+| A4: random | 4 точки + `MsvcRand(12345)` → `rand()%4`, повторный advance без прибытия RNG не тратит, прибытие даёт следующее `%4`; пустой список не expire, без RNG (`nullptr`) выбора нет |
+| A4: random opt-in | `use_path_random=true` + `set_path_rng` → patrol-агент типа 11 выбирает точку; `use_path_random=false` → `index=-1`, RNG не тронут |
 
 ### 4.2. Поставочные уровни
 
@@ -456,10 +458,10 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    (`+0x1cc`: подойти / стоять+стрелять / отойти на `standoff-60`) уже
    подключены opt-in'ом (§7); A4 `path_advance` (§8) подключён вторым
    opt-in'ом: `patrol` идёт по `path_waypoints` в режимах
-   `path`/`loop`/`expire`, `expire` убивает агента. Автоматы самого движка
+   `path`/`loop`/`random`/`expire`, `expire` убивает агента. Автоматы самого движка
    (`movement_type` 0..18) перенесены отдельным модулем `world/thing_motion`
-   (§11) — включая пол/потолок (`0x472120`), отскок и турель. Остались
-   `pathrandom` и `Ai`-решение → `thing_motion`. **Интеграция в `Things::tick`
+   (§11) — включая пол/потолок (`0x472120`), отскок и турель. Остаётся
+   `Ai`-решение → `thing_motion`. **Интеграция в `Things::tick`
    сделана** (opt-in `set_motion_enabled(world)`, `motion_state/last`,
    `set_motion_target`, `set_push_targets`, тест `test_motion_tick`).
    Маршрут из
@@ -540,9 +542,9 @@ swept-сфера-ограничение, направление — планар
 
 Чего здесь нет намеренно:
 
-* pathfinding и `pathrandom` — A4 идёт строго по списку точек (§8), обхода
-  препятствий нет (стена лишь урезает шаг); `pathrandom` (тип 11) не
-  подключён, потому что вызывает `rand()`;
+* pathfinding — A4 идёт строго по списку точек (§8), обхода препятствий
+  нет (стена лишь урезает шаг); `pathrandom` (тип 11) подключён, но только
+  с внедряемым `MsvcRand` (§8), детерминизм задаёт вызывающий;
 * оружия, окна `[w0,w1]`, кулдауна `w2` и `rand()%period` — `attack` остаётся
   событием, а не баллистикой (§8 отчёта — следующий шаг);
 * памяти «последней увиденной точки»: во время `lose_sight_seconds` агент
@@ -577,7 +579,7 @@ struct AiPathState {
 };
 
 AiPathStep path_advance(const AiPathState&, std::span<const Vec3d> waypoints,
-                        AiPathMode);
+                        AiPathMode, MsvcRand* rng = nullptr);
 void path_mark_arrived(AiPathState&); // очистить `waiting`
 ```
 
@@ -594,6 +596,8 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
 | ситуация | результат |
 |---|---|
 | `state.waiting` | ничего нового; `selected=false`, `waiting=true`, та же точка |
+| `pathrandom` (11), не ждём | `index = rand() % count` (`0x480e30`), `selected=true`, `waiting=true`; при `rng == nullptr` выбора нет |
+| `pathrandom`, пусто | ничего, без expire (как `path`/`loop`) |
 | `index + 1 < count` | `selected=true`, `index+1`, `waiting=true` |
 | конец, `path` (9) | `index` остаётся последним, `arrived=true`, без события |
 | конец, `loop` (10) | `index = 0`, `selected=true` (цикл `0,1,2,3,0…`) |
@@ -609,12 +613,18 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
 собственно выполнил expire (иначе будущий цикл постил бы `0x4703a0` каждый тик). Список длиннее 32 точек
 обрезается: оригинал отбраковывает `0x1f < i` (`kAiPathMaxPoints = 32`).
 
+`pathrandom` (тип 11) — та же точка входа, но индекс берётся как
+`rand() % path_count` на **каждом** вызове, который не ждёт тело
+(`0x475f10`: и ветка «индекс вне диапазона», и ветка «индекс в диапазоне»
+зовут `0x480e30`). Поэтому режим недетерминирован по своей природе и включён
+дважды opt-in: `AiConfig::use_path_random` и `Ai::set_path_rng(&MsvcRand)`.
+Генератор принадлежит вызывающему (`game/rng.h`, MSVC LCG `0x343FD/0x269EC3`),
+так что replay восстанавливает ту же последовательность; без ГПСЧ типа 11 не
+входит в ветку маршрута и стоит. `path_advance` сам `rand()` не зовёт.
+
 Чего здесь нет намеренно:
 
-* `pathrandom` (тип 11) — вызывает `rand()` (`0x480e30`), а детерминизм для
-  каркаса обязателен; для него нужен `AiConfig::rng_seed` и собственный ГПСЧ.
-  Загрузчик (§8.2) не берёт маршрут у типа 11 вовсе, чтобы не подменить
-  случайный старт детерминированным.
+* обхода препятствий (pathfinding) — маршрут строго по списку точек;
 
 Разрешение id в координаты живёт отдельно от примитива: `path_advance`
 работает с готовыми `Vec3d`, а загрузчик `+0x324[]` через таблицу локаций —
@@ -631,12 +641,14 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
 
 За тик, **после** восприятия и `switch` состояний:
 
-1. Условие входа: `use_path=true`, `state == patrol` и (маршрут непуст или
-   `path_mode == expire`). Это независимо от `use_move_step`: маршрут — свой
+1. Условие входа: `use_path=true`, `state == patrol`, (маршрут непуст или
+   `path_mode == expire`), а для `random` ещё `use_path_random` и непустой
+   `path_rng()`. Это независимо от `use_move_step`: маршрут — свой
    opt-in, A2-параметры (`speed`, `radius`, `arrive_radius`) уже заполнены в
    `AiAgent` на `attach`.
-2. `path_advance(state, waypoints, path_mode)` выбирает/возвращает текущую
-   точку; `Ai::tick` сохраняет `step.state` в `AiAgent::path`.
+2. `path_advance(state, waypoints, path_mode, rng)` выбирает/возвращает
+   текущую точку (`rng` передаётся только для `random`); `Ai::tick`
+   сохраняет `step.state` в `AiAgent::path`.
 3. `step.expired` → агент переходит в `dead` **один раз**: цель/alertness/
    timer сбрасываются, пишутся события `state`/`death`,
    `stats().path_expiries += 1`. Дальше `dead` не тикает, второй expire
@@ -657,15 +669,17 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
 `use_path=false` ветка не выполняется вообще: A2/A3 и исторический каркас
 байт-в-байт прежние.
 
-Ограничения подключения: маршрут только у `patrol`, без pathfinding и
-`pathrandom`; `expire` убивает **агента**, но не мутирует `Things` (вещь
+Ограничения подключения: маршрут только у `patrol`, без pathfinding;
+`pathrandom` требует внешнего `MsvcRand`; `expire` убивает **агента**, но не мутирует `Things` (вещь
 удаляет слой `Things`/spawn); при пустом маршруте и `expire` агент умирает на
 первом patrol-тике — это осознанно повторяет ветку оригинала
 `path_count < 1`.
 
 Тесты (`gm_ai_tests`, label `thing_ai`): `test_path_loop` (4 точки →
 `0,1,2,3,0,1`), `test_path_expire` (expire после последней, терминальность),
-`test_path_empty` (пустой список для всех режимов), `test_path_repeat_advance`
+`test_path_empty` (пустой список для всех режимов), `test_path_random`
+(`rand()%4`, RNG только на выбор, повтор без прибытия RNG не тратит,
+детерминизм по сиду, `nullptr`/пусто), `test_path_repeat_advance`
 (повторный advance без прибытия, `path`-терминал, битый индекс, обрезка до 32,
 дефолты `AiConfig`), а также подключение к тику: `test_tick_path_opt_in`
 (`use_path=false` не входит в маршрут, `set_path`/NaN/обрезка),
@@ -694,8 +708,8 @@ void path_mark_arrived(AiPathState&); // очистить `waiting`
   запись (`0x476012`), а отсутствующий id не даёт точки (`0x476023` —
   ранний `ret`, позиция и таймер не обновляются);
 * `+0x324[]` — это id, а не координаты и не индекс в массиве локаций;
-  `pathrandom` (11) к этому массиву тоже обращается, но выбирает стартовый
-  индекс через `rand()` и намеренно не поддержан.
+  `pathrandom` (11) к этому массиву тоже обращается и на каждом прибытии
+  выбирает индекс через `rand() % path_count`.
 
 `Things` собирает таблицу локаций из **выполненной** сцены VM
 (`VmScene::locations`, `h_location`/`0x45bea6`) в порядке выполнения,
@@ -717,22 +731,23 @@ bool Ai::set_path_from_thing(int thing_id); // resolves +0x324[] via Things
 которых нет в таблице (как miss-ветка `0x476023`), отклоняет неизвестный/
 мёртвый id, пустой список и маршрут, где не разрешилась ни одна точка, не
 трогая прежний маршрут. При `load_path_from_types=true` `attach` сам вызывает
-загрузчик для типов движения 9/10/12 и выставляет **per-agent**
-`AiAgent::path_mode` (9 `path`, 10 `loop`, 12 `expire`); при `false`
+загрузчик для типов движения 9/10/11/12 и выставляет **per-agent**
+`AiAgent::path_mode` (9 `path`, 10 `loop`, 11 `random`, 12 `expire`); при `false`
 поведение A2/A3/A4 прежнее, а `path_mode` остаётся глобальным
-`AiConfig::path_mode`. Тип 11 и все прочие типы движения route не получают.
+`AiConfig::path_mode`. Прочие типы движения route не получают; тип 11
+получает маршрут, но остаётся инертным без `use_path_random` и `MsvcRand`.
 
 Ограничения A6: маршрут по-прежнему проходят только `patrol`; `expire`
 убивает агента, но не мутирует `Things`; отсутствующие id **выбрасываются**
 из маршрута (индексы последующих точек сдвигаются — оригинал в этом случае
 оставляет точку невыбранной и ждёт, что для детерминированного каркаса
-равносильно застреванию); `pathrandom`, случайный старт и `DELETE_LOCATION`
-во время игры не моделируются.
+равносильно застреванию); случайный старт `pathrandom` воспроизводится
+только через внешний ГПСЧ, `DELETE_LOCATION` во время игры не моделируется.
 
-Тесты: `test_path_mode_map` (9/10/12, отказ 11), `test_path_from_thing_default_off`
+Тесты: `test_path_mode_map` (9/10/11/12), `test_path_from_thing_default_off`
 (таблица локаций и `+0x324[]` есть, но `attach` не заполняет маршрут;
 first-match дубликата id), `test_path_from_thing_load` (loop/expire, пропуск
-неизвестного id, пустой тип, `pathrandom`, «все id битые», мёртвый агент,
+неизвестного id, пустой тип, `pathrandom` (2 точки, mode random), «все id битые», мёртвый агент,
 обрезка 40 → 32), `test_path_from_thing_patrol` (loop 0,1,2,0; expire →
 `dead`/`path_expiries=1`; агенты без маршрута стоят) и
 `test_path_from_thing_real` (level0 `BAGCRTHQ`: 9 точек, первая
@@ -951,7 +966,7 @@ const gm::ThingMotionStep step = gm::thing_motion_step(st, cfg, in);
 | 5 | `turret` | наведение по yaw, лимиты, без движения | proven |
 | 6 | `projectile` | гравитация `0.2·g·level_g·dt`, отскок, демпфер | proven (дубль `game/projectile.h` для оружия) |
 | 7/8 | `seek`/`seek_los` | поворот к цели и шаг | external: `ProjectileState::homing` |
-| 9–12 | `path*` | path/loop/random/expire | external: `ai_move.h path_advance` |
+| 9–12 | `path*` | path/loop/random/expire | external: `ai_move.h path_advance` (`random` — с `MsvcRand`) |
 | 13 | `ram` | `1.25r` + выбор стороны по цели | proven |
 | 14/15/17 | `seek_far/near/17` | seek по yaw + зонды + вертикальный seek | proven |
 | 16 | `patrol` | полосы `p0..p1`, кулдаун `p2`, конус 14° | proven (наведение — модель) |

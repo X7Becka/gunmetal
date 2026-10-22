@@ -66,6 +66,9 @@ bool ai_path_mode(int movement_type, AiPathMode& out) {
     case 10:
         out = AiPathMode::loop;
         return true;
+    case 11:
+        out = AiPathMode::random;
+        return true;
     case 12:
         out = AiPathMode::expire;
         return true;
@@ -498,7 +501,8 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         // once, mirroring the original's `0x4703a0` post.
         auto path_step = [&](AiAgent& walker, AiPathMode mode) {
             const AiPathStep step = path_advance(
-                walker.path, walker.path_waypoints, mode);
+                walker.path, walker.path_waypoints, mode,
+                mode == AiPathMode::random ? path_rng_ : nullptr);
             walker.path = step.state;
             if (step.expired) {
                 walker.target = -1;
@@ -888,8 +892,11 @@ void Ai::tick(const CollisionWorld& world, double dt) {
         // stays put.
         const AiPathMode path_mode =
             config_.load_path_from_types ? agent.path_mode : config_.path_mode;
+        const bool random_ready =
+            path_mode != AiPathMode::random ||
+            (config_.use_path_random && path_rng_ != nullptr);
         const bool route_patrol =
-            config_.use_path && agent.state == AiState::patrol &&
+            config_.use_path && agent.state == AiState::patrol && random_ready &&
             (path_mode == AiPathMode::expire ||
              !agent.path_waypoints.empty());
         if (route_patrol) {

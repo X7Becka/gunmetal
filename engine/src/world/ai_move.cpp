@@ -96,7 +96,8 @@ AiSeekResult ai_retreat_step(const Vec3d& from, const Vec3d& threat,
 }
 
 AiPathStep path_advance(const AiPathState& state,
-                        std::span<const Vec3d> waypoints, AiPathMode mode) {
+                        std::span<const Vec3d> waypoints, AiPathMode mode,
+                        MsvcRand* rng) {
     AiPathStep step;
     step.state = state;
 
@@ -137,6 +138,27 @@ AiPathStep path_advance(const AiPathState& state,
         // Pending flag without a valid index (corrupt state): drop it and
         // select from the start below.
         step.state.waiting = false;
+    }
+
+    // `pathrandom` (case 11): every call that is not waiting picks a fresh
+    // index, `rand() % path_count` (0x475f10, both the out-of-range and the
+    // in-range branch).  Without an RNG the mode cannot select and stays idle.
+    if (mode == AiPathMode::random) {
+        if (rng == nullptr) {
+            step.index = -1;
+            step.state.index = -1;
+            step.state.waiting = false;
+            return step;
+        }
+        const int pick = rng->next() % count;
+        step.index = pick;
+        step.point = waypoints[static_cast<std::size_t>(pick)];
+        step.selected = true;
+        step.waiting = true;
+        step.state.index = pick;
+        step.state.waiting = true;
+        step.state.expired = false;
+        return step;
     }
 
     // Broken index guard: the original rejects i < 0 or 0x1f < i and reselects

@@ -688,8 +688,9 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > 32 точки) подключён к patrol через `use_path`/`set_path`; expire
       > завершает агента, wall-шаг урезается, alert/attack не затронуты.
       > `load_path_from_types` читает `THING_TYPES+0x324[]` и резолвит
-      > `ADD_LOCATION` (`0x80d8e0`); 9/10/12 → path/loop/expire, 11
-      > (`pathrandom`) пока не загружается.
+      > `ADD_LOCATION` (`0x80d8e0`); 9/10/11/12 → path/loop/random/expire;
+      > `pathrandom` берёт `rand()%count` на каждом прибытии через внешний
+      > `MsvcRand` (`Ai::set_path_rng`, opt-in `use_path_random`).
       > A5: `AiWeapon` читает таблицу `THING_TYPES+0x218`, выбор по
       > inclusive `[low,high]` и кулдаун `+0x27c`; opt-in `use_weapon_table`
       > постит отдельный `weapon`-event. A5b: `AiWeaponShot` очередь

@@ -213,8 +213,9 @@ god_mode); переопределяются только `game_mode` и `playert
 как линейный поиск `0x476012`. `Thing::path_locations` хранит сырые id из
 `THING_TYPES+0x324[]` (0..32); `Ai::set_path_from_thing` резолвит их через
 эту таблицу. Дубликаты `(site, occ)` детерминированно дедуплицируются; при
-`execute=false` таблица пуста. `pathrandom` (тип 11) и `DELETE_LOCATION` в
-рантайме не моделируются.
+`execute=false` таблица пуста. `pathrandom` (тип 11) выбирает точки через
+внедряемый `MsvcRand` (см. `AI_CPP.md` §8); `DELETE_LOCATION` в рантайме не
+моделируется.
 
 ### 2.3. `tick`, `alive`, `children`
 
