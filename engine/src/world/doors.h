@@ -108,9 +108,10 @@ struct SoundRequest {
     /// The 3D-source key (queue ``+0x14``): ``1000000 + door index`` for the
     /// door's looped movement sound, 0 for the one-shots.
     int class_id = 0;
-    /// False when the model cannot compute the position (the engine plays the
-    /// switch sound at the polygon centroid of ``0x43577c``, and the world
-    /// model has no ``.sbw`` geometry).
+    /// False when the model cannot compute the position: the engine plays a
+    /// `kind >= 0x101` switch sound at the polygon centroid of ``0x43577c``,
+    /// which `WorldState::build` resolves into `Switch::world_position`; a
+    /// triple without a matching `.sbw` polygon stays positionless.
     bool position_known = true;
 };
 
@@ -220,6 +221,12 @@ struct Switch {
     bool proximity() const { return kind == 0 || kind == 1; }
     /// Operands 4..6 are a polygon index, not a coordinate.
     bool is_poly() const { return kind >= 0x101; }
+    /// `kind >= 0x101` only: world centroid of the polygon, i.e. the mean of
+    /// its world-space vertices (`0x43577c`: sum of `0x437af8` per vertex,
+    /// divided by the vertex count).  Computed once in `WorldState::build`
+    /// from the `.sbw` geometry; `nullopt` when the triple or the polygon is
+    /// missing, which is also when the switch sound has no position.
+    std::optional<std::array<double, 3>> world_position;
     /// The ``(sector, object, polygon)`` triple (meaningless for ``kind 0``).
     std::array<int, 3> poly() const { return pos; }
 };

@@ -1246,6 +1246,76 @@ void test_sound_queue() {
     }
 }
 
+// `0x43577c` computes the polygon centroid (mean of the world-space vertices)
+// for a kind >= 0x101 switch.  The sound queue then carries a real position
+// instead of `position_known = false`.
+void test_polygon_switch_centroid() {
+    gm::SbwLevel world;
+    world.header.sectors.resize(1);
+    world.header.sectors[0].objects.resize(1);
+    const double transform[12] = {0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+                                  0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+    std::memcpy(world.header.sectors[0].objects[0].header.data(), transform,
+                sizeof(transform));
+    gm::SbwGeometry geometry;
+    geometry.vertices = {gm::Vec3f{0.0f, 0.0f, 0.0f}, gm::Vec3f{10.0f, 0.0f, 0.0f},
+                         gm::Vec3f{10.0f, 10.0f, 0.0f}, gm::Vec3f{0.0f, 10.0f, 0.0f}};
+    gm::SbwPoly quad;
+    quad.indices = {0, 1, 2, 3};
+    geometry.polys.push_back(quad);
+    world.geometry.push_back(geometry);
+
+    SwitchSpec sw{0x101, 20, 128, {0, 0, 0}, 55, 42};
+    gm::SbtLevel level;
+    gm::SbtRecord switches;
+    switches.type = 1;
+    switches.payload = make_switch_payload(std::vector<SwitchSpec>{sw});
+    level.records.push_back(std::move(switches));
+    gm::WorldState state;
+    std::string error;
+    CHECK(state.build(level, world, &error));
+    CHECK(error.empty());
+    CHECK_EQ(state.switches().size(), 1u);
+    const gm::Switch& parsed = state.switches()[0];
+    CHECK(parsed.world_position.has_value());
+    if (parsed.world_position.has_value()) {
+        CHECK_NEAR((*parsed.world_position)[0], 5.0, 1e-12);
+        CHECK_NEAR((*parsed.world_position)[1], 5.0, 1e-12);
+        CHECK_NEAR((*parsed.world_position)[2], 0.0, 1e-12);
+    }
+    CHECK(state.interact(0));
+    std::vector<gm::SoundRequest> drained;
+    CHECK_EQ(state.drain_sounds(drained), 1u);
+    if (drained.size() == 1u) {
+        CHECK(drained[0].source == gm::SoundSource::Switch);
+        CHECK(drained[0].position_known);
+        CHECK_EQ(drained[0].sample, 42);
+        CHECK_EQ(drained[0].volume, 55);
+        CHECK_NEAR(drained[0].position[0], 5.0, 1e-12);
+        CHECK_NEAR(drained[0].position[1], 5.0, 1e-12);
+        CHECK_NEAR(drained[0].position[2], 0.0, 1e-12);
+    }
+
+    // A triple that does not resolve keeps the request positionless, exactly
+    // like a world without `.sbw` geometry.
+    SwitchSpec missing = sw;
+    missing.pos = {0, 0, 7};
+    gm::SbtLevel broken_level;
+    gm::SbtRecord broken_switches;
+    broken_switches.type = 1;
+    broken_switches.payload = make_switch_payload(std::vector<SwitchSpec>{missing});
+    broken_level.records.push_back(std::move(broken_switches));
+    gm::WorldState broken;
+    CHECK(broken.build(broken_level, world, &error));
+    CHECK(!broken.switches()[0].world_position.has_value());
+    CHECK(broken.interact(0));
+    drained.clear();
+    CHECK_EQ(broken.drain_sounds(drained), 1u);
+    if (!drained.empty()) {
+        CHECK(!drained[0].position_known);
+    }
+}
+
 void test_crush_is_silent() {
     // 0x450590 (kind 3) posts the crush event and calls no sound function.
     DoorSpec spec;
@@ -1952,9 +2022,19 @@ void test_real_dm1() {
             CHECK(sounds[0].source == gm::SoundSource::Switch);
             CHECK_EQ(sounds[0].sample, 113);
             CHECK_EQ(sounds[0].volume, 57);
-            // kind 0x102: the engine plays at the polygon centroid, which the
-            // world model cannot compute.
-            CHECK(!sounds[0].position_known);
+            // kind 0x102: the engine plays at the polygon centroid
+            // (0x43577c); the `.sbw` triple resolves, so the request has a
+            // position and it matches the switch's build-time centroid.
+            CHECK(sounds[0].position_known);
+            CHECK(probe.switches()[22].world_position.has_value());
+            if (probe.switches()[22].world_position.has_value()) {
+                CHECK_NEAR(sounds[0].position[0],
+                           (*probe.switches()[22].world_position)[0], 0.0);
+                CHECK_NEAR(sounds[0].position[1],
+                           (*probe.switches()[22].world_position)[1], 0.0);
+                CHECK_NEAR(sounds[0].position[2],
+                           (*probe.switches()[22].world_position)[2], 0.0);
+            }
         }
     }
     {
@@ -2157,6 +2237,7 @@ int main(int argc, char** argv) {
     test_geometry();
     test_door_sounds();
     test_sound_queue();
+    test_polygon_switch_centroid();
     test_crush_is_silent();
     test_triggers();
     test_block_contact();

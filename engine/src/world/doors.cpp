@@ -11,11 +11,72 @@
 #include <set>
 #include <utility>
 
+#include "render/collide.h"
 #include "res/scene.h"
 #include "res/sbtvm.h"
 
 namespace gm {
 namespace {
+
+/// World centroid of one `.sbw` polygon (`0x43577c`): the mean of its
+/// vertices after the object transform `0x434887` (`origin + B * local`, the
+/// same 12 doubles `render/collide.cpp` decodes).  Returns false for a
+/// missing sector/object/polygon or an out-of-range vertex index.
+bool polygon_centroid(const SbwLevel& world, int sector, int object, int polygon,
+                      std::array<double, 3>& out) {
+    if (sector < 0 || object < 0 || polygon < 0) {
+        return false;
+    }
+    const auto& sectors = world.header.sectors;
+    if (static_cast<std::size_t>(sector) >= sectors.size()) {
+        return false;
+    }
+    const SbwSectorRef& source = sectors[static_cast<std::size_t>(sector)];
+    if (static_cast<std::size_t>(object) >= source.objects.size()) {
+        return false;
+    }
+    std::size_t geometry_index = 0;
+    for (int s = 0; s < sector; ++s) {
+        geometry_index += sectors[static_cast<std::size_t>(s)].objects.size();
+    }
+    geometry_index += static_cast<std::size_t>(object);
+    if (geometry_index >= world.geometry.size()) {
+        return false;
+    }
+    const SbwGeometry& geometry = world.geometry[geometry_index];
+    if (static_cast<std::size_t>(polygon) >= geometry.polys.size()) {
+        return false;
+    }
+    const SbwPoly& poly = geometry.polys[static_cast<std::size_t>(polygon)];
+    if (poly.indices.empty()) {
+        return false;
+    }
+    const std::array<std::uint8_t, 96>& header =
+        source.objects[static_cast<std::size_t>(object)].header;
+    double v[12];
+    for (int i = 0; i < 12; ++i) {
+        std::memcpy(&v[i], header.data() + 8 * i, sizeof(double));
+        if (!std::isfinite(v[i])) {
+            return false;
+        }
+    }
+    const Vec3d origin{v[0], v[1], v[2]};
+    const Vec3d bx{v[3], v[4], v[5]};
+    const Vec3d by{v[6], v[7], v[8]};
+    const Vec3d bz{v[9], v[10], v[11]};
+    Vec3d sum{};
+    for (const std::uint16_t index : poly.indices) {
+        if (static_cast<std::size_t>(index) >= geometry.vertices.size()) {
+            return false;
+        }
+        const Vec3f& vertex = geometry.vertices[static_cast<std::size_t>(index)];
+        const Vec3d local{vertex.x, vertex.y, vertex.z};
+        sum = sum + origin + bx * local.x + by * local.y + bz * local.z;
+    }
+    const double count = static_cast<double>(poly.indices.size());
+    out = {sum.x / count, sum.y / count, sum.z / count};
+    return true;
+}
 
 // --- little-endian readers over a byte payload -----------------------------
 bool read_u32(const std::vector<std::uint8_t>& data, std::size_t offset,
@@ -648,10 +709,13 @@ void WorldState::queue_switch_sound(int switch_id) {
         request.position = {static_cast<double>(sw.pos[0]), static_cast<double>(sw.pos[1]),
                             static_cast<double>(sw.pos[2])};
         request.position_known = true;
+    } else if (sw.world_position.has_value()) {
+        // kind >= 0x101: the centroid resolved at build time (0x43577c).
+        request.position = *sw.world_position;
+        request.position_known = true;
     } else {
-        // kind >= 0x101 stores (sector, object, polygon); the engine plays
-        // the sound at the polygon centroid (0x43577c), which the world model
-        // cannot compute.
+        // No such polygon in the `.sbw` (or no geometry at all): the engine
+        // would still queue the centroid, the model cannot.
         request.position_known = false;
     }
     queue_sound(request);
@@ -913,6 +977,18 @@ bool WorldState::build(const SbtLevel& level, const SbwLevel& world, std::string
         door.phase_prev = door.phase;
         door.phase_next = door.engine_phase();
         door.open_fraction = static_cast<double>(door.phase) * kDoorPhaseToFraction;
+    }
+
+    // `0x43577c` for kind >= 0x101: the switch sound plays at the polygon
+    // centroid, so resolve the triple once from the `.sbw` geometry.
+    for (Switch& sw : switches_) {
+        if (!sw.is_poly()) {
+            continue;
+        }
+        std::array<double, 3> centroid{};
+        if (polygon_centroid(world, sw.pos[0], sw.pos[1], sw.pos[2], centroid)) {
+            sw.world_position = centroid;
+        }
     }
 
     rebuild_indexes();

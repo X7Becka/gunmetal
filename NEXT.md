@@ -57,7 +57,7 @@
    `param_2` в живом кадре (нужен отладчик оригинала) и подвеска/коллизии
    оригинала — до них `step()` остаётся синтетикой.
 5. **Полный регресс — зелёный.** Python: `regress.py` 113/113 (~46 с на
-   зеркале), `--full --mirror` 122/122 (~60–88 с, кэш). C++: `ctest
+   зеркале), `--full --mirror` 123/123 (~60–89 с, кэш). C++: `ctest
    -L quick -j 8` 50/50 за ~34 с, полный 61/61 за ~235 с. Причина прежних
    падений (`core`/`camera_rig`/`sbtvm`/`vm`/`things_full`) — `level1.sbt` и
    `level2.sbt` в установке поменяны местами относительно манифеста
@@ -246,8 +246,9 @@
     лимит 256, `sounds_queued/dropped`); доказаны форматы `0x46b8d0`/`0x46b840`/
     `0x46b9f0`/`0x46ba90`, call sites `0x44f776/0x44f66b/0x44f5ee/0x44f4b1/
     0x44f53e/0x44f5a6`, `+0x60` = attenuation 0.03; **crush звука не даёт**;
-    лифт ещё не в очереди, центроид полигонального switch неизвестен
-    (`position_known=false`).
+    лифт ещё не в очереди; центроид полигонального switch теперь считается
+    в `WorldState::build` (`0x43577c`, `Switch::world_position`), CTest
+    `test_polygon_switch_centroid`.
   * `228546b` vm-light: `VmState` реально хранит `world_sectors`
     (`kind = тип×6`, `light`), `world_polys` (texture/material/scroll/brightness),
     `poly_handles`, `source_object/source_poly`; загрузчики `vm_load_world`
