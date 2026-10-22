@@ -867,7 +867,10 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > **C++**: `SoundRequest`-очередь (`WorldState::drain_sounds`), call sites
       > `0x44f776/0x44f66b/0x44f5ee/0x44f4b1/0x44f53e/0x44f5a6`, форматы
       > `0x46b8d0/0x46b840/0x46b9f0/0x46ba90`, `+0x60` = attenuation 0.03;
-      > crush звука не даёт, лифт пока вне очереди.
+      > crush звука не даёт. Лифт — в очереди (`LiftCall/LiftMove/LiftArrive/
+      > LiftMoveStop`: `0x44f690`/`0x4502a0` → `0x46b840`/`0x46b960`/
+      > `0x46ba90`, class `2000000+индекс`), позиция — origin кабины;
+      > центроид полигонального switch (`0x43577c`) в `Switch::world_position`.
 - 🟡 `M2.3.5` Оружие (`0x80fa00`, шаг `0x2a8`), боеприпасы (`0x818960`, `0x38`),
       оборудование (`0x814c60`, `0x40`), шасси (`0x7995e0`, `0x1cc`).
       > `docs/WEAPON_FIELDS.md` + `tools/re/weapon_fields.py`
@@ -881,6 +884,15 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > (`kWeaponChargeScale`, CTest `weapons`). Осталось: формулы плит и
       > `coef_*`, два id подбора патронов (`+0x18/+0x1c`) и `+0x24`
       > оборудования в C++; перенос остальных уточнений в `FORMATS.md`.
+      > **Hitscan (merge `e082c26`)**: `cast_hitscan` (ближайший треугольник,
+      > граница дистанции исключительная, как `0x477f90`), `HitscanHit
+      > {point,normal,distance,sector,object,polygon,triangle}`; конус цели
+      > `0x477f90`/`0x4779f0` — проекция на строки матрицы `0x437909`,
+      > глубина > 0.32 (`0x4a2658`, строго), строгие боковые сравнения,
+      > масштабы `0x81c020/0x81c028/0x81c030`; `hitscan_cos_limit`,
+      > `hitscan_scale_spread`. CTest `test_hitscan_ray`/`test_hitscan_cone`.
+      > Осталось: выбор жертвы, impact-event `0x44fad0`, точка мира `0x43c51f`,
+      > подключение к игровому выстрелу.
 - 🟡 `M2.3.6` Скриптовая таблица сущностей (`0x5b0df0`, `0x5e4680`, `0x616658`).
       > `docs/ENTITY_FIELDS.md` + `tools/re/entity_fields.py` (`--map/--verify/
       > --json/--self-test`; 36 уровней, 15 061 строка, 15 025 блоков

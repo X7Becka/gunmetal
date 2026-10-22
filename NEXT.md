@@ -247,6 +247,15 @@
     `0x46b9f0`/`0x46ba90`, call sites `0x44f776/0x44f66b/0x44f5ee/0x44f4b1/
     0x44f53e/0x44f5a6`, `+0x60` = attenuation 0.03; **crush звука не даёт**;
     лифт и центроид — следующий пункт.
+  * **Hitscan-луч и конус цели** (merge `e082c26`): `cast_hitscan` поверх
+    `CollisionWorld::raycast` с исключительной границей дистанции (как
+    `0x477f90`) и `HitscanHit` (point/normal/distance/sector/object/polygon/
+    triangle); конус `0x477f90`/`0x4779f0` — проекция на строки матрицы
+    (`0x437909`), глубина строго > 0.32 (`0x4a2658`), строгие боковые
+    сравнения, масштабы `0x81c020/0x81c028/0x81c030`, `hitscan_cos_limit`,
+    `hitscan_scale_spread`. CTest `test_hitscan_ray`/`test_hitscan_cone`.
+    Осталось: жертва/`event_post` impact (`0x44fad0`), точка мира `0x43c51f`,
+    вызов из игрового выстрела.
   * **Звук лифта в очереди** (в master): `0x44f690`/`0x4502a0` → `0x46b840`
     (`n_a/v_a` вызов, `n_c/v_c` прибытие), `0x46b960` (петля `n_b/v_b`,
     class `2000000+индекс`), `0x46ba90` (стоп петли); позиция — origin
