@@ -200,7 +200,14 @@
   `RayHit::triangle` (`sector`/`object`/`source_poly`), длина `hit.t`; далее
   `poll_aim` + `post_switch_events`, как у `press_switch`. CTest `aim_switch`
   (стена `x=100`: попадание, `max_distance`, радиус, чужие kind,
-  детерминизм 10 кадров).
+  детерминизм 10 кадров). **Луч из камеры**: `0x44fc30` берёт направление из
+  базиса `0x41e025` (второй выход = forward), C++ —
+  `GameRuntime::aim_switch_from_camera(player, roll, pitch, yaw, max_distance)`
+  / `aim_switch_from_basis(player, basis, ...)` поверх `gm::camera_basis`
+  (порт `0x41e025`); ручной `aim_switch(direction)` остался. Дальность
+  оригинал не клампит (`0x43c51f` стартует с double `1e38`), принимает по
+  радиусу switch (`+0x08`). CTest `aim_from_camera` (`+X` при `yaw=+π/2`,
+  промахи по yaw/pitch, roll не влияет, NaN/чужой игрок → 0).
 - Итог: `ctest` 52/59 — те же 7 внешних (`core`, `core_full`, `camera_rig`,
   `things_full`, `sbtvm`, `vm`, `vm_full`); `vm` 15 / `vm_full` 28 падений,
   все level1/level2. `regress.py --full` 121/121.

@@ -74,6 +74,7 @@
 #include <string>
 #include <vector>
 
+#include "camera/camera.h"
 #include "game/events.h"
 #include "game/projectile.h"
 #include "game/trigger.h"
@@ -245,8 +246,11 @@ public:
 
     /// ``0x44fc30`` aimed half: cast *direction* from player *player*'s eye
     /// (`set_player_eyes`) through the collision world and let the world's
-    /// ``kind 0x101`` switches match the hit polygon.  The engine's ray length
-    /// is ``0x40c38800`` = 10 000 units, passed here as *max_distance*.
+    /// ``kind 0x101`` switches match the hit polygon.  ``0x43c51f`` starts its
+    /// distance accumulator at the double ``1e38``
+    /// (``0x47d2ced3_2a16a1b1``), so the original does not clamp the ray: the
+    /// accepted length comes from the switch's own ``+0x08`` radius.  The
+    /// scaffold adds *max_distance* (default 10 000) as a caller-side bound.
     ///
     /// On a hit the ``(sector, object, polygon)`` triple comes from the
     /// triangle record (``RayHit::triangle``), exactly the three ints
@@ -257,6 +261,24 @@ public:
     /// direction, a miss or no matching switch).
     std::size_t aim_switch(std::size_t player, const Vec3d& direction,
                            double max_distance = 10000.0);
+
+    /// ``0x44fc30`` aimed half with the ray taken from a camera basis: the
+    /// original builds the player's basis from the record angles
+    /// (``0x41e025``, ported as `camera_basis`) and passes its **second**
+    /// output (``local_50``) to ``0x43c51f`` as the direction, i.e.
+    /// `CameraBasis::forward`.  The origin stays `player_eyes_[player]`, the
+    /// length is *max_distance* like `aim_switch`.  A non-finite or zero
+    /// forward fires nothing.
+    std::size_t aim_switch_from_basis(std::size_t player, const CameraBasis& basis,
+                                      double max_distance = 10000.0);
+
+    /// Convenience wrapper: `camera_basis(roll, pitch, yaw)` then
+    /// `aim_switch_from_basis`.  Angles are radians; `pitch > 0` looks down and
+    /// `yaw = +pi/2` looks along +X (`docs/CAMERA.md` §3).  Non-finite angles
+    /// fire nothing.
+    std::size_t aim_switch_from_camera(std::size_t player, double roll,
+                                       double pitch, double yaw,
+                                       double max_distance = 10000.0);
 
     // --- AI shot template ---------------------------------------------------
 

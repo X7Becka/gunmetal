@@ -1,6 +1,7 @@
 #include "game/runtime.h"
 
 #include <array>
+#include <cmath>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -236,6 +237,27 @@ std::size_t GameRuntime::aim_switch(std::size_t player, const Vec3d& direction,
         post_switch_events(events_, world_, static_cast<std::int16_t>(player));
     }
     return fired;
+}
+
+std::size_t GameRuntime::aim_switch_from_basis(std::size_t player,
+                                               const CameraBasis& basis,
+                                               double max_distance) {
+    // `0x41e025` output 2 is `local_50`, the direction `0x43c51f` receives;
+    // `camera_basis()` names the same row `forward`.
+    if (!std::isfinite(basis.forward.x) || !std::isfinite(basis.forward.y) ||
+        !std::isfinite(basis.forward.z)) {
+        return 0;
+    }
+    return aim_switch(player, basis.forward, max_distance);
+}
+
+std::size_t GameRuntime::aim_switch_from_camera(std::size_t player, double roll,
+                                                double pitch, double yaw,
+                                                double max_distance) {
+    if (!std::isfinite(roll) || !std::isfinite(pitch) || !std::isfinite(yaw)) {
+        return 0;
+    }
+    return aim_switch_from_basis(player, camera_basis(roll, pitch, yaw), max_distance);
 }
 
 void GameRuntime::set_ai_projectile_template(Thing projectile) {

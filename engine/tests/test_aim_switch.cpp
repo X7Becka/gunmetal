@@ -15,9 +15,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
+#include "camera/camera.h"
 #include "game/runtime.h"
 #include "res/sbt.h"
 #include "res/sbw.h"
@@ -230,10 +232,59 @@ void test_aim_is_deterministic() {
 
 } // namespace
 
+// `0x44fc30` takes the aimed ray from the player basis built by `0x41e025`:
+// the second output (`local_50`) is the direction handed to `0x43c51f`, i.e.
+// `camera_basis().forward`.  `aim_switch_from_camera()` is that path.
+void test_aim_from_camera() {
+    constexpr double kPi = 3.14159265358979323846;
+    const std::vector<SwitchSpec> switches = {{0x101, 999, 200, {0, 0, 0}}};
+    const gm::SbtLevel level = make_level(switches);
+    const gm::SbwLevel geometry = make_wall();
+    gm::GameRuntime runtime;
+    build(runtime, level, geometry);
+    const std::array<gm::Vec3d, 1> eyes = {gm::Vec3d{0.0, 0.0, 0.0}};
+    CHECK(runtime.set_player_eyes(eyes));
+
+    // yaw = +pi/2 looks along +X, straight at the wall at x = 100.
+    CHECK_EQ(runtime.aim_switch_from_camera(0, 0.0, 0.0, kPi / 2.0),
+             std::size_t{1});
+    // yaw = 0 looks along +Y and yaw = -pi/2 along -X: both miss.
+    CHECK_EQ(runtime.aim_switch_from_camera(0, 0.0, 0.0, 0.0), std::size_t{0});
+    CHECK_EQ(runtime.aim_switch_from_camera(0, 0.0, 0.0, -kPi / 2.0),
+             std::size_t{0});
+
+    // Pitch > 0 looks down: from the eye the ray misses the quad.
+    CHECK_EQ(runtime.aim_switch_from_camera(0, 0.0, kPi / 2.0, kPi / 2.0),
+             std::size_t{0});
+    // Roll rotates the right/up rows, not `forward`.
+    CHECK_EQ(runtime.aim_switch_from_camera(0, 0.7, 0.0, kPi / 2.0),
+             std::size_t{1});
+
+    // The basis overload takes the same forward row.
+    CHECK_EQ(runtime.aim_switch_from_basis(0, gm::camera_basis(0.0, 0.0, kPi / 2.0)),
+             std::size_t{1});
+
+    // max_distance still applies (the wall is at 100).
+    CHECK_EQ(runtime.aim_switch_from_camera(0, 0.0, 0.0, kPi / 2.0, 50.0),
+             std::size_t{0});
+
+    // Non-finite angles, an unknown player and a zero basis fire nothing.
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    CHECK_EQ(runtime.aim_switch_from_camera(0, nan, 0.0, 0.0), std::size_t{0});
+    CHECK_EQ(runtime.aim_switch_from_camera(3, 0.0, 0.0, kPi / 2.0), std::size_t{0});
+    gm::CameraBasis zero;
+    zero.forward = gm::Vec3d{0.0, 0.0, 0.0};
+    CHECK_EQ(runtime.aim_switch_from_basis(0, zero), std::size_t{0});
+
+    // The plain `aim_switch` remains the manual entry point.
+    CHECK_EQ(runtime.aim_switch(0, gm::Vec3d{1.0, 0.0, 0.0}), std::size_t{1});
+}
+
 int main() {
     test_aim_hits_the_matching_polygon();
     test_aim_ignores_other_kinds();
     test_aim_is_deterministic();
+    test_aim_from_camera();
     if (g_failures != 0) {
         std::fprintf(stderr, "aim_switch: %d failure(s)\n", g_failures);
         return 1;

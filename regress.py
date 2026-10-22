@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hashlib
 import json
 import math
 import os
@@ -121,6 +122,99 @@ def run_raw(args: list[str]) -> tuple[int, str]:
     except subprocess.TimeoutExpired:
         return 124, "timeout after %.0fs (GM_CHECK_TIMEOUT)" % CHECK_TIMEOUT
     return p.returncode, (p.stdout + p.stderr)
+
+
+# --- result cache for the pure (write-nothing) heavy checks ----------------
+# The key covers every input that can change a result: the Python sources of
+# the oracle and the tools, the executable, the mirror's content digest and the
+# argv.  Only successful runs are cached, and a failed check is always re-run,
+# so a stale entry can hide neither a regression nor a fix.
+CACHE_HITS = 0
+CACHE_ENABLED = False
+CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "gunmetal-re",
+                         "regress-cache")
+_bundle: str | None = None
+
+
+def _bundle_hash() -> str:
+    global _bundle
+    if _bundle is not None:
+        return _bundle
+    h = hashlib.sha256()
+    paths = [os.path.join(HERE, "regress.py"), os.path.join(HERE, "gm.py")]
+    for sub in ("gm", "tools", "tools/re"):
+        base = os.path.join(HERE, sub)
+        for cur, dirs, files in os.walk(base):
+            dirs[:] = sorted(d for d in dirs if d != "__pycache__")
+            for name in sorted(files):
+                if name.endswith(".py"):
+                    paths.append(os.path.join(cur, name))
+    for path in paths:
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        h.update(os.path.relpath(path, HERE).encode())
+        h.update(str(st.st_size).encode())
+        with open(path, "rb") as fh:
+            h.update(fh.read())
+    try:
+        h.update(str(os.stat(os.environ.get("GUNMETAL_EXE", exelib_exe())).st_size).encode())
+    except OSError:
+        pass
+    _bundle = h.hexdigest()
+    return _bundle
+
+
+def exelib_exe() -> str:
+    return "/mnt/d/games/Gunmetal 3dfx/gundx.exe"
+
+
+def _game_digest(G: str) -> str:
+    """Content digest of the tested corpus (the mirror manifest)."""
+    manifest = os.path.join(os.path.dirname(os.path.abspath(G)),
+                            "game.manifest.json")
+    try:
+        with open(manifest, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if os.path.abspath(data.get("install", "")) or data.get("files"):
+            return str(data.get("sha256") or hashlib.sha256(
+                json.dumps(data.get("files", {}), sort_keys=True).encode()).hexdigest())
+    except (OSError, ValueError):
+        pass
+    return "install:" + os.path.abspath(G)
+
+
+def cached_run(cmd: list[str], G: str):
+    """``subprocess.run`` with a content-addressed cache (successes only)."""
+    global CACHE_HITS
+    if not CACHE_ENABLED:
+        return subprocess.run(cmd, capture_output=True, text=True, cwd=HERE)
+    key = hashlib.sha256(("\0".join([_bundle_hash(), _game_digest(G), *cmd]))
+                         .encode()).hexdigest()
+    path = os.path.join(CACHE_DIR, key + ".json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            row = json.load(fh)
+        import types
+        CACHE_HITS += 1
+        return types.SimpleNamespace(returncode=row["rc"], stdout=row["stdout"],
+                                     stderr=row["stderr"])
+    except (OSError, ValueError, KeyError):
+        pass
+    p = subprocess.run(cmd, capture_output=True, text=True, cwd=HERE)
+    if p.returncode == 0:
+        try:
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            tmp = path + ".tmp.%d" % os.getpid()
+            with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+                json.dump({"rc": p.returncode, "stdout": p.stdout,
+                           "stderr": p.stderr, "cmd": cmd}, fh,
+                          ensure_ascii=False)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+    return p
 
 
 def run(args: list[str]) -> tuple[int, str]:
@@ -1147,6 +1241,9 @@ def main() -> int:
     ap.add_argument("--json", action="store_true",
                     help="print one JSON summary line instead of the tail "
                          "(cheap for agents/CI)")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="ignore the result cache for the pure heavy checks "
+                         "(default: on with --mirror, GM_REGRESS_CACHE=0 disables)")
     ap.add_argument("--list-categories", action="store_true",
                     help="print the category names and exit")
     opts = ap.parse_args()
@@ -1170,6 +1267,9 @@ def main() -> int:
         opts.full = True
 
     G = opts.game
+    if (opts.mirror and not opts.no_cache
+            and os.environ.get("GM_REGRESS_CACHE", "1") != "0"):
+        globals()["CACHE_ENABLED"] = True
     if opts.mirror:
         sys.path.insert(0, os.path.join(HERE, "tools", "re"))
         import gmcache
@@ -1246,24 +1346,22 @@ def main() -> int:
                              ["sob: 672 converted, 0 failed"] if opts.full
                              else ["sob: 672 parsed, 0 failed"]))
     if opts.full and want("models"):
-        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
-                                                         "sob_writer.py"), "--check"],
-                           capture_output=True, text=True, cwd=HERE)
+        p = cached_run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "sob_writer.py"), "--check"], G)
         results.append(report("sob / 672-model writer round-trip",
                               p.returncode == 0 and "672/672 identical" in p.stdout
                               and "byte-exact via raw        : 672/672" in p.stdout,
                               "semantic + raw byte-exact"))
     if opts.full and want("audio"):
-        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
-                                                         "sou_container.py"), "--check"],
-                           capture_output=True, text=True, cwd=HERE)
+        p = cached_run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "sou_container.py"), "--check"], G)
         results.append(report("sou / 4091-entry rebuild", p.returncode == 0
                               and "4091/4091" in p.stdout,
                               (p.stdout.strip().splitlines() or ["no output"])[-1]))
     if opts.full and want("vm"):
-        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",
-                                                         "vm_exec.py"), "--corpus",
-                            "--compare"], capture_output=True, text=True, cwd=HERE)
+        p = cached_run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "vm_exec.py"), "--corpus",
+                        "--compare"], G)
         results.append(report("vm / 36-level execution vs scene", p.returncode == 0
                               and "spawns" in p.stdout,
                               "all main scripts reach END; 391 spawns match"))
@@ -1614,8 +1712,8 @@ def main() -> int:
              ["frontend", G, os.path.join(out, "fe")], ["143 files"]),
         ]))
     if opts.full and want("film"):
-        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "parity_film.py"),
-                            "--quick"], capture_output=True, text=True, cwd=HERE)
+        p = cached_run([sys.executable, os.path.join(HERE, "tools", "parity_film.py"),
+                        "--quick"], G)
         results.append(report("film / .sof/.fdx parity",
                               p.returncode == 0,
                               (p.stdout.strip().splitlines() or ["no output"])[-1]))
@@ -1637,10 +1735,12 @@ def main() -> int:
             "categories": sorted(ONLY),
             "game": G,
             "failed": FAILED,
+            "cached": CACHE_HITS,
         }, ensure_ascii=False))
     else:
+        cached = f", {CACHE_HITS} cached" if CACHE_HITS else ""
         print(f"\nregress: {passed}/{len(results)} checks passed in "
-              f"{seconds:.1f}s" + scope + hint)
+              f"{seconds:.1f}s{cached}" + scope + hint)
     return 0 if passed == len(results) else 1
 
 
