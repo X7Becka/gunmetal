@@ -8,6 +8,8 @@
 - Журнал прошлых ходов (перенесён из этого файла 2026-10-22) — `docs/JOURNAL.md`.
 - Аудит процесса, узкие места и очередь задач — `docs/RE_AUDIT.md`.
 - Снимок состояния (HEAD, roadmap, тесты, кэш) — `python3 tools/qa/state.py`.
+- Прогресс долгих прогонов — `tools/loadbar.py` (`--demo`/`--test`);
+  `GM_PROGRESS=0` глушит, `=log` — отметки по 10 %, `GM_PROGRESS_ASCII=1` — ASCII.
 - Здесь — только очередь и следующий шаг; длинные отчёты сюда не писать.
 
 ## Сейчас
@@ -60,6 +62,24 @@
   в `docs/FORMATS.md` §15 исправлены три ошибки.
 - Модель — `opencode-go/deepseek-v4.1-flash` (бесплатные: `*-free` —
   «Free usage limit reached», `beam-free` — «not available in your country»).
+
+### Партия 4 — в работе (2026-10-23)
+
+Три агента (модель `opencode-go/deepseek-v4.1-flash`):
+
+- `feat/metric` — `tools/re/frame_metric.py` + `docs/FRAME_METRIC.md`:
+  метрика кадра, устойчивая к шуму текстуры и сдвигу на 1–3 px, с
+  калибровкой на `win2`/`win3` для четырёх вариантов рендера;
+- `feat/hudcompose` — `tools/re/hud_compose_ref.py` + `docs/HUD_COMPOSE.md`:
+  эталонная композиция кокпита 320×78 по `docs/HUD_AUDIT.md`, сверка с
+  кадрами, план переноса в `gm/render.py`;
+- `feat/equip` — `tools/re/equipment.py` + `docs/EQUIPMENT.md`: модель
+  12 оборудований (`M6.2.4`), активация/эффекты/слоты.
+
+Пока они работают, влито и проверено: движковая текстурная проекция с
+**байтовым паритетом** Python↔C++ (CTest `core` пинит FNV
+`0xa914848d24650304`), `--pitch-offset` в `oracle_render.py`, `M2.3.4`,
+`M3.3.1`, `M3.3.2` закрыты (roadmap 83 ✅ / 74 🟡 / 74 ⬜).
 
 ### Следующая партия (когда понадобится)
 
