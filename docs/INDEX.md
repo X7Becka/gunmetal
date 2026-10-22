@@ -36,14 +36,16 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 36 | 165 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 39 | 168 | JOURNAL — журнал ходов |
 | `docs/LEVEL_LOAD.md` | 32 | 664 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
 | `docs/LIGHTMAP_AUDIT.md` | 11 | 8 | Аудит лайтмапов `.sbc`: покрытие и яркость (M4) |
+| `docs/LOOK16.md` | 14 | 12 | `LOOK16.TAB`: что делает куб и как свет `0..127` превращается в цвет |
 | `docs/MAINLOOP.md` | 7 | 209 | Главный цикл и машина состояний (M2.2.2) |
+| `docs/MATERIAL_BLEND.md` | 28 | 157 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
-| `docs/ORACLE.md` | 18 | 4 | Эталонный оракул (M4.4.2) |
+| `docs/ORACLE.md` | 22 | 7 | Эталонный оракул (M4.4.2) |
 | `docs/ORACLE_RENDER.md` | 12 | 1 | Воспроизводимый рендер эталонного кадра (`oracle_render.py`) |
 | `docs/PALETTE.md` | 5 | 15 | Палитра 8-битной графики и индексы текстур `.sbw` |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
@@ -68,6 +70,7 @@
 | `docs/SBV.md` | 21 | 17 | `.sbv` — видео/анимации Gunmetal |
 | `docs/SBV_PARITY.md` | 9 | 3 | Паритет C++ ↔ Python для `.sbv` на всём корпусе |
 | `docs/SCREEN_CPP.md` | 15 | 5 | SML-экран в C++: один рантайм от `.sme` до RGB |
+| `docs/SECTOR_LIGHT.md` | 18 | 36 | Скриптовый свет сектора: `sector+0x16` (M4.2.5) |
 | `docs/SECURITY.md` | 12 | 1 | Границы доверия и устойчивость к битым файлам |
 | `docs/SHAKE.md` | 30 | 467 | Gunmetal — тряска камеры, view-pitch и отдача |
 | `docs/SML_CPP.md` | 12 | 6 | SML/SME в C++: читатель разметки UI |
