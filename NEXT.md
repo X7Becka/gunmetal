@@ -221,9 +221,19 @@
   оригинал не клампит (`0x43c51f` стартует с double `1e38`), принимает по
   радиусу switch (`+0x08`). CTest `aim_from_camera` (`+X` при `yaw=+π/2`,
   промахи по yaw/pitch, roll не влияет, NaN/чужой игрок → 0).
-- Итог: `ctest` 52/59 — те же 7 внешних (`core`, `core_full`, `camera_rig`,
-  `things_full`, `sbtvm`, `vm`, `vm_full`); `vm` 15 / `vm_full` 28 падений,
-  все level1/level2. `regress.py --full` 121/121.
+- **Режим 16 (`0x476070`) доработан**: `+0x210/+0x214` типа
+  (`0x46dd71/0x46dd77`, база `0x776d60`) → `Thing::timer_period/timer_step`;
+  `+0x3e8` флипает направление перебора полос на каждом выстреле, а
+  `rand() % +0x3ec == 0` добавляет `+0x3f0` к кулдауну. Розыгрыш — opt-in
+  через `ThingMotionInput::rng`/`Things::set_motion_rng` (`MsvcRand`),
+  без ГПСЧ шаг детерминирован. CTest `test_timer_fields`,
+  `test_patrol_scan_and_timer`.
+- **Луч прицела из камеры**: `GameState::aim_direction()` =
+  `camera_basis(angles[1], angles[0], angles[2]).forward` — готовый вход для
+  `GameRuntime::aim_switch_from_basis()` (CTest `test_aim_direction`).
+- Итог: **`ctest` 61/61** после M0.8 content-addressed путей (ранее 52/59;
+  `core_full`/`things_full` больше не падают на переставленных
+  `level1/level2`); `regress.py --full --mirror` 121/121.
 
 - **Трансформ `.sbw` исправлен** (`feat/sbw-transform`): заголовок объекта —
   **12 × `f64`** (origin + базис), в поставке базис единичный; множителя
