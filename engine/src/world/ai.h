@@ -427,6 +427,16 @@ public:
     /// agents that changed state.
     std::size_t sync_vitals();
 
+    /// Bridge to the movement automata (`docs/AI_CPP.md` §11): for every agent
+    /// whose thing runs a `thing_motion` automaton, feed its current aim point
+    /// into `Things::aim_motion_at()` (`agent.has_aim`) or clear the target
+    /// (`!has_aim`).  The AI computes *which* point to look at; `0x473a00`
+    /// computes the three errors, and `aim_motion_at` is that arithmetic in
+    /// the engine frame.  The AI never mutates `Things` state itself; the
+    /// call is an explicit opt-in from the tick owner.  Returns the number of
+    /// agents that were aimed.
+    std::size_t apply_aim(Things& things);
+
     /// Test/debug hook: move an agent without changing its state.  Used to put
     /// an agent outside its leash; `use_move_step` (§7) can move it back.
     bool place(int thing_id, const Vec3d& position);

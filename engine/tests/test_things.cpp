@@ -16,11 +16,13 @@
 #include "game/events.h"
 #include "res/sbt.h"
 #include "res/vm_exec.h"
+#include "game_path.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cmath>
+#include <optional>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -805,10 +807,13 @@ void test_corpus() {
     std::size_t null_runtime = 0;
     std::size_t levels = 0;
     for (const LevelGolden& golden : kLevels) {
-        const fs::path path = kGame / (std::string(golden.name) + ".sbt");
-        if (!fs::exists(path)) {
+        // resolve by content: the shipped level1/level2 may be swapped
+        const auto resolved = gmtest::resolve_game_file(
+            kGame, std::string(golden.name) + ".sbt");
+        if (!resolved) {
             continue;
         }
+        const fs::path path = *resolved;
         ++levels;
         const gm::ThingsOptions matrix;
         test_real_level(path, golden.top, golden.recursive, golden.executed,
@@ -1095,6 +1100,94 @@ void test_motion_tick() {
     }
 }
 
+void test_motion_aim() {
+    // `aim_motion_at` fills the `0x473a00` errors in the body frame: the
+    // local transform of `0x437909` (basis rows), the yaw of `0x41e2b8`
+    // (forward = (sin yaw, cos yaw)) and the zero pitch error of this build.
+    gm::Things things;
+    gm::Thing body;
+    body.id = -1;
+    body.type = 6;
+    body.movement_type = 0; // idle: no yaw integration, the frame is stable
+    body.position = std::array<int, 3>{0, 0, 0};
+    CHECK_EQ(things.spawn(body), 0);
+    things.set_motion_enabled(true);
+
+    // No state before the first step: the body angles are unknown.
+    CHECK(!things.aim_motion_at(0, gm::Vec3d{100.0, 0.0, 0.0}));
+    CHECK(things.motion_target(0) == nullptr);
+
+    things.tick(1);
+    CHECK(things.motion_state(0) != nullptr);
+
+    constexpr double kHalfPi = 1.57079632679489661923;
+    CHECK(things.aim_motion_at(0, gm::Vec3d{100.0, 0.0, 0.0}));
+    const gm::ThingMotionTarget* aim = things.motion_target(0);
+    CHECK(aim != nullptr);
+    if (aim != nullptr) {
+        CHECK(aim->valid);
+        CHECK(aim->visible);
+        CHECK_NEAR(aim->yaw_error, kHalfPi, 1e-12);
+        CHECK_NEAR(aim->pitch_error, 0.0, 0.0);
+        CHECK_NEAR(aim->vertical_error, 0.0, 0.0);
+        CHECK_NEAR(aim->position.x, 100.0, 0.0);
+    }
+
+    // -X is -pi/2 in the body frame; the visibility flag travels along.
+    CHECK(things.aim_motion_at(0, gm::Vec3d{-100.0, 0.0, 0.0}, false));
+    aim = things.motion_target(0);
+    CHECK(aim != nullptr && aim->valid);
+    if (aim != nullptr) {
+        CHECK_NEAR(aim->yaw_error, -kHalfPi, 1e-12);
+        CHECK(!aim->visible);
+    }
+
+    // +Y is straight ahead at yaw 0; z is the vertical error.
+    CHECK(things.aim_motion_at(0, gm::Vec3d{0.0, 100.0, 40.0}));
+    aim = things.motion_target(0);
+    CHECK(aim != nullptr && aim->valid);
+    if (aim != nullptr) {
+        CHECK_NEAR(aim->yaw_error, 0.0, 1e-12);
+        CHECK_NEAR(aim->vertical_error, 40.0, 0.0);
+    }
+
+    // Non-finite points are rejected, the previous target stays.
+    CHECK(!things.aim_motion_at(0, gm::Vec3d{std::nan(""), 0.0, 0.0}));
+    CHECK(things.motion_target(0) != nullptr && things.motion_target(0)->valid);
+
+    // `clear_motion_aim` drops the target without touching the state.
+    things.clear_motion_aim(0);
+    CHECK(things.motion_target(0) != nullptr);
+    CHECK(!things.motion_target(0)->valid);
+
+    // `index_of` is the stable slot lookup used by the AI bridge.
+    CHECK(things.index_of(0) == std::optional<std::size_t>{0});
+    CHECK(!things.index_of(42).has_value());
+
+    // Out-of-range indices are ignored everywhere.
+    CHECK(!things.aim_motion_at(1, gm::Vec3d{1.0, 0.0, 0.0}));
+    CHECK(things.motion_target(1) == nullptr);
+
+    // A turret (type 5) turns into the direction of the sign of `yaw_error`.
+    gm::Things turret;
+    gm::Thing gun;
+    gun.id = -1;
+    gun.type = 7;
+    gun.movement_type = 5;
+    gun.turn_accel = 0.5;
+    gun.turn_max = 1.0;
+    gun.position = std::array<int, 3>{0, 0, 0};
+    CHECK_EQ(turret.spawn(gun), 0);
+    turret.set_motion_enabled(true);
+    turret.tick(1);
+    // Put the body at a known yaw before aiming.
+    turret.aim_motion_at(0, gm::Vec3d{100.0, 0.0, 0.0});
+    const double error = turret.motion_target(0)->yaw_error;
+    turret.tick(1);
+    CHECK_EQ(turret.motion_last(0)->turn, error > 0.0 ? 3 : 2);
+    CHECK(turret.motion_state(0)->yaw_target != 0.0);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1103,6 +1196,7 @@ int main(int argc, char** argv) {
     test_expire_lifetime();
     test_spawn_remove();
     test_motion_tick();
+    test_motion_aim();
     test_generate_and_cycle();
     test_negatives();
     test_real_dm1();

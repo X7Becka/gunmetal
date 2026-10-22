@@ -250,8 +250,21 @@ source-relative вещей абсолютной позиции нет — авт
 в `0x476830`). `motion_last(index)` отдаёт последний `ThingMotionStep`
 (включая `fired_event` — это id `+0x21c`, постит его игровой слой).
 Выключение не стирает состояния, только перестаёт шагать; respawn слота
-сбрасывает состояние. Счётчики — `stats().motion_steps/motion_moved/
+сбрасывает состояние и цель. Счётчики — `stats().motion_steps/motion_moved/
 motion_pushed`. Тест — `test_motion_tick` (`gm_things_tests`).
+
+**Прицел из AI.** `aim_motion_at(index, point, visible)` заполняет вход
+автоматов так, как это делает `0x473a00`: `position = point`, `yaw_error` —
+пеленг точки в системе тела (`0x437909` — проекции на строки базиса,
+`0x4226e9` — нормировка, `0x41e2b8` — угол; forward = `(sin yaw, cos yaw)`,
+поэтому точка на `+X` при `yaw = 0` даёт `+π/2`), `pitch_error = 0` (эта
+сборка его обнуляет), `vertical_error = point.z − position.z` (гейт
+`|e| ≥ 20` и добавка к `velocity.z` — в `thing_motion.cpp`). Нужно уже
+созданное состояние (включённые автоматы + хотя бы один `tick`), иначе
+`false`: углы тела живут в состоянии. `clear_motion_aim(index)` ставит
+`valid = false`, `motion_target(index)` отдаёт текущую цель (`nullptr`, если
+её ещё не задавали), `index_of(id)` — стабильный индекс слота для моста из
+AI. Тест — `test_motion_aim`.
 
 ### 2.4. `stats()`
 

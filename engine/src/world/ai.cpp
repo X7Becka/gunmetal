@@ -932,6 +932,27 @@ void Ai::tick(const CollisionWorld& world, double dt) {
     refresh_stats();
 }
 
+std::size_t Ai::apply_aim(Things& things) {
+    std::size_t aimed = 0;
+    for (const AiAgent& agent : agents_) {
+        if (agent.thing_id < 0) {
+            continue;
+        }
+        const std::optional<std::size_t> index = things.index_of(agent.thing_id);
+        if (!index.has_value()) {
+            continue;
+        }
+        if (!agent.has_aim) {
+            things.clear_motion_aim(*index);
+            continue;
+        }
+        if (things.aim_motion_at(*index, agent.aim_point, agent.visible)) {
+            ++aimed;
+        }
+    }
+    return aimed;
+}
+
 std::size_t Ai::sync_vitals() {
     if (things_ == nullptr) {
         return 0;

@@ -272,6 +272,33 @@ public:
     /// Target seen by the seek/turret/patrol modes of `things()[index]`.
     /// Out-of-range indices are ignored.
     void set_motion_target(std::size_t index, ThingMotionTarget target);
+
+    /// Aim the automaton of `things()[index]` at a world point, filling the
+    /// three errors the original computes in `0x473a00`:
+    ///
+    ///   * `position`  = *target*;
+    ///   * `yaw_error` = bearing of the point in the body frame, measured from
+    ///     the forward row (`0x437909` local transform + `0x4226e9` normalize
+    ///     + `0x41e2b8` angle; `forward = (sin yaw, cos yaw)`, so a point on
+    ///     +X with yaw 0 gives `+pi/2`);
+    ///   * `pitch_error` = 0 (this build zeroes it, see docs/THING_FIELDS.md
+    ///     §4a.5);
+    ///   * `vertical_error` = `target.z - position.z` (the gate and the
+    ///     velocity.z addition live in `thing_motion.cpp`).
+    ///
+    /// Requires a stepped motion state (`set_motion_enabled` + one `tick`):
+    /// the body yaw/pitch/roll live there.  Returns false (and leaves the
+    /// target untouched) for a disabled/out-of-range/never-stepped instance or
+    /// a non-finite point.
+    bool aim_motion_at(std::size_t index, const Vec3d& target, bool visible = true);
+
+    /// Drop the target of `things()[index]` (`valid = false`); the automata
+    /// then keep their current heading.  Out-of-range indices are ignored.
+    void clear_motion_aim(std::size_t index);
+
+    /// Index of *id* in `things()`, or `std::nullopt` when there is no such
+    /// instance.  Indices are stable (`remove` keeps the slot).
+    std::optional<std::size_t> index_of(int id) const;
     /// Bodies the type-18 push repels from; `0x476830` scans the player table,
     /// so one list is shared by every instance.
     void set_push_targets(std::vector<ThingPushTarget> targets);
@@ -281,6 +308,9 @@ public:
     const ThingMotionState* motion_state(std::size_t index) const;
     /// Last step result of `things()[index]`, or nullptr like above.
     const ThingMotionStep* motion_last(std::size_t index) const;
+    /// Current target of `things()[index]`, or nullptr when motion is off, the
+    /// index is out of range or nothing was set yet.
+    const ThingMotionTarget* motion_target(std::size_t index) const;
 
     /// Runtime spawn: append a thing, assign an id when `thing.id < 0`, mark it
     /// alive/executed and optionally post its +0x1f0 create event.  Returns the
@@ -315,6 +345,9 @@ private:
     std::vector<std::optional<ThingMotionState>> motion_;
     std::vector<ThingMotionStep> motion_last_;
     std::vector<ThingMotionTarget> motion_targets_;
+    /// True once a target was set/cleared for the slot, so `motion_target()`
+    /// can distinguish "no aim yet" from "aim cleared".
+    std::vector<bool> motion_target_seen_;
     std::vector<ThingPushTarget> push_targets_;
 };
 

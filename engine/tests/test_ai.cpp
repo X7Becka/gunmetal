@@ -1224,6 +1224,47 @@ void test_tick_path_random() {
     }
 }
 
+// The AI -> movement-automata bridge: `Ai::apply_aim` feeds the agent's aim
+// point into `Things::aim_motion_at`, which computes the 0x473a00 errors in
+// the body frame; a lost aim clears the target instead of leaving it stale.
+void test_apply_aim() {
+    gm::Things things = make_synthetic_things();
+    const gm::CollisionWorld empty;
+    gm::AiConfig config;
+    gm::Ai ai(config);
+    CHECK_EQ(ai.attach(things), 2u);
+    things.set_motion_enabled(true);
+    things.tick(1); // create the motion states (yaw 0 at the spawn angles)
+
+    CHECK(ai.set_player(gm::Vec3d{100.0, 0.0, 0.0}));
+    ai.tick(empty);
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent == nullptr) {
+        return;
+    }
+    CHECK(agent->has_aim);
+    CHECK_EQ(ai.apply_aim(things), std::size_t{1});
+    const gm::ThingMotionTarget* target = things.motion_target(0);
+    CHECK(target != nullptr);
+    if (target != nullptr) {
+        CHECK(target->valid);
+        CHECK(target->visible);
+        CHECK_NEAR(target->position.x, agent->aim_point.x, 1e-9);
+        CHECK_NEAR(target->position.y, agent->aim_point.y, 1e-9);
+        CHECK_NEAR(target->position.z, agent->aim_point.z, 1e-9);
+        // The aim point lies ahead of the agent at +X, i.e. +pi/2 in a
+        // yaw-0 frame (the eye height shifts it only vertically).
+        CHECK_NEAR(target->yaw_error, 1.5707963267948966, 0.05);
+    }
+
+    // Losing the player clears the aim: the automaton gets an invalid target.
+    ai.clear_players();
+    ai.tick(empty);
+    CHECK_EQ(ai.apply_aim(things), std::size_t{0});
+    CHECK(things.motion_target(0) != nullptr && !things.motion_target(0)->valid);
+}
+
 void test_path_loop() {
     const std::array<gm::Vec3d, 4> points{{
         {10.0, 0.0, 0.0},
@@ -2726,6 +2767,7 @@ int main() {
     test_octagonal_distance();
     test_seek_step();
     test_path_loop();
+    test_apply_aim();
     test_path_random();
     test_tick_path_random();
     test_path_expire();

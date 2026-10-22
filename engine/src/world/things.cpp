@@ -3,6 +3,7 @@
 #include "game/events.h"
 
 #include <algorithm>
+#include <cmath>
 #include <bit>
 #include <cstring>
 #include <iterator>
@@ -840,6 +841,7 @@ void Things::set_motion_enabled(bool enabled, const CollisionWorld* world) {
     }
     if (motion_targets_.size() < things_.size()) {
         motion_targets_.resize(things_.size());
+        motion_target_seen_.resize(things_.size(), false);
     }
 }
 
@@ -849,12 +851,70 @@ void Things::set_motion_target(std::size_t index, ThingMotionTarget target) {
     }
     if (motion_targets_.size() <= index) {
         motion_targets_.resize(index + 1);
+        motion_target_seen_.resize(index + 1, false);
     }
     motion_targets_[index] = target;
+    motion_target_seen_[index] = true;
 }
 
 void Things::set_push_targets(std::vector<ThingPushTarget> targets) {
     push_targets_ = std::move(targets);
+}
+
+bool Things::aim_motion_at(std::size_t index, const Vec3d& target, bool visible) {
+    if (!std::isfinite(target.x) || !std::isfinite(target.y) || !std::isfinite(target.z)) {
+        return false;
+    }
+    if (!motion_enabled_ || index >= things_.size() || index >= motion_.size() ||
+        !motion_[index].has_value()) {
+        return false;
+    }
+    ThingMotionState& state = *motion_[index];
+    const Vec3d delta = target - state.position;
+    // 0x437909: local coordinates are the projections onto the three basis
+    // rows.  Row 1 is forward, so yaw = atan2(x, y) with the engine's
+    // (sin yaw, cos yaw) forward.
+    const std::array<Vec3d, 3> basis = thing_basis(state.roll, state.pitch, state.yaw);
+    const double local_x = dot(basis[0], delta);
+    const double local_y = dot(basis[1], delta);
+    double yaw_error = std::atan2(local_x, local_y);
+    // Keep the error in (-pi, pi]; atan2 already returns [-pi, pi].
+    if (yaw_error <= -3.14159265358979323846) {
+        yaw_error += 2.0 * 3.14159265358979323846;
+    }
+    ThingMotionTarget aim;
+    aim.position = target;
+    aim.yaw_error = yaw_error;
+    aim.pitch_error = 0.0; // 0x41e2b8 writes the zero pitch error of this build
+    aim.vertical_error = delta.z;
+    aim.visible = visible;
+    aim.valid = true;
+    if (motion_targets_.size() <= index) {
+        motion_targets_.resize(index + 1);
+        motion_target_seen_.resize(index + 1, false);
+    }
+    motion_targets_[index] = aim;
+    motion_target_seen_[index] = true;
+    return true;
+}
+
+void Things::clear_motion_aim(std::size_t index) {
+    if (index >= motion_targets_.size()) {
+        return;
+    }
+    motion_targets_[index] = ThingMotionTarget{};
+    if (motion_target_seen_.size() <= index) {
+        motion_target_seen_.resize(index + 1, false);
+    }
+    motion_target_seen_[index] = true;
+}
+
+std::optional<std::size_t> Things::index_of(int id) const {
+    const auto it = by_id_.find(id);
+    if (it == by_id_.end() || it->second >= things_.size()) {
+        return std::nullopt;
+    }
+    return it->second;
 }
 
 const ThingMotionState* Things::motion_state(std::size_t index) const {
@@ -869,6 +929,14 @@ const ThingMotionStep* Things::motion_last(std::size_t index) const {
         return nullptr;
     }
     return &motion_last_[index];
+}
+
+const ThingMotionTarget* Things::motion_target(std::size_t index) const {
+    if (!motion_enabled_ || index >= motion_targets_.size() ||
+        index >= motion_target_seen_.size() || !motion_target_seen_[index]) {
+        return nullptr;
+    }
+    return &motion_targets_[index];
 }
 
 void Things::tick(std::uint64_t ticks, EventQueue* events) {
@@ -973,9 +1041,13 @@ int Things::spawn(Thing thing, EventQueue* events) {
     if (motion_.size() < things_.size()) {
         motion_.resize(things_.size());
         motion_targets_.resize(things_.size());
+        motion_target_seen_.resize(things_.size(), false);
         motion_last_.resize(things_.size());
     }
-    motion_[index].reset(); // a reused slot starts with the fresh-instance state
+    motion_[index].reset();
+    if (index < motion_target_seen_.size()) {
+        motion_target_seen_[index] = false;
+    } // a reused slot starts with the fresh-instance state
     motion_last_[index] = ThingMotionStep{};
     ++stats_.executed;
     if (spawned.depth > 0) {

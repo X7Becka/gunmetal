@@ -208,6 +208,24 @@ target, target_thing, aim, value, event_id, tick }`; `tick` 1-based, у `attach`
 AI **не меняет** `Things` — только читает. Счётчики: `vitals_syncs`,
 `thing_deaths`.
 
+### 1.5. Прицел → автоматы движения (`apply_aim`)
+
+`Ai::apply_aim(Things&)` — явный мост к `world/thing_motion` (вызывает
+владелец тика, сам `Ai::tick` его не делает). Для каждого агента с
+`thing_id` берётся слот (`Things::index_of`) и:
+
+* `agent.has_aim` → `Things::aim_motion_at(index, agent.aim_point,
+  agent.visible)`: позиция цели плюс три ошибки `0x473a00`, посчитанные в
+  системе тела (см. `THINGS_CPP.md` §2.3);
+* иначе → `Things::clear_motion_aim(index)`.
+
+Возвращает число прицеленных агентов. Разделение как в оригинале: **какую**
+точку выбрать, решает AI (скан игроков/вещей, история `target_history_offset`,
+`aim_point`); **как** на неё смотреть — арифметика `0x473a00`, уже в
+`thing_motion`. Тест `test_apply_aim` (`gm_ai_tests`): игрок на `+X` даёт
+`yaw_error ≈ +π/2`, `apply_aim` возвращает 1; после `clear_players()` цель
+становится `valid=false`.
+
 ---
 
 ## 2. Состояния и переходы
@@ -460,8 +478,10 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    opt-in'ом: `patrol` идёт по `path_waypoints` в режимах
    `path`/`loop`/`random`/`expire`, `expire` убивает агента. Автоматы самого движка
    (`movement_type` 0..18) перенесены отдельным модулем `world/thing_motion`
-   (§11) — включая пол/потолок (`0x472120`), отскок и турель. Остаётся
-   `Ai`-решение → `thing_motion`. **Интеграция в `Things::tick`
+   (§11) — включая пол/потолок (`0x472120`), отскок и турель. **Мост
+   `Ai` → `thing_motion` есть**: `Ai::apply_aim(Things&)` раздаёт
+   `agent.aim_point` через `Things::aim_motion_at()` (ошибки `0x473a00` в
+   системе тела), а потерянная цель очищает её (`valid=false`). **Интеграция в `Things::tick`
    сделана** (opt-in `set_motion_enabled(world)`, `motion_state/last`,
    `set_motion_target`, `set_push_targets`, тест `test_motion_tick`).
    Маршрут из
