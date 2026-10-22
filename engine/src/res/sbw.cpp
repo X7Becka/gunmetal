@@ -86,8 +86,8 @@ std::optional<SbwHeader> parse_sbw_header(std::span<const std::uint8_t> data, st
             error = "truncated effect table at entry " + std::to_string(i);
             return std::nullopt;
         }
-        effect.kind = rd32(data.data() + offset);
-        effect.start = rd32(data.data() + offset + 4);
+        effect.mode = rd32(data.data() + offset);
+        effect.period = rd32(data.data() + offset + 4);
         const std::uint32_t n = rd32(data.data() + offset + 8);
         offset += 12;
         if (offset + static_cast<std::size_t>(n) * 2 > data.size()) {

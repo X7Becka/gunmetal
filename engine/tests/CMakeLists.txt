@@ -343,6 +343,12 @@ target_link_libraries(gm_scale_tests PRIVATE gm_engine)
 add_test(NAME scale COMMAND gm_scale_tests)
 gm_label(scale quick)
 
+# Effect animation frames (M4.2.6): 0x41de7d formula + .sbw effect table.
+add_executable(gm_effect_anim_tests test_effect_anim.cpp)
+target_link_libraries(gm_effect_anim_tests PRIVATE gm_engine)
+add_test(NAME effect_anim COMMAND gm_effect_anim_tests)
+gm_label(effect_anim quick)
+
 # SOUND_SAMPLE_TABLE (record 12): 300 counts + 300 nine-byte names.
 add_executable(gm_sample_table_tests test_sample_table.cpp)
 target_link_libraries(gm_sample_table_tests PRIVATE gm_engine)

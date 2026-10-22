@@ -15,11 +15,14 @@ struct SbwTexRef {
     std::uint32_t value = 0;
 };
 
+/// One entry of the ``.sbw`` effect table (table 2) — the animation records a
+/// polygon selects with a **negative** texture index (``-k`` → entry ``k-1``,
+/// docs/EFFECTS.md).
 struct SbwEffectRef {
-    std::string name;
-    std::uint32_t kind = 0;
-    std::uint32_t start = 0;
-    std::vector<std::uint16_t> ids;
+    std::string name;              ///< `+0x4c` (16 bytes)
+    std::uint32_t mode = 0;        ///< `+0x00`: 0 one-shot, 1 cycle, 100/101/102 special
+    std::uint32_t period = 0;      ///< `+0x04`: cycle length in engine ticks (91 Hz)
+    std::vector<std::uint16_t> ids; ///< `+0x0c`: frame texture ids, 1-based
 };
 
 struct SbwObjectRef {
