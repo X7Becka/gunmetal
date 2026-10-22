@@ -182,7 +182,7 @@ FNV-1a 64 = `0x19fa6a27ba4b0c33`):
 |---|---|---|
 | разбор | `engine/src/res/sbt.h/.cpp` | `SbtSectorSlot` (все `0x58` байт типизированы), `parse_sector_stuff` / `encode_sector_stuff`, поле `SbtLevel::sector_stuff` (в уровнях записи нет, 36/36) |
 | сейвы | `engine/src/res/save.h/.cpp` | `Save::sector_stuff` — блок 8 больше не `skip(0x5800)`, а типизированный вектор из 256 слотов; `to_bytes` кодирует его из полей (fallback на `SaveBlock::raw`, если вектор пуст); `rebuild_save(verify)` сверяет поля |
-| VM | `engine/src/res/vm_exec.h/.cpp` | `VmSectorSlot`, `VmState::sectors` (256 слотов), `vm_load_sector_stuff()` (засев из разобранного блока 8), обработчик `h_sector` для опкодов 8/11/12/13/14 **и родственных 27–31 (`SET_SOURCESECTOR_*`, индекс = `VmState::source_sector`, третьи аргумент `0x457390`), 40–45 (`SET_HANDLESECTOR_*`, индекс = `0x617fb8` по id из `0x5b1df8`)**; `VmState::sector_handles` + `vm_load_sector_handles()` (строки `SECTOR_HANDLE: <ld> <ld>`, формат `0x4b9888`, лимит `0x100`); `SET_SECTOR_BRIGHTNESS/TYPE` остаются простыми событиями, потому что пишут запись `.sbw`, а не этот массив |
+| VM | `engine/src/res/vm_exec.h/.cpp` | `VmSectorSlot`, `VmState::sectors` (256 слотов), `vm_load_sector_stuff()` (засев из разобранного блока 8), обработчик `h_sector` для опкодов 8/11/12/13/14 **и родственных 27–31 (`SET_SOURCESECTOR_*`, индекс = `VmState::source_sector`, третьи аргумент `0x457390`), 40–45 (`SET_HANDLESECTOR_*`, индекс = `0x617fb8` по id из `0x5b1df8`)**; `VmState::sector_handles` + `vm_load_sector_handles()` (строки `SECTOR_HANDLE: <ld> <ld>`, формат `0x4b9888`, лимит `0x100`); `SET_*SECTOR_BRIGHTNESS/TYPE` сюда **не** относятся — они пишут запись сектора мира `0x5670d8` (шаг `0x18`), её держит `VmState::world_sectors` (см. `docs/VM_EXEC.md` §3.2) |
 | тесты | `engine/tests/test_sector_stuff.cpp`, `test_save_sector_stuff.cpp`, `test_vm_exec.cpp` | 36 уровней без записи 8; saved0/saved1 поле-в-поле против `gm/sbt.py` + `records.py`; `encode(parse(x)) == x`; правка поля попадает в нужное смещение и переживает re-parse; все пять команд пишут доказанные поля, чужие слоты не меняются, индекс вне `0..255` ничего не пишет |
 
 Что **не** перенесено (честные TODO):
@@ -198,14 +198,20 @@ FNV-1a 64 = `0x19fa6a27ba4b0c33`):
    `SECTOR_HANDLE` **не строится из уровня**: `0x456f50` её только обнуляет, а
    `0x463820` добавляет по одной паре из текстового источника, поэтому в
    поставочных уровнях она пуста, и `SET_HANDLESECTOR_*` там — no-op (как и в
-   оригинале до загрузки сейва). `SET_*SECTOR_BRIGHTNESS/TYPE` по-прежнему
-   пишут запись сектора `.sbw` (`+0x16`/`+0x14`), а не `SECTOR_STUFF`; в C++
-   это событие с пометкой в `notes()`.
+   оригинале до загрузки сейва). `SET_*SECTOR_BRIGHTNESS/TYPE` пишут **не**
+   `SECTOR_STUFF`, а запись сектора мира `0x5670d8` (`+0x16` — свет, `+0x14` —
+   тип×6); в C++ это состояние `VmState::world_sectors`
+   (`docs/VM_EXEC.md` §3.2). Таблица хэндлов обходится до конца (в
+   оригинале в цикле нет `break`), поэтому пишутся **все** строки с одним id.
 4. Потребители не смоделированы: движение вещей (`0x470c70`), урон
    (`0x453b50`), ambient-звук (`0x46c5c0` + микшер), `event_post`
    (`0x4795b0`) — запись в слот есть, применение к миру нет.
-5. `SET_SECTOR_BRIGHTNESS/TYPE` — нужен рантайм-массив секторов `.sbw`
-   (`0x5670d8`, шаг `0x18`), его в C++ пока нет.
+5. ~~`SET_SECTOR_BRIGHTNESS/TYPE`~~ — **сделано**: `VmState::world_sectors`
+   (записи `0x5670d8`, шаг `0x18`: `kind` = тип×6, `light`) и
+   `VmState::world_polys` (записи полигонов `0x80`: текстура, материал,
+   скролл, свет) заполняются из разобранного `.sbw` (`vm_load_world`) и из
+   строк `POLY_HANDLE:` (`vm_load_poly_handles`). Ограничение: не смоделирован
+   сдвиг UV `0x42e69a` при `SET_*POLY_SCROLL` (нужен игровой таймер).
 
 ### 2.6 Опровергнутые гипотезы
 
