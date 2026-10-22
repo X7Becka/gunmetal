@@ -567,8 +567,10 @@ suppress_state_event = trigger_held)` и, если машина заряда п�
 * `runtime.set_player_weapons(table, arsenal)` +
   `runtime.set_player_projectile(thing, owner_player)` +
   `runtime.update_player_weapon(in, eye)` — явный вызов, результат сразу
-  (`PlayerWeaponTick { action, spawned }`), `spawn_player_shot` создаёт
-  снаряд и его create-событие;
+  (`PlayerWeaponTick { action, spawned, impact }`), `spawn_player_shot`
+  создаёт снаряд и его create-событие; для hitscan-оружия тот же вызов
+  заполняет `impact` (`HitscanImpact`: exact-switch `0x44fad0` +
+  `impact_event`), см. docs/DOORS_CPP.md §2.3;
 * `config.player_weapons_in_tick = true` +
   `runtime.set_player_weapon_input(in, eye)` — фаза 2c внутри `tick_once()`:
   один тик `0x4453d0` до шага снарядов, поэтому новый снаряд попадает в

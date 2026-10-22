@@ -285,7 +285,10 @@ exact-switch: `ShotResult` несёт точную тройку треуголь
 `post_weapon_impact`. Урон и перебор сущностей-целей этот шов не делает —
 вызывающий сам применяет конус `hitscan_in_cone`/урон. CTest
 `hitscan_impact_switch` (верная тройка, повтор без защёлки, промах, чужая
-тройка, kind `0x101` не срабатывает).
+тройка, kind `0x101` не срабатывает). `GameRuntime::update_player_weapon()`
+зовёт его синхронно для hitscan-выстрела и кладёт результат в
+`PlayerWeaponTick::impact` (источник — `player_owner_`); CTest
+`player_weapon_impact` (попадание + impact_event, промах — ничего).
 
 `trigger_poly(hit, source)` — exact-ветка `0x44fad0` (её зовут диспетчеры
 `0x478520`/`0x478be0`): срабатывает только `kind == 0x102`, тройка должна

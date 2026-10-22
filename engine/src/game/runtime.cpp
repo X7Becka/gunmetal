@@ -239,9 +239,9 @@ std::size_t GameRuntime::aim_switch(std::size_t player, const Vec3d& direction,
     return fired;
 }
 
-GameRuntime::ImpactResult GameRuntime::resolve_hitscan_impact(
-    std::size_t player, const ShotResult& shot) {
-    ImpactResult out;
+HitscanImpact GameRuntime::resolve_hitscan_impact(std::size_t player,
+                                                  const ShotResult& shot) {
+    HitscanImpact out;
     if (!shot.ok || !shot.fired || !shot.hit) {
         return out;
     }
@@ -350,6 +350,13 @@ PlayerWeaponTick GameRuntime::update_player_weapon(const PlayerWeaponInput& inpu
     tick.action = gm::update_player_weapon(*player_weapons_, player_arsenal_,
                                            player_charge_, input, origin,
                                            collision_);
+    if (tick.action.fired() && !tick.action.shot.projectile) {
+        // 0x477f90 resolves the world side synchronously: the impact trigger
+        // 0x44fad0 and the weapon's impact event belong to the same shot.
+        const std::size_t player = static_cast<std::size_t>(
+            std::max(player_owner_, 0));
+        tick.impact = resolve_hitscan_impact(player, tick.action.shot);
+    }
     if (tick.action.fired() && player_projectile_template_.has_value()) {
         const Weapon* weapon = player_weapons_->at(tick.action.slot);
         if (weapon != nullptr) {

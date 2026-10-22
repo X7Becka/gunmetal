@@ -236,7 +236,7 @@ void test_hitscan_impact_switch() {
     shot.object = 0;
     shot.polygon = 0;
 
-    const gm::GameRuntime::ImpactResult fired =
+    const gm::HitscanImpact fired =
         runtime.resolve_hitscan_impact(0, shot);
     CHECK_EQ(fired.switches, std::size_t{1});
     CHECK(!fired.impact_event); // no player weapon tables installed
@@ -258,6 +258,54 @@ void test_hitscan_impact_switch() {
     shot.ok = false;
     shot.polygon = 0;
     CHECK_EQ(runtime.resolve_hitscan_impact(0, shot).switches, std::size_t{0});
+}
+
+// The player weapon tick resolves the world side of a hitscan shot in the
+// same call: `update_player_weapon()` fills `PlayerWeaponTick::impact`.
+void test_player_weapon_impact() {
+    const std::vector<SwitchSpec> switches = {{0x102, 999, 0, {0, 0, 0}}};
+    const gm::SbtLevel level = make_level(switches);
+    gm::GameRuntime runtime;
+    const gm::SbwLevel wall = make_wall();
+    build(runtime, level, wall);
+    const std::array<gm::Vec3d, 1> eyes = {gm::Vec3d{0.0, 0.0, 0.0}};
+    CHECK(runtime.set_player_eyes(eyes));
+
+    gm::Weapon weapon;
+    weapon.name = "TEST";
+    weapon.fire_mode = 0; // single shot on the trigger edge
+    weapon.hitscan = true;
+    weapon.damage = 1.0;
+    weapon.range = 1000.0;
+    weapon.ammo_per_shot = 1;
+    weapon.impact_event = 123;
+    gm::Weapons table({weapon});
+    gm::Arsenal arsenal;
+    arsenal.mask = 1;
+    arsenal.current = 0;
+    arsenal.ammo[0] = 10;
+    runtime.set_player_weapons(table, arsenal);
+
+    gm::PlayerWeaponInput input;
+    input.trigger_edge = true;
+    input.aim_direction = gm::Vec3d{1.0, 0.0, 0.0};
+    const gm::PlayerWeaponTick tick =
+        runtime.update_player_weapon(input, gm::Vec3d{0.0, 0.0, 0.0});
+    CHECK(tick.action.fired());
+    CHECK(tick.impact.impact_event);
+    CHECK_EQ(tick.impact.switches, std::size_t{1});
+    CHECK_EQ(runtime.world().stats().switch_interactions, std::size_t{1});
+    CHECK(runtime.world().switches()[0].pressed);
+
+    // A shot that misses the wall resolves nothing.
+    runtime.clear_events();
+    gm::PlayerWeaponInput behind = input;
+    behind.aim_direction = gm::Vec3d{-1.0, 0.0, 0.0};
+    const gm::PlayerWeaponTick miss =
+        runtime.update_player_weapon(behind, gm::Vec3d{0.0, 0.0, 0.0});
+    CHECK(miss.action.fired());
+    CHECK_EQ(miss.impact.switches, std::size_t{0});
+    CHECK(!miss.impact.impact_event);
 }
 
 void test_aim_is_deterministic() {
@@ -334,6 +382,7 @@ int main() {
     test_aim_hits_the_matching_polygon();
     test_aim_ignores_other_kinds();
     test_hitscan_impact_switch();
+    test_player_weapon_impact();
     test_aim_is_deterministic();
     test_aim_from_camera();
     if (g_failures != 0) {

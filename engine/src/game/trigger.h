@@ -78,6 +78,15 @@ struct WeaponActionResult {
     bool fired() const { return shot.ok && shot.fired; }
 };
 
+/// World-side result of a hitscan shot (`0x477f90` -> `0x44fad0` +
+/// the weapon's impact event).  `switches` counts the exact-polygon switches
+/// (`kind 0x102`) that fired on the hit triangle; `impact_event` says the
+/// weapon's `impact_event` was posted.
+struct HitscanImpact {
+    std::size_t switches = 0;
+    bool impact_event = false;
+};
+
 /// One fixed-tick player weapon update.
 ///
 /// Order is the original's:
@@ -108,6 +117,9 @@ WeaponActionResult update_player_weapon(const Weapons& table, Arsenal& arsenal,
 /// was hitscan, rejected or no projectile template is installed).
 struct PlayerWeaponTick {
     WeaponActionResult action;
+    /// World impact of a hitscan shot; zero for projectiles, rejected shots
+    /// and misses.  Filled by `GameRuntime::update_player_weapon()`.
+    HitscanImpact impact;
     int spawned = -1;
 };
 

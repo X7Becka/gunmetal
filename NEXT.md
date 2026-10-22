@@ -263,7 +263,8 @@
     (kind `0x102`) и `impact_event`; `ShotResult` несёт тройку
     `sector/object/polygon`. CTest `hitscan_impact_switch`.
     `Weapon::hitscan_max_distance` — первый операнд FIRE (MG 9999, CANNON
-    9000), `fire()` ограничивает им луч. Осталось: выбор жертвы/урон по
+    9000), `fire()` ограничивает им луч; `update_player_weapon` сам зовёт
+    `resolve_hitscan_impact` и кладёт результат в `PlayerWeaponTick::impact`. Осталось: выбор жертвы/урон по
     сущностям (`0x478520`/конус), вызов из игрового выстрела.
   * **Выбор остановки лифта по `0x44f690`**: три alias-кнопки
     (`call_ids[0]` — следующая с переносом, `[1]`/`[2]` — вверх/вниз с
