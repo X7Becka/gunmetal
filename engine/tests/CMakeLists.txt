@@ -335,18 +335,6 @@ gm_label(vm_full full)
 # `tools/re/vm_trace_check.py` runs the dumper and gm/sbtvm_exec.py and diffs.
 add_executable(gm_vm_trace_dump vm_trace_dump.cpp)
 target_link_libraries(gm_vm_trace_dump PRIVATE gm_engine)
-if(GM_PYTHON3)
-    add_test(NAME vm_trace
-             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_trace_check.py
-                     --level level0 --blocks 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
-                     --binary $<TARGET_FILE:gm_vm_trace_dump>)
-    gm_label(vm_trace quick)
-    add_test(NAME vm_trace_dm1
-             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_trace_check.py
-                     --level dm1 --blocks 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
-                     --binary $<TARGET_FILE:gm_vm_trace_dump>)
-    gm_label(vm_trace_dm1 quick)
-endif()
 
 # Interface scaling (M4.3.3): aspect-preserving letterbox and the two
 # filters, on synthetic pixels (no window, no SDL).
@@ -454,10 +442,30 @@ gm_label(rng quick)
 
 find_program(GM_PYTHON3 python3)
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
+    # M5.3.2: the C++ and Python instruction traces must be identical
+    # (tools/re/vm_trace_check.py runs the dumper and gm/sbtvm_exec.py).
+    add_test(NAME vm_trace
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_trace_check.py
+                     --level level0 --blocks 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+                     --binary $<TARGET_FILE:gm_vm_trace_dump>)
+    gm_label(vm_trace quick)
+    add_test(NAME vm_trace_dm1
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_trace_check.py
+                     --level dm1 --blocks 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+                     --binary $<TARGET_FILE:gm_vm_trace_dump>)
+    gm_label(vm_trace_dm1 quick)
     add_test(NAME parity_levels
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/parity_levels.py
                      --gunmetal $<TARGET_FILE:gunmetal>)
     gm_label(parity_levels full)
+endif()
+if(GM_PYTHON3)
+    # M4.4.6: the noise/shift-tolerant frame metric validates itself on
+    # synthetic images (no game files needed).
+    add_test(NAME frame_metric
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/frame_metric.py
+                     --self-test)
+    gm_label(frame_metric quick)
 endif()
 
 # Fast targets for the inner loop: build the binaries, then run CTest.
