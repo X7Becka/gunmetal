@@ -24,10 +24,12 @@
 | `docs/DOORS_CPP.md` | 55 | 137 | Gunmetal — C++-модель дверей, переключателей и лифтов |
 | `docs/DOOR_FIELDS.md` | 56 | 566 | Поля дверей, переключателей и лифтов (M2.3.4) |
 | `docs/ENTITY_FIELDS.md` | 37 | 262 | Скриптовая таблица сущностей (`0x5b0df0`, `0x5e4680`, `0x616658`): карта (M2.3.6) |
+| `docs/EQUIPMENT.md` | 29 | 312 | EQUIPMENT — модель экипировки (`DEFINE_EQUIPMENT`, состояние, эффекты) |
 | `docs/EVENTS.md` | 24 | 92 | Event queue and `GENERATE` events |
 | `docs/FILM.md` | 27 | 107 | HUD-фильмы `.sof` / `.fdx` — формат, привязка, паритет |
 | `docs/FOG.md` | 22 | 220 | Туман по глубине: формула, таблица `lighttable`, Glide (M4.1.6) |
 | `docs/FORMATS.md` | 203 | 947 | Gunmetal — спецификация форматов данных |
+| `docs/FRAME_METRIC.md` | 20 | 0 | Метрика сравнения кадров (M4.4.3) |
 | `docs/FUZZ_CORPUS.md` | 11 | 1 | Фазз-корпус: сохранение и повтор (save / replay) |
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
@@ -39,7 +41,8 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 44 | 172 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 52 | 175 | JOURNAL — журнал ходов |
+| `docs/LAYOUT.md` | 7 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 664 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
 | `docs/LIGHTMAP_AUDIT.md` | 11 | 8 | Аудит лайтмапов `.sbc`: покрытие и яркость (M4) |
@@ -48,7 +51,7 @@
 | `docs/MATERIAL_BLEND.md` | 29 | 159 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
-| `docs/ORACLE.md` | 34 | 12 | Эталонный оракул (M4.4.2) |
+| `docs/ORACLE.md` | 35 | 12 | Эталонный оракул (M4.4.2) |
 | `docs/ORACLE_RENDER.md` | 12 | 1 | Воспроизводимый рендер эталонного кадра (`oracle_render.py`) |
 | `docs/PALETTE.md` | 5 | 15 | Палитра 8-битной графики и индексы текстур `.sbw` |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
@@ -57,9 +60,9 @@
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
 | `docs/RECORDS.md` | 33 | 246 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
-| `docs/REGRESSION.md` | 12 | 1 | Регрессия: ворота, бюджет времени и практики |
+| `docs/REGRESSION.md` | 11 | 1 | Регрессия: ворота, бюджет времени и практики |
 | `docs/RENDER.md` | 5 | 0 | Рендерер C++: конвейер и паритет с `gm/render.py` |
-| `docs/RE_AUDIT.md` | 21 | 10 | Аудит процесса реверса (2026-10-22) |
+| `docs/RE_AUDIT.md` | 22 | 10 | Аудит процесса реверса (2026-10-22) |
 | `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
 | `docs/RNG.md` | 7 | 41 | RNG: `rand()` оригинала, сид и потребители |
 | `docs/RUNTIME_CPP.md` | 42 | 8 | Gunmetal — C++-каркас фиксированного тика (`GameRuntime`) |
@@ -94,6 +97,7 @@
 | `docs/SUB.md` | 18 | 102 | `.sub` — таблицы подстановок спрайтов/текстур |
 | `docs/TEXTURE_AUDIT.md` | 12 | 3 | Аудит декодирования текстур `level0` (M4) |
 | `docs/TEXT_LAYOUT.md` | 23 | 91 | SML: раскладка текста, шрифтовые атласы и пагинация |
+| `docs/TEXUV.md` | 19 | 85 | Текстурные UV кадрового прохода и полигоны без текстуры (M4.1.8) |
 | `docs/THINGS_CPP.md` | 32 | 35 | Gunmetal — C++-runtime вещей (`Thing`) |
 | `docs/THING_FIELDS.md` | 54 | 458 | Thing type (`0x776d60`) и thing instance (`0x7ac080`): карта полей (M2.3.3) |
 | `docs/TOOLCHAIN.md` | 2 | 1 | Инструменты и версии |

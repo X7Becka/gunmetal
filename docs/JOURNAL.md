@@ -520,3 +520,110 @@
 - `8235fd9` — недостающая реализация `update_charge(..., suppress_state_event)`
   (объявление в `weapons.h` и тест были в `dd4f3ae`, тело висело
   незакоммиченным; без него дерево не собиралось).
+
+
+## Перенесено из `NEXT.md` (2026-10-23): партии 3–4 и инфраструктура
+
+История ходов; очередь — `NEXT.md`, канон раскладки — `docs/LAYOUT.md`.
+
+### Сабагенты: статус (2026-10-23, партия 3 закрыта)
+
+- Влиты: `feat/texuv` (`904fadb`, `docs/TEXUV.md`), `feat/hud`
+  (`3509a0e`, `docs/HUD_AUDIT.md`), `feat/vmscene` (`92292fd`,
+  `docs/VM_SCENE.md`), плюс раньше `look16`/`sectorlight`/`matblend`/
+  `alpha`/`sky`/`fog`.
+- Итог партии 3: текстурная проекция и пропуск полигонов без текстуры
+  **доказаны и реализованы с двух сторон** (`uv="texel"`/`skip_untextured`,
+  `--uv-texel`/`--skip-untextured`); HUD-инвентарь (23 элемента) готов;
+  ВМ-сцена сверена 36/36, `M5.2.1`/`M5.2.2`/`M5.3.3`/`M5.3.4` закрыты,
+  в `docs/FORMATS.md` §15 исправлены три ошибки.
+- Модель — `opencode-go/deepseek-v4.1-flash` (бесплатные: `*-free` —
+  «Free usage limit reached», `beam-free` — «not available in your country»).
+
+### Партия 4 — в работе (2026-10-23)
+
+Три агента (модель `opencode-go/deepseek-v4.1-flash`):
+
+- `feat/metric` — `tools/re/frame_metric.py` + `docs/FRAME_METRIC.md`:
+  метрика кадра, устойчивая к шуму текстуры и сдвигу на 1–3 px, с
+  калибровкой на `win2`/`win3` для четырёх вариантов рендера;
+- `feat/hudcompose` — `tools/re/hud_compose_ref.py` + `docs/HUD_COMPOSE.md`:
+  эталонная композиция кокпита 320×78 по `docs/HUD_AUDIT.md`, сверка с
+  кадрами, план переноса в `gm/render.py`;
+- `feat/equip` — `tools/re/equipment.py` + `docs/EQUIPMENT.md`: модель
+  12 оборудований (`M6.2.4`), активация/эффекты/слоты.
+
+Пока они работают, влито и проверено: движковая текстурная проекция с
+**байтовым паритетом** Python↔C++ (CTest `core` пинит FNV
+`0xa914848d24650304`), `--pitch-offset` в `oracle_render.py`, `M2.3.4`,
+`M3.3.1`, `M3.3.2` закрыты (roadmap 83 ✅ / 74 🟡 / 74 ⬜).
+
+### Следующая партия (когда понадобится)
+
+1. **HUD в Python** — по `docs/HUD_AUDIT.md` (23 элемента, координаты и поля
+   известны): панель + текст `0x47faf0` + цифры; тогда полный кадр сравним.
+2. **Переключение дефолтов на движковые** (`uv="texel"` + `skip_untextured`):
+   перебазировать голдены Python/C++ и `parity_levels`, обновить FNV-пины.
+3. **METRIC:** заменить `corr` на метрику, которая не награждает «крупу»
+   (например совпадение по Sobel-краям с допуском сдвига), иначе решения по
+   UV/полигонам принимаются против визуального результата.
+
+### Сабагенты: статус (2026-10-23)
+
+- Партия 2 влита: `feat/look16` (`9d47865`), `feat/sectorlight` (`67f3d3e`),
+  `feat/matblend` (`6282101`). Бесплатные модели по-прежнему недоступны
+  (`beam-free` — не в этой стране, `opencode/*-free` — лимит); запуски шли на
+  `opencode-go/deepseek-v4.1-flash` по разрешению пользователя.
+- Worktree: `~/build/gm-sub-{look16,sectorlight,matblend,spritegolden,
+  texaudit,oraclerender,lmaudit}` — можно удалять после мержа.
+
+## Инфраструктура (2026-10-22, ✅)
+
+- **Постоянный кэш вместо tmpfs.** `tools/re/gmcache.py`: листинг objdump,
+  бинарный индекс `gundx.asm.idx`, копия exe и зеркало установки в
+  `~/.cache/gunmetal-re` (переживает `wsl --shutdown`). `exelib` собирает
+  листинг сам; `disasm()` — bisect + seek (≈100 мс → ≈0,02 мс на запрос),
+  `gmcache.py selftest` — 98 сэмплов, 0 расхождений на 283 626 строках.
+- **Зеркало игры.** `regress.py --mirror` (сверка + автоСинхронизация):
+  `113/113 за 45,7 с` против `113/113 за 78,8 с` на `/mnt/d`;
+  `gm.py inventory` 7,1 с → 0,14 с, `sob --check` 1,5 с → 0,07 с.
+- **Регистр имён.** `regress.py::gp()` и пары `.SME/.SML` больше не зависят
+  от регистронезависимой drvfs (зеркало на ext4); `savegame.py` берёт exe из
+  кэша, а не из `/tmp/opencode` (из-за этого прежний baseline давал 112/113).
+- **Ещё параллель.** `gm.py sounds` 28,6 → 9,6 с (WAV-деревья совпали
+  побайтово), `sou1_model.py --verify` ~10 мин → ~2 мин (`--jobs`, JSON
+  совпал с `docs/manifests/sou1-fnv.json`, 0 расхождений).
+- **Кэш результатов.** С `--mirror` четыре чистые тяжёлые проверки
+  (`sob_writer`, `sou_container`, VM-корпус, film parity) кэшируются по хэшу
+  исходников + digest зеркала + argv; повторный `--full` 106,9 → 79,8 → 60,2 с
+  (`--json.cached`), падения не кэшируются.
+- **Тесты по содержимому.** `tools/re/game_content.py` (+ `engine/tests/
+  game_content.h`, `game_path.h`): `.sbt`/`.sbw` резолвятся по FNV-1a64
+  канонического содержимого из манифеста, поэтому переставленные в установке
+  `level1`/`level2` больше не дают ложных падений (`core`/`camera_rig`/
+  `sbtvm`/`vm` зелёные). `--check` фиксирует аномалию, `--write` обновляет
+  таблицу детерминированно.
+- **DOS-сборка `gun.exe`.** `tools/re/lexe.py` — LE/LX-парсер (stdlib):
+  7 объектов, 670 страниц, 33 055 fixup на 200 страницах, импортов 0,
+  EIP `obj 2 + 0x8f614` → файл 0xD9E14 (`eb 76`, баннер WATCOM), 670 страниц
+  покрывают объекты без пересечений; `--selftest` 23/23, 10 порч → ValueError.
+  Осталось: iterated pages объекта 7, неопознанные поля заголовка (`docs/LEXE.md` §8).
+- **Аудит установки.** `tools/re/install_audit.py`: 2161 игровой файл,
+  2154 ok, 6 renamed (3 пары `.sbc`/`.sbt`/`.sbw`), 0 missing/modified/extra,
+  `GUNMETAL.CFG` volatile; 4,3 с на 8 потоках, `--strict` → rc=2.
+- **Фазз-корпус.** `tools/fuzz_formats.py --save/--replay/--seed` + инспектор
+  `tools/qa/fuzz_corpus.py`: 552 кейса quick / 1224 полных, манифест с sha256
+  входов, детерминизм проверен (`docs/FUZZ_CORPUS.md`).
+- **Покрытие.** `tools/qa/coverage.py` (stdlib `trace`): быстрый набор — 41,8 %
+  строк (`--full` — 47,7 %), тёмные места `render`/`sou1`/`sbv`/`png`/`sml`;
+  `--json`, `--missing MODULE`, `--min` для гейта.
+- **Контекст/токены.** `tools/ctx.py` (`doc`/`addr`/`find`/`outline`/`task`,
+  бюджет 40 строк), `docs/INDEX.md`, правила в `AGENTS.md`, методика —
+  `docs/RE_METHOD.md`.
+- **Проверено:** `regress.py` 113/113 на установке и на зеркале, `--full`
+  121/121 за 175,7 с (зеркало),
+  `player_fields --self-test`, `names`/`table_layout`/`xref`,
+  `gmcache selftest`, `ctx.py index`.
+- **Следующий шаг:** пункт 1 — освещение `level0` (кривая `0..127 → RGB`
+  через `LOOK16.TAB`). Блокеров нет.
+
