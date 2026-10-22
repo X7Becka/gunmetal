@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -43,9 +44,20 @@ struct Thing {
     std::string model;          // SOB_TABLE model name, empty when unresolved
     int model_index = -1;       // raw SOB_TABLE index, -1 when none
     std::optional<std::array<int, 3>> position;
+    /// World position of a type child (`0x46d000`): `origin + basis*offset`
+    /// as the three doubles of the engine object.  Empty for a script thing
+    /// (its `position` holds the integer operands of `ADD_THING*`).
+    std::optional<std::array<double, 3>> world_position;
     std::vector<double> angles;
-    std::uint32_t flags = 0;    // source entity flags (runtime flag word is unknown)
-    int parent = 0;             // source entity id (the sub-script's owner)
+    /// The flags of the source entity (the SCRIPT row).  For a type child
+    /// (`0x46d000`) there is no source entity, so the field carries the
+    /// runtime flag word of the instance (+0x360): the flags of the child's
+    /// own type, the child param of the table and the flags of the parent.
+    std::uint32_t flags = 0;
+    /// The owner of the thing: the source entity id (the sub-script's owner)
+    /// for a script thing, the runtime id of the parent for a type child
+    /// (`0x46d000`).
+    int parent = 0;
     bool alive = true;
     std::uint32_t script = 0;   // byte offset of the entity sub-script
     std::string kind;           // ADD_THING / ADD_THING_EX / ...
@@ -105,11 +117,22 @@ struct Thing {
     int timer_step = 0;
     // THING_TYPES +0x2fc (count <= 4), +0x300 + 4*i (child type id) and
     // +0x310 + 4*i (child param); 0x46d000 spawns them as children of this
-    // thing.  Parsed here for inspection: the spawn itself also needs the
-    // per-child local offset (+0xd8 + 0x18*i) and the parent basis, which the
-    // spawn view does not model yet.
+    // thing.  The three vectors are index-parallel: entry `i` describes the
+    // `i`-th child of the type.
     std::vector<int> child_types;
     std::vector<int> child_params;
+    // THING_TYPES +0xd8 + 0x18*i (three f64): the local offset of the child.
+    // `0x46d000` transforms it by the parent basis: the world position of the
+    // child is `parent_origin + basis * offset`.
+    std::vector<std::array<double, 3>> child_offsets;
+    // THING_TYPES +0x138/+0x158/+0x178 (+8*i): the child's own
+    // pitch/roll/yaw.  `0x46d000` composes it with the parent basis
+    // (`0x41e141`) and re-derives the angles from the result (`0x41e2f9`).
+    std::vector<std::array<double, 3>> child_angles;
+    /// The ids of the type children of this thing (`0x46d000`).  The original
+    /// keeps them in the parent's runtime record (+0x314 count, +0x318 ids);
+    /// here the parent carries the list, so a second spawn is a no-op.
+    std::vector<int> type_children;
     std::uint32_t timeout_event = 0; // +0x1c0
     std::uint32_t collide_event = 0; // +0x1c4, posted by 0x4752d0 on collision
     std::uint32_t expire_event = 0;  // +0x1ec, 0x4703a0 when hits/lifetime ends
@@ -149,6 +172,8 @@ struct ThingTypeEvents {
     int timer_step = 0;   ///< +0x214, added to the cooldown (0x46dd77)
     std::vector<int> child_types;  ///< +0x300+4i, child THING_TYPES ids
     std::vector<int> child_params; ///< +0x310+4i, child param per entry
+    std::vector<std::array<double, 3>> child_offsets; ///< +0xd8+0x18i, local offset
+    std::vector<std::array<double, 3>> child_angles;  ///< +0x138/158/178, child p/r/y
     int expire_ticks = 0; ///< +0x1e8 lifetime in ticks
     std::uint32_t collide_event = 0;
     std::uint32_t expire_event = 0;
@@ -156,6 +181,63 @@ struct ThingTypeEvents {
     std::uint32_t destroy_event = 0;
     std::uint32_t create_event = 0;
     std::uint32_t timeout_event = 0;
+};
+
+/// The level's ``THING_TYPES`` table: one 936-byte record per type, kept as
+/// parallel columns (one entry per type, in table order).  ``Things`` keeps a
+/// copy so the type-child spawn (``0x46d000``) can resolve a child type
+/// without the level.
+///
+/// The columns are the fields ``0x46d8b0`` copies into the runtime instance
+/// (``+0x2fc..`` is the child table the spawn reads).  The names follow
+/// ``docs/THING_FIELDS.md`` §3; the raw offsets are in the comments.
+struct ThingTypeTable {
+    std::vector<std::string> names;      ///< +0x00, 16 bytes, NUL padded
+    std::vector<int> model_indices;      ///< +0x1a4 -> SOB_TABLE
+    std::vector<std::string> models;      ///< SOB_TABLE name of the model index
+    std::vector<int> movement_types;     ///< +0x1b4
+    std::vector<double> speeds;           ///< +0x10 (double)
+    std::vector<double> turn_accels;      ///< +0x20 (double)
+    std::vector<double> turn_maxes;       ///< +0x28 (double)
+    std::vector<std::array<double, 3>> angle_rates; ///< +0x90/98/a0
+    std::vector<double> climb_speeds;     ///< +0x18 (double)
+    std::vector<std::uint32_t> flags_a;   ///< +0x1a8 -> instance +0x360
+    std::vector<std::uint32_t> flags_b;   ///< +0x1ac -> instance +0x364
+    std::vector<std::uint32_t> flags_c;   ///< +0x1b0 -> instance +0x368
+    std::vector<double> arrive_radii;     ///< +0x70 (double)
+    std::vector<double> leash_distances;  ///< +0xd0 (double)
+    std::vector<double> gravities;        ///< +0x78 (double)
+    std::vector<double> dampings;         ///< +0x80 (double)
+    std::vector<int> collision_shapes;    ///< +0x1a0
+    std::vector<double> radii;            ///< +0x30 (double)
+    std::vector<std::array<double, 3>> boxes;      ///< +0x38/40/48
+    std::vector<std::vector<ProximityEntry>> proximities; ///< +0x218, 8 records
+    std::vector<std::vector<int>> path_locations; ///< +0x324[], 32 ids
+    std::vector<int> timer_periods;       ///< +0x210
+    std::vector<int> timer_steps;         ///< +0x214
+    std::vector<std::vector<int>> child_types;   ///< +0x300+4i
+    std::vector<std::vector<int>> child_params;  ///< +0x310+4i
+    /// ``+0xd8 + 0x18*i`` (three f64): the local offset of the child, the
+    /// input of the world position of ``0x46d000``.
+    std::vector<std::vector<std::array<double, 3>>> child_offsets;
+    /// ``+0x138/+0x158/+0x178`` (``+8*i``): the child's own pitch/roll/yaw,
+    /// the input of the orientation composition ``0x41e141``.
+    std::vector<std::vector<std::array<double, 3>>> child_angles;
+    std::vector<double> search_radii;      ///< +0x58 (double)
+    std::vector<int> target_zone_thresholds; ///< +0x1cc
+    std::vector<int> target_history_offsets; ///< +0x1d0
+    std::vector<int> max_health;           ///< +0x1d4
+    std::vector<std::array<int, 4>> shields; ///< +0x1d8..+0x1e4
+    std::vector<int> hits;                 ///< +0x1c8
+    std::vector<int> expire_ticks;         ///< +0x1e8
+    std::vector<std::uint32_t> collide_events;  ///< +0x1c4
+    std::vector<std::uint32_t> expire_events;   ///< +0x1ec
+    std::vector<std::uint32_t> damaged_events;  ///< +0x1f4
+    std::vector<std::uint32_t> destroy_events;  ///< +0x1f8
+    std::vector<std::uint32_t> create_events;   ///< +0x1f0
+    std::vector<std::uint32_t> timeout_events;  ///< +0x1c0
+    std::size_t valid_models = 0;
+    std::size_t missing_models = 0;
 };
 
 /// Look up one type without building the full ``Things`` runtime.  Returns an
@@ -181,6 +263,13 @@ struct ThingsOptions {
     bool strict = true;         // a bad/deep block is an error, not a skip
     bool random_unknown = true; // fork RANDOM (7617 needs it)
     bool follow_generate = false; // opt-in; off in the comparison sweep
+    /// Spawn the ``THING_TYPES`` children of every runtime instance
+    /// (``0x46d000``).  Off by default: the original spawns them at the
+    /// parent's creation, but the C++ view counts things/AI per instance, so
+    /// enabling the spawn changes the golden counters of the corpus sweep
+    /// (docs/THINGS_CPP.md §2.3a).  The spawn is one level deep: the
+    /// children of a child are not spawned.
+    bool spawn_type_children = false;
     int max_steps = 200000;
     int max_paths = 64;
     double max_time = 5.0;
@@ -341,6 +430,28 @@ public:
     /// id, or -1 when an explicit id is already present.
     int spawn(Thing thing, EventQueue* events = nullptr);
 
+    /// Spawn the ``THING_TYPES`` children of `parent_id` -- the `0x46d000`
+    /// path.  One level only (the children of a child are not spawned), the
+    /// world position is `parent_origin + basis*offset` and the orientation
+    /// is the parent's matrix composed with the child's own angles
+    /// (`0x41e141`).  The children are appended to `things()` with
+    /// `parent == parent_id`, so `children(parent_id)`/`child_ids(parent_id)`
+    /// list them.
+    ///
+    /// The original spawns the children once, while the parent is created;
+    /// a second call for the same parent therefore returns the ids of the
+    /// first spawn instead of duplicating them.  Returns an empty vector for
+    /// an unknown parent or a type without children.
+    std::vector<int> spawn_children(int parent_id, EventQueue* events = nullptr);
+
+    /// The ids of the type children spawned for `parent_id` (the children
+    /// `0x46d000` created).  Empty for a parent without a child table.
+    const std::vector<int>& type_children(int parent_id) const;
+
+    /// The parsed ``THING_TYPES`` table of the level (empty when `load` ran
+    /// without a level).
+    const ThingTypeTable& type_table() const;
+
     /// Runtime removal: mark the thing dead and optionally post its +0x1f8
     /// destroy event.  The record stays in `things()` so external indices and
     /// the deterministic order remain stable.
@@ -359,6 +470,9 @@ private:
     std::vector<Thing> recursive_;
     std::vector<VmLocation> locations_;
     std::map<int, std::size_t> by_id_;
+    /// The level's `THING_TYPES` table, shared by the copies of a `Things`
+    /// (it is immutable once the level is parsed).
+    std::shared_ptr<const ThingTypeTable> types_;
     ThingStats stats_;
     std::uint64_t clock_ = 0;
     std::string error_;

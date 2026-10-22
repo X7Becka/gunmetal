@@ -56,51 +56,9 @@ bool is_thing_kind(const std::string& name) {
 }
 
 /// THING_TYPES (+0x1a4 model index) and SOB_TABLE names of one level.
-struct TypeTable {
-    std::vector<std::string> names;
-    std::vector<int> model_indices;
-    std::vector<std::string> models;
-    std::vector<int> movement_types;
-    std::vector<double> speeds;
-    std::vector<double> turn_accels;
-    std::vector<double> turn_maxes;
-    std::vector<std::array<double, 3>> angle_rates;
-    std::vector<double> climb_speeds;
-    std::vector<std::uint32_t> flags_a;
-    std::vector<std::uint32_t> flags_b;
-    std::vector<std::uint32_t> flags_c;
-    std::vector<double> arrive_radii;
-    std::vector<double> leash_distances;
-    std::vector<double> gravities;
-    std::vector<double> dampings;
-    std::vector<int> collision_shapes;
-    std::vector<double> radii;
-    std::vector<std::array<double, 3>> boxes;
-    std::vector<std::vector<ProximityEntry>> proximities;
-    std::vector<std::vector<int>> path_locations;
-    std::vector<int> timer_periods;
-    std::vector<int> timer_steps;
-    std::vector<std::vector<int>> child_types;
-    std::vector<std::vector<int>> child_params;
-    std::vector<double> search_radii;
-    std::vector<int> target_zone_thresholds;
-    std::vector<int> target_history_offsets;
-    std::vector<int> max_health;
-    std::vector<std::array<int, 4>> shields;
-    std::vector<int> hits;
-    std::vector<int> expire_ticks;
-    std::vector<std::uint32_t> collide_events;
-    std::vector<std::uint32_t> expire_events;
-    std::vector<std::uint32_t> damaged_events;
-    std::vector<std::uint32_t> destroy_events;
-    std::vector<std::uint32_t> create_events;
-    std::vector<std::uint32_t> timeout_events;
-    std::size_t valid_models = 0;
-    std::size_t missing_models = 0;
-};
-
-TypeTable resolve_types(const SbtLevel& level) {
-    TypeTable table;
+/// The table itself is `gm::ThingTypeTable` (things.h); the helper fills it.
+ThingTypeTable resolve_types(const SbtLevel& level) {
+    ThingTypeTable table;
     table.models.reserve(level.sobs.size());
     for (const SbtSob& sob : level.sobs) {
         table.models.push_back(sob.name);
@@ -139,6 +97,8 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.timer_steps.reserve(count);
         table.child_types.reserve(count);
         table.child_params.reserve(count);
+        table.child_offsets.reserve(count);
+        table.child_angles.reserve(count);
         table.search_radii.reserve(count);
         table.target_zone_thresholds.reserve(count);
         table.target_history_offsets.reserve(count);
@@ -230,16 +190,40 @@ TypeTable resolve_types(const SbtLevel& level) {
                 static_cast<std::int32_t>(rd32(entry + 0x2fc));
             std::vector<int> kids;
             std::vector<int> kid_params;
+            std::vector<std::array<double, 3>> kid_offsets;
+            std::vector<std::array<double, 3>> kid_angles;
             const int clamped_children = std::max(0, std::min(4, child_count));
             kids.reserve(static_cast<std::size_t>(clamped_children));
             kid_params.reserve(static_cast<std::size_t>(clamped_children));
+            kid_offsets.reserve(static_cast<std::size_t>(clamped_children));
+            kid_angles.reserve(static_cast<std::size_t>(clamped_children));
             for (int c = 0; c < clamped_children; ++c) {
+                const std::size_t child = static_cast<std::size_t>(c);
                 kids.push_back(static_cast<std::int32_t>(rd32(entry + 0x300 + c * 4)));
                 kid_params.push_back(
                     static_cast<std::int32_t>(rd32(entry + 0x310 + c * 4)));
+                // +0xd8 + 0x18*i: the three doubles of the local offset the
+                // spawn transforms by the parent matrix (0x46d000: the child
+                // position is `origin + basis*offset`).
+                std::array<double, 3> offset{};
+                for (std::size_t o = 0; o < offset.size(); ++o) {
+                    offset[o] = std::bit_cast<double>(
+                        rd64(entry + 0xd8 + 0x18 * child + o * 8));
+                }
+                kid_offsets.push_back(offset);
+                // +0x138/+0x158/+0x178 (+8*i): the child's own pitch/roll/yaw,
+                // the input of the orientation composition (0x41e141).
+                std::array<double, 3> angles{};
+                for (std::size_t a = 0; a < angles.size(); ++a) {
+                    angles[a] = std::bit_cast<double>(
+                        rd64(entry + 0x138 + 8 * child + a * 0x20));
+                }
+                kid_angles.push_back(angles);
             }
             table.child_types.push_back(std::move(kids));
             table.child_params.push_back(std::move(kid_params));
+            table.child_offsets.push_back(std::move(kid_offsets));
+            table.child_angles.push_back(std::move(kid_angles));
             table.search_radii.push_back(std::bit_cast<double>(rd64(entry + 0x58)));
             table.target_zone_thresholds.push_back(
                 static_cast<std::int32_t>(rd32(entry + 0x1cc)));
@@ -266,7 +250,7 @@ TypeTable resolve_types(const SbtLevel& level) {
     return table;
 }
 
-void apply_type_fields(Thing& thing, const TypeTable& types) {
+void apply_type_fields(Thing& thing, const ThingTypeTable& types) {
     if (thing.type < 0 ||
         static_cast<std::size_t>(thing.type) >= types.names.size()) {
         return;
@@ -294,6 +278,8 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.timer_step = types.timer_steps[i];
     thing.child_types = types.child_types[i];
     thing.child_params = types.child_params[i];
+    thing.child_offsets = types.child_offsets[i];
+    thing.child_angles = types.child_angles[i];
     thing.search_radius = types.search_radii[i];
     thing.target_zone_threshold = types.target_zone_thresholds[i];
     thing.target_history_offset = types.target_history_offsets[i];
@@ -346,7 +332,7 @@ ThingArgs split_args(const SbtInsn& insn) {
 
 /// Fill the shared fields of a Thing from an ADD_THING* EVAL instruction.
 Thing make_thing(const SbtInsn& insn, int parent, std::uint32_t flags,
-                 std::uint32_t script, const TypeTable& types, bool executed,
+                 std::uint32_t script, const ThingTypeTable& types, bool executed,
                  const std::vector<std::string>& path, int depth,
                  std::uint32_t base_offset) {
     const ThingArgs args = split_args(insn);
@@ -397,7 +383,7 @@ enum class Walk {
 };
 
 struct RecursiveWalk {
-    const TypeTable& types;
+    const ThingTypeTable& types;
     int parent = 0;
     std::uint32_t flags = 0;
     std::uint32_t script = 0;
@@ -407,7 +393,7 @@ struct RecursiveWalk {
     std::size_t duplicates = 0;
     std::string error;
 
-    explicit RecursiveWalk(const TypeTable& table) : types(table) {}
+    explicit RecursiveWalk(const ThingTypeTable& table) : types(table) {}
 
     Walk visit(const std::vector<SbtInsn>& insns,
                const std::vector<std::string>& path, int depth) {
@@ -444,7 +430,7 @@ struct RecursiveWalk {
 };
 
 std::vector<Thing> top_level_things(const SbtProgram& program,
-                                    const TypeTable& types, int parent,
+                                    const ThingTypeTable& types, int parent,
                                     std::uint32_t flags, std::uint32_t script,
                                     std::uint32_t base_offset) {
     std::vector<Thing> out;
@@ -512,6 +498,89 @@ std::optional<SbtProgram> block_program(
     return block;
 }
 
+/// The three matrix rows of a thing object: right, forward and up.
+///
+/// `0x41e025` builds them from (roll, pitch, yaw); the `ADD_THING*`
+/// operands are (pitch, roll, yaw) -- `0x46d8b0` copies the first double to
+/// the instance +0x18 (pitch), the second to +0x20 (roll) and the third to
+/// +0x28 (yaw).
+std::array<Vec3d, 3> thing_matrix(const std::vector<double>& angles) {
+    const double pitch = angles.size() > 0 ? angles[0] : 0.0;
+    const double roll = angles.size() > 1 ? angles[1] : 0.0;
+    const double yaw = angles.size() > 2 ? angles[2] : 0.0;
+    return thing_basis(roll, pitch, yaw);
+}
+
+double component(const Vec3d& v, std::size_t index) {
+    return index == 0 ? v.x : (index == 1 ? v.y : v.z);
+}
+
+/// `0x41e141`: the child's matrix in the parent's frame.
+///
+/// The original writes `result[i] = parent[0]*child[i][0] +
+/// parent[1]*child[i][1] + parent[2]*child[i][2]` component wise (the child
+/// vector is expressed in the parent's frame); the summation order below is
+/// the x87 order of the original.
+std::array<Vec3d, 3> compose_matrix(const std::array<Vec3d, 3>& parent,
+                                     const std::array<Vec3d, 3>& child) {
+    std::array<Vec3d, 3> out{};
+    for (std::size_t i = 0; i < 3; ++i) {
+        for (std::size_t j = 0; j < 3; ++j) {
+            const double value =
+                ((component(parent[0], j) * component(child[i], 0)) +
+                 (component(parent[1], j) * component(child[i], 1))) +
+                (component(parent[2], j) * component(child[i], 2));
+            switch (j) {
+            case 0: out[i].x = value; break;
+            case 1: out[i].y = value; break;
+            default: out[i].z = value; break;
+            }
+        }
+    }
+    return out;
+}
+
+/// The three angles of a thing: pitch, roll and yaw.
+struct ThingAngles {
+    double pitch = 0.0;
+    double roll = 0.0;
+    double yaw = 0.0;
+};
+
+/// `0x41e2f9`: the angles of a matrix.
+///
+///   * yaw   = atan2(forward.x, forward.y)  (`0x4809f0`)
+///   * pitch = -asin(forward.z)             (`0x480a24`)
+///   * roll  = atan2(-right.z, up.z)        (`0x4809f0`)
+ThingAngles matrix_angles(const std::array<Vec3d, 3>& matrix) {
+    ThingAngles out;
+    out.yaw = std::atan2(matrix[1].x, matrix[1].y);
+    out.pitch = -std::asin(matrix[1].z);
+    out.roll = std::atan2(-matrix[0].z, matrix[2].z);
+    return out;
+}
+
+/// `0x46d000`: the world position of a type child.
+///
+/// The original transforms the child's local offset (`THING_TYPES+0xd8`) by
+/// the parent's matrix and adds the parent's position.  The summation order
+/// is the x87 order of the original (the `right`/`up` pair first for x and
+/// z, `right`/`forward` for y).
+std::array<double, 3> child_position(const std::array<double, 3>& origin,
+                                     const std::array<Vec3d, 3>& basis,
+                                     const std::array<double, 3>& offset) {
+    const double lx = offset[0];
+    const double ly = offset[1];
+    const double lz = offset[2];
+    const Vec3d& right = basis[0];
+    const Vec3d& forward = basis[1];
+    const Vec3d& up = basis[2];
+    const double x = (((right.x * lx) + (up.x * lz)) + (forward.x * ly)) + origin[0];
+    const double y = (((right.y * lx) + (forward.y * ly)) + (up.y * lz)) + origin[1];
+    const double z = (((right.z * lx) + (up.z * lz)) + (forward.z * ly)) + origin[2];
+    return {x, y, z};
+}
+
 } // namespace
 
 std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
@@ -519,7 +588,7 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     if (type < 0) {
         return std::nullopt;
     }
-    const TypeTable types = resolve_types(level);
+    const ThingTypeTable types = resolve_types(level);
     const auto index = static_cast<std::size_t>(type);
     if (index >= types.names.size()) {
         return std::nullopt;
@@ -548,6 +617,8 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     out.timer_step = types.timer_steps[index];
     out.child_types = types.child_types[index];
     out.child_params = types.child_params[index];
+    out.child_offsets = types.child_offsets[index];
+    out.child_angles = types.child_angles[index];
     out.expire_ticks = types.expire_ticks[index];
     out.collide_event = types.collide_events[index];
     out.expire_event = types.expire_events[index];
@@ -572,7 +643,8 @@ Things Things::load(const SbtLevel& level, const VmState& vm,
                     const ThingsOptions& options) {
     Things out;
 
-    const TypeTable types = resolve_types(level);
+    out.types_ = std::make_shared<const ThingTypeTable>(resolve_types(level));
+    const ThingTypeTable& types = *out.types_;
     out.stats_.thing_types = types.names.size();
     out.stats_.valid_model_refs = types.valid_models;
     out.stats_.missing_model_refs = types.missing_models;
@@ -824,6 +896,18 @@ Things Things::load(const SbtLevel& level, const VmState& vm,
         thing.id = static_cast<int>(i);
         if (!out.by_id_.emplace(thing.id, i).second) {
             ++out.stats_.duplicate_ids;
+        }
+    }
+
+    // The type children of `0x46d000` are opt-in: the original spawns them
+    // while the parent is created, but the C++ view counts the instances (and
+    // their AI) per thing, so the spawn changes the golden counters of the
+    // corpus sweep (docs/THINGS_CPP.md §2.3a).  One level only: the
+    // children of a child are not spawned.
+    if (options.spawn_type_children) {
+        const std::size_t instances = out.things_.size();
+        for (std::size_t i = 0; i < instances; ++i) {
+            out.spawn_children(out.things_[i].id, nullptr);
         }
     }
     return out;
@@ -1096,6 +1180,117 @@ int Things::spawn(Thing thing, EventQueue* events) {
         post_thing_event(*events, spawned, ThingEventKind::create);
     }
     return id;
+}
+
+std::vector<int> Things::spawn_children(int parent_id, EventQueue* events) {
+    std::vector<int> created;
+    Thing* parent_slot = by_id(parent_id);
+    if (parent_slot == nullptr || types_ == nullptr) {
+        return created;
+    }
+    // The original spawns the children while the parent is created, so a
+    // second call must not duplicate them.
+    if (!parent_slot->type_children.empty()) {
+        return parent_slot->type_children;
+    }
+    // A copy: `spawn()` may reallocate `things_`.
+    const Thing parent = *parent_slot;
+    if (parent.child_types.empty()) {
+        return created;
+    }
+
+    // The origin and the matrix of the parent (0x46d000 uses the position
+    // arguments of the thing add and the object matrix of 0x41e025).
+    std::array<double, 3> origin{0.0, 0.0, 0.0};
+    if (parent.position.has_value()) {
+        origin = {static_cast<double>((*parent.position)[0]),
+                  static_cast<double>((*parent.position)[1]),
+                  static_cast<double>((*parent.position)[2])};
+    }
+    const std::array<Vec3d, 3> parent_matrix = thing_matrix(parent.angles);
+
+    for (std::size_t i = 0; i < parent.child_types.size(); ++i) {
+        const int child_type = parent.child_types[i];
+        const int child_param =
+            i < parent.child_params.size() ? parent.child_params[i] : 0;
+        const std::array<double, 3> offset =
+            i < parent.child_offsets.size()
+                ? parent.child_offsets[i]
+                : std::array<double, 3>{0.0, 0.0, 0.0};
+        const std::array<double, 3> own_angles =
+            i < parent.child_angles.size()
+                ? parent.child_angles[i]
+                : std::array<double, 3>{0.0, 0.0, 0.0};
+
+        Thing child;
+        child.id = -1; // let `spawn()` pick the free id
+        child.type = child_type;
+        child.parent = parent_id;
+        child.depth = parent.depth + 1;
+        child.path = parent.path;
+        child.executed = true;
+        child.alive = true;
+        if (child_type >= 0 &&
+            static_cast<std::size_t>(child_type) < types_->names.size()) {
+            const auto index = static_cast<std::size_t>(child_type);
+            child.type_name = types_->names[index];
+            child.model_index = types_->model_indices[index];
+            if (child.model_index >= 0 &&
+                static_cast<std::size_t>(child.model_index) < types_->models.size()) {
+                child.model = types_->models[static_cast<std::size_t>(child.model_index)];
+            }
+        }
+        apply_type_fields(child, *types_);
+        // The runtime flag word of the child (0x46d000): the flags of its own
+        // type, the child param of the table and the flags of the parent.
+        child.flags_a = child.flags_a | static_cast<std::uint32_t>(child_param) |
+                        parent.flags;
+        child.flags = child.flags_a;
+
+        // The world position: `origin + parent_matrix * offset`.
+        const std::array<double, 3> world =
+            child_position(origin, parent_matrix, offset);
+        child.world_position = world;
+        child.position = std::array<int, 3>{
+            static_cast<int>(world[0]), static_cast<int>(world[1]),
+            static_cast<int>(world[2])};
+
+        // The orientation: the parent's matrix composed with the child's own
+        // matrix (0x41e141) and the angles re-derived from the result
+        // (0x41e2f9).  The flag 0x2000 of the child keeps the raw angles.
+        const std::array<Vec3d, 3> own_matrix =
+            thing_basis(own_angles[1], own_angles[0], own_angles[2]);
+        const std::array<Vec3d, 3> matrix =
+            compose_matrix(parent_matrix, own_matrix);
+        if ((child.flags_b & 0x2000u) == 0u) {
+            const ThingAngles angles = matrix_angles(matrix);
+            child.angles = {angles.pitch, angles.roll, angles.yaw};
+        } else {
+            child.angles = {own_angles[0], own_angles[1], own_angles[2]};
+        }
+
+        const int id = spawn(std::move(child), events);
+        if (id >= 0) {
+            created.push_back(id);
+        }
+    }
+    // The parent keeps the ids of its children (the original: instance
+    // +0x314 count, +0x318 ids).
+    if (Thing* slot = by_id(parent_id)) {
+        slot->type_children = created;
+    }
+    return created;
+}
+
+const std::vector<int>& Things::type_children(int parent_id) const {
+    static const std::vector<int> empty;
+    const Thing* parent = by_id(parent_id);
+    return parent == nullptr ? empty : parent->type_children;
+}
+
+const ThingTypeTable& Things::type_table() const {
+    static const ThingTypeTable empty;
+    return types_ == nullptr ? empty : *types_;
 }
 
 bool Things::remove(int id, EventQueue* events) {

@@ -130,6 +130,13 @@ struct TypeSpec {
     int timer_step = 0;         ///< THING_TYPES +0x214 -> instance +0x3f0
     std::vector<int> child_types;  ///< THING_TYPES +0x300 + 4*i (<= 4)
     std::vector<int> child_params; ///< THING_TYPES +0x310 + 4*i
+    /// THING_TYPES +0xd8 + 0x18*i: the local offset of the child.
+    std::vector<std::array<double, 3>> child_offsets;
+    /// THING_TYPES +0x138/+0x158/+0x178 (+8*i): the child's angles.
+    std::vector<std::array<double, 3>> child_angles;
+    std::uint32_t create_event = 0; ///< THING_TYPES +0x1f0
+    std::uint32_t flags_a = 0;      ///< THING_TYPES +0x1a8
+    std::uint32_t flags_b = 0;      ///< THING_TYPES +0x1ac
 };
 
 gm::SbtLevel make_level(const std::vector<std::uint8_t>& code,
@@ -163,6 +170,9 @@ gm::SbtLevel make_level(const std::vector<std::uint8_t>& code,
                 static_cast<std::uint32_t>(types[i].timer_period));
         put_u32(types_record.payload, base + 0x214,
                 static_cast<std::uint32_t>(types[i].timer_step));
+        put_u32(types_record.payload, base + 0x1A8, types[i].flags_a);
+        put_u32(types_record.payload, base + 0x1AC, types[i].flags_b);
+        put_u32(types_record.payload, base + 0x1F0, types[i].create_event);
         const std::size_t children =
             std::min<std::size_t>(4, types[i].child_types.size());
         put_u32(types_record.payload, base + 0x2FC,
@@ -175,6 +185,19 @@ gm::SbtLevel make_level(const std::vector<std::uint8_t>& code,
                                   : 0;
             put_u32(types_record.payload, base + 0x310 + c * 4,
                     static_cast<std::uint32_t>(param));
+            if (c < types[i].child_offsets.size()) {
+                const auto& offset = types[i].child_offsets[c];
+                for (std::size_t o = 0; o < 3; ++o) {
+                    put_f64(types_record.payload,
+                            base + 0xD8 + 0x18 * c + o * 8, offset[o]);
+                }
+            }
+            if (c < types[i].child_angles.size()) {
+                const auto& angles = types[i].child_angles[c];
+                put_f64(types_record.payload, base + 0x138 + 8 * c, angles[0]);
+                put_f64(types_record.payload, base + 0x158 + 8 * c, angles[1]);
+                put_f64(types_record.payload, base + 0x178 + 8 * c, angles[2]);
+            }
         }
     }
     level.records.push_back(std::move(types_record));
@@ -719,10 +742,12 @@ void test_real_dm1() {
     CHECK_EQ(things.stats().executed_top_level, 41u);
     CHECK_EQ(things.stats().max_depth, 2u);
 
-    // The child table is parsed for every instance: the two arrays always have
+    // The child table is parsed for every instance: the arrays always have
     // the same length and the clamp is four (0x46d000).
     for (const gm::Thing& thing : things.things()) {
         CHECK_EQ(thing.child_types.size(), thing.child_params.size());
+        CHECK_EQ(thing.child_offsets.size(), thing.child_types.size());
+        CHECK_EQ(thing.child_angles.size(), thing.child_types.size());
         CHECK(thing.child_types.size() <= 4u);
     }
 
@@ -861,6 +886,8 @@ void test_corpus() {
         null_runtime += things.stats().null_type_things;
         for (const gm::Thing& thing : things.things()) {
             CHECK_EQ(thing.child_types.size(), thing.child_params.size());
+            CHECK_EQ(thing.child_offsets.size(), thing.child_types.size());
+            CHECK_EQ(thing.child_angles.size(), thing.child_types.size());
             CHECK(thing.child_types.size() <= 4u);
             if (!thing.child_types.empty()) {
                 ++with_children;
@@ -1031,9 +1058,10 @@ void test_timer_fields() {
     CHECK(!none.has_value());
 }
 
-// THING_TYPES +0x2fc..0x310: the child table 0x46d000 spawns from.  Only the
-// ids/params are parsed here; the spawn also transforms the per-child local
-// offset (+0xd8 + 0x18*i) by the parent basis, which the view does not model.
+// THING_TYPES +0x2fc..0x310: the child table 0x46d000 spawns from.  The
+// ids/params, the per-child local offset (+0xd8 + 0x18*i) and the per-child
+// angles (+0x138/+0x158/+0x178) are parsed here; the spawn itself is
+// `test_type_children`.
 void test_child_table() {
     std::vector<Row> rows;
     std::vector<std::uint8_t> code;
@@ -1043,6 +1071,8 @@ void test_child_table() {
     std::vector<TypeSpec> types = {{"PARENT", 0}};
     types[0].child_types = {1, 2, 3};
     types[0].child_params = {10, 20, 30};
+    types[0].child_offsets = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    types[0].child_angles = {{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}, {0.7, 0.8, 0.9}};
     const gm::SbtLevel level = make_level(code, rows, types, {"MODEL"});
     const gm::VmState vm = gm::vm_state_from_level(level);
     const gm::Things things = gm::Things::load(level, vm, single_context());
@@ -1051,6 +1081,9 @@ void test_child_table() {
     if (parent != nullptr) {
         CHECK_EQ(parent->child_types.size(), std::size_t{3});
         CHECK_EQ(parent->child_params.size(), std::size_t{3});
+        // The three vectors are index-parallel (one entry per child).
+        CHECK_EQ(parent->child_offsets.size(), parent->child_types.size());
+        CHECK_EQ(parent->child_angles.size(), parent->child_types.size());
         if (parent->child_types.size() == 3 && parent->child_params.size() == 3) {
             CHECK_EQ(parent->child_types[0], 1);
             CHECK_EQ(parent->child_types[1], 2);
@@ -1059,12 +1092,24 @@ void test_child_table() {
             CHECK_EQ(parent->child_params[1], 20);
             CHECK_EQ(parent->child_params[2], 30);
         }
+        if (parent->child_offsets.size() == 3) {
+            CHECK_NEAR(parent->child_offsets[0][0], 1.0, 1e-12);
+            CHECK_NEAR(parent->child_offsets[1][2], 6.0, 1e-12);
+            CHECK_NEAR(parent->child_offsets[2][1], 8.0, 1e-12);
+        }
+        if (parent->child_angles.size() == 3) {
+            CHECK_NEAR(parent->child_angles[0][0], 0.1, 1e-12);
+            CHECK_NEAR(parent->child_angles[1][1], 0.5, 1e-12);
+            CHECK_NEAR(parent->child_angles[2][2], 0.9, 1e-12);
+        }
     }
     const std::optional<gm::ThingTypeEvents> events = gm::thing_type_events(level, 0);
     CHECK(events.has_value());
     if (events.has_value()) {
         CHECK_EQ(events->child_types.size(), std::size_t{3});
         CHECK_EQ(events->child_params.size(), std::size_t{3});
+        CHECK_EQ(events->child_offsets.size(), std::size_t{3});
+        CHECK_EQ(events->child_angles.size(), std::size_t{3});
     }
 
     // The clamp is 4 entries (0x46d000 rejects longer tables).
@@ -1080,7 +1125,215 @@ void test_child_table() {
         CHECK_EQ(one->child_types.size(), std::size_t{4});
         CHECK_EQ(one->child_params.size(), std::size_t{4});
         CHECK_EQ(one->child_types[3], 4);
+        CHECK_EQ(one->child_offsets.size(), std::size_t{4});
+        CHECK_EQ(one->child_angles.size(), std::size_t{4});
     }
+}
+
+// The type children of `0x46d000`: one level of children, the world position
+// `origin + basis*offset`, the composed orientation and the runtime flag
+// word of the child.
+void test_type_children() {
+    const double half_pi = 3.14159265358979323846 / 2.0;
+    std::vector<Row> rows;
+    std::vector<std::uint8_t> code;
+    // The parent: position (100, 200, 300), yaw = pi/2 (pitch and roll 0).
+    add_thing(code, 0, 100, 200, 300, 0.0, 0.0, half_pi);
+    code.push_back(0xFF);
+    rows.push_back({0x3FF, 77, 0});
+
+    std::vector<TypeSpec> types = {{"PARENT", 0}, {"CHILD_A", 1}, {"CHILD_B", 2}};
+    types[0].child_types = {1, 2};
+    types[0].child_params = {0x1000, 0x2000};
+    types[0].child_offsets = {{10.0, 0.0, 0.0}, {0.0, 20.0, 0.0}};
+    types[0].child_angles = {{0.0, 0.0, 0.0}, {0.0, 0.0, half_pi}};
+    types[0].flags_a = 0x40;
+    types[1].create_event = 501;
+    types[2].create_event = 502;
+
+    const gm::SbtLevel level = make_level(code, rows, types, {"M0", "M1", "M2"});
+    const gm::VmState vm = gm::vm_state_from_level(level);
+
+    // The spawn is opt-in: without the option the instance list is the
+    // historical one and no child exists.
+    gm::Things plain = gm::Things::load(level, vm, single_context());
+    CHECK_EQ(plain.things().size(), std::size_t{1});
+    CHECK(plain.type_children(0).empty());
+    CHECK(plain.child_ids(0).empty());
+
+    gm::Things things = plain;
+    gm::EventQueue queue;
+    const std::vector<int> ids = things.spawn_children(0, &queue);
+    CHECK_EQ(ids.size(), std::size_t{2});
+    CHECK_EQ(things.things().size(), std::size_t{3});
+    CHECK_EQ(things.type_children(0).size(), std::size_t{2});
+    CHECK_EQ(things.type_children(0)[0], ids[0]);
+    CHECK_EQ(things.type_children(0)[1], ids[1]);
+
+    const gm::Thing* parent = things.by_id(0);
+    const gm::Thing* first = things.by_id(ids[0]);
+    const gm::Thing* second = things.by_id(ids[1]);
+    CHECK(parent != nullptr);
+    CHECK(first != nullptr);
+    CHECK(second != nullptr);
+
+    if (first != nullptr && second != nullptr) {
+        // The children belong to the parent and are alive runtime instances.
+        CHECK_EQ(first->parent, 0);
+        CHECK_EQ(second->parent, 0);
+        CHECK(first->alive);
+        CHECK(second->alive);
+        CHECK(first->executed);
+        CHECK_EQ(first->depth, 1);
+        CHECK_EQ(first->type, 1);
+        CHECK_EQ(second->type, 2);
+        CHECK_STR(first->type_name, "CHILD_A");
+        CHECK_STR(first->model, "M1");
+        CHECK_STR(second->type_name, "CHILD_B");
+
+        // The world position: the parent's origin plus the local offset
+        // transformed by the parent's matrix (yaw = pi/2 turns the local x
+        // into the world -y and the local y into the world +x).
+        CHECK(first->world_position.has_value());
+        CHECK(second->world_position.has_value());
+        if (first->world_position.has_value() &&
+            second->world_position.has_value()) {
+            const auto& a = *first->world_position;
+            const auto& b = *second->world_position;
+            CHECK_NEAR(a[0], 100.0, 1e-9);
+            CHECK_NEAR(a[1], 190.0, 1e-9);
+            CHECK_NEAR(a[2], 300.0, 1e-9);
+            CHECK_NEAR(b[0], 120.0, 1e-9);
+            CHECK_NEAR(b[1], 200.0, 1e-9);
+            CHECK_NEAR(b[2], 300.0, 1e-9);
+        }
+        // The integer view of the position (the event coordinates).
+        CHECK(first->position.has_value());
+        if (first->position.has_value()) {
+            CHECK_EQ((*first->position)[0], 100);
+            CHECK_EQ((*first->position)[1], 190);
+            CHECK_EQ((*first->position)[2], 300);
+        }
+
+        // The orientation: the parent's matrix composed with the child's own
+        // angles (0x41e141) and the angles re-read from the result
+        // (0x41e2f9).  The first child has no own angles, the second one
+        // adds another pi/2 of yaw.
+        CHECK_EQ(first->angles.size(), std::size_t{3});
+        CHECK_EQ(second->angles.size(), std::size_t{3});
+        if (first->angles.size() == 3 && second->angles.size() == 3) {
+            CHECK_NEAR(first->angles[0], 0.0, 1e-9);        // pitch
+            CHECK_NEAR(first->angles[1], 0.0, 1e-9);        // roll
+            CHECK_NEAR(first->angles[2], half_pi, 1e-9);     // yaw
+            CHECK_NEAR(second->angles[0], 0.0, 1e-9);       // pitch
+            CHECK_NEAR(second->angles[1], 0.0, 1e-9);       // roll
+            CHECK_NEAR(second->angles[2], 2.0 * half_pi, 1e-9); // yaw
+        }
+
+        // The runtime flag word of the child: the flags of its own type, the
+        // child param of the table and the flags of the parent.
+        CHECK_EQ(first->flags_a, 0x40u | 0x1000u | 0x3FFu);
+        CHECK_EQ(second->flags_a, 0x40u | 0x2000u | 0x3FFu);
+        CHECK_EQ(first->flags, first->flags_a);
+        CHECK_EQ(second->flags, second->flags_a);
+
+        // The type fields of the child are the ones of its own type.
+        CHECK_STR(first->type_name, "CHILD_A");
+    }
+
+    // The create events of the children (THING_TYPES +0x1f0).
+    const gm::EventParseResult created = queue.drain();
+    CHECK_EQ(created.events.size(), std::size_t{2});
+    if (created.events.size() == 2) {
+        CHECK_EQ(created.events[0].id, 501);
+        CHECK_EQ(created.events[1].id, 502);
+    }
+
+    // A second call does not duplicate the children (the original spawns
+    // them once, while the parent is created).
+    const std::size_t instances = things.things().size();
+    const std::vector<int> again = things.spawn_children(0, &queue);
+    CHECK_EQ(again.size(), std::size_t{2});
+    CHECK_EQ(again[0], ids[0]);
+    CHECK_EQ(again[1], ids[1]);
+    CHECK_EQ(things.things().size(), instances);
+    CHECK(queue.empty());
+
+    // An unknown parent and a parent without a child table are no-ops.
+    CHECK(things.spawn_children(4242).empty());
+    gm::Thing lonely;
+    lonely.id = -1;
+    lonely.type = 2;
+    const int lonely_id = things.spawn(lonely);
+    CHECK(lonely_id >= 0);
+    CHECK(things.spawn_children(lonely_id).empty());
+    CHECK(things.type_children(lonely_id).empty());
+
+    // The opt-in of `load` spawns the children of every instance.
+    gm::ThingsOptions options = single_context();
+    options.spawn_type_children = true;
+    const gm::Things loaded = gm::Things::load(level, vm, options);
+    CHECK_EQ(loaded.things().size(), std::size_t{3});
+    CHECK_EQ(loaded.type_children(0).size(), std::size_t{2});
+    CHECK_EQ(loaded.type_children(0)[0], ids[0]);
+    CHECK_EQ(loaded.type_children(0)[1], ids[1]);
+}
+
+// The opt-in spawn on a real level: the number of children matches the
+// child table of the parents and the default counters do not move.
+//
+// level11 instantiates several types with a child table (Sentry, KEYWHITE,
+// KEYRED, SCORPION, PAWN); dm1 has none, so it is the negative case.
+void test_type_children_real() {
+    if (!fs::exists(kGame)) {
+        std::printf("things: game not installed, real levels skipped\n");
+        return;
+    }
+    const auto resolved = gmtest::resolve_game_file(kGame, "level11.sbt");
+    if (!resolved) {
+        std::printf("things: level11.sbt not found, real levels skipped\n");
+        return;
+    }
+    const gm::SbtLevel level = load_real(*resolved);
+    const gm::VmState vm = gm::vm_state_from_level(level);
+    const gm::ThingsOptions quick = single_context();
+    const gm::Things plain = gm::Things::load(level, vm, quick);
+
+    std::size_t expected = 0;
+    for (const gm::Thing& thing : plain.things()) {
+        expected += thing.child_types.size();
+        // Without the option nothing is spawned.
+        CHECK(plain.type_children(thing.id).empty());
+    }
+    CHECK(expected > 0);
+
+    gm::ThingsOptions options = quick;
+    options.spawn_type_children = true;
+    const gm::Things loaded = gm::Things::load(level, vm, options);
+    CHECK_EQ(loaded.things().size(), plain.things().size() + expected);
+
+    std::size_t spawned = 0;
+    for (const gm::Thing& thing : plain.things()) {
+        const std::vector<int>& kids = loaded.type_children(thing.id);
+        CHECK_EQ(kids.size(), thing.child_types.size());
+        spawned += kids.size();
+        for (std::size_t c = 0; c < kids.size(); ++c) {
+            const gm::Thing* child = loaded.by_id(kids[c]);
+            CHECK(child != nullptr);
+            if (child == nullptr) {
+                continue;
+            }
+            CHECK_EQ(child->parent, thing.id);
+            CHECK(child->alive);
+            CHECK(child->world_position.has_value());
+            CHECK_EQ(child->type, thing.child_types[c]);
+            // The child carries the type fields of its own type.
+            CHECK(!child->type_name.empty());
+        }
+    }
+    CHECK_EQ(spawned, expected);
+    std::printf("things: level11 type children %zu of %zu instances\n", spawned,
+                plain.things().size());
 }
 
 void test_motion_tick() {
@@ -1322,6 +1575,8 @@ int main(int argc, char** argv) {
     test_motion_tick();
     test_timer_fields();
     test_child_table();
+    test_type_children();
+    test_type_children_real();
     test_motion_aim();
     test_generate_and_cycle();
     test_negatives();
