@@ -228,6 +228,10 @@
   через `ThingMotionInput::rng`/`Things::set_motion_rng` (`MsvcRand`),
   без ГПСЧ шаг детерминирован. CTest `test_timer_fields`,
   `test_patrol_scan_and_timer`.
+- **Кулдаун оружия AI**: хвост `0x473a00` — `rand() % +0x3ec == 0` добавляет
+  `+0x3f0` к кулдауну; в C++ `AiConfig::use_weapon_timer` +
+  `Ai::set_weapon_rng` (`Thing::timer_period/step`), CTest
+  `test_weapon_timer_bonus`.
 - **Таблица детей типа**: `Thing::child_types/child_params` из
   `THING_TYPES+0x300/+0x310` (count `+0x2fc`, clamp 4), тест
   `test_child_table`; спавн детей (`0x46d000`, локальный offset `+0xd8+0x18i`

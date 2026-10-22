@@ -824,7 +824,12 @@ bool ai_weapon_select(const Thing&, double distance, bool reverse, AiWeapon&);
 3. при `weapon_cooldown <= 0` вызывается `ai_weapon_select`; успешный выбор
    пишет `AiAgent::weapon`, переключает `weapon_reverse`, ставит кулдаун
    `+0x27c / 91` секунд, увеличивает `stats().weapon_events` и пишет
-   `AiEvent{type=weapon, event_id=<+0x21c>, value=<distance>}`;
+   `AiEvent{type=weapon, event_id=<+0x21c>, value=<distance>}`.  Хвост
+   `0x473a00` — `+0x3ec/+0x3f0` (Type `+0x210/+0x214`,
+   `Thing::timer_period/step`): при `rand() % period == 0` к кулдауну
+   добавляется `step/91` секунд. Это opt-in
+   `AiConfig::use_weapon_timer` + `Ai::set_weapon_rng(&MsvcRand)`; без ГПСЧ
+   розыгрыша нет. Тест `test_weapon_timer_bonus`;
 4. события `attack`/`state` не меняются: `attack` по-прежнему живёт в своей
    ветке и в A3-окне;
 5. A5b (opt-in `use_weapon_shots=true`, требует `use_weapon_table=true`): на

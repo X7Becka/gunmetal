@@ -2561,6 +2561,91 @@ void test_weapon_opt_in_window_and_cooldown() {
 }
 
 // `high` is a hard gate: the attack event still appears, the weapon does not.
+// `0x473a00` tail: the type's +0x210/+0x214 pair (timer_period/step) adds
+// `step` to the weapon cooldown when `rand() % period == 0`.  Opt-in: the
+// generator must be supplied, otherwise nothing is drawn.
+void test_weapon_timer_bonus() {
+    gm::Things things = make_weapon_things(0, 200, 91);
+    gm::Thing* owner = things.by_id(0);
+    CHECK(owner != nullptr);
+    if (owner == nullptr) {
+        return;
+    }
+    owner->timer_period = 1; // period 1 always matches
+    owner->timer_step = 91;  // add one second
+
+    gm::AiConfig config;
+    config.use_weapon_table = true;
+    config.use_move_step = true;
+    config.move_standoff = 200.0;
+    config.use_weapon_timer = true;
+    gm::MsvcRand rng(5u);
+    gm::Ai ai(config);
+    ai.set_weapon_rng(&rng);
+    CHECK_EQ(ai.attach(things), 2u);
+    CHECK(ai.set_player({0.0, 150.0, 10.0}));
+    const gm::CollisionWorld empty;
+    for (int i = 0; i < 200 && ai.stats().weapon_events == 0; ++i) {
+        ai.tick(empty);
+    }
+    const gm::AiAgent* agent = ai.agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK_EQ(agent->state, gm::AiState::attack);
+        CHECK_NEAR(agent->weapon_cooldown, 2.0, 1e-12); // 1 s table + 1 s bonus
+    }
+
+    // The switch is off: the table cooldown only.
+    gm::Things plain = make_weapon_things(0, 200, 91);
+    gm::Thing* plain_owner = plain.by_id(0);
+    CHECK(plain_owner != nullptr);
+    if (plain_owner != nullptr) {
+        plain_owner->timer_period = 1;
+        plain_owner->timer_step = 91;
+    }
+    gm::AiConfig no_timer;
+    no_timer.use_weapon_table = true;
+    no_timer.use_move_step = true;
+    no_timer.move_standoff = 200.0;
+    gm::MsvcRand rng2(5u);
+    gm::Ai plain_ai(no_timer);
+    plain_ai.set_weapon_rng(&rng2);
+    CHECK_EQ(plain_ai.attach(plain), 2u);
+    CHECK(plain_ai.set_player({0.0, 150.0, 10.0}));
+    for (int i = 0; i < 200 && plain_ai.stats().weapon_events == 0; ++i) {
+        plain_ai.tick(empty);
+    }
+    const gm::AiAgent* plain_agent = plain_ai.agent(0);
+    CHECK(plain_agent != nullptr);
+    if (plain_agent != nullptr) {
+        CHECK_NEAR(plain_agent->weapon_cooldown, 1.0, 1e-12);
+    }
+
+    // Flag on but no generator: no draw, same table cooldown.
+    gm::Things no_rng = make_weapon_things(0, 200, 91);
+    gm::Thing* no_rng_owner = no_rng.by_id(0);
+    if (no_rng_owner != nullptr) {
+        no_rng_owner->timer_period = 1;
+        no_rng_owner->timer_step = 91;
+    }
+    gm::AiConfig timer_no_rng;
+    timer_no_rng.use_weapon_table = true;
+    timer_no_rng.use_move_step = true;
+    timer_no_rng.move_standoff = 200.0;
+    timer_no_rng.use_weapon_timer = true;
+    gm::Ai rngless(timer_no_rng);
+    CHECK_EQ(rngless.attach(no_rng), 2u);
+    CHECK(rngless.set_player({0.0, 150.0, 10.0}));
+    for (int i = 0; i < 200 && rngless.stats().weapon_events == 0; ++i) {
+        rngless.tick(empty);
+    }
+    const gm::AiAgent* rngless_agent = rngless.agent(0);
+    CHECK(rngless_agent != nullptr);
+    if (rngless_agent != nullptr) {
+        CHECK_NEAR(rngless_agent->weapon_cooldown, 1.0, 1e-12);
+    }
+}
+
 void test_weapon_high_gate() {
     const gm::Things things = make_weapon_things(0, 50, 0);
     gm::AiConfig config;
@@ -2800,6 +2885,7 @@ int main() {
     test_weapon_default_off();
     test_weapon_opt_in_window_and_cooldown();
     test_weapon_high_gate();
+    test_weapon_timer_bonus();
     test_weapon_shots_default_off();
     test_weapon_shots_opt_in();
     test_weapon_shots_a3_window();

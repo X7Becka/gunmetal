@@ -176,6 +176,12 @@ struct AiConfig {
     /// does not spawn a projectile or apply damage.  Default `false` keeps
     /// the A5 event stream and every other counter unchanged.
     bool use_weapon_shots = false;
+    /// Opt-in: the type's `+0x210/+0x214` pair (`Thing::timer_period`/
+    /// `timer_step`) adds `timer_step` to the weapon cooldown when
+    /// `rand() % timer_period == 0` (the `0x473a00` tail, same fields as mode
+    /// 16).  Requires `Ai::set_weapon_rng`; without a generator nothing is
+    /// drawn and the cooldown is the table value.
+    bool use_weapon_timer = false;
     /// Optional muzzle speed of a queued shot, world units/second.  The AI
     /// weapon table has no speed field, so the honest default is `0` =
     /// unresolved: the caller (or `spawn_ai_shots`) takes it from the
@@ -461,6 +467,11 @@ public:
     void set_path_rng(MsvcRand* rng) { path_rng_ = rng; }
     MsvcRand* path_rng() const { return path_rng_; }
 
+    /// Generator for the weapon cooldown bonus (`0x473a00`, see
+    /// `AiConfig::use_weapon_timer`).  Null by default; caller-owned.
+    void set_weapon_rng(MsvcRand* rng) { weapon_rng_ = rng; }
+    MsvcRand* weapon_rng() const { return weapon_rng_; }
+
     /// also sets `AiAgent::path_mode`.  Returns false for an unknown/dead
     /// agent, a thing without ids, an unattached `Things`, or a route where no
     /// id resolved; the previous route is untouched then.
@@ -509,6 +520,7 @@ private:
 
     AiConfig config_;
     MsvcRand* path_rng_ = nullptr;
+    MsvcRand* weapon_rng_ = nullptr;
     std::vector<AiAgent> agents_;
     std::vector<AiEvent> events_;
     std::vector<AiWeaponShot> weapon_shots_;

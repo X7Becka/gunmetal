@@ -855,6 +855,15 @@ void Ai::tick(const CollisionWorld& world, double dt) {
                     agent.weapon_cooldown =
                         static_cast<double>(std::max(0, selected.cooldown)) /
                         static_cast<double>(kAiTickHz);
+                    // 0x473a00 tail: `+0x3ec/+0x3f0` (Type +0x210/+0x214)
+                    // add `step` to `+0x3e4` when `rand() % period == 0`.
+                    if (config_.use_weapon_timer && weapon_rng_ != nullptr &&
+                        owner->timer_period != 0 &&
+                        weapon_rng_->next() % owner->timer_period == 0) {
+                        agent.weapon_cooldown +=
+                            static_cast<double>(std::max(0, owner->timer_step)) /
+                            static_cast<double>(kAiTickHz);
+                    }
                     ++stats_.weapon_events;
                     log(AiEventType::weapon, agent, weapon_distance, tick,
                         selected.event);
