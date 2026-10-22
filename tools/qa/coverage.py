@@ -13,7 +13,10 @@ branches never ran.  This tool runs a curated command set under the stdlib
 Interpretation: "exec" counts executable lines the tracer saw, "hit" those
 executed at least once.  A branch can still be untested when its line is hit
 (e.g. one arm of a conditional); treat the number as a map of blind spots,
-not as a guarantee.  C++ coverage needs llvm-cov and is out of scope here.
+not as a guarantee.  Commands that fan out to a ProcessPool are traced only
+in the parent, so their workers' lines look unexecuted; render is exercised
+in-process by `regress.py`, not by any CLI subcommand, hence its low number.
+C++ coverage needs llvm-cov and is out of scope here.
 """
 from __future__ import annotations
 
@@ -48,6 +51,9 @@ def commands(full: bool) -> list[list[str]]:
         ["scene", f"{GAME}/dm1.sbt", "--json"],
         ["sob", f"{GAME}/SOBS/20mmclp.sob", "/tmp/opencode/cov-sob", "--check"],
         ["soa", f"{GAME}/Sobanim/Cultist.soo"],
+        ["soo", f"{GAME}/Sobanim", "--json"],
+        ["soe", f"{GAME}/SOBS/railrock.soe", "--fields"],
+        ["sog", f"{GAME}/MUSIC"],
         ["sou", f"{GAME}/sounds/SOU.IDX", "--json"],
         ["sml", GAME],
         ["sbv", f"{GAME}/Vid/Intro.sbv", "--list-only"],
@@ -62,6 +68,9 @@ def commands(full: bool) -> list[list[str]]:
             ["sprites", GAME, "/tmp/opencode/cov-spr", "--force"],
             ["frontend", GAME, "/tmp/opencode/cov-fe", "--force"],
             ["sob", f"{GAME}/SOBS", "/tmp/opencode/cov-models", "--force"],
+            ["sbv", f"{GAME}/Vid/Intro.sbv", "/tmp/opencode/cov-sbv", "--force"],
+            ["music", f"{GAME}/MUSIC/SOU.IDX", "/tmp/opencode/cov-music",
+             "--limit", "1", "--force"],
         ]
     return cmds
 

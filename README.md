@@ -64,7 +64,7 @@ tools/re/             инструментарий реверса exe (PE-кар
 tools/re/gmcache.py   постоянный кэш: листинг+индекс, копия exe, зеркало игры
 tools/re/game_content.py  канонические хэши уровней для тестов (--check/--write)
 tools/ctx.py          точечные срезы документации (doc/addr/find/outline/task)
-tools/qa/coverage.py  покрытие Python-оракула (stdlib trace, --json/--min)
+tools/qa/coverage.py  покрытие Python-оракула (stdlib trace, --json/--missing/--min)
 docs/RE_METHOD.md     методика реверса: доказательства, скорость, бюджет контекста
 docs/REGRESSION.md    слои проверок, бюджеты времени, практики и known gaps
 docs/TOOLING.md       инструменты помимо Ghidra: отладчики, LE/LX, diffs, эмуляция

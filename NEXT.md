@@ -151,8 +151,8 @@
   `level1`/`level2` больше не дают ложных падений (`core`/`camera_rig`/
   `sbtvm`/`vm` зелёные). `--check` фиксирует аномалию, `--write` обновляет
   таблицу детерминированно.
-- **Покрытие.** `tools/qa/coverage.py` (stdlib `trace`): быстрый набор — 40,4 %
-  строк (`--full` — 43,5 %), тёмные места `render`/`sou2`/`sbv`/`sou1`/`sob`;
+- **Покрытие.** `tools/qa/coverage.py` (stdlib `trace`): быстрый набор — 41,8 %
+  строк (`--full` — 47,7 %), тёмные места `render`/`sou1`/`sbv`/`png`/`sml`;
   `--json`, `--missing MODULE`, `--min` для гейта.
 - **Контекст/токены.** `tools/ctx.py` (`doc`/`addr`/`find`/`outline`/`task`,
   бюджет 40 строк), `docs/INDEX.md`, правила в `AGENTS.md`, методика —
