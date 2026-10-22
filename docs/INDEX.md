@@ -34,9 +34,9 @@
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
 | `docs/GHIDRA.md` | 17 | 30 | Ghidra: выбор, установка и рабочий процесс |
-| `docs/HUD_AUDIT.md` | 22 | 86 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
+| `docs/HUD_AUDIT.md` | 24 | 86 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
 | `docs/HUD_BIND.md` | 17 | 29 | HUD binding: `.sml`/`.sme` экраны → семейства `.sof`/`.fdx` и позиции `<I>` |
-| `docs/HUD_COMPOSE.md` | 17 | 9 | HUD composition: `.sml` + `.sof/.fdx` + `blit_indexed` за один вызов |
+| `docs/HUD_COMPOSE.md` | 34 | 43 | HUD composition: `.sml` + `.sof/.fdx` + `blit_indexed` за один вызов |
 | `docs/HUD_CPP.md` | 8 | 2 | C++ HUD-слой: блит кадров `.sof` |
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
@@ -106,6 +106,7 @@
 | `docs/VM_CPP.md` | 20 | 39 | C++-исполнение SCRIPT-VM (`vm_exec.h` / `vm_exec.cpp`) |
 | `docs/VM_EXEC.md` | 54 | 530 | Исполнение SCRIPT-VM (`.sbt`, запись 11) — прототип |
 | `docs/VM_SCENE.md` | 25 | 111 | Сцена, созданная ВМ, против сцены из файла (`M5.2`) |
+| `docs/VM_TRACE.md` | 5 | 16 | Трасса ВМ: C++ против Python (`M5.3.2`) |
 | `docs/WEAPONS_CPP.md` | 62 | 320 | `game/weapons.*` — runtime оружия |
 | `docs/WEAPON_FIELDS.md` | 26 | 278 | Карта записей «оружие / боеприпасы / оборудование / шасси» (M2.3.5) |
 | `docs/WORLD_FIELDS.md` | 42 | 331 | Мир / сектор / объект / полигон: карта рантайма (M2.3.2) |
