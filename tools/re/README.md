@@ -88,7 +88,7 @@ python3 regress.py --mirror                   # сам синхронизиру�
 | `soe_semantics.py` | `.soe`/THING_TYPES: 77 полей, `--fields`/`--json`/`--exe-check` |
 | `soo_semantics.py` | `.soo`: mode/loop, ms timeline, контактные листы `--png` |
 | `sob_writer.py` | `.sob` writer: `--check` 672 моделей, `--rebuild`, `--edit`, `--self-test` |
-| `sou1_model.py` | независимая модель `SOU1` (`0x852b40/0x852c00/0x852cc0`), WAV и сверка: `--verify` (983/983, ~7 мин), `--check docs/manifests/sou1-fnv.json` (быстро), `--list` |
+| `sou1_model.py` | независимая модель `SOU1` (`0x852b40/0x852c00/0x852cc0`), WAV и сверка: `--verify` (983/983, ~2 мин на 16 потоках, `--jobs`), `--check docs/manifests/sou1-fnv.json` (быстро), `--list` |
 | `campaign.py` | карта переходов кампании/DM из скриптов всех `*.sbt`: `campaign.py [--game DIR] [--json]` (имя, секреты, лучшее время, выходы с условиями) |
 | `chassis_models.py` | как уровень выбирает модель игрока: `SOB_TABLE` уровня (восемь моделей шасси по индексам 15–18/21–24), записи `DEFINE_PLAYER_TYPES` (`op5`, звук `op11`) и проверка, что `CHEVY` не встречается нигде |
 | `thing_models.py` | модель каждой сущности: `THING_TYPES` (`.sbt`, запись 4) → `+0x1a4` = индекс в `SOB_TABLE`; печать «тип → модель» по уровням и проверка `2896/2896` валидных индексов (`--level`, `--json`) |

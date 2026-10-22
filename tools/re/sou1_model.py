@@ -309,58 +309,89 @@ def _payload_streams(data: bytes) -> tuple[int, int, bytes, list[bytes]]:
     return rate, 1 + (flags & 1), payload, streams
 
 
+def _verify_name(bf, name: str, chunk: int):
+    """Verify one SOU1 entry: the model against the real decoder bytes."""
+    data = bf.read(bf[name])
+    rate, channels, payload, streams = _payload_streams(data)
+    slots = len(streams[0]) * factor_for(rate)
+    fstreams = []
+    emu_arrays = []
+    ok = True
+    first_bad = None
+    for ch, stream in enumerate(streams):
+        model = decode_stream(stream, rate)
+        emu = decode_stream_emu(stream, rate, chunk=chunk)
+        emu_arr = array.array("I")
+        emu_arr.frombytes(emu)
+        if bytes(emu) != model.tobytes():
+            ok = False
+            if first_bad is None:
+                for i, (x, y) in enumerate(zip(emu_arr, model)):
+                    if x != y:
+                        first_bad = (ch, i, x, y)
+                        break
+        fstreams.append(fnv1a64(emu))
+        emu_arrays.append(emu_arr)
+    if channels == 2:
+        interleaved = array.array("I")
+        left, right = emu_arrays
+        for i in range(slots):
+            interleaved.append(left[i])
+            interleaved.append(right[i])
+    else:
+        interleaved = emu_arrays[0]
+    raw = interleaved.tobytes()
+    rec = {
+        "name": name,
+        "rate": rate,
+        "channels": channels,
+        "payload_bytes": len(payload),
+        "slots_per_channel": slots,
+        "seconds": round(slots / RATE_OUT, 6),
+        "fnv1a64": "%016x" % fnv1a64(raw),
+        "fnv1a64_pcm16": "%016x" % fnv1a64(pcm16(raw)),
+        "fnv1a64_channels": ["%016x" % h for h in fstreams],
+    }
+    return rec, ok, first_bad, slots
+
+
+def _verify_chunk(job):
+    """Worker: verify a slice of entries (one BigFile handle per worker)."""
+    game, names, chunk = job
+    bf = bigfile.BigFile(os.path.join(game, "sounds", "SOU.IDX"))
+    return [(name, *_verify_name(bf, name, chunk)) for name in names]
+
+
 def verify(game: str, limit: int | None = None, json_path: str | None = None,
-           chunk: int = EMU_CHUNK, verbose: bool = True) -> int:
+           chunk: int = EMU_CHUNK, verbose: bool = True,
+           jobs: int | None = None) -> int:
     names = sorted(list_entries(game))
     if limit is not None:
         names = names[:limit]
-    bf = bigfile.BigFile(os.path.join(game, "sounds", "SOU.IDX"))
+    # 983 entries of Python model + x86 emulator: pure CPU.  One process per
+    # 24 entries cut the "slow" gate from ~7 min to well under a minute while
+    # keeping the report order and every value identical.
+    workers = jobs if jobs is not None else min(
+        16, int(os.environ.get("GM_JOBS", "0")) or 16, os.cpu_count() or 1)
+    step = 24
+    chunks = [(game, names[i:i + step], chunk)
+              for i in range(0, len(names), step)]
+    results = []
+    if workers > 1 and len(chunks) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=min(workers, len(chunks))) as pool:
+            for part in pool.map(_verify_chunk, chunks):
+                results.extend(part)
+    else:
+        bf = bigfile.BigFile(os.path.join(game, "sounds", "SOU.IDX"))
+        for index in range(0, len(names), step):
+            for name in names[index:index + step]:
+                results.append((name, *_verify_name(bf, name, chunk)))
     records = []
     bad = 0
     total_slots = 0
-    for idx, name in enumerate(names):
-        data = bf.read(bf[name])
-        rate, channels, payload, streams = _payload_streams(data)
-        slots = len(streams[0]) * factor_for(rate)
+    for idx, (name, rec, ok, first_bad, slots) in enumerate(results):
         total_slots += slots
-        fstreams = []
-        emu_arrays = []
-        ok = True
-        first_bad = None
-        for ch, stream in enumerate(streams):
-            model = decode_stream(stream, rate)
-            emu = decode_stream_emu(stream, rate, chunk=chunk)
-            emu_arr = array.array("I")
-            emu_arr.frombytes(emu)
-            if bytes(emu) != model.tobytes():
-                ok = False
-                if first_bad is None:
-                    for i, (x, y) in enumerate(zip(emu_arr, model)):
-                        if x != y:
-                            first_bad = (ch, i, x, y)
-                            break
-            fstreams.append(fnv1a64(emu))
-            emu_arrays.append(emu_arr)
-        if channels == 2:
-            interleaved = array.array("I")
-            left, right = emu_arrays
-            for i in range(slots):
-                interleaved.append(left[i])
-                interleaved.append(right[i])
-        else:
-            interleaved = emu_arrays[0]
-        raw = interleaved.tobytes()
-        rec = {
-            "name": name,
-            "rate": rate,
-            "channels": channels,
-            "payload_bytes": len(payload),
-            "slots_per_channel": slots,
-            "seconds": round(slots / RATE_OUT, 6),
-            "fnv1a64": "%016x" % fnv1a64(raw),
-            "fnv1a64_pcm16": "%016x" % fnv1a64(pcm16(raw)),
-            "fnv1a64_channels": ["%016x" % h for h in fstreams],
-        }
         records.append(rec)
         if not ok:
             bad += 1
@@ -496,6 +527,8 @@ def main(argv=None) -> int:
                     help="model-only check against a committed FNV manifest")
     ap.add_argument("--chunk", type=int, default=EMU_CHUNK,
                     help="emulator chunk in output slots (default 65536)")
+    ap.add_argument("--jobs", type=int, default=None,
+                    help="--verify workers (default: GM_JOBS or 16)")
     opts = ap.parse_args(argv)
 
     if opts.chunk <= 0 or opts.chunk % 8:
@@ -508,7 +541,8 @@ def main(argv=None) -> int:
             print(name)
         return 0
     if opts.verify:
-        return verify(opts.game, opts.limit, opts.json, opts.chunk)
+        return verify(opts.game, opts.limit, opts.json, opts.chunk,
+                      jobs=opts.jobs)
     if opts.check:
         return check_manifest(opts.game, opts.check)
     if not opts.name or not opts.out:

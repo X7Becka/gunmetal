@@ -282,57 +282,87 @@ def cmd_sprites(opts) -> int:
     return 0 if bad == 0 else 1
 
 
+def _sounds_chunk(job):
+    """Worker: decode a slice of the archive and write its WAV/raw files."""
+    import types
+    dat_path, out, force, rows = job
+    fake = types.SimpleNamespace(force=force)
+    counts = {"pcm": 0, "sou1": 0, "music": 0, "coded": 0, "bad": 0}
+    codecs: dict[str, int] = {}
+    errors: list[str] = []
+    with open(dat_path, "rb") as fh:
+        for name, offset, size in rows:
+            fh.seek(offset)
+            blob = fh.read(size)
+            try:
+                snd = sou.parse(blob)
+            except ValueError as exc:
+                counts["bad"] += 1
+                errors.append(f"{name}: {exc}")
+                continue
+            codecs[snd.magic] = codecs.get(snd.magic, 0) + 1
+            try:
+                if snd.is_pcm:
+                    with _wopen(os.path.join(
+                            out, bigfile.safe_name(name) + ".wav"), fake) as f:
+                        f.write(snd.to_wav())
+                    counts["pcm"] += 1
+                elif snd.magic == "SOU1":
+                    with _wopen(os.path.join(
+                            out, bigfile.safe_name(name) + ".wav"), fake) as f:
+                        f.write(sou1.to_wav(blob))
+                    counts["sou1"] += 1
+                elif snd.magic == "SOU2":
+                    # Format 4 is fully decoded (gm/sou2.py); export real PCM.
+                    with _wopen(os.path.join(
+                            out, bigfile.safe_name(name) + ".wav"), fake) as f:
+                        f.write(sou2.to_wav(blob))
+                    counts["music"] += 1
+                else:
+                    # Honest raw dump: the payload is a driver-side codec, not
+                    # PCM, so no WAV is written (see gm/sou.py).
+                    tag = "mono" if snd.channels == 1 else "stereo"
+                    fname = (f"{bigfile.safe_name(name)}."
+                             f"{snd.magic.lower()}.{snd.sample_rate}.{tag}.bin")
+                    with _wopen(os.path.join(out, fname), fake) as f:
+                        f.write(snd.payload)
+                    counts["coded"] += 1
+            except (ValueError, OSError) as exc:
+                counts["bad"] += 1
+                errors.append(f"{name}: {exc}")
+    return counts, codecs, errors
+
+
 def cmd_sounds(opts) -> int:
     bf = bigfile.BigFile(os.path.join(opts.game, "sounds", "SOU.IDX"))
     os.makedirs(opts.out, exist_ok=True)
-    dat = open(bf.dat_path, "rb").read()
+    rows = [(e.name, e.offset, e.size) for e in bf.entries]
+    chunk = 64
+    jobs = [(bf.dat_path, opts.out, getattr(opts, "force", False),
+             rows[i:i + chunk]) for i in range(0, len(rows), chunk)]
+    workers = min(len(jobs), int(os.environ.get("GM_JOBS", "0")) or 16,
+                  os.cpu_count() or 1)
+    # 999 samples, SOU1 ADPCM decode dominates; the entries are independent.
+    if workers > 1 and len(jobs) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(_sounds_chunk, jobs))
+    else:
+        results = [_sounds_chunk(job) for job in jobs]
     codecs: dict[str, int] = {}
-    pcm = sou1_wav = music = coded = bad = 0
-    for e in bf.entries:
-        try:
-            snd = sou.parse(e.data(dat))
-        except ValueError:
-            bad += 1
-            continue
-        codecs[snd.magic] = codecs.get(snd.magic, 0) + 1
-        if snd.is_pcm:
-            with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".wav"), opts) as f:
-                f.write(snd.to_wav())
-            pcm += 1
-        elif snd.magic == "SOU1":
-            try:
-                wav = sou1.to_wav(e.data(dat))
-            except ValueError as exc:
-                print(f"  {e.name}: {exc}", file=sys.stderr)
-                bad += 1
-                continue
-            with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".wav"), opts) as f:
-                f.write(wav)
-            sou1_wav += 1
-        elif snd.magic == "SOU2":
-            # Format 4 is fully decoded (gm/sou2.py); export real PCM.
-            try:
-                wav = sou2.to_wav(e.data(dat))
-            except ValueError as exc:
-                print(f"  {e.name}: {exc}", file=sys.stderr)
-                bad += 1
-                continue
-            with _wopen(os.path.join(opts.out, bigfile.safe_name(e.name) + ".wav"), opts) as f:
-                f.write(wav)
-            music += 1
-        else:
-            # Honest raw dump: the payload is a driver-side codec, not PCM, so
-            # no WAV is written (see gm/sou.py and docs/FORMATS.md).
-            tag = "mono" if snd.channels == 1 else "stereo"
-            name = (f"{bigfile.safe_name(e.name)}."
-                    f"{snd.magic.lower()}.{snd.sample_rate}.{tag}.bin")
-            with _wopen(os.path.join(opts.out, name), opts) as f:
-                f.write(snd.payload)
-            coded += 1
-    print(f"sounds: {pcm} SOU0 WAV, {sou1_wav} SOU1 WAV, {music} SOU2 WAV, "
-          f"{coded} raw dumps, {bad} failed")
+    total = {"pcm": 0, "sou1": 0, "music": 0, "coded": 0, "bad": 0}
+    for counts, part, errors in results:
+        for key, value in counts.items():
+            total[key] += value
+        for key, value in part.items():
+            codecs[key] = codecs.get(key, 0) + value
+        for msg in errors:
+            print(f"  {msg}", file=sys.stderr)
+    print(f"sounds: {total['pcm']} SOU0 WAV, {total['sou1']} SOU1 WAV, "
+          f"{total['music']} SOU2 WAV, {total['coded']} raw dumps, "
+          f"{total['bad']} failed")
     print(f"  containers: {codecs}")
-    return 0 if bad == 0 else 1
+    return 0 if total["bad"] == 0 else 1
 
 
 def cmd_sou(opts) -> int:
