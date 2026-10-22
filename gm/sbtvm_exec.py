@@ -626,7 +626,8 @@ class Scene:
 @dataclass
 class State:
     code: bytes
-    entities: dict = field(default_factory=dict)       # id -> Entity
+    entities: dict = field(default_factory=dict)       # id -> first Entity row
+    entity_rows: dict = field(default_factory=dict)    # id -> every row, table order
     order: list = field(default_factory=list)          # ids in table order
     players: dict = field(default_factory=dict)        # index -> Player
     source_player: int | None = None
@@ -646,7 +647,9 @@ class State:
     path: list = field(default_factory=list)
     scene: Scene = field(default_factory=Scene)
     events: list = field(default_factory=list)         # (op, name, args, pc)
-    stack: list = field(default_factory=list)          # (return_pc, source)
+    # (return_pc, source, generate_id, row_cursor, site) — the tail mirrors
+    # VmStackFrame: 0x45fb1c returns to the next row of the same GENERATE id.
+    stack: list = field(default_factory=list)
     active: list = field(default_factory=list)         # active sub-script offsets
     pc: int = 0
     clock: int = 0
@@ -824,11 +827,9 @@ class Executor:
             st.pc = pc
             self._trace(st, ins)
             if ins.kind == "end":
-                if st.stack:
-                    ret, src = st.stack.pop()
-                    st.active.pop()
-                    st.source_entity = src
-                    pc = ret
+                nxt = self._leave_frame(st)
+                if nxt is not None:
+                    pc = nxt
                     continue
                 return END, ""
             if ins.kind == "if":
@@ -1172,11 +1173,9 @@ class Executor:
 
     # flow
     def _h_exit_event(self, st, ins):
-        if st.stack:
-            ret, src = st.stack.pop()
-            st.active.pop()
-            st.source_entity = src
-            return ret
+        nxt = self._leave_frame(st)
+        if nxt is not None:
+            return nxt
         raise Halt(END, ins.pc, "EXIT_EVENT at depth 0")
 
     def _h_exit_program(self, st, ins):
@@ -1195,16 +1194,27 @@ class Executor:
         raise Halt(UNSUPPORTED_COMMAND, ins.pc, ins.name)
 
     def _h_generate(self, st, ins):
+        """`generate_runner` 0x45fa00: every matching row runs, in order.
+
+        The row filter (0x45fa74..0x45fa93) needs the *source* flag bit;
+        without a source player the model takes the union of the bits
+        (`flags & 0x1ff`), so a fired one-shot (0x200 alone) or a DISABLED
+        row (0) stays out.  Rows of one id run sequentially: on return from
+        the sub-script the next matching row starts (0x45fb1c).
+        """
         gid = s32(ins.args[0])
         for d in st.scene.doors:
             if gid in [s32(v) for v in d.ids]:
                 d.toggles += 1
-        ent = st.entities.get(gid)
+        rows = st.entity_rows.get(gid, ())
         self._event(st, ins, note="generate id=%d%s" % (
-            gid, "" if ent else " (no entity)"))
-        if not self.follow or ent is None or ent.offset is None:
+            gid, "" if rows else " (no entity)"))
+        if not self.follow or not rows:
             return None
-        off = ent.offset
+        found = self._next_row(st, gid, 0)
+        if found is None:
+            return None
+        off, cursor = found
         if off < 0 or off >= len(st.code):
             raise Halt(BAD_PC, ins.pc, "entity offset 0x%x" % off)
         if off in st.active:
@@ -1212,22 +1222,70 @@ class Executor:
                        "GENERATE %d re-enters offset 0x%x" % (gid, off))
         if len(st.stack) >= MAX_DEPTH:
             raise Halt(STACK_OVERFLOW, ins.pc, "depth %d" % len(st.stack))
-        st.stack.append((ins.next, st.source_entity))
+        st.stack.append((ins.next, st.source_entity, gid, cursor, ins.pc))
         st.active.append(off)
         st.source_entity = gid
         return off
 
+    def _next_row(self, st: State, gid: int, cursor: int):
+        """Next row of *gid* that the source may run, or ``None``.
+
+        Returns ``(offset, next_cursor)``; cursor is the row index *after* the
+        one that starts, so a return continues with the following row.
+        """
+        bit = None if st.source_player is None else self._sp_bit(st)
+        rows = st.entity_rows.get(gid, ())
+        for i in range(cursor, len(rows)):
+            row = rows[i]
+            if row.offset is None:
+                continue
+            if bit is None:
+                if not (row.flags & 0x1FF):
+                    continue
+            elif not (row.flags & bit):
+                continue
+            # 0x45fa9e: the one-shot bit clears 0x1ff *before* the call, so
+            # the run sees the row disabled and a self-GENERATE cannot
+            # re-enter it.
+            if row.flags & 0x200:
+                row.flags &= 0xFFFFFE00
+            return row.offset, i + 1
+        return None
+
+    def _leave_frame(self, st: State):
+        """Pop one frame; continue with the next row of the same GENERATE."""
+        if not st.stack:
+            return None
+        ret, src, gid, cursor, site = st.stack.pop()
+        st.active.pop()
+        st.source_entity = src
+        if gid is not None:
+            found = self._next_row(st, gid, cursor)
+            if found is not None:
+                off, next_cursor = found
+                if off < 0 or off >= len(st.code):
+                    raise Halt(BAD_PC, site, "entity offset 0x%x" % off)
+                if off in st.active:
+                    raise Halt(RECURSION, site,
+                               "GENERATE %d re-enters offset 0x%x" % (gid, off))
+                if len(st.stack) >= MAX_DEPTH:
+                    raise Halt(STACK_OVERFLOW, site, "depth %d" % len(st.stack))
+                st.stack.append((ret, src, gid, next_cursor, site))
+                st.active.append(off)
+                st.source_entity = gid
+                return off
+        return ret
+
     # entity flags
     def _h_enable(self, st, ins):
-        e = st.entities.get(s32(ins.args[0]))
-        if e:
+        # 0x457c67 walks the whole id column, no break: every row changes.
+        for e in st.entity_rows.get(s32(ins.args[0]), ()):
             e.flags |= 0x1FF
         self._event(st, ins)
         return None
 
     def _h_disable(self, st, ins):
-        e = st.entities.get(s32(ins.args[0]))
-        if e:
+        for e in st.entity_rows.get(s32(ins.args[0]), ()):
             e.flags &= ~0x1FF
         self._event(st, ins)
         return None
@@ -1238,15 +1296,13 @@ class Executor:
         return 1 << (9 + st.source_player)
 
     def _h_sp_enable(self, st, ins):
-        e = st.entities.get(s32(ins.args[0]))
-        if e:
+        for e in st.entity_rows.get(s32(ins.args[0]), ()):
             e.flags |= self._sp_bit(st)
         self._event(st, ins)
         return None
 
     def _h_sp_disable(self, st, ins):
-        e = st.entities.get(s32(ins.args[0]))
-        if e:
+        for e in st.entity_rows.get(s32(ins.args[0]), ()):
             e.flags &= ~self._sp_bit(st)
         self._event(st, ins)
         return None
@@ -1519,6 +1575,18 @@ def _op(name: str) -> int:
 # convenience: build a State from a parsed script
 
 
+def _add_entity(st: State, eid: int, flags: int, offset: int | None) -> Entity:
+    """Append one entity row; `entities` keeps the first row, `entity_rows` all.
+
+    C++ `VmState::entity(id)` is the first row (`docs/ENTITY_FIELDS.md`);
+    duplicates stay in the vector and every one of them runs.
+    """
+    row = Entity(eid, flags, offset)
+    st.entity_rows.setdefault(eid, []).append(row)
+    st.entities.setdefault(eid, row)
+    return row
+
+
 def state_from_script(script, *, game_mode: int = 0, player_count: int = 1,
                       difficulty: int = 1, level_number: int = 0,
                       god_mode: bool = False, players: int = 1,
@@ -1544,7 +1612,7 @@ def state_from_script(script, *, game_mode: int = 0, player_count: int = 1,
         cols = struct.unpack_from("<%dI" % (3 * n), script.handles, 0)
         for i in range(n):
             eid = s32(cols[n + i])
-            st.entities[eid] = Entity(eid, cols[i], cols[2 * n + i])
+            _add_entity(st, eid, cols[i], cols[2 * n + i])
             st.order.append(eid)
     return st
 
@@ -1633,8 +1701,10 @@ def _run_bytes(code: bytes, rows=(), **kw) -> list[PathResult]:
                            "level_number", "god_mode", "mp_flags")}
     st = State(code=code, rng=kw.pop("seed", 1), **state_keys)
     st.players[0] = Player(index=0)
-    for eid, off in rows:
-        st.entities[eid] = Entity(eid, 0x3FF, off)
+    for row in rows:
+        eid, off = row[0], row[1]
+        flags = row[2] if len(row) > 2 else 0x3FF
+        _add_entity(st, eid, flags, off)
     ex = Executor(st, **kw)
     return ex.run(0)
 
@@ -1700,10 +1770,29 @@ def selftest() -> list[tuple[str, bool, str]]:
     r = _run_bytes(bytes([_op("GENERATE")]) + b"\x01")
     check("bad operand: dword", r[0].reason == BAD_OPERAND, r[0].reason)
 
-    # 8. recursion via GENERATE self
+    # 8. GENERATE row selection (0x45fa00, docs/ENTITY_FIELDS.md):
+    #   * a row without 0x200 re-enters itself -> recursion;
+    #   * a one-shot row (0x200) is disabled before the call (0x45fa9e),
+    #     so its self-GENERATE is not run again;
+    #   * a DISABLED row (flags 0) is skipped entirely (0x45fa83);
+    #   * every duplicate row of one id runs, in table order (0x45fb1c).
     gen = _enc_cmd("GENERATE", 7)
-    r = _run_bytes(gen + b"\xff", rows=[(7, 0)])
-    check("recursion detected", r[0].reason == RECURSION, r[0].reason)
+    self_row = _run_bytes(gen + b"\xff", rows=[(7, 0, 0x100)])
+    one_shot = _run_bytes(gen + b"\xff", rows=[(7, 0, 0x300)])
+    disabled = _run_bytes(gen + b"\xff", rows=[(7, 0, 0)])
+    body = gen + b"\xff"
+    sub_a = _enc_cmd("ADD_LOCATION", 1, 10, 20, 30, 0.0, 0.0, 0.0) + b"\xff"
+    sub_b = _enc_cmd("ADD_LOCATION", 2, 40, 50, 60, 0.0, 0.0, 0.0) + b"\xff"
+    dup = _run_bytes(body + sub_a + sub_b,
+                     rows=[(7, len(body), 0x100),
+                           (7, len(body) + len(sub_a), 0x100)])
+    got = [x.thing_id for x in dup[0].state.scene.locations]
+    cases = [self_row[0].reason, one_shot[0].reason, disabled[0].reason,
+             dup[0].reason, got]
+    check("recursion detected",
+          self_row[0].reason == RECURSION and one_shot[0].reason == END
+          and disabled[0].reason == END and dup[0].reason == END
+          and got == [1, 2], "%s" % (cases,))
 
     # 9. stack overflow: a chain of 40 entities, each GENERATEs the next
     code = bytearray()

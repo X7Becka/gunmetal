@@ -331,6 +331,23 @@ gm_label(vm quick)
 add_test(NAME vm_full COMMAND gm_vm_tests --full)
 gm_label(vm_full full)
 
+# M5.3.2: the instruction trace must be identical in C++ and Python.
+# `tools/re/vm_trace_check.py` runs the dumper and gm/sbtvm_exec.py and diffs.
+add_executable(gm_vm_trace_dump vm_trace_dump.cpp)
+target_link_libraries(gm_vm_trace_dump PRIVATE gm_engine)
+if(GM_PYTHON3)
+    add_test(NAME vm_trace
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_trace_check.py
+                     --level level0 --blocks 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+                     --binary $<TARGET_FILE:gm_vm_trace_dump>)
+    gm_label(vm_trace quick)
+    add_test(NAME vm_trace_dm1
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_trace_check.py
+                     --level dm1 --blocks 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+                     --binary $<TARGET_FILE:gm_vm_trace_dump>)
+    gm_label(vm_trace_dm1 quick)
+endif()
+
 add_executable(gm_soe_tests test_soe.cpp)
 target_link_libraries(gm_soe_tests PRIVATE gm_engine)
 add_test(NAME soe COMMAND gm_soe_tests)

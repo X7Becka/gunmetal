@@ -306,11 +306,14 @@ class FakeScript:
     def __init__(self, code, rows):
         self.code = bytes(code)
         self.n = len(rows)
+        # 0x3FF (enabled, one-shot) by default; a row may pin its own flags:
+        # (id, offset, flags).  A one-shot row clears 0x1ff before the call
+        # (0x45fa9e), so a self-GENERATE needs flags without 0x200 to cycle.
         self.handles = struct.pack(
             "<%dI" % (3 * self.n),
-            *[0x3FF for _ in rows],
-            *[eid & 0xFFFFFFFF for eid, _off in rows],
-            *[off for _eid, off in rows])
+            *[(row[2] if len(row) > 2 else 0x3FF) for row in rows],
+            *[row[0] & 0xFFFFFFFF for row in rows],
+            *[row[1] for row in rows])
 
 
 THING_ABS = (100, 1, 2, 3, 0.0, 0.0, 0.0)       # type,x,y,z,3 doubles
@@ -378,7 +381,7 @@ def selftest():
         check("OOB IF body", "cannot decode block" in str(exc), str(exc))
 
     # 5. GENERATE cycle (runtime) must stop with a reason, not hang
-    cyc = FakeScript(enc_cmd("GENERATE", 1) + b"\xff", [(1, 0)])
+    cyc = FakeScript(enc_cmd("GENERATE", 1) + b"\xff", [(1, 0, 0x100)])
     t0 = time.monotonic()
     res = scenemod.execute_things(
         cyc, None, ThingContext(follow_generate=True, max_time=2.0))
