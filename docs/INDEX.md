@@ -36,7 +36,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 39 | 168 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 39 | 169 | JOURNAL — журнал ходов |
 | `docs/LEVEL_LOAD.md` | 32 | 664 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
 | `docs/LIGHTMAP_AUDIT.md` | 11 | 8 | Аудит лайтмапов `.sbc`: покрытие и яркость (M4) |
@@ -45,7 +45,7 @@
 | `docs/MATERIAL_BLEND.md` | 28 | 157 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
-| `docs/ORACLE.md` | 22 | 7 | Эталонный оракул (M4.4.2) |
+| `docs/ORACLE.md` | 26 | 10 | Эталонный оракул (M4.4.2) |
 | `docs/ORACLE_RENDER.md` | 12 | 1 | Воспроизводимый рендер эталонного кадра (`oracle_render.py`) |
 | `docs/PALETTE.md` | 5 | 15 | Палитра 8-битной графики и индексы текстур `.sbw` |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
@@ -56,7 +56,7 @@
 | `docs/RECORDS.md` | 33 | 246 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
 | `docs/REGRESSION.md` | 11 | 1 | Регрессия: ворота, бюджет времени и практики |
 | `docs/RENDER.md` | 5 | 0 | Рендерер C++: конвейер и паритет с `gm/render.py` |
-| `docs/RE_AUDIT.md` | 21 | 15 | Аудит процесса реверса (2026-10-22) |
+| `docs/RE_AUDIT.md` | 21 | 10 | Аудит процесса реверса (2026-10-22) |
 | `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
 | `docs/RNG.md` | 7 | 41 | RNG: `rand()` оригинала, сид и потребители |
 | `docs/RUNTIME_CPP.md` | 42 | 8 | Gunmetal — C++-каркас фиксированного тика (`GameRuntime`) |

@@ -99,7 +99,11 @@ def load_sidecar(path: str) -> dict:
 def camera_frame(cam: dict, eye_from: str = "auto") -> dict:
     """Sidecar camera -> eye, forward, look, and the eye-mode actually used."""
     pos = tuple(float(v) for v in cam["pos"])
-    pitch = float(cam.get("pitch", 0.0))
+    # The camera pitch is the *body* pitch plus the turret/look pitch
+    # (docs/CAMERA.md: `p[0x18] + p[0x2E60]`).  Sidecars written before
+    # 2026-10-23 carry only the body angle, so `camera_pitch` is optional and
+    # falls back to `pitch` -- old frames stay reproducible, new ones are exact.
+    pitch = float(cam.get("camera_pitch", cam.get("pitch", 0.0)))
     yaw = float(cam.get("yaw", 0.0))
     roll = float(cam.get("roll", 0.0))
     eye_height = float(cam.get("eye_height", 0.0))

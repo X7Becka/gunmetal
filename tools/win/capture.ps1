@@ -1,4 +1,4 @@
-# Requires -Version 5.1
+﻿# Requires -Version 5.1
 <#
 .SYNOPSIS
     Capture the Gunmetal window (the "oracle": original game under DXWnd +
@@ -85,7 +85,11 @@ public static class OracleMem
     # buffer at 0x5a4868 (docs/PLAYER_FIELDS.md, docs/LEVEL_LOAD.md S17).
     function Read-PlayerState {
         param([IntPtr]$Handle, [int]$Slot)
-        $record = New-Object byte[] 0x30
+        # 0x2E68 bytes: the angles at +0x18..+0x28 and the turret/look pitch
+        # at +0x2E60.  The camera pitch is p[0x18] + p[0x2E60] (docs/CAMERA.md),
+        # and the mouse-look pitch is NOT part of the body angle: a capture that
+        # reads only +0x18 renders ~6 deg above the frame (measured on win2).
+        $record = New-Object byte[] 0x2E68
         $read = [IntPtr]::Zero
         $addr = [IntPtr](0x819040 + $Slot * 0x3510)
         if (-not [OracleMem]::ReadProcessMemory($Handle, $addr, $record,
@@ -99,12 +103,15 @@ public static class OracleMem
             $level = ([System.Text.Encoding]::ASCII.GetString($levelBuf) -split "`0")[0]
         }
         $d = @(0..5 | ForEach-Object { [BitConverter]::ToDouble($record, $_ * 8) })
+        $turret = [BitConverter]::ToDouble($record, 0x2E60)
         return @{
             level = $level
             pos = @($d[0], $d[1], $d[2])
             pitch = $d[3]
             roll = $d[4]
             yaw = $d[5]
+            turret_pitch = $turret
+            camera_pitch = $d[3] + $turret
         }
     }
 
@@ -241,7 +248,8 @@ if ($before) {
     }
     $da = [Math]::Abs($before.pitch - $after.pitch) +
           [Math]::Abs($before.roll - $after.roll) +
-          [Math]::Abs($before.yaw - $after.yaw)
+          [Math]::Abs($before.yaw - $after.yaw) +
+          [Math]::Abs($before.turret_pitch - $after.turret_pitch)
     $stable = ($dp -le 0.5) -and ($da -le 1.0e-3)
 }
 
@@ -250,6 +258,8 @@ $cam = @{
     player_pos = @($after.pos[0], $after.pos[1], $after.pos[2])
     yaw = $after.yaw
     pitch = $after.pitch
+    turret_pitch = $after.turret_pitch
+    camera_pitch = $after.camera_pitch
     roll = $after.roll
     eye_height = $EyeHeight
 }
@@ -286,5 +296,7 @@ $utf8 = New-Object System.Text.UTF8Encoding ($false)
     pos = $cam.pos
     yaw = $after.yaw
     pitch = $after.pitch
+    turret_pitch = $after.turret_pitch
+    camera_pitch = $after.camera_pitch
 } | ConvertTo-Json -Compress
 
