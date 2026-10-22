@@ -40,11 +40,15 @@ $g.Dispose()
 
 $dir = Split-Path -Parent $Out
 if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-$bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
+$full = [System.IO.Path]::GetFullPath($Out)
+$ms = New-Object System.IO.MemoryStream
+$bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
+[System.IO.File]::WriteAllBytes($full, $ms.ToArray())
+$ms.Dispose()
 
 [pscustomobject]@{
-    out = (Resolve-Path $Out).Path
+    out = $full
     screen = @{ x = $bounds.X; y = $bounds.Y; w = $bounds.Width; h = $bounds.Height }
     captured = @{ x = $rect.X; y = $rect.Y; w = $rect.Width; h = $rect.Height }
     dpi = (Get-ItemProperty "HKCU:\Control Panel\Desktop" -Name LogPixels -ErrorAction SilentlyContinue).LogPixels

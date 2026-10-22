@@ -28,7 +28,8 @@
 3. В PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File capture.ps1 -ProcessName gundx -Out level0.png
+powershell -ExecutionPolicy Bypass -File capture.ps1 -ProcessName gundx `
+    -Out '\\wsl.localhost\Ubuntu\home\nooverload\gunmetal-re\out\oracle\level0.png'
 ```
 
 Скрипт `tools/win/capture.ps1` находит окно процесса, поднимает его,
@@ -61,7 +62,7 @@ powershell.exe -ExecutionPolicy Bypass -File 'C:\Users\nooverload\capture.ps1' \
   окна**, поэтому масштаб 100 % обязателен.
 * Запуск игры из WSL (`cmd.exe /c start …`) технически возможен, но забирает
   экран пользователя — для CI и регрессии это не автоматизируется; кадры
-  снимаются вручную/по запросу и складываются в `data/oracle/` (без ассетов
+  снимаются вручную/по запросу и складываются в `out/oracle/` (без ассетов
   игры — только PNG-кадры, если пользователь разрешит их хранить).
 
 ## Сравнение кадра с нашим рендером
@@ -83,7 +84,8 @@ powershell.exe -ExecutionPolicy Bypass -File 'C:\Users\nooverload\capture.ps1' \
 
 ```sh
 # 1. снять кадр (Windows, игра запущена через DXWnd)
-powershell -ExecutionPolicy Bypass -File capture.ps1 -ProcessName gundx -Out level0.png
+powershell -ExecutionPolicy Bypass -File capture.ps1 -ProcessName gundx `
+    -Out '\\wsl.localhost\Ubuntu\home\nooverload\gunmetal-re\out\oracle\level0.png'
 
 # 2. отрендерить тот же уровень/позу нашим движком (пример для level0)
 ./build/release/engine/gunmetal --level level0 --render out/level0.png --width 320 --height 200
@@ -99,8 +101,8 @@ python3 tools/re/oracle_compare.py --oracle level0.png --ours out/level0.png \
 
 `heuristic: match` — это **не доказательство**: сначала сверь состояние
 (уровень, поза/угол, хэш сейва, разрешение), иначе совпадение может быть
-случайным. Результат и метрики складывай рядом с кадром в `data/oracle/`
-(см. `data/oracle/README.md`).
+случайным. Результат и метрики складывай рядом с кадром в `out/oracle/`
+(схема sidecar — ниже).
 
 ## Без DXWnd (полноэкранный запуск)
 
@@ -112,7 +114,8 @@ python3 tools/re/oracle_compare.py --oracle level0.png --ours out/level0.png \
 (GDI вернёт чёрный кадр), снимается весь экран:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File capture_screen.ps1 -Out level0.png
+powershell -ExecutionPolicy Bypass -File capture_screen.ps1 `
+    -Out '\\wsl.localhost\Ubuntu\home\nooverload\gunmetal-re\out\oracle\level0.png'
 # -> JSON: {"out": "...", "screen": {...,"w":1920,"h":1080}, "captured": {...}}
 ```
 
@@ -164,7 +167,7 @@ powershell -ExecutionPolicy Bypass -File state.ps1
 
 ## Первый кадр (2026-10-22)
 
-`C:\Users\nooverload\oracle\win1.png` + sidecar `win1.json`:
+`out/oracle/win1.png` + sidecar `win1.json`:
 
 | поле | значение |
 |---|---|
@@ -184,7 +187,7 @@ C++): максимум `world corr = 0.087`, `edges = 0.55`, `hist` до 0.22. �
 
 ## Второй кадр (2026-10-22, после перемещения)
 
-`C:\Users\nooverload\oracle\win2.png` + `win2.json`: `LEVEL0`,
+`out/oracle/win2.png` + `win2.json`: `LEVEL0`,
 позиция `259.141, 658.441, -80`, yaw `6.01463` рад (344.6°), глаз `-70`.
 На кадре — тоннель с вывеской `TRANSIT GATE` и синей подсветкой.
 
@@ -203,7 +206,7 @@ C++): максимум `world corr = 0.087`, `edges = 0.55`, `hist` до 0.22. �
 
 ## Третий кадр (2026-10-22, «два танка и дверь»)
 
-`C:\Users\nooverload\oracle\win3.png` + `win3.json`: `LEVEL0`,
+`out/oracle/win3.png` + `win3.json`: `LEVEL0`,
 позиция `191.273, 1199.061, -80`, yaw `1.85840` рад (106.5°), глаз `-70`.
 В кадре два танка и красная дверь за ними.
 
@@ -219,3 +222,33 @@ C++): максимум `world corr = 0.087`, `edges = 0.55`, `hist` до 0.22. �
 Вывод: камера и состояние сняты корректно, но числовое сравнение блокирует
 `M4` — материалы/текстуры/лайтмапы `level0` в этой зоне. Три кадра
 (`win1..win3`) + sidecar'ы сохранены как будущий эталон.
+
+## Куда складывать кадры
+
+Кадры и sidecar'ы живут в **`out/oracle/`** (каталог в `.gitignore`, в git не
+попадает; ассеты игры туда не копируются). Windows-путь для скриптов:
+
+```
+\\wsl.localhost\Ubuntu\home\nooverload\gunmetal-re\out\oracle\<имя>.png
+```
+
+`capture.ps1` и `capture_screen.ps1` пишут PNG через `MemoryStream` +
+`File.WriteAllBytes`: прямой `Bitmap.Save()` на `\\wsl.localhost` ненадёжен.
+Проверено: запись в `out/oracle` с Windows-стороны проходит.
+
+Sidecar (рядом с кадром, обязателен):
+
+```json
+{
+  "level": "LEVEL0",
+  "sbt_sha256": "…", "sbw_sha256": "…",
+  "save": null,
+  "camera": {"pos": [x, y, z], "player_pos": [x, y, z],
+             "yaw": 0.0, "pitch": 0.0, "roll": 0.0, "eye_height": 10.0},
+  "render": {"width": 320, "height": 200, "api": "dgVoodoo 2.7.3", "scale": 1},
+  "capture": {"tool": "tools/win/capture.ps1", "mode": "client",
+              "screen": [1920, 1080], "rect": [0, 0, 1920, 1080]},
+  "state_source": "tools/win/state.ps1 (live process memory)",
+  "notes": "…"
+}
+```

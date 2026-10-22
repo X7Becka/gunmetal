@@ -106,8 +106,12 @@ $gfx.Dispose()
 $full = [System.IO.Path]::GetFullPath($Out)
 $dir = [System.IO.Path]::GetDirectoryName($full)
 if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-$bmp.Save($full, [System.Drawing.Imaging.ImageFormat]::Png)
+# Write through a stream: GDI+ Save() is unreliable on \\wsl.localhost paths.
+$ms = New-Object System.IO.MemoryStream
+$bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
+[System.IO.File]::WriteAllBytes($full, $ms.ToArray())
+$ms.Dispose()
 
 [pscustomobject]@{
     out = $full
