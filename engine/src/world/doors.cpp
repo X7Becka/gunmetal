@@ -638,6 +638,7 @@ void WorldState::log_event(WorldEvent event) {
 
 void WorldState::queue_sound(SoundRequest request) {
     if (request.source != SoundSource::DoorMoveStop &&
+        request.source != SoundSource::LiftMoveStop &&
         (request.sample < 0 || request.sample >= kDoorSampleCount)) {
         // The engine queues the request with any sample and lets the mixer
         // drop it (`0x46b840`/the mixer resolve the index through
@@ -688,6 +689,36 @@ void WorldState::queue_door_move_stop(std::size_t index, const Door& door) {
     request.loop = true;
     request.source = SoundSource::DoorMoveStop;
     request.class_id = static_cast<int>(kDoorSoundClassBase) + static_cast<int>(index);
+    queue_sound(request);
+}
+
+void WorldState::queue_lift_sound(std::size_t index, const Lift& lift, SoundSource source,
+                                  const DoorSound& sound, bool loop) {
+    SoundRequest request;
+    request.sample = sound.sample;
+    request.volume = sound.volume;
+    // 0x4502a0 resolves the cabin object (+0x30) and reads its position
+    // doubles; 0x44e6f0 wrote exactly `lift_transform(lift).origin` there.
+    request.position = lift_transform(lift).origin;
+    request.position_known = true;
+    request.loop = loop;
+    request.source = source;
+    request.class_id = loop ? kLiftSoundClassBase + static_cast<int>(index) : 0;
+    queue_sound(request);
+}
+
+void WorldState::queue_lift_move_stop(std::size_t index, const Lift& lift) {
+    if (!lift.move_sound_queued) {
+        // No loop was ever started: 0x46ba90 is unconditional in the engine,
+        // but a portable queue must not carry a stop for a missing voice.
+        return;
+    }
+    SoundRequest request;
+    request.sample = -1;
+    request.volume = 0;
+    request.loop = true;
+    request.source = SoundSource::LiftMoveStop;
+    request.class_id = kLiftSoundClassBase + static_cast<int>(index);
     queue_sound(request);
 }
 
@@ -1003,7 +1034,7 @@ bool WorldState::build(const SbtLevel& level, const SbwLevel& world, std::string
     return true;
 }
 
-void WorldState::start_lift(Lift& lift) {
+void WorldState::start_lift(std::size_t index, Lift& lift) {
     if (lift.stops.size() < 2 || lift.speed <= 0) {
         return;
     }
@@ -1018,6 +1049,13 @@ void WorldState::start_lift(Lift& lift) {
     lift.moving = lift.direction != 0;
     lift.wait = 0;
     lift.height_tick = lift.height;
+    // 0x44f690 plays the call/departure slot (n_a/v_a) when it commits the
+    // stop; 0x4502a0 then starts the movement loop on the next state tick.
+    queue_lift_sound(index, lift, SoundSource::LiftCall, lift.call_sound, false);
+    if (lift.moving) {
+        queue_lift_sound(index, lift, SoundSource::LiftMove, lift.move_sound, true);
+        lift.move_sound_queued = true;
+    }
 }
 
 std::size_t WorldState::post_switch_events(EventQueue& queue,
@@ -1148,7 +1186,7 @@ std::size_t WorldState::press_target(int switch_id, int target) {
         }
         Lift& lift = lifts_[row.second];
         if (!lift.moving) {
-            start_lift(lift);
+            start_lift(row.second, lift);
             ++stats_.lift_calls;
             log_event({WorldEvent::Kind::LiftCalled, switch_id, target, 0, lift.id,
                        lift.call_sound.sample, lift.call_sound.volume});
@@ -1498,9 +1536,16 @@ void WorldState::advance_door(std::size_t index, Door& door, std::uint64_t ticks
     door.open_fraction = static_cast<double>(door.phase) * kDoorPhaseToFraction;
 }
 
-void WorldState::advance_lift(Lift& lift, std::uint64_t ticks) {
+void WorldState::advance_lift(std::size_t index, Lift& lift, std::uint64_t ticks) {
     if (!lift.moving || lift.speed <= 0 || lift.stops.empty()) {
         return;
+    }
+    if (!lift.move_sound_queued) {
+        // A state restored mid-travel (`direction != 0`) has no start tick:
+        // 0x4502a0 would have issued the loop on the first state tick, so the
+        // model catches up here.
+        queue_lift_sound(index, lift, SoundSource::LiftMove, lift.move_sound, true);
+        lift.move_sound_queued = true;
     }
     std::uint64_t left = ticks;
     int guard = 0;
@@ -1528,6 +1573,12 @@ void WorldState::advance_lift(Lift& lift, std::uint64_t ticks) {
             // refreshed by 0x44e6f0 in the same call.
             lift.height_tick = lift.height;
             lift.wait = lift.dwell;
+            // Arrival: 0x4502a0 plays the n_c/v_c slot at the cabin position,
+            // posts the stop's event and then stops the loop (0x46ba90).
+            queue_lift_sound(index, lift, SoundSource::LiftArrive,
+                             lift.arrive_sound, false);
+            queue_lift_move_stop(index, lift);
+            lift.move_sound_queued = false;
             if (static_cast<std::size_t>(lift.stop_index) < lift.stops.size() &&
                 lift.stops[static_cast<std::size_t>(lift.stop_index)].height ==
                     lift.height) {
@@ -1578,8 +1629,8 @@ void WorldState::tick(std::uint64_t ticks) {
     for (std::size_t k = 0; k < doors_.size(); ++k) {
         advance_door(k, doors_[k], ticks);
     }
-    for (Lift& lift : lifts_) {
-        advance_lift(lift, ticks);
+    for (std::size_t k = 0; k < lifts_.size(); ++k) {
+        advance_lift(k, lifts_[k], ticks);
     }
     for (Switch& sw : switches_) {
         sw.pressed = false;

@@ -40,6 +40,9 @@ inline constexpr int kDoorSampleCount = 300;
 /// the class to update the running voice and to stop it when the door comes to
 /// rest (``0x46ba90`` -> ``0x40bf80``).
 inline constexpr int kDoorSoundClassBase = 1000000;
+/// The engine keys the lift movement loop by `2000000 + lift index`
+/// (`0x4502a0`: `FUN_0046b960(..., iVar4 + 2000000, ...)`).
+inline constexpr int kLiftSoundClassBase = 2000000;
 
 /// The engine's 3D-sound queue holds at most 256 entries (``0x46b8d0``:
 /// ``DAT_0062fa18 < 0x100``); further requests are dropped silently.
@@ -84,6 +87,17 @@ enum class SoundSource : std::uint8_t {
     DoorStop,
     DoorMoveStop,
     Switch,
+    /// Lift call/departure one-shot (`0x44f690` / `0x4502a0` -> `0x46b840`
+    /// with `n_a`/`v_a`: `+0x90`/`+0x84`).
+    LiftCall,
+    /// Looped cabin movement (`0x4502a0` -> `0x46b960` with `n_b`/`v_b`:
+    /// `+0x94`/`+0x88`, class `2000000 + lift index`).
+    LiftMove,
+    /// Arrival one-shot (`0x4502a0` -> `0x46b840` with `n_c`/`v_c`:
+    /// `+0x98`/`+0x8c`).
+    LiftArrive,
+    /// Loop stop for `LiftMove` (`0x4502a0` -> `0x46ba90`).
+    LiftMoveStop,
 };
 
 /// One portable sound request — the model counterpart of one entry of the
@@ -277,8 +291,13 @@ struct Lift {
     int call_event = 0;             // +0x7c: event posted on a call
     int call_radius = 0;            // +0x80: call trigger radius
     DoorSound call_sound;           // +0x84/+0x90: call/depart sample
-    DoorSound arrive_sound;         // +0x88/+0x98: arrival sample
+    DoorSound arrive_sound;         // +0x8c/+0x98: arrival sample
     DoorSound move_sound;           // +0x88/+0x94: loop while moving
+    /// The movement loop was queued and not stopped yet.  The engine
+    /// re-issues `0x46b960` every tick while `+0x68 != 0` and stops the loop
+    /// with `0x46ba90` on arrival; the model queues one loop request per
+    /// movement (door-style) and keeps this flag to emit the matching stop.
+    bool move_sound_queued = false;
 
     bool movable() const { return speed > 0 && !stops.empty(); }
 };
@@ -543,8 +562,8 @@ private:
     void rebuild_indexes();
     void add_door(Door door);
     void advance_door(std::size_t index, Door& door, std::uint64_t ticks);
-    void advance_lift(Lift& lift, std::uint64_t ticks);
-    void start_lift(Lift& lift);
+    void advance_lift(std::size_t index, Lift& lift, std::uint64_t ticks);
+    void start_lift(std::size_t index, Lift& lift);
     /// GENERATE path shared by `interact` and `poll_triggers`: toggle every
     /// door whose ``ids[0..2]`` match *target* and call every lift whose
     /// call id matches.  Returns the number of doors/lifts that reacted.
@@ -565,6 +584,12 @@ private:
     /// invalid one), so a request with an invalid sample never enters the
     /// queue.
     void queue_sound(SoundRequest request);
+    /// Queue one lift voice at the cabin origin (`0x44e6f0`'s transform, the
+    /// position `0x4502a0` reads from the cabin object).
+    void queue_lift_sound(std::size_t index, const Lift& lift, SoundSource source,
+                          const DoorSound& sound, bool loop);
+    /// Stop the `LiftMove` loop (`0x46ba90`, class `2000000 + index`).
+    void queue_lift_move_stop(std::size_t index, const Lift& lift);
     /// Queue a door sound at the leaf's origin (the object's ``+0x00`` the
     /// engine reads through ``0x434419``).  `index` is the door's index in
     /// `doors_`: the looped movement sound carries the class

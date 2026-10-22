@@ -246,9 +246,15 @@
     лимит 256, `sounds_queued/dropped`); доказаны форматы `0x46b8d0`/`0x46b840`/
     `0x46b9f0`/`0x46ba90`, call sites `0x44f776/0x44f66b/0x44f5ee/0x44f4b1/
     0x44f53e/0x44f5a6`, `+0x60` = attenuation 0.03; **crush звука не даёт**;
-    лифт ещё не в очереди; центроид полигонального switch теперь считается
-    в `WorldState::build` (`0x43577c`, `Switch::world_position`), CTest
-    `test_polygon_switch_centroid`.
+    лифт и центроид — следующий пункт.
+  * **Звук лифта в очереди** (в master): `0x44f690`/`0x4502a0` → `0x46b840`
+    (`n_a/v_a` вызов, `n_c/v_c` прибытие), `0x46b960` (петля `n_b/v_b`,
+    class `2000000+индекс`), `0x46ba90` (стоп петли); позиция — origin
+    кабины (`lift_transform`). `LiftMove` отдаётся один раз на движение,
+    `LiftMoveStop` — на прибытии; сейв с уже едущей кабиной догоняет петлю
+    на первом тике. Центроид полигонального switch (`0x43577c`) считается
+    в `WorldState::build` (`Switch::world_position`). CTest
+    `test_lift_sound_queue`, `test_polygon_switch_centroid`.
   * `228546b` vm-light: `VmState` реально хранит `world_sectors`
     (`kind = тип×6`, `light`), `world_polys` (texture/material/scroll/brightness),
     `poly_handles`, `source_object/source_poly`; загрузчики `vm_load_world`

@@ -214,6 +214,40 @@ std::vector<std::uint8_t> make_lift_payload() {
     return payload;
 }
 
+/// The same synthetic lift with the three sound pairs filled:
+/// `+0x84/+0x90` call, `+0x88/+0x94` move, `+0x8c/+0x98` arrive.
+std::vector<std::uint8_t> make_lift_sound_payload(int direction = 0, int height_tick = 0) {
+    std::vector<std::uint8_t> payload = make_lift_payload();
+    const std::size_t base = 4;
+    put_i32(payload, base + 0x68, direction);
+    put_i32(payload, base + 0x60, height_tick);
+    put_i32(payload, base + 0x84, 40); // v_a
+    put_i32(payload, base + 0x90, 60); // n_a
+    put_i32(payload, base + 0x88, 41); // v_b
+    put_i32(payload, base + 0x94, 61); // n_b
+    put_i32(payload, base + 0x8C, 42); // v_c
+    put_i32(payload, base + 0x98, 62); // n_c
+    return payload;
+}
+
+gm::WorldState build_lift_level(int direction = 0, int height_tick = 0) {
+    gm::SbtLevel level;
+    gm::SbtRecord switches;
+    switches.type = 1;
+    switches.payload = make_switch_payload(std::vector<int>{500});
+    gm::SbtRecord lifts;
+    lifts.type = 18;
+    lifts.payload = make_lift_sound_payload(direction, height_tick);
+    level.records = {std::move(switches), std::move(lifts)};
+    gm::WorldState state;
+    std::string error;
+    gm::SbwLevel world; // the lift path does not read geometry
+    CHECK(state.build(level, world, &error));
+    CHECK(error.empty());
+    CHECK_EQ(state.lifts().size(), 1u);
+    return state;
+}
+
 gm::SbtLevel make_level() {
     gm::SbtLevel level;
     gm::SbtRecord doors;
@@ -1316,6 +1350,75 @@ void test_polygon_switch_centroid() {
     }
 }
 
+// Lift voices, proven at their call sites:
+//   0x44f690 / 0x4502a0 -> 0x46b840(n_a = +0x90, v_a = +0x84) on call/depart,
+//   0x4502a0 -> 0x46b960(n_b = +0x94, v_b = +0x88, class 2000000+i) while
+//   moving, 0x4502a0 -> 0x46b840(n_c = +0x98, v_c = +0x8c) on arrival and
+//   0x4502a0 -> 0x46ba90(2000000+i) to stop the loop.  The position is the
+//   cabin object's origin, i.e. `lift_transform().origin`.
+void test_lift_sound_queue() {
+    gm::WorldState state = build_lift_level();
+    CHECK(state.interact(0));
+    std::vector<gm::SoundRequest> drained;
+    CHECK_EQ(state.drain_sounds(drained), 2u);
+    if (drained.size() == 2u) {
+        CHECK(drained[0].source == gm::SoundSource::LiftCall);
+        CHECK_EQ(drained[0].sample, 60);
+        CHECK_EQ(drained[0].volume, 40);
+        CHECK(!drained[0].loop);
+        CHECK_EQ(drained[0].class_id, 0);
+        CHECK(drained[0].position_known);
+        CHECK_NEAR(drained[0].position[0], 10.0, 0.0);
+        CHECK_NEAR(drained[0].position[1], 20.0, 0.0);
+        CHECK_NEAR(drained[0].position[2], 30.0, 0.0);
+
+        CHECK(drained[1].source == gm::SoundSource::LiftMove);
+        CHECK_EQ(drained[1].sample, 61);
+        CHECK_EQ(drained[1].volume, 41);
+        CHECK(drained[1].loop);
+        CHECK_EQ(drained[1].class_id, gm::kLiftSoundClassBase);
+        CHECK(drained[1].position_known);
+    }
+
+    // The loop is issued once per movement, not once per tick.
+    state.tick(5);
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 0u);
+
+    // Arrival: n_c/v_c one-shot, then the 0x46ba90 stop for the loop.
+    state.tick(5);
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 2u);
+    if (drained.size() == 2u) {
+        CHECK(drained[0].source == gm::SoundSource::LiftArrive);
+        CHECK_EQ(drained[0].sample, 62);
+        CHECK_EQ(drained[0].volume, 42);
+        CHECK(!drained[0].loop);
+        CHECK_EQ(drained[0].class_id, 0);
+        CHECK_NEAR(drained[0].position[2], 30.0, 0.0);
+
+        CHECK(drained[1].source == gm::SoundSource::LiftMoveStop);
+        CHECK_EQ(drained[1].sample, -1);
+        CHECK(drained[1].loop);
+        CHECK_EQ(drained[1].class_id, gm::kLiftSoundClassBase);
+    }
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 0u);
+
+    // A restored lift already travelling has no start tick; the first state
+    // tick issues the loop, then the arrival pair.
+    gm::WorldState restored = build_lift_level(1, 100);
+    CHECK(restored.lifts()[0].moving);
+    restored.tick(10);
+    drained.clear();
+    CHECK_EQ(restored.drain_sounds(drained), 3u);
+    if (drained.size() == 3u) {
+        CHECK(drained[0].source == gm::SoundSource::LiftMove);
+        CHECK(drained[1].source == gm::SoundSource::LiftArrive);
+        CHECK(drained[2].source == gm::SoundSource::LiftMoveStop);
+    }
+}
+
 void test_crush_is_silent() {
     // 0x450590 (kind 3) posts the crush event and calls no sound function.
     DoorSpec spec;
@@ -2238,6 +2341,7 @@ int main(int argc, char** argv) {
     test_door_sounds();
     test_sound_queue();
     test_polygon_switch_centroid();
+    test_lift_sound_queue();
     test_crush_is_silent();
     test_triggers();
     test_block_contact();
