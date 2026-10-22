@@ -578,11 +578,13 @@ std::vector<std::pair<std::optional<int>, std::size_t>> block_offsets(const gm::
     return out;
 }
 
-BlockRun run_blocks(const gm::SbtLevel& level, bool follow_generate, bool collect_counts) {
+BlockRun run_blocks(const gm::SbtLevel& level, bool follow_generate, bool collect_counts,
+                    bool want_trace = false) {
     gm::VmOptions options;
     options.follow_generate = follow_generate;
     options.on_unknown = gm::VmUnknownPolicy::Both;
     options.max_time = 0.0;
+    options.trace = want_trace;
 
     gm::VmState state = gm::vm_state_from_level(level);
     const auto blocks = block_offsets(level);
@@ -2046,6 +2048,55 @@ void test_sleep_table() {
 
 
 // ---------------------------------------------------------------------------
+// Determinism (M5.2.6): same bytes + same options -> same trace.
+// ---------------------------------------------------------------------------
+
+std::string trace_signature(const gm::VmPathResult& path) {
+    std::string out = std::string(gm::vm_reason_name(path.reason));
+    out += "|pc=" + std::to_string(path.pc);
+    out += "|steps=" + std::to_string(path.steps);
+    out += "|trace=" + std::to_string(path.state.trace.size());
+    for (const gm::VmTraceEvent& event : path.state.trace) {
+        out += "|" + std::to_string(event.pc) + ":" + std::to_string(event.depth) +
+               ":" + event.name + "/" + std::to_string(event.args.size());
+    }
+    out += "|things=" + std::to_string(path.state.scene.things.size());
+    out += "|lights=" + std::to_string(path.state.scene.lights.size());
+    for (const auto& [name, records] : path.state.table_defs) {
+        out += "|" + name + "=" + std::to_string(records.size());
+    }
+    return out;
+}
+
+void test_determinism() {
+    for (const char* name : {"level0.sbt", "dm1.sbt", "level1.sbt"}) {
+        gm::SbtLevel level;
+        if (!load_level(resolved_level(name), level)) {
+            continue;
+        }
+        const BlockRun first = run_blocks(level, true, true, true);
+        const BlockRun second = run_blocks(level, true, true, true);
+        CHECK(!first.results.empty());
+        CHECK_EQ(first.results.size(), second.results.size());
+        CHECK_EQ(first.steps, second.steps);
+        std::size_t traced = 0;
+        for (std::size_t i = 0; i < first.results.size() && i < second.results.size(); ++i) {
+            traced += first.results[i].state.trace.size();
+            const std::string a = trace_signature(first.results[i]);
+            const std::string b = trace_signature(second.results[i]);
+            if (a != b) {
+                std::fprintf(stderr, "FAIL %s: path %zu differs\n%s\n%s\n", name, i,
+                             a.c_str(), b.c_str());
+                ++g_failures;
+            }
+        }
+        CHECK(traced > 0); // the trace option really records something
+        std::printf("vm: determinism %s: %zu paths, %zu trace events\n", name,
+                    first.results.size(), traced);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Equipment (docs/EQUIPMENT.md, M6.2.4)
 // ---------------------------------------------------------------------------
 
@@ -2187,6 +2238,7 @@ int main(int argc, char** argv) {
     test_entity_rows();
     test_sleep_table();
     test_equipment();
+    test_determinism();
 
     std::error_code ec;
     if (!fs::is_directory(kGameDir, ec)) {
