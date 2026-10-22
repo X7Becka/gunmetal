@@ -852,8 +852,18 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > точный смысл `weapon_p0/p1`; не покрыты C++ `turn_*`, `fall_*`,
       > `impulse_*`, `timer_*`, `anim_*`, `textures`, `event_low_health`,
       > `event_morale`.
+      > **C++ (merge `228546b`)**: `VmState::world_sectors` (kind = тип×6,
+      > light), `world_polys` (texture/material/scroll/brightness),
+      > `poly_handles`, `source_object/source_poly`, загрузчики
+      > `vm_load_world`/`vm_load_poly_handles` (`POLY_HANDLE:`, max `0x1f4`);
+      > handle-таблицы пишут **все** совпадения id. Осталось: UV-сдвиг по
+      > таймеру `0x5a46e4`, `SET_SECTOR_LINK` — только проверка.
 - ⬜ `M2.3.4` Дверь (`0x8381a0`, шаг `0xB8`), переключатель (`0x5a4af0`,
       шаг `0x20`), лифт.
+      > **C++**: `SoundRequest`-очередь (`WorldState::drain_sounds`), call sites
+      > `0x44f776/0x44f66b/0x44f5ee/0x44f4b1/0x44f53e/0x44f5a6`, форматы
+      > `0x46b8d0/0x46b840/0x46b9f0/0x46ba90`, `+0x60` = attenuation 0.03;
+      > crush звука не даёт, лифт пока вне очереди.
 - 🟡 `M2.3.5` Оружие (`0x80fa00`, шаг `0x2a8`), боеприпасы (`0x818960`, `0x38`),
       оборудование (`0x814c60`, `0x40`), шасси (`0x7995e0`, `0x1cc`).
       > `docs/WEAPON_FIELDS.md` + `tools/re/weapon_fields.py`

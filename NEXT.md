@@ -234,6 +234,24 @@
   через `ThingMotionInput::rng`/`Things::set_motion_rng` (`MsvcRand`),
   без ГПСЧ шаг детерминирован. CTest `test_timer_fields`,
   `test_patrol_scan_and_timer`.
+- **Смержены три ветки сабагентов** (все на бесплатных моделях, без push):
+  * `b0587a2` door-audio: очередь `SoundRequest` для дверей и switch
+    (`WorldState::drain_sounds/pending_sounds/clear_sounds`, курсор без дублей,
+    лимит 256, `sounds_queued/dropped`); доказаны форматы `0x46b8d0`/`0x46b840`/
+    `0x46b9f0`/`0x46ba90`, call sites `0x44f776/0x44f66b/0x44f5ee/0x44f4b1/
+    0x44f53e/0x44f5a6`, `+0x60` = attenuation 0.03; **crush звука не даёт**;
+    лифт ещё не в очереди, центроид полигонального switch неизвестен
+    (`position_known=false`).
+  * `228546b` vm-light: `VmState` реально хранит `world_sectors`
+    (`kind = тип×6`, `light`), `world_polys` (texture/material/scroll/brightness),
+    `poly_handles`, `source_object/source_poly`; загрузчики `vm_load_world`
+    (из `.sbw`) и `vm_load_poly_handles` (`POLY_HANDLE:`, max `0x1f4`),
+    семантика «все совпадения» у handle-таблиц. Осталось: сдвиг UV по
+    игровому таймеру `0x5a46e4`, `SET_SECTOR_LINK` — только проверка.
+  * `deaea0a` ai-aim-tick: `GameRuntimeConfig::ai_apply_aim` (opt-in) вызывает
+    `Ai::apply_aim` сразу после AI-фазы (2a), `GameRuntimeStats::aimed_things`;
+    при включении рантайм сам делает `Things::set_motion_enabled(true,
+    &collision_)` (углы тела живут в состоянии автоматов).
 - **Кулдаун оружия AI**: хвост `0x473a00` — `rand() % +0x3ec == 0` добавляет
   `+0x3f0` к кулдауну; в C++ `AiConfig::use_weapon_timer` +
   `Ai::set_weapon_rng` (`Thing::timer_period/step`), CTest
