@@ -1144,6 +1144,20 @@ VmState vm_state_from_level(const SbtLevel& level, const VmContext& context) {
             state.entities.push_back(entity);
         }
     }
+    // SECTOR_HANDLE (record 17) is part of the level file: the original's
+    // loader 0x463900 fills the count 0x5e3de0, the tags 0x5b1df8 and the
+    // sectors 0x617fb8 (cap 0x100), and SET_HANDLESECTOR_* (40..45) scans
+    // that table (0x4582bc).  Seed it so those commands resolve on a
+    // shipped level instead of being a no-op.
+    state.sector_handles.clear();
+    state.sector_handles.reserve(std::min<std::size_t>(level.sector_handles.size(), 0x100));
+    for (const SbtHandle& row : level.sector_handles) {
+        if (state.sector_handles.size() >= 0x100) {
+            break;
+        }
+        state.sector_handles.emplace_back(static_cast<int>(row.tag),
+                                          static_cast<int>(row.a));
+    }
     // Levels do not carry SECTOR_STUFF (36/36, docs/RECORDS.md §1), but a
     // level loaded from a save stream does; keep the same seeding path.
     vm_load_sector_stuff(state, level.sector_stuff);
@@ -2507,9 +2521,12 @@ std::optional<std::size_t> VmExecutor::h_event(VmState& state, const VmInsn& ins
 //   op 11 0x457961  +0x40 = value & 0xffff (dword store 0x45799a, upper half
 //                   0), +0x44 = value >> 16 arithmetic (0x4579a0, sign
 //                   extended); bad index -> silent skip
-//   op 12 0x4579ee  call 0x46b740(idx, V, N, D); helper stores V -> +0x48,
-//                   N -> +0x4c, D -> +0x30/+0x34; bad index -> 0x4ba864 and
-//                   no write, then 0x40c030 restarts the audio voices
+//   op 12 0x4579ee  call 0x46b740(idx, N, V, D); helper stores N -> +0x48
+//                   (sample), V -> +0x4c (volume), D -> +0x30/+0x34; the
+//                   signature is LVND, but the handler pushes [8] (N) before
+//                   [4] (V) (0x4579fb/0x4579f6, pushes at 0x457a04/0x457a03).
+//                   bad index -> 0x4ba864 and no write, then 0x40c030
+//                   restarts the audio voices
 //   op 13 0x4579ab  +0x38 = E1, +0x3c = E2 (0x4579d6/0x4579e0)
 //   op 14 0x457929  +0x50 = value (0x457955, byte-wise 0x800bb0 for slot 0)
 // The sector *brightness* and *type* are **not** part of this array: they are
@@ -2622,10 +2639,14 @@ void VmExecutor::write_sector_stuff(VmState& state, const VmInsn& insn, int inde
         slot.damage_b = value >> 16; // arithmetic shift, sign-extended
         break;
     }
-    case 12:   // SET_SECTOR_SOUND: V -> +0x48, N -> +0x4c, D -> +0x30
-    case 0x2d: // SET_HANDLESECTOR_SOUND (0x45833a, handle + V + N + D)
-        slot.sound = arg_i32(args[first_value]);
-        slot.sound_count = arg_i32(args[first_value + 1]);
+    case 12:   // SET_SECTOR_SOUND (LVND): the handler passes (N, V, D)
+        slot.sound = arg_i32(args[first_value + 1]);      // N -> +0x48
+        slot.sound_count = arg_i32(args[first_value]);    // V -> +0x4c
+        slot.sound_param = arg_f64(args[first_value + 2]);
+        break;
+    case 0x2d: // SET_HANDLESECTOR_SOUND (ENVD, 0x45833a): (N, V, D) too
+        slot.sound = arg_i32(args[first_value]);          // N -> +0x48
+        slot.sound_count = arg_i32(args[first_value + 1]); // V -> +0x4c
         slot.sound_param = arg_f64(args[first_value + 2]);
         break;
     case 13: // SET_SECTOR_EVENTS

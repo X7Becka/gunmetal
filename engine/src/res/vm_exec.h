@@ -307,10 +307,10 @@ struct VmSectorSlot {
     /// damage function 0x453b50 as two separate amounts.
     std::uint32_t damage_a = 0;
     std::int32_t damage_b = 0;
-    /// +0x48: SET_SECTOR_SOUND ``V``, a SOUND_SAMPLE_TABLE index (0x46b76a).
+    /// +0x48: SET_SECTOR_SOUND ``N``, a SOUND_SAMPLE_TABLE index (0x46b76a).
     int sound = 0;
-    /// +0x4c: SET_SECTOR_SOUND ``N``; ``> 0`` means the loop is playing
-    /// (0x46b760 stores it, 0x46c5c0 tests it).
+    /// +0x4c: SET_SECTOR_SOUND ``V`` (volume); ``> 0`` means the loop is
+    /// playing (0x46b760 stores it, 0x46c5f3 tests it).
     int sound_count = 0;
     /// +0x50: SET_SECTOR_FLAGS (0x457955).
     std::uint32_t flags = 0;

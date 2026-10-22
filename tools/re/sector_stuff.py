@@ -236,11 +236,12 @@ COMMANDS = {
         "slot_math": ("0x458376",),
         "bound": "0x46b740: 0 <= i < 0x100 (иначе -1 + сообщение)",
         "oob": "0x46b791: 'Sector sound sector number (%ld) greater than max'",
-        "note": "вызов 0x46b740(sector, E, N, V, D.lo): у op 12 там "
-                "(sector, N, V, D.lo, D.hi) — см. §5 в docs/SECTOR_STUFF.md",
-        "fields": (("+0x48", "sound", "= E (тег), 0x46b76a берёт a2", "0x46b76a"),
-                   ("+0x4c", "sound_count", "= N (a3)", "0x46b760"),
-                   ("+0x30", "sound_param", "f64 из (V, D.lo) (a4/a5)", "0x46b774")),
+        "note": "вызов 0x46b740(sector, N, V, D.lo, D.hi) — тот же порядок, "
+                "что у op 12; push: D.hi, D.lo, V, N, sector "
+                "(0x458371..0x45837f)",
+        "fields": (("+0x48", "sound", "= N (a2), индекс сэмпла", "0x46b76a"),
+                   ("+0x4c", "sound_count", "= V (a3), громкость", "0x46b760"),
+                   ("+0x30", "sound_param", "f64 из (D.lo, D.hi) (a4/a5)", "0x46b774")),
     },
 }
 
@@ -1037,14 +1038,16 @@ def self_test():
         check("41: store [eax+0x16] через геттер 0x42d8a5",
               "0x42d8a5" in text(0x4583A6, 0x4583E0)
               and "mov    BYTE PTR [eax+0x16],cl" in text(0x4583E5, 0x4583F4))
-        check("45: sector = [edi*4+0x617fb8] (индекс строки), "
-              "a2 = E (тег), a3 = N, a4 = V, a5 = D.lo",
+        body45 = text(0x458365, 0x458385)
+        check("45: sector = [edi*4+0x617fb8]; push D.hi, D.lo, V, N, sector "
+              "(a2 = N, a3 = V, a4 = D.lo, a5 = D.hi — как у op 12)",
               "mov    edx,DWORD PTR [edi*4+0x617fb8]"
               in text(0x458376, 0x45837A)
-              and "mov    ecx,DWORD PTR [ebx+esi*1]"
-              in text(0x458372, 0x458376)
-              and "mov    ecx,DWORD PTR [ebx+esi*1+0xc]"
-              in text(0x458365, 0x458369))
+              and "mov    ecx,DWORD PTR [ebx+esi*1]" in body45      # N
+              and "mov    eax,DWORD PTR [ebx+esi*1+0x4]" in body45  # V
+              and "mov    edx,DWORD PTR [ebx+esi*1+0x8]" in body45  # D.lo
+              and "mov    ecx,DWORD PTR [ebx+esi*1+0xc]" in body45  # D.hi
+              and body45.count("push   ") == 5)
         check("источник: edi = arg3 0x457390",
               "mov    edi,DWORD PTR [ebp+0x10]" in text(0x457390, 0x4573B0))
         check("SLEEP сохраняет источник в 0x616258",

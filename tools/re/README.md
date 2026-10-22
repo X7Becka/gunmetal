@@ -85,6 +85,7 @@ python3 regress.py --mirror                   # сам синхронизиру�
 | `spawn.py` | `SET_PLAYER_START`/`SET_DEATHMATCH_START` по 36 уровням, высота глаза шасси |
 | `camera.py` | базис первого лица `0x41e025`, проекция, `--selftest`, `--json` |
 | `records.py` | `SECTOR_STUFF`/`ITEM`/`LIFT`: поля, writer, `--self-test` |
+| `sector_stuff.py` | какой слот `SECTOR_STUFF` адресуют 27–31/40–45: формула `index*0x58`, разрешение `SECTOR_HANDLE` из `.sbt`, `--self-test`/`--summary`/`--level`/`--map`/`--json` |
 | `save_rebuild.py` | сейв: `--check`/`--out`/`--diff`, byte-exact rebuild saved0/saved1 |
 | `soe_semantics.py` | `.soe`/THING_TYPES: 77 полей, `--fields`/`--json`/`--exe-check` |
 | `soo_semantics.py` | `.soo`: mode/loop, ms timeline, контактные листы `--png` |

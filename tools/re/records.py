@@ -157,9 +157,10 @@ SECTOR_FIELDS = (
     (0x44, "damage_hi", "u16", "code",
      "high half of SET_SECTOR_DAMAGE operand (0x45797c)"),
     (0x48, "sound", "i32", "code",
-     "SET_SECTOR_SOUND V operand: SOUND_SAMPLE_TABLE index (0x46b6e3)"),
+     "SET_SECTOR_SOUND N operand: SOUND_SAMPLE_TABLE index (a2, store 0x46b76a)"),
     (0x4c, "sound_count", "i32", "code",
-     "SET_SECTOR_SOUND N operand; >0 means active (0x46c649)"),
+     "SET_SECTOR_SOUND V operand: >0 means active (a3, store 0x46b760; "
+     "reader 0x46c5f3)"),
     (0x50, "flags", "u32", "code",
      "SET_SECTOR_FLAGS L operand; bits 1/2/4/8/0x10 used (0x444166, "
      "0x46bce5, 0x46c652, 0x444767)"),

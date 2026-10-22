@@ -1009,6 +1009,24 @@ void test_sector_source_and_handles() {
         CHECK_EQ(gm::vm_load_sector_handles(many, bulk), std::size_t{0x100});
         CHECK_EQ(many.sector_handles.size(), std::size_t{0x100});
     }
+
+    // 7. The shipped level's SECTOR_HANDLE record (type 17) reaches the VM
+    //    state: loader 0x463900 fills the table (count 0x5e3de0, tags
+    //    0x5b1df8, sectors 0x617fb8) and the handle commands scan it
+    //    (0x4582bc).  level0 has 26 rows (docs/SECTOR_STUFF.md §5).
+    if (fs::exists(resolved_level("level0.sbt"))) {
+        gm::SbtLevel level;
+        if (load_level(resolved_level("level0.sbt"), level)) {
+            CHECK_EQ(level.sector_handles.size(), std::size_t{26});
+            const gm::VmState state = gm::vm_state_from_level(level);
+            CHECK_EQ(state.sector_handles.size(), level.sector_handles.size());
+            if (!level.sector_handles.empty()) {
+                const gm::SbtHandle& first = level.sector_handles.front();
+                CHECK(state.sector_of_handle(static_cast<int>(first.tag)).value_or(-1) ==
+                      static_cast<int>(first.a));
+            }
+        }
+    }
 }
 
 void test_sector_stuff() {
@@ -1074,7 +1092,10 @@ void test_sector_stuff() {
     {
         Bytes code;
         cmd(code, "SET_SECTOR_DAMAGE", {u(5), u(0x12345678)});
-        cmd(code, "SET_SECTOR_SOUND", {u(5), u(130), u(10), d(0.03)});
+        // LVND: V = 10 (volume), N = 130 (sample).  The handler 0x4579ee
+        // pushes N before V, so +0x48 (sound/sample) gets the N operand
+        // (0x46b76a) and +0x4c (sound_count) gets V (0x46b760).
+        cmd(code, "SET_SECTOR_SOUND", {u(5), u(10), u(130), d(0.03)});
         cmd(code, "SET_SECTOR_EVENTS", {u(5), u(606), u(-30234)});
         cmd(code, "SET_SECTOR_FLAGS", {u(5), u(0x10)});
         code.push_back(0xFF);
@@ -1168,7 +1189,7 @@ void test_sector_stuff() {
 
             Bytes code;
             cmd(code, "SET_SECTOR_FLAGS", {u(9), u(0x18)});
-            cmd(code, "SET_SECTOR_SOUND", {u(9), u(-1), u(0), d(0.0)});
+            cmd(code, "SET_SECTOR_SOUND", {u(9), u(0), u(-1), d(0.0)});
             cmd(code, "SET_SECTOR_DAMAGE", {u(34), u(0x00010002)});
             code.push_back(0xFF);
             const auto results = run_state(std::move(state), code);
