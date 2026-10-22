@@ -1388,9 +1388,14 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > `game/weapons.*` (урон/темп/патроны), `DEFINE_EQUIPMENT` →
       > `game/equipment.*`, `DEFINE_LEVEL_OBJECTIVES` → цели сцены,
       > `SOURCEPLAYER_PATH` и `ADD_LIFT` — да, см. `table_defs`/`runtime`.
-      > Нет: `DEFINE_PLAYER_TYPES` только документирован — `max_speed`
-      > контроллера берётся из конфига, а не из `op4` записи шасси
-      > (`+0x2F50` есть в `docs/CAMERA.md`).
+      > `DEFINE_PLAYER_TYPES` теперь типизирован (`game/player_types.*`):
+      > 3 строки + 54 поля (41 double + 13 int = 0x17c), лимит 32, отказ на
+      > неверном числе/типе поля. Поле 9 — высота глаза: по всем 36 уровням
+      > ровно `LIGHT 10.0`, `MEDIUM 11.0`, `STEALTH 11.0`, `HEAVY 12.0`
+      > (совпадает с `docs/CAMERA.md` и `saved0.sbt`; `57 CHEVY` 14.0 в
+      > таблицах уровней отсутствует — это выбор шасси). CTest `vm`:
+      > 11 уровней, 4 строки в каждом. Нет: применения остальных полей —
+      > `max_speed` контроллера берётся из конфига, а не из записи шасси.
 - ✅ `M5.1.7` Ошибки: неизвестный опкод/условие — понятный лог, не тихий skip.
       > CTest `vm`: неизвестный опкод `0xfe` → `VmReason::UnknownOpcode` с
       > `detail = "0xfe"` и адресом (тест «clean stop, not a silent skip»);

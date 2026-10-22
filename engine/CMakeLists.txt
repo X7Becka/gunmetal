@@ -45,6 +45,7 @@ add_library(gm_engine STATIC
     src/game/projectile.cpp
     src/game/runtime.cpp
     src/game/equipment.cpp
+    src/game/player_types.cpp
     src/res/scene.cpp
     src/res/sou.cpp
     src/res/sou1.cpp

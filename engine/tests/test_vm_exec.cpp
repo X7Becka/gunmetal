@@ -16,6 +16,7 @@
 #include "res/sbw.h"
 #include "res/sbt.h"
 #include "game/equipment.h"
+#include "game/player_types.h"
 #include "res/vm_exec.h"
 
 #include "core/bytes.h"
@@ -2048,6 +2049,103 @@ void test_sleep_table() {
 
 
 // ---------------------------------------------------------------------------
+// Chassis table (DEFINE_PLAYER_TYPES, M5.1.6/M6.1.4)
+// ---------------------------------------------------------------------------
+
+void test_player_types() {
+    // The record is three strings plus 54 numeric fields (41 doubles and 13
+    // ints = 0x17c bytes, docs/FORMATS.md §12.3); field 9 is a double.
+    CHECK_EQ(gm::kPlayerTypeSignature.size(), std::size_t{54});
+    CHECK(gm::player_type_field_is_real(9));
+    CHECK(!gm::player_type_field_is_real(0));
+
+    // Synthetic record: name + two role strings, then the 56 fields.
+    gm::SbtTableRecord record;
+    record.strings = {"TEST CHASSIS", "tick", "tickx"};
+    for (std::size_t k = 0; k < gm::kPlayerTypeSignature.size(); ++k) {
+        if (gm::player_type_field_is_real(k)) {
+            record.values.push_back(gm::SbtValue::from_real(k == 9 ? 13.5 : 1.0));
+        } else {
+            record.values.push_back(gm::SbtValue::from_uint(static_cast<std::uint32_t>(k)));
+        }
+    }
+    std::string error;
+    auto table = gm::PlayerTypeTable::from_records({record}, &error);
+    CHECK(table.has_value());
+    if (table) {
+        CHECK_EQ(table->size(), std::size_t{1});
+        const gm::PlayerTypeDef* def = table->find("TEST CHASSIS");
+        CHECK(def != nullptr);
+        if (def != nullptr) {
+            CHECK_EQ(def->eye_height(), 13.5);
+            CHECK_EQ(def->values.size(), gm::PlayerTypeTable::kFieldCount);
+            CHECK_EQ(def->values[0], 0.0); // field 0 is the integer 0
+        }
+        CHECK(table->find("LIGHT CHASSIS") == nullptr);
+    }
+
+    // Wrong field count and a wrong type are rejected.
+    gm::SbtTableRecord short_record = record;
+    short_record.values.pop_back();
+    error.clear();
+    CHECK(!gm::PlayerTypeTable::from_records({short_record}, &error));
+    CHECK(!error.empty());
+    gm::SbtTableRecord bad_type = record;
+    bad_type.values[0] = gm::SbtValue::from_real(1.5); // field 0 is an int
+    error.clear();
+    CHECK(!gm::PlayerTypeTable::from_records({bad_type}, &error));
+    CHECK(!error.empty());
+
+    // Real data: four chassis per level (level0 declares two tables, eight
+    // rows), and field 9 is invariant per name across all 36 levels —
+    // docs/CAMERA.md lists exactly these eye heights.
+    struct EyeHeight {
+        const char* name;
+        double height;
+    };
+    const EyeHeight expected[] = {{"LIGHT CHASSIS", 10.0},
+                                  {"MEDIUM CHASSIS", 11.0},
+                                  {"STEALTH CHASSIS", 11.0},
+                                  {"HEAVY CHASSIS", 12.0}};
+    std::size_t levels = 0;
+    for (const char* name :
+         {"level0.sbt", "level00.sbt", "level000.sbt", "level0a.sbt", "level0b.sbt",
+          "level1.sbt", "level12.sbt", "level24.sbt", "dm1.sbt", "secrt1.sbt",
+          "temple.sbt"}) {
+        gm::SbtLevel level;
+        if (!load_level(resolved_level(name), level)) {
+            continue;
+        }
+        ++levels;
+        std::size_t rows = 0;
+        for (const auto& result : run_blocks(level, false, false).results) {
+            const auto it = result.state.table_defs.find("DEFINE_PLAYER_TYPES");
+            if (it == result.state.table_defs.end()) {
+                continue;
+            }
+            auto parsed = gm::PlayerTypeTable::from_records(it->second, &error);
+            CHECK(parsed.has_value());
+            if (!parsed) {
+                continue;
+            }
+            rows += parsed->size();
+            for (const EyeHeight& want : expected) {
+                const gm::PlayerTypeDef* def = parsed->find(want.name);
+                CHECK(def != nullptr);
+                if (def != nullptr) {
+                    CHECK_EQ(def->eye_height(), want.height);
+                }
+            }
+            // 57 CHEVY is not a campaign chassis: it comes from the shop.
+            CHECK(parsed->find("57 CHEVY") == nullptr);
+        }
+        CHECK(rows == 4 || rows == 8);
+        std::printf("vm: player types %s: %zu rows\n", name, rows);
+    }
+    CHECK(levels >= 10);
+}
+
+// ---------------------------------------------------------------------------
 // Determinism (M5.2.6): same bytes + same options -> same trace.
 // ---------------------------------------------------------------------------
 
@@ -2343,6 +2441,7 @@ int main(int argc, char** argv) {
     test_entity_rows();
     test_sleep_table();
     test_equipment();
+    test_player_types();
     test_determinism();
 
     std::error_code ec;
