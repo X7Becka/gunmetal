@@ -47,15 +47,29 @@
 8. **Числа живого кадра** (`n`, `param_2` интегратора) — нужен отладчик
    оригинала; до этого `step()` синтетика (`docs/PLAYER_CONTROLLER.md`).
 
-### Сабагенты: статус (2026-10-23, партия закрыта)
+### Сабагенты: статус (2026-10-23, партия 3 закрыта)
 
-- Влиты: `feat/look16` (`9d47865`), `feat/sectorlight` (`67f3d3e`),
-  `feat/matblend` (`6282101`), `feat/alpha` (`49dbc24`), `feat/sky`
-  (`efa1bdf`), `feat/fog` (`2ad03aa`). Worktree `gm-sub-*` удалены после
-  мержа (кроме нужных следующей партии).
-- Бесплатные модели по-прежнему недоступны (`opencode/*-free` — «Free usage
-  limit reached», `beam-free` — «not available in your country»); партия шла на
-  `opencode-go/deepseek-v4.1-flash` по разрешению пользователя.
+- Влиты: `feat/texuv` (`904fadb`, `docs/TEXUV.md`), `feat/hud`
+  (`3509a0e`, `docs/HUD_AUDIT.md`), `feat/vmscene` (`92292fd`,
+  `docs/VM_SCENE.md`), плюс раньше `look16`/`sectorlight`/`matblend`/
+  `alpha`/`sky`/`fog`.
+- Итог партии 3: текстурная проекция и пропуск полигонов без текстуры
+  **доказаны и реализованы с двух сторон** (`uv="texel"`/`skip_untextured`,
+  `--uv-texel`/`--skip-untextured`); HUD-инвентарь (23 элемента) готов;
+  ВМ-сцена сверена 36/36, `M5.2.1`/`M5.2.2`/`M5.3.3`/`M5.3.4` закрыты,
+  в `docs/FORMATS.md` §15 исправлены три ошибки.
+- Модель — `opencode-go/deepseek-v4.1-flash` (бесплатные: `*-free` —
+  «Free usage limit reached», `beam-free` — «not available in your country»).
+
+### Следующая партия (когда понадобится)
+
+1. **HUD в Python** — по `docs/HUD_AUDIT.md` (23 элемента, координаты и поля
+   известны): панель + текст `0x47faf0` + цифры; тогда полный кадр сравним.
+2. **Переключение дефолтов на движковые** (`uv="texel"` + `skip_untextured`):
+   перебазировать голдены Python/C++ и `parity_levels`, обновить FNV-пины.
+3. **METRIC:** заменить `corr` на метрику, которая не награждает «крупу»
+   (например совпадение по Sobel-краям с допуском сдвига), иначе решения по
+   UV/полигонам принимаются против визуального результата.
 
 ### Закрыто кодом (проверено 2026-10-23, не переоткрывать)
 
