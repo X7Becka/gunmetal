@@ -1894,6 +1894,173 @@ void test_runtime_ai_shots_without_template() {
     CHECK_EQ(runtime.projectiles().list().size(), std::size_t(1));
 }
 
+/// One AI agent with a movement automaton (mode 5, turret) and a player eye
+/// 60 units in front of it.  The agent never moves (A2/A3 off) and its type
+/// has no turn acceleration (`turn_accel == 0`), so the body keeps its spawn
+/// angles and the test can compare the motion target with the agent's
+/// `aim_point` exactly.
+gm::Thing make_aim_agent() {
+    gm::Thing agent;
+    agent.id = -1;
+    agent.position = std::array<int, 3>{0, 0, 0};
+    agent.radius = 4.0;
+    agent.movement_type = 5; // turret: the automaton turns towards the target
+    agent.model = "Cultist.sob";
+    return agent;
+}
+
+/// Runtime with one agent (the turret above) and a player eye 60 units in
+/// front of it on +X.
+void aim_bridge_setup(gm::GameRuntime& runtime) {
+    CHECK_EQ(runtime.spawn_thing(make_aim_agent()), 0);
+    CHECK_EQ(runtime.attach_ai(), std::size_t(1));
+    const gm::Vec3d eye{60.0, 0.0, 10.0};
+    CHECK(runtime.set_player_eyes(std::span<const gm::Vec3d>(&eye, 1)));
+}
+
+/// The motion target of the only agent of the runtime (nullptr when the
+/// bridge never wrote one).
+const gm::ThingMotionTarget* agent_motion_target(gm::GameRuntime& runtime) {
+    const std::optional<std::size_t> index = runtime.things().index_of(0);
+    if (!index.has_value()) {
+        return nullptr;
+    }
+    return runtime.things().motion_target(*index);
+}
+
+/// Opt-in bridge (`GameRuntimeConfig::ai_apply_aim`): the AI phase of the
+/// tick hands its `aim_point` to the movement automata of the things (the
+/// three errors of `0x473a00`).
+void test_runtime_ai_apply_aim() {
+    gm::GameRuntimeConfig config;
+    config.ai_apply_aim = true;
+    gm::GameRuntime runtime(config);
+    aim_bridge_setup(runtime);
+    CHECK(runtime.config().ai_apply_aim);
+
+    runtime.tick(1);
+
+    // The bridge needs the movement automata, so it enabled them for the
+    // container of the runtime (the collision world is the probe geometry).
+    CHECK(runtime.things().motion_enabled());
+    CHECK_EQ(runtime.stats().aimed_things, std::size_t(1));
+
+    const gm::AiAgent* agent = runtime.ai().agent(0);
+    CHECK(agent != nullptr);
+    const gm::ThingMotionTarget* target = agent_motion_target(runtime);
+    CHECK(target != nullptr);
+    if (agent != nullptr && target != nullptr) {
+        CHECK(agent->has_aim);
+        CHECK(agent->visible);
+        CHECK(target->valid);
+        CHECK(target->visible);
+        // The target is the aim point of the agent, bit for bit.
+        CHECK_EQ(target->position.x, agent->aim_point.x);
+        CHECK_EQ(target->position.y, agent->aim_point.y);
+        CHECK_EQ(target->position.z, agent->aim_point.z);
+        // The player eye is 60 units in front of the agent on +X.
+        CHECK_NEAR(target->position.x, 60.0, 1e-12);
+        // The body frame of the automaton: forward = (sin yaw, cos yaw), the
+        // agent spawns with yaw 0, so a point on +X gives +pi/2.
+        CHECK_NEAR(target->yaw_error, 1.5707963267948966, 1e-9);
+        // The vertical error is the height difference of the point.
+        CHECK_NEAR(target->vertical_error, 10.0, 1e-12);
+    }
+}
+
+/// Default `ai_apply_aim = false`: the runtime writes no motion target at
+/// all, the movement automata stay disabled and the counter stays 0 -- the AI
+/// itself still computes its aim point, only the bridge is off.
+void test_runtime_ai_apply_aim_default_off() {
+    gm::GameRuntime runtime;
+    aim_bridge_setup(runtime);
+    CHECK(!runtime.config().ai_apply_aim);
+
+    runtime.tick(3);
+
+    CHECK(!runtime.things().motion_enabled());
+    CHECK_EQ(runtime.stats().aimed_things, std::size_t(0));
+    CHECK(agent_motion_target(runtime) == nullptr);
+    // The scaffold is untouched: the agent still knows where to look.
+    const gm::AiAgent* agent = runtime.ai().agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK(agent->has_aim);
+        CHECK_NEAR(agent->aim_point.x, 60.0, 1e-12);
+    }
+}
+
+/// The player is gone: the agent loses its target, so the bridge clears the
+/// motion target instead of leaving a stale one.
+void test_runtime_ai_apply_aim_lost_target() {
+    gm::GameRuntimeConfig config;
+    config.ai_apply_aim = true;
+    gm::GameRuntime runtime(config);
+    aim_bridge_setup(runtime);
+
+    runtime.tick(1);
+    const gm::ThingMotionTarget* aimed = agent_motion_target(runtime);
+    CHECK(aimed != nullptr && aimed->valid);
+    CHECK_EQ(runtime.stats().aimed_things, std::size_t(1));
+
+    runtime.clear_players();
+    runtime.tick(1);
+
+    CHECK_EQ(runtime.stats().aimed_things, std::size_t(0));
+    const gm::ThingMotionTarget* lost = agent_motion_target(runtime);
+    CHECK(lost != nullptr);
+    if (lost != nullptr) {
+        CHECK(!lost->valid);
+    }
+    const gm::AiAgent* agent = runtime.ai().agent(0);
+    CHECK(agent != nullptr);
+    if (agent != nullptr) {
+        CHECK(!agent->has_aim);
+    }
+}
+
+/// The bridge is idempotent: a following tick without any change writes the
+/// same target again and produces no event, no projectile and no new counter.
+/// The synthetic agent has no turn acceleration, so its body does not turn
+/// and the recomputed `yaw_error` stays bit-for-bit the same.
+void test_runtime_ai_apply_aim_repeat_ticks() {
+    gm::GameRuntimeConfig config;
+    config.ai_apply_aim = true;
+    gm::GameRuntime runtime(config);
+    aim_bridge_setup(runtime);
+
+    runtime.tick(1);
+    const gm::ThingMotionTarget* first = agent_motion_target(runtime);
+    CHECK(first != nullptr && first->valid);
+    CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+
+    for (int i = 0; i < 5; ++i) {
+        runtime.tick(1);
+        const gm::ThingMotionTarget* target = agent_motion_target(runtime);
+        CHECK(target != nullptr);
+        if (target != nullptr && first != nullptr) {
+            CHECK(target->valid);
+            CHECK_EQ(target->position.x, first->position.x);
+            CHECK_EQ(target->position.y, first->position.y);
+            CHECK_EQ(target->position.z, first->position.z);
+            CHECK_EQ(target->yaw_error, first->yaw_error);
+        }
+        // No side effects: the bridge writes motion targets, not events.
+        CHECK_EQ(runtime.last_events().generated.size(), std::size_t(0));
+        CHECK_EQ(runtime.events().queue().size(), std::size_t(0));
+        CHECK_EQ(runtime.projectiles().list().size(), std::size_t(0));
+        CHECK_EQ(runtime.stats().aimed_things, std::size_t(1));
+    }
+    CHECK_EQ(runtime.clock(), 6u);
+
+    // `clear_events()` drops the results of the last tick, so the counter of
+    // the last tick goes back to 0 (the next tick fills it again).
+    runtime.clear_events();
+    CHECK_EQ(runtime.stats().aimed_things, std::size_t(0));
+    runtime.tick(1);
+    CHECK_EQ(runtime.stats().aimed_things, std::size_t(1));
+}
+
 /// Build one runtime with a door, two things, a player eye and a projectile,
 /// then press the door switch.
 void runtime_setup(gm::GameRuntime& runtime, const gm::SbtLevel& level,
@@ -2078,6 +2245,10 @@ int main() {
     test_runtime_ai_shots_default_off();
     test_runtime_ai_shots_to_projectiles();
     test_runtime_ai_shots_without_template();
+    test_runtime_ai_apply_aim();
+    test_runtime_ai_apply_aim_default_off();
+    test_runtime_ai_apply_aim_lost_target();
+    test_runtime_ai_apply_aim_repeat_ticks();
     test_runtime_pending_switch_tail();
     test_runtime_build_world_keeps_non_switch_events();
     test_runtime_determinism();

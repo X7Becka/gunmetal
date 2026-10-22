@@ -15,11 +15,12 @@
 | что | значение |
 |---|---|
 | владеет | `WorldState`, `Things`, `Ai`, `Projectiles`, `EventRuntime`, `CollisionWorld`, точки глаз и виталы игроков |
-| конфиг | `GameRuntimeConfig{ AiConfig, ThingsOptions, build_ai, install_switches, projectiles_use_things, player_radius, ai_shots_to_projectiles }` |
+| конфиг | `GameRuntimeConfig{ AiConfig, ThingsOptions, build_ai, install_switches, projectiles_use_things, player_radius, ai_shots_to_projectiles, player_weapons_in_tick, ai_apply_aim }` |
 | шаблон снаряда | `set_ai_projectile_template(Thing)` / `clear_ai_projectile_template()` |
 | игроки | `set_player_eyes(span)` + `set_player_vitals(span)` (размеры совпадают), `player_vitals()` |
 | тик | 91 Гц, `tick(n)` = ровно `n` проходов тела |
-| порядок | вещи → AI → AI-выстрелы (opt-in) → снаряды → двери/мир → события |
+| порядок | вещи → AI → прицел AI (opt-in) → AI-выстрелы (opt-in) → снаряды → двери/мир → события |
+| прицел | opt-in `ai_apply_aim`: `Ai::apply_aim(things_)` сразу после AI-фазы; движение включается автоматически; счётчик — `stats().aimed_things` |
 | blast | `apply_projectile_blasts(weapon, …)` — явный мост, не фаза тика; идемпотентен на генерацию `tick_results`; контекст один на флот или по одному на запись (`std::span<const ProjectileBlastContext>`); `apply_projectile_blasts_to_players()` — то же по собственным виталам |
 | события | очередь опустошается в том же тике, повторного dispatch нет |
 | снаряды | один `Projectiles::tick_results(1, …)`; записи отдаются как есть |
@@ -77,6 +78,12 @@ for (const gm::ProjectileTickRecord& record : runtime.last_projectile_results())
 Шаблон снаряда для AI-моста — не поле конфига, а значение рантайма:
 `set_ai_projectile_template(Thing)`, см. §6.
 
+Мост прицела AI (`config.ai_apply_aim`, §6) — тоже поле конфига, но не
+значение рантайма: он меняет только порядок фаз тика и состояние автоматов
+движения, а данных уровня не добавляет. Выключен (по умолчанию) — ни одна
+фаза не меняется: автоматы движения остаются выключенными, ни одна цель не
+пишется, `stats().aimed_things` остаётся 0.
+
 Виталы игроков (`Vitals`, единицы сейва — сотые) рантайм хранит рядом с точками
 глаз: `set_player_vitals(span)` принимает ровно столько записей, сколько точек в
 `set_player_eyes()`, иначе возвращает `false`, ничего не записав. Смена числа
@@ -98,6 +105,11 @@ for (const gm::ProjectileTickRecord& record : runtime.last_projectile_results())
    `+0x1ec` один раз на вещь;
 2. **AI** — один `Ai::tick(collision, 1/91 s)`; зеркалирование виталов
    вещей выполняет сам `Ai::tick` (вещь, убитая уроном, умирает здесь);
+2a. **прицел AI** (opt-in, §6) — при `config.ai_apply_aim` сразу после
+   AI-фазы вызывается `Ai::apply_aim(things_)`: `aim_point` каждого агента
+   попадает в `Things::aim_motion_at()` (три ошибки `0x473a00`), а агент без
+   цели получает `valid = false`. Число прицеленных агентов — в
+   `stats().aimed_things`;
 2b. **AI-выстрелы** (opt-in, §6) — при `config.ai_shots_to_projectiles` и
    заданном шаблоне очередь `Ai::take_weapon_shots()` дренируется и каждый
    принятый выстрел спавнится в `Projectiles`; события создания идут в ту же
@@ -109,6 +121,16 @@ for (const gm::ProjectileTickRecord& record : runtime.last_projectile_results())
 5. **события** — повторная попытка хвоста switch-записей, затем
    `EventRuntime::pump(now)`; `now` — номер текущего тика до инкремента
    (первый тик — `0`).
+
+Порядок 2a и 2b между собой не влияет на результат: записи выстрелов
+(`origin`, `direction`, `aim`) вычислены внутри `Ai::tick` из `agent.aim_point`,
+поэтому мост выстрелов отдаёт те же раунды, что и без моста прицела. Прицел
+идёт первым потому, что AI-фаза — единственный производитель `aim_point`:
+решение тика попадает в автоматы движения раньше, чем тик уйдёт дальше.
+
+Задержка в один тик — следствие порядка фаз: автоматы движения шагают в фазе
+1, а AI решает в фазе 2, поэтому цель, выставленная в тике N, используется
+автоматами в тике N+1.
 
 `tick(0)` не делает ничего. `tick(n)` не вызывает подсистемы «пачкой»: AI и
 снаряды шагают по одному тику, поэтому таймеры и `life_left` совпадают с
@@ -195,7 +217,7 @@ Blast/урон в тело тика не входит: оружие снаряд
 
 ---
 
-## 6. AI → снаряды (opt-in)
+## 6. AI → снаряды и прицел (opt-in)
 
 По умолчанию мост выключен: `GameRuntimeConfig::ai_shots_to_projectiles=false`
 не спавнит ничего и **не трогает** очередь `Ai::weapon_shots()` — она остаётся
@@ -252,6 +274,49 @@ runtime.set_ai_projectile_template(projectile_thing); // THING_TYPES, movement_t
 
 Ограничение: id живут в отдельном пространстве от `Things` — это не вещи,
 `things().by_id()` их не найдёт; `Projectiles::by_thing_id()` работает.
+
+### Прицел AI → автоматы движения (opt-in)
+
+Второй мост того же типа: `GameRuntimeConfig::ai_apply_aim` (по умолчанию
+`false`) подключает `Ai::apply_aim(Things&)` (`docs/AI_CPP.md` §1.5) к тику.
+
+```cpp
+gm::GameRuntimeConfig config;
+config.ai_apply_aim = true;
+
+gm::GameRuntime runtime(config);
+runtime.set_player_eyes(eyes);   // цель, которую увидит агент
+runtime.tick(10);
+```
+
+Что происходит в тике:
+
+1. **до фазы вещей** рантайм включает автоматы движения своего контейнера
+   вещей (`Things::set_motion_enabled(true, &collision_)`) — их состояние
+   создаёт `Things::tick`, а `aim_motion_at` читает углы тела уже
+   существующего состояния; геометрией зондов служит `CollisionWorld`
+   рантайма. Включение идемпотентно и повторяется после `reset()`;
+2. **сразу после AI-фазы** вызывается `Ai::apply_aim(things_)`: агент с
+   целью получает `Things::aim_motion_at(index, aim_point, visible)` (позиция
+   цели + три ошибки `0x473a00` в системе тела), агент без цели —
+   `clear_motion_aim(index)`, то есть `valid = false`;
+3. число прицеленных агентов публикуется в `stats().aimed_things`
+   (`GameRuntimeStats`; `reset()` и `clear_events()` обнуляют счётчики —
+   оба сбрасывают результаты последнего тика).
+
+Порядок относительно AI-выстрелов (§6) не влияет на результат: записи
+выстрелов вычислены внутри `Ai::tick` из `agent.aim_point`, поэтому мост
+выстрелов отдаёт те же раунды. Прицел стоит первым, потому что AI-фаза —
+единственный производитель `aim_point`: решение тика попадает в автоматы
+раньше, чем тик уйдёт дальше.
+
+Задержка в один тик: автоматы шагают в фазе 1, AI решает в фазе 2, поэтому
+цель, выставленная в тике N, используется автоматами в тике N+1.
+
+Что мост **не** делает: он не двигает `Thing::position` (авторитетно
+`motion_state(index)`), не постит событий и не порождает снарядов; выстрелы
+остаются отдельным мостом §6. При выключенном флаге не меняется ничего:
+автоматы выключены, цели не пишутся, `stats().aimed_things == 0`.
 
 ---
 
@@ -391,6 +456,8 @@ Blast пишет только в переданные спаны vitals: `Things
   реестр текста (у него свои дедлайны по кадрам) остаётся. Часы не сбрасываются.
 * `clear_projectiles()` — флот снарядов и `last_projectile_results()`.
   Обе очистки (и `reset()`) сбрасывают и отметки «уже взорвано» из §7.
+* `reset()` и `clear_events()` обнуляют и счётчики `stats()` (`aimed_things`):
+  они описывают последний тик, результаты которого эти вызовы сбрасывают.
 
 ---
 
@@ -406,6 +473,10 @@ Blast пишет только в переданные спаны vitals: `Things
 | `test_runtime_ai_shots_default_off` | `ai_shots_to_projectiles=false`: AI ставит выстрел в очередь, но снарядов и событий нет, очередь не выедена |
 | `test_runtime_ai_shots_to_projectiles` | opt-in: ровно один снаряд на weapon-event (910 ед/с → 10 ед/тик), виден в `last_projectile_results()` с runtime-id ≥ `0x10000`; повторный тик без события ничего не плодит и не дублирует create-событие; второй выстрел через cooldown 91 даёт второй живой снаряд с другим id |
 | `test_runtime_ai_shots_without_template` | флаг включён, шаблона нет: очередь не дренируется и не теряется — после `set_ai_projectile_template()` следующий тик спавнит ровно один снаряд; `clear_ai_projectile_template()` снова выключает мост |
+| `test_runtime_ai_apply_aim` | opt-in `ai_apply_aim`: автоматы движения включаются, `stats().aimed_things == 1`, у агента `motion_target(index)->valid`, позиция цели побитово равна `agent.aim_point`, `yaw_error` — `+π/2` (цель на `+X` в теле с `yaw = 0`) |
+| `test_runtime_ai_apply_aim_default_off` | флаг выключен (по умолчанию): автоматы движения не включаются, `motion_target(index) == nullptr`, `stats().aimed_things == 0`; сам AI `aim_point` по-прежнему считает — выключен только мост |
+| `test_runtime_ai_apply_aim_lost_target` | `clear_players()`: агент теряет цель, `motion_target(index)` остаётся, но `valid == false`, `stats().aimed_things == 0` |
+| `test_runtime_ai_apply_aim_repeat_ticks` | пять тиков без изменений: цель та же (позиция и `yaw_error` побитово), ни одного события, пустая очередь, нет снарядов, счётчик не растёт |
 | `test_runtime_pending_switch_tail` | 4300 нажатий переполняют очередь: 7 байт на запись, порог `0x7526` проверяется до добавления, поэтому 4285-е нажатие (29988 + 7 = 29995) ещё проходит; тик 1 отдаёт часть, тик 2 — остаток, сумма ровно 4300, третий тик пуст |
 | `test_runtime_build_world_keeps_non_switch_events` | `build_world()` с другой таблицей свитчей: старая type-2 запись не диспатчится по новой таблице (не 111 и не 222), а create-событие вещи (type 3) переживает пересборку и уезжает в `generated` ровно один раз; новый свитч с тем же индексом после этого бьёт 222 |
 | `test_runtime_projectile_blasts_expire` | expire-снаряд в центре игрока и вещи: один blast (`expire_blasts`, hull 2000 → armor/hp 8000), 2 попадания, 2 type-3 записи в очереди; повторный вызов без тика — `blasts == 0`, `already_applied == 1`, урон не меняется; на следующем тике события уезжают в `generated` ровно один раз, а `already_spent`-повтор expiry не бьёт |
@@ -440,6 +511,11 @@ ctest --test-dir build/dev -R '^game_state$' --output-on-failure
   `Projectiles` (§6), а не доказанный оригинальный путь `0x46ea40`; сам он
   оружие не выбирает, поэтому урон появится, только если вызывающий применит
   `apply_projectile_blasts()` с нужным `Weapon`.
+* Мост прицела (§6) — то же соединение `Ai::apply_aim` с контейнером вещей:
+  он переносит `aim_point` в автоматы движения, но не доказывает, что
+  оригинальный AI так же связывает их (в оригинале `0x473a00` сам ищет
+  цель). Включение автоматов движения — побочный эффект флага: без него
+  мосту не на что смотреть.
 * `CollisionWorld` строится из `.sbw` как value; геометрия не перестраивается
   при движении дверей (как и в остальном C++-слое).
 * События дверей (`DoorOpening/…`) остаются frame-local логом `WorldState` и в
