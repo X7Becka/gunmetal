@@ -1,5 +1,7 @@
 #include "game/state.h"
 
+#include "camera/camera.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -332,6 +334,16 @@ std::size_t GameState::apply_to_doors(WorldState& world, std::string* error) con
         ++matched;
     }
     return matched;
+}
+
+std::array<double, 3> GameState::aim_direction() const {
+    for (double value : angles) {
+        if (!std::isfinite(value)) {
+            return {0.0, 0.0, 0.0};
+        }
+    }
+    const CameraBasis basis = camera_basis(angles[1], angles[0], angles[2]);
+    return {basis.forward.x, basis.forward.y, basis.forward.z};
 }
 
 bool GameState::update_save(Save& save, std::string* error) const {

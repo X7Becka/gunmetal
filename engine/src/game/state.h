@@ -141,6 +141,15 @@ struct GameState {
     /// Fails when the state was not created by `from_save()`.
     std::optional<Save> to_save(std::string& error) const;
 
+    /// View direction of the player in world units: `camera_basis(roll, pitch,
+    /// yaw).forward`, where `angles = {pitch, roll, yaw}` (the save block 9
+    /// order at struct `+0x18`).  This is the `0x41e025` basis `0x44fc30`
+    /// builds for an aimed switch, so the result feeds
+    /// `GameRuntime::aim_switch_from_basis(player, ...)` directly (docs/
+    /// CAMERA.md §3, docs/DOOR_FIELDS.md §2.1).  Returns a zero vector when
+    /// the angles are not finite.
+    std::array<double, 3> aim_direction() const;
+
 private:
     Save template_{};
     bool has_template_ = false;

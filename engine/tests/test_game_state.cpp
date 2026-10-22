@@ -2018,6 +2018,48 @@ void test_runtime_determinism() {
 
 } // namespace
 
+// `0x44fc30` hands the forward row of the player basis (`0x41e025`) to the
+// aimed ray.  `GameState::aim_direction()` is that row from the save angles.
+void test_aim_direction() {
+    constexpr double kPi = 3.14159265358979323846;
+    gm::GameState state;
+
+    // angles = {pitch, roll, yaw}; yaw = +pi/2 looks along +X.
+    state.angles = {0.0, 0.0, kPi / 2.0};
+    std::array<double, 3> direction = state.aim_direction();
+    CHECK_NEAR(direction[0], 1.0, 1e-12);
+    CHECK_NEAR(direction[1], 0.0, 1e-12);
+    CHECK_NEAR(direction[2], 0.0, 1e-12);
+
+    // yaw = 0 looks along +Y; roll rotates the right/up rows only.
+    state.angles = {0.0, 0.7, 0.0};
+    direction = state.aim_direction();
+    CHECK_NEAR(direction[0], 0.0, 1e-12);
+    CHECK_NEAR(direction[1], 1.0, 1e-12);
+    CHECK_NEAR(direction[2], 0.0, 1e-12);
+
+    // pitch > 0 looks down (forward z = -sin pitch).
+    state.angles = {kPi / 2.0, 0.0, 0.0};
+    direction = state.aim_direction();
+    CHECK_NEAR(direction[0], 0.0, 1e-12);
+    CHECK_NEAR(direction[1], 0.0, 1e-12);
+    CHECK_NEAR(direction[2], -1.0, 1e-12);
+
+    // The basis is orthonormal, so the direction stays a unit vector.
+    state.angles = {0.3, -0.4, 1.1};
+    direction = state.aim_direction();
+    CHECK_NEAR(direction[0] * direction[0] + direction[1] * direction[1] +
+                   direction[2] * direction[2],
+               1.0, 1e-12);
+
+    // Non-finite angles yield the zero vector (the ray is then a no-op).
+    state.angles = {std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0};
+    direction = state.aim_direction();
+    CHECK_NEAR(direction[0], 0.0, 0.0);
+    CHECK_NEAR(direction[1], 0.0, 0.0);
+    CHECK_NEAR(direction[2], 0.0, 0.0);
+}
+
 int main() {
     test_synthetic();
     for (const GoldenSave& golden : kSaves) {
@@ -2025,6 +2067,7 @@ int main() {
     }
     test_real_doors(kSaves[0]);
     test_negatives();
+    test_aim_direction();
     test_vitals_bridge();
     test_runtime_events_not_duplicated();
     test_runtime_projectile_results();
