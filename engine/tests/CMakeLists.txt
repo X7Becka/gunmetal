@@ -478,6 +478,28 @@ if(GM_PYTHON3)
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/frame_metric.py
                      --self-test)
     gm_label(frame_metric quick)
+    # Reference tools that need no game files: their self-tests run in the
+    # quick suite so a broken model is caught before it reaches a report.
+    add_test(NAME re_vm_exec
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_exec.py
+                     --selftest)
+    gm_label(re_vm_exec quick)
+    foreach(tool nested_things records)
+        add_test(NAME re_${tool}
+                 COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/${tool}.py
+                         --self-test)
+        gm_label(re_${tool} quick)
+    endforeach()
+endif()
+if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
+    # Tools that read the installation: same idea, one test each.
+    foreach(tool equipment effects hud_icons hud_compose_ref oracle_render
+                sector_stuff)
+        add_test(NAME re_${tool}
+                 COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/${tool}.py
+                         --self-test)
+        gm_label(re_${tool} quick)
+    endforeach()
 endif()
 
 # Fast targets for the inner loop: build the binaries, then run CTest.
