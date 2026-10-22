@@ -207,6 +207,37 @@ bool GameRuntime::press_switch(int switch_id, std::int16_t source) {
     return true;
 }
 
+std::size_t GameRuntime::aim_switch(std::size_t player, const Vec3d& direction,
+                                    double max_distance) {
+    if (player >= player_eyes_.size()) {
+        return 0;
+    }
+    const double length = std::sqrt(direction.x * direction.x +
+                                    direction.y * direction.y +
+                                    direction.z * direction.z);
+    if (!(length > 0.0) || !std::isfinite(length)) {
+        return 0;
+    }
+    const Vec3d unit{direction.x / length, direction.y / length, direction.z / length};
+    const auto hit = collision_.raycast(player_eyes_[player], unit, max_distance);
+    if (!hit.has_value() || hit->triangle == nullptr) {
+        return 0;
+    }
+    PolygonHit polygon;
+    polygon.sector = hit->triangle->sector;
+    polygon.object = hit->triangle->object;
+    polygon.polygon = hit->triangle->source_poly;
+    polygon.distance = hit->t;
+    // 0x44fc30 has no `0x428399` object gate on the aim path.
+    polygon.object_flags = 0;
+    const std::size_t fired =
+        world_.poll_aim(polygon, static_cast<std::int16_t>(player));
+    if (fired > 0) {
+        post_switch_events(events_, world_, static_cast<std::int16_t>(player));
+    }
+    return fired;
+}
+
 void GameRuntime::set_ai_projectile_template(Thing projectile) {
     ai_projectile_template_ = std::move(projectile);
 }

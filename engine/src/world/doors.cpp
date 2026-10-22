@@ -1050,10 +1050,15 @@ std::size_t WorldState::poll_triggers(const std::array<double, 3>& pos,
 
 std::size_t WorldState::press_polygon(const PolygonHit& hit, std::int16_t source,
                                       std::span<const int> kinds,
-                                      std::size_t& counter) {
+                                      std::size_t& counter, bool object_gate) {
     std::size_t fired = 0;
     for (Switch& sw : switches_) {
         if (std::find(kinds.begin(), kinds.end(), sw.kind) == kinds.end()) {
+            continue;
+        }
+        // 0x428399(sector, object) returns `object+0x70 & 0x10000`; the
+        // blast path requires zero (0x44fb63).  The aim ray has no such gate.
+        if (object_gate && (hit.object_flags & 0x10000u) != 0) {
             continue;
         }
         if (sw.pos[0] != static_cast<int>(hit.sector) ||
@@ -1079,7 +1084,7 @@ std::size_t WorldState::press_polygon(const PolygonHit& hit, std::int16_t source
 
 std::size_t WorldState::poll_aim(const PolygonHit& hit, std::int16_t source) {
     static constexpr std::array<int, 1> kKinds{0x101};
-    const std::size_t fired = press_polygon(hit, source, kKinds, stats_.aim_presses);
+    const std::size_t fired = press_polygon(hit, source, kKinds, stats_.aim_presses, false);
     stats_.switch_interactions += fired;
     stats_.trigger_presses += fired;
     return fired;
@@ -1087,7 +1092,7 @@ std::size_t WorldState::poll_aim(const PolygonHit& hit, std::int16_t source) {
 
 std::size_t WorldState::poll_blast(const PolygonHit& hit, std::int16_t source) {
     static constexpr std::array<int, 2> kKinds{0x102, 0x103};
-    const std::size_t fired = press_polygon(hit, source, kKinds, stats_.blast_presses);
+    const std::size_t fired = press_polygon(hit, source, kKinds, stats_.blast_presses, true);
     stats_.switch_interactions += fired;
     stats_.trigger_presses += fired;
     return fired;

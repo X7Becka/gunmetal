@@ -243,6 +243,21 @@ public:
     /// an unknown switch (the world is then untouched).
     bool press_switch(int switch_id, std::int16_t source = 0);
 
+    /// ``0x44fc30`` aimed half: cast *direction* from player *player*'s eye
+    /// (`set_player_eyes`) through the collision world and let the world's
+    /// ``kind 0x101`` switches match the hit polygon.  The engine's ray length
+    /// is ``0x40c38800`` = 10 000 units, passed here as *max_distance*.
+    ///
+    /// On a hit the ``(sector, object, polygon)`` triple comes from the
+    /// triangle record (``RayHit::triangle``), exactly the three ints
+    /// ``0x43c51f`` returns; *source* is the player index, as ``0x479810``
+    /// takes it.  Fired presses are mirrored into the staging queue like
+    /// `press_switch`, so `last_events()` carries the type-2 records.  Returns
+    /// the number of switches that fired (0 for no players, a zero/NaN
+    /// direction, a miss or no matching switch).
+    std::size_t aim_switch(std::size_t player, const Vec3d& direction,
+                           double max_distance = 10000.0);
+
     // --- AI shot template ---------------------------------------------------
 
     /// Set the projectile template of the AI->projectile bridge: a `Thing`

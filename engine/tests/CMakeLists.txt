@@ -390,6 +390,13 @@ target_link_libraries(gm_blast_damage_tests PRIVATE gm_engine)
 add_test(NAME blast_damage COMMAND gm_blast_damage_tests)
 gm_label(blast_damage quick)
 
+# Aimed switches (kind 0x101) through CollisionWorld: GameRuntime::aim_switch
+# is the 0x44fc30 ray half, docs/DOORS_CPP.md §2.3.
+add_executable(gm_aim_switch_tests test_aim_switch.cpp)
+target_link_libraries(gm_aim_switch_tests PRIVATE gm_engine)
+add_test(NAME aim_switch COMMAND gm_aim_switch_tests)
+gm_label(aim_switch quick)
+
 add_executable(gm_game_state_tests test_game_state.cpp)
 target_link_libraries(gm_game_state_tests PRIVATE gm_engine)
 add_test(NAME game_state COMMAND gm_game_state_tests)

@@ -127,6 +127,10 @@ struct PolygonHit {
     std::uint32_t object = 0;
     std::uint32_t polygon = 0;
     double distance = 0.0;
+    /// ``object+0x70`` of the hit polygon's object.  ``0x44fb30`` requires
+    /// ``(0x428399(sector, object) & 0x10000) == 0`` before the blast trigger
+    /// fires; the C++ caller passes the flag word it already has (0 = passes).
+    std::uint32_t object_flags = 0;
 };
 
 /// One ``ADD_SWITCH`` record.  ``id`` is the record index (the level format has
@@ -362,9 +366,10 @@ public:
 
     /// ``0x44fb30``: ``kind 0x102``/``0x103`` fire when the blast point is
     /// within ``radius`` of the polygon (euclidean distance to its vertices,
-    /// ``0x43e541``); the original also requires ``0x428399(object, ?) == 0``,
-    /// whose meaning is unproven -- the caller passes the distance it measured
-    /// and this function applies only the proven ``<= radius`` rule.
+    /// ``0x43e541``).  The original first calls ``0x428399(sector, object)``,
+    /// which returns ``object+0x70 & 0x10000``, and requires zero, so a
+    /// culled/inactive object does not trigger.  The caller passes both the
+    /// distance it measured and the object's flag word.
     std::size_t poll_blast(const PolygonHit& hit, std::int16_t source = 0);
 
     /// ``0x44fad0``: a ``kind == 0x102`` switch fires on an **exact**
@@ -456,8 +461,10 @@ private:
     /// Shared body of `poll_aim`/`poll_blast`: fire every switch whose `kind`
     /// is in *kinds*, whose `(sector, object, polygon)` equals the hit and
     /// whose radius covers `hit.distance`.  `counter` is the per-trigger stat.
+    /// *object_gate* enables the ``0x428399`` flag test (blast path only).
     std::size_t press_polygon(const PolygonHit& hit, std::int16_t source,
-                              std::span<const int> kinds, std::size_t& counter);
+                              std::span<const int> kinds, std::size_t& counter,
+                              bool object_gate);
     /// Append *event* and reserve its source slot, keeping `events_` and
     /// `switch_event_sources_` index-aligned.  A `SwitchPressed` starts
     /// unbound: `post_switch_events` binds it to the caller's `source`.

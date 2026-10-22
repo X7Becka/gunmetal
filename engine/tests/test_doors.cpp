@@ -1558,6 +1558,29 @@ void test_polygon_triggers() {
         CHECK(f.size() == 2u && f[0] == 3 && f[1] == 4);
     }
 
+    // The blast path has the 0x428399 gate: an object with bit 0x10000 in
+    // +0x70 (cull flag) does not trigger, while the aim ray ignores it.
+    {
+        gm::PolygonHit gated = hit(2, 3, 4, 5.0);
+        gated.object_flags = 0x10000;
+        state.clear_events();
+        CHECK_EQ(state.poll_blast(gated, 4), 0u);
+        CHECK(fired().empty());
+        CHECK_EQ(state.poll_aim(gated, 3), 2u); // 0x101/0x102-free: 0 and 1
+    }
+    {
+        gm::PolygonHit gated = hit(2, 3, 4, 5.0);
+        gated.object_flags = 0x10010; // other bits do not matter
+        state.clear_events();
+        CHECK_EQ(state.poll_blast(gated, 4), 0u);
+    }
+    {
+        gm::PolygonHit clear = hit(2, 3, 4, 5.0);
+        clear.object_flags = 0x8000; // 0x10000 not set
+        state.clear_events();
+        CHECK_EQ(state.poll_blast(clear, 4), 2u);
+    }
+
     // Blast must not fire aimed switches, and a miss fires nothing.
     state.clear_events();
     CHECK_EQ(state.poll_blast(hit(2, 3, 4, 41.0), 4), 0u);
