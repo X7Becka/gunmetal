@@ -199,11 +199,13 @@ def build_scene(game: str, level: str, lightmap: bool = True):
 
 
 def render_frame(meshes, frame: dict, width: int, height: int,
-                 focal, game: str, flat: bool, lightmap: bool) -> bytes:
+                 focal, game: str, flat: bool, lightmap: bool,
+                 materials: bool = True, ambient: float = 0.0) -> bytes:
     pool = None if flat else render.TexturePool(game)
     return render.render(meshes, width=width, height=height, pool=pool,
                          pos=frame["eye"], look=frame["look"],
-                         focal=focal, lightmap=lightmap)
+                         focal=focal, lightmap=lightmap,
+                         materials=materials, ambient=ambient)
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +337,10 @@ def main(argv: list[str]) -> int:
                     help="ignore the level .sbc lightmaps")
     ap.add_argument("--flat", action="store_true",
                     help="no textures (material colours only)")
+    ap.add_argument("--no-materials", dest="materials", action="store_false",
+                    help="skip the blended material pass (translucent/add/...)")
+    ap.add_argument("--ambient", type=float, default=0.0,
+                    help="constant light added to every polygon (0..1 of 127)")
     ap.add_argument("--eye-from", choices=("auto", "pos", "feet", "player"),
                     default="auto", help="how camera.pos maps to the eye")
     ap.add_argument("--keep-border", action="store_true",
@@ -357,7 +363,8 @@ def main(argv: list[str]) -> int:
     sbw_path, sbc_path, meshes = build_scene(opts.game, side["level"],
                                             opts.lightmap)
     data = render_frame(meshes, frame, opts.width, opts.height, focal,
-                        opts.game, opts.flat, opts.lightmap)
+                        opts.game, opts.flat, opts.lightmap,
+                        opts.materials, opts.ambient)
     out_dir = os.path.dirname(os.path.abspath(opts.out))
     os.makedirs(out_dir, exist_ok=True)
     with open(opts.out, "wb") as fh:
@@ -375,6 +382,8 @@ def main(argv: list[str]) -> int:
         "eye": [round(v, 4) for v in frame["eye"]],
         "forward": [round(v, 6) for v in frame["forward"]],
         "lightmap": opts.lightmap,
+        "materials": opts.materials,
+        "ambient": opts.ambient,
         "textures": not opts.flat,
         "meshes": len(meshes),
         "oracle_border_px": border,
