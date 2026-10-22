@@ -27,18 +27,19 @@
 | `docs/EVENTS.md` | 24 | 92 | Event queue and `GENERATE` events |
 | `docs/FILM.md` | 27 | 107 | HUD-фильмы `.sof` / `.fdx` — формат, привязка, паритет |
 | `docs/FOG.md` | 22 | 220 | Туман по глубине: формула, таблица `lighttable`, Glide (M4.1.6) |
-| `docs/FORMATS.md` | 202 | 947 | Gunmetal — спецификация форматов данных |
+| `docs/FORMATS.md` | 203 | 947 | Gunmetal — спецификация форматов данных |
 | `docs/FUZZ_CORPUS.md` | 11 | 1 | Фазз-корпус: сохранение и повтор (save / replay) |
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
 | `docs/GHIDRA.md` | 17 | 30 | Ghidra: выбор, установка и рабочий процесс |
+| `docs/HUD_AUDIT.md` | 22 | 86 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
 | `docs/HUD_BIND.md` | 17 | 29 | HUD binding: `.sml`/`.sme` экраны → семейства `.sof`/`.fdx` и позиции `<I>` |
 | `docs/HUD_COMPOSE.md` | 17 | 9 | HUD composition: `.sml` + `.sof/.fdx` + `blit_indexed` за один вызов |
 | `docs/HUD_CPP.md` | 8 | 2 | C++ HUD-слой: блит кадров `.sof` |
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 39 | 169 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 44 | 172 | JOURNAL — журнал ходов |
 | `docs/LEVEL_LOAD.md` | 32 | 664 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
 | `docs/LIGHTMAP_AUDIT.md` | 11 | 8 | Аудит лайтмапов `.sbc`: покрытие и яркость (M4) |
@@ -47,7 +48,7 @@
 | `docs/MATERIAL_BLEND.md` | 29 | 159 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
-| `docs/ORACLE.md` | 31 | 11 | Эталонный оракул (M4.4.2) |
+| `docs/ORACLE.md` | 34 | 12 | Эталонный оракул (M4.4.2) |
 | `docs/ORACLE_RENDER.md` | 12 | 1 | Воспроизводимый рендер эталонного кадра (`oracle_render.py`) |
 | `docs/PALETTE.md` | 5 | 15 | Палитра 8-битной графики и индексы текстур `.sbw` |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
@@ -56,7 +57,7 @@
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
 | `docs/RECORDS.md` | 33 | 246 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
-| `docs/REGRESSION.md` | 11 | 1 | Регрессия: ворота, бюджет времени и практики |
+| `docs/REGRESSION.md` | 12 | 1 | Регрессия: ворота, бюджет времени и практики |
 | `docs/RENDER.md` | 5 | 0 | Рендерер C++: конвейер и паритет с `gm/render.py` |
 | `docs/RE_AUDIT.md` | 21 | 10 | Аудит процесса реверса (2026-10-22) |
 | `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
@@ -100,6 +101,7 @@
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |
 | `docs/VM_CPP.md` | 20 | 39 | C++-исполнение SCRIPT-VM (`vm_exec.h` / `vm_exec.cpp`) |
 | `docs/VM_EXEC.md` | 54 | 530 | Исполнение SCRIPT-VM (`.sbt`, запись 11) — прототип |
+| `docs/VM_SCENE.md` | 25 | 111 | Сцена, созданная ВМ, против сцены из файла (`M5.2`) |
 | `docs/WEAPONS_CPP.md` | 62 | 320 | `game/weapons.*` — runtime оружия |
 | `docs/WEAPON_FIELDS.md` | 26 | 278 | Карта записей «оружие / боеприпасы / оборудование / шасси» (M2.3.5) |
 | `docs/WORLD_FIELDS.md` | 42 | 331 | Мир / сектор / объект / полигон: карта рантайма (M2.3.2) |
