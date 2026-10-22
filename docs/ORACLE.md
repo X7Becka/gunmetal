@@ -43,6 +43,38 @@ powershell.exe -ExecutionPolicy Bypass -File 'C:\Users\nooverload\capture.ps1' \
     -ProcessName gundx -Out 'C:\Users\nooverload\level0.png'
 ```
 
+## Кадр и состояние — одним запуском (`-State`)
+
+`capture.ps1 -State` снимает PNG и **сразу** пишет sidecar из того же процесса:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File capture.ps1 -State `
+    -GameDir 'D:\games\Gunmetal 3dfx' -EyeHeight 10 `
+    -Out '\\wsl.localhost\Ubuntu\home\nooverload\gunmetal-re\out\oracle\win4.png'
+# -> win4.png + win4.json (sidecar), одна строка JSON в stdout
+```
+
+Что делает:
+
+* открывает процесс с `PROCESS_VM_READ`, читает блок игрока
+  `0x819040 + slot*0x3510` и имя уровня `0x5a4868` **до** и **после**
+  `CopyFromScreen` (два сэмпла вокруг кадра);
+* пишет sidecar в формате ниже плюс `state_stable`, `state_before` и
+  `state_source`; если камера сдвинулась между сэмплами
+  (`Δpos > 0.5` или `Δугла > 1e-3`), ставит `state_stable: false` и просит
+  не использовать кадр для попиксельного сравнения;
+* хэши `<level>.sbt/.sbw` считает сам (`-GameDir`), `render.width/height` —
+  из `-RenderWidth/-RenderHeight` (по умолчанию 320×200).
+
+Почему это важно: до сих пор кадр снимал `capture.ps1`, а состояние читал
+отдельный `state.ps1` — между ними проходили секунды. На `win2` такой sidecar
+не воспроизводит кадр: лучшее объяснение — наклон камеры ≈6° вниз
+(`corr` 0.087 → 0.279, см. ниже), то есть пружина `+0x18` уже была в другом
+положении.
+
+Проверено: скрипт парсится PowerShell 5.1 (`Parser::ParseFile` — 0 ошибок) и
+доходит до проверки процесса; полный прогон требует запущенной игры.
+
 ## Что фиксировать вместе с кадром
 
 * `level` (имя `.sbt`), координаты/угол камеры (из сохранения или скрипта);
