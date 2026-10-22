@@ -707,7 +707,7 @@ python3 tools/ghidra/mcp.py disasm 0x444118 --count 12 --bytes   # yaw -> cos/si
 | `+0x33c0` | 1 | `0x44424b` | strafe_input_b | proven |
 | `+0x33c4` | 8 | `0x445747` `0x445783` `0x4457c1` | pending_weapon_id | proven |
 | `+0x33c8` | 24 | `0x443716` `0x44371e` `0x443726` | fire_cooldown_2 | proven |
-| `+0x33cc` | 5 | `0x4422a7` `0x45280f` `0x4536cf` | damage_accum | unknown |
+| `+0x33cc` | 5 | `0x4422a7` `0x45280f` `0x4536cf` | secret_tally | proven: `0x4536b0` (из `0x45b978`), сброс `0x45280f`, читают `0x49953a`/`0x483c07` (`docs/CAMPAIGN_FLOW.md` §7) |
 | `+0x33d0` | 10 | `0x452815` `0x45bb35` `0x45bb3b` | damage_accum_2 | unknown |
 | `+0x33d4` | 6 | `0x443849` `0x443853` `0x443b0a` | fire_cycle_timer | proven |
 | `+0x33d8` | 5 | `0x45294b` `0x46c71c` `0x46c722` | event_enter_id | proven |
