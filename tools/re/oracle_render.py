@@ -191,7 +191,8 @@ def compare(oracle_path: str, ours_path: str, width: int, height: int,
 # render
 # ---------------------------------------------------------------------------
 
-def build_scene(game: str, level: str, lightmap: bool = True):
+def build_scene(game: str, level: str, lightmap: bool = True,
+                effects: bool = False, tick: int = 0):
     sbw_path, sbc_path = resolve_level(game, level)
     world = sbw.parse_file(sbw_path)
     lms = None
@@ -199,7 +200,14 @@ def build_scene(game: str, level: str, lightmap: bool = True):
         if not sbc_path or not os.path.exists(sbc_path):
             raise FileNotFoundError(f"no .sbc lightmaps next to {sbw_path}")
         lms = render.import_lightmaps(sbc_path)
-    return sbw_path, sbc_path, render.level_meshes(world, lms, transform=True)
+    # `effects=True` draws polygons whose texture index is negative with the
+    # effect table's frame at `tick` (docs/EFFECTS.md); the default keeps the
+    # historical untextured faces so the golden frames do not move.
+    return (sbw_path, sbc_path,
+            render.level_meshes(world, lms,
+                                effects=world.effects if effects else None,
+                                tick=tick if effects else None,
+                                transform=True))
 
 
 def render_frame(meshes, frame: dict, width: int, height: int,
@@ -376,6 +384,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--pitch-offset", type=float, default=0.0,
                     help="extra camera pitch in degrees (the missing turret "
                          "pitch of old sidecars, see --fit in oracle_fit.py)")
+    ap.add_argument("--effects", action="store_true",
+                    help="draw negative-texture polygons with the .sbw effect "
+                         "table's frame at --tick (docs/EFFECTS.md)")
+    ap.add_argument("--tick", type=int, default=0,
+                    help="engine ticks for --effects frame selection (91 Hz)")
     ap.add_argument("--keep-border", action="store_true",
                     help="do not drop the 1 px window frame of the capture")
     ap.add_argument("--world-end", type=float, default=WORLD_END,
@@ -394,7 +407,8 @@ def main(argv: list[str]) -> int:
     side = load_sidecar(opts.sidecar)
     frame = camera_frame(side["camera"], opts.eye_from)
     sbw_path, sbc_path, meshes = build_scene(opts.game, side["level"],
-                                            opts.lightmap)
+                                            opts.lightmap, opts.effects,
+                                            opts.tick)
     data = render_frame(meshes, frame, opts.width, opts.height, focal,
                         opts.game, opts.flat, opts.lightmap,
                         opts.materials, opts.ambient, opts.chromakey,

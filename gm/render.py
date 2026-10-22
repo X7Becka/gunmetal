@@ -64,9 +64,12 @@ class LevelFace:
     def __init__(self, poly, name: str):
         self.indices = list(poly.indices)
         self.texture = name
-        # 0 = "no texture" (the engine returns early for these unless
-        # `handle != 0`, docs/TEXUV.md); negative = effect table.
-        self.texture_index = poly.texture
+        # The file stores the index as u16; the engine reads it with `movsx`
+        # (0x9fde78..0x9fdefc), so 0xfffe is -2, an effect.  0 = "no texture"
+        # (the engine returns early for these unless `handle != 0`,
+        # docs/TEXUV.md); negative = effect table (docs/EFFECTS.md).
+        raw = int(poly.texture)
+        self.texture_index = raw - 0x10000 if raw >= 0x8000 else raw
         self.handle = poly.handle
         self.normal = poly.normal
         self.u = poly.u_axis
@@ -119,13 +122,51 @@ class Lightmaps:
         return None
 
 
+def effect_frame_name(texture: int, effects, tex_names, tick: int) -> str:
+    """Texture name a polygon with a **negative** texture index draws.
+
+    The engine (``0x41de7d``, ``docs/EFFECTS.md`` §1.2) treats ``-k`` as a
+    1-based entry of the ``.sbw`` effect table and picks the frame at the
+    current tick::
+
+        mode 0 and tick >= period -> last frame      (0x41decb / 0x41ded9)
+        otherwise                 -> (tick % period) * n / period
+        mode not 0/1              -> frame 0         (0x41df18 -> 0x44dc50)
+
+    ``period`` is in engine ticks (91 Hz).  Negative time is refused: the
+    original's ``idiv`` reads before the frame array, which shipped levels
+    never reach (``poly+0x68 = 0``, ``now >= 0``).  Unknown slots and frame
+    ids past the level's texture table return ``"none"``.
+    """
+    k = -int(texture) - 1
+    if effects is None or not 0 <= k < len(effects) or tick < 0:
+        return "none"
+    record = effects[k]
+    frames = list(getattr(record, "ids", ()) or ())
+    n = len(frames)
+    if n == 0:
+        return "none"
+    mode = int(getattr(record, "kind", 0))
+    period = int(getattr(record, "start", 0))
+    if mode not in (0, 1):
+        index = 0
+    elif mode == 0 and tick >= period:
+        index = n - 1
+    elif period <= 0:
+        return "none"
+    else:
+        index = (tick % period) * n // period
+    frame = int(frames[index])
+    return tex_names[frame - 1] if 0 < frame <= len(tex_names) else "none"
+
+
 class LevelMesh:
     """One `.sbw` object (its local vertex pool + polygons)."""
 
     sector: int | None = None
 
     def __init__(self, obj, tex_names, lightmaps: Lightmaps | None = None,
-                 sector: int | None = None):
+                 sector: int | None = None, effects=None, tick: int | None = None):
         self.vertices = list(obj.vertices)
         self.lightmaps = lightmaps
         self.sector = sector
@@ -143,9 +184,16 @@ class LevelMesh:
             # carries three overlays).  Reading ``tex_names[i]`` (as this file
             # did until 2026-10-22) named the next texture, so every level face
             # got its neighbour's art.
+            texture = int(p.texture)
+            if texture >= 0x8000:
+                texture -= 0x10000
             name = "none"
-            if 0 < p.texture <= len(tex_names):
-                name = tex_names[p.texture - 1]
+            if 0 < texture <= len(tex_names):
+                name = tex_names[texture - 1]
+            elif texture < 0 and effects is not None and tick is not None:
+                # `poly+0x68` (the animation start tick) is 0 in shipped data,
+                # so the current tick is the elapsed time.
+                name = effect_frame_name(texture, effects, tex_names, tick)
             self.faces.append(LevelFace(p, name))
 
     def uv(self, face, vertex):
@@ -170,6 +218,7 @@ class LevelMesh:
 
 
 def level_meshes(level, lightmaps: Lightmaps | None = None,
+                 effects=None, tick: int | None = None,
                  transform: bool = False) -> list[LevelMesh]:
     """Wrap every object of a parsed `.sbw` level as a renderable mesh.
 
@@ -184,9 +233,9 @@ def level_meshes(level, lightmaps: Lightmaps | None = None,
             if not o.vertices:
                 continue
             if transform:
-                out.append(PlacedMesh(o, names, lightmaps, si))
+                out.append(PlacedMesh(o, names, lightmaps, si, effects, tick))
             else:
-                out.append(LevelMesh(o, names, lightmaps, si))
+                out.append(LevelMesh(o, names, lightmaps, si, effects, tick))
     return out
 
 
@@ -200,8 +249,8 @@ class PlacedMesh(LevelMesh):
     """
 
     def __init__(self, obj, tex_names, lightmaps: Lightmaps | None,
-                 sector: int | None):
-        super().__init__(obj, tex_names, lightmaps, sector)
+                 sector: int | None, effects=None, tick: int | None = None):
+        super().__init__(obj, tex_names, lightmaps, sector, effects, tick)
         self.vertices = list(obj.world_vertices())
         if len(obj.points) >= 4:
             self._origin = obj.points[0]
