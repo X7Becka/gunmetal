@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "game/projectile.h" // ProximityEntry
+#include "game/rng.h"
 #include "render/collide.h"  // Vec3d, CollisionWorld
 
 namespace gm {
@@ -113,6 +114,11 @@ struct ThingMotionConfig {
     /// exactly the state of a fresh instance.
     std::int32_t push_event = 0;
     std::int32_t push_event_gate = 0;
+    /// Mode 16 (`0x476070`): `+0x3ec`/`+0x3f0` ("every period ticks add step
+    /// to the attack cooldown", `0x476070`, `rand() % period == 0`).  Type
+    /// fields `+0x210/+0x214`, copied at spawn.
+    std::int32_t timer_period = 0;
+    std::int32_t timer_step = 0;
 };
 
 /// The proven fields of a spawned `Thing`; unknown fields stay at their
@@ -154,6 +160,9 @@ struct ThingMotionState {
     double impulse_damping_up = 0.05; ///< +0x220
     int target = -1;               ///< +0x3e0, player 0..7 or thing+8
     int attack_cooldown = 0;       ///< +0x3e4
+    /// +0x3e8: non-zero scans the weapon bands from the last entry down; the
+    /// flag flips on every shot (0x476070).
+    bool weapon_reverse = false;
     int aim_index = -1;            ///< +0x504, patrol waypoint
     int aim_timer = 0;             ///< +0x50c
     bool expired = false;          ///< hits/lifetime exhausted (0x4703a0)
@@ -197,6 +206,9 @@ struct ThingMotionInput {
     bool apply_velocity = true;       ///< false keeps the displacement to the caller
     /// Mode 18 only: the bodies to repel from, in scan order.
     std::span<const ThingPushTarget> push_targets{};
+    /// Mode 16 only: generator for the `rand() % +0x3ec` cooldown bonus
+    /// (`0x480e30`).  Null (default) adds nothing.
+    MsvcRand* rng = nullptr;
 };
 
 /// What one step did; also the tracelog the tests pin.

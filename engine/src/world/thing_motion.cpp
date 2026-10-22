@@ -462,7 +462,10 @@ void step_patrol(ThingMotionState& state, const ThingMotionConfig& config,
 
     if (ahead > 0.0 && std::fabs(lateral) * 4.0 < ahead &&
         state.attack_cooldown == 0) {
-        for (std::size_t i = 0; i < config.weapons.size(); ++i) {
+        // +0x3e8 picks the scan direction: non-zero walks the bands backwards.
+        const std::size_t count = config.weapons.size();
+        for (std::size_t n = 0; n < count; ++n) {
+            const std::size_t i = state.weapon_reverse ? count - 1 - n : n;
             const ProximityEntry& weapon = config.weapons[i];
             if (weapon.event == 0) {
                 continue;
@@ -472,6 +475,13 @@ void step_patrol(ThingMotionState& state, const ThingMotionConfig& config,
                 out.fired_weapon = static_cast<int>(i);
                 out.fired_event = weapon.event;
                 state.attack_cooldown += weapon.cooldown;
+                state.weapon_reverse = !state.weapon_reverse;
+                // +0x3ec/+0x3f0: rand() % period == 0 adds step to the
+                // cooldown.  Without a generator the bonus is skipped.
+                if (config.timer_period != 0 && input.rng != nullptr &&
+                    input.rng->next() % config.timer_period == 0) {
+                    state.attack_cooldown += config.timer_step;
+                }
                 break;
             }
         }
@@ -836,6 +846,8 @@ ThingMotionConfig thing_motion_config(const Thing& thing) {
     config.flags_c = thing.flags_c;
     config.expire_ticks = thing.expire_ticks;
     config.weapons = thing.proximity;
+    config.timer_period = thing.timer_period;
+    config.timer_step = thing.timer_step;
     return config;
 }
 

@@ -989,7 +989,7 @@ const gm::ThingMotionStep step = gm::thing_motion_step(st, cfg, in);
 | 9–12 | `path*` | path/loop/random/expire | external: `ai_move.h path_advance` (`random` — с `MsvcRand`) |
 | 13 | `ram` | `1.25r` + выбор стороны по цели | proven |
 | 14/15/17 | `seek_far/near/17` | seek по yaw + зонды + вертикальный seek | proven |
-| 16 | `patrol` | полосы `p0..p1`, кулдаун `p2`, конус 14° | proven (наведение — модель) |
+| 16 | `patrol` | полосы `p0..p1`, кулдаун `p2`, конус 14°, флип `+0x3e8`, бонус `+0x3ec/+0x3f0` через `MsvcRand` | proven (наведение/trail — модель) |
 | 18 | `push` | — | stub |
 
 Что в модуле **не** моделируется и почему:

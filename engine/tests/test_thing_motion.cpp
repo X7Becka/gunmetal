@@ -193,11 +193,13 @@ gm::ThingMotionStep step_once(gm::ThingMotionState& state,
                               const gm::ThingMotionConfig& config,
                               const gm::CollisionWorld* world,
                               const gm::ThingMotionTarget& target = {},
-                              double dt = 1.0) {
+                              double dt = 1.0,
+                              gm::MsvcRand* rng = nullptr) {
     gm::ThingMotionInput input;
     input.dt = dt;
     input.world = world;
     input.target = target;
+    input.rng = rng;
     return gm::thing_motion_step(state, config, input);
 }
 
@@ -773,6 +775,58 @@ void test_patrol_fire_gate() {
     CHECK_EQ(out.fired_weapon, -1);
 }
 
+// Mode 16, the two remaining proven pieces of 0x476070: the +0x3e8 scan
+// direction flips on every shot, and +0x3ec/+0x3f0 add `step` to the cooldown
+// when `rand() % period == 0` (0x480e30).  The bonus is opt-in via the
+// generator so the default step stays deterministic.
+void test_patrol_scan_and_timer() {
+    gm::ThingMotionConfig config = config_for(16, 0.0, 10.0);
+    config.weapons.resize(2);
+    for (int i = 0; i < 2; ++i) {
+        config.weapons[static_cast<std::size_t>(i)].event =
+            static_cast<std::uint32_t>(1000 + i);
+        config.weapons[static_cast<std::size_t>(i)].low = 1;
+        config.weapons[static_cast<std::size_t>(i)].high = 1000;
+        config.weapons[static_cast<std::size_t>(i)].cooldown = 5;
+    }
+
+    gm::ThingMotionState state = gm::thing_motion_spawn(config);
+    CHECK(!state.weapon_reverse);
+    const gm::ThingMotionTarget target = target_at(state, {0.0, 50.0, 0.0});
+    gm::ThingMotionStep out = step_once(state, config, nullptr, target);
+    CHECK_EQ(out.fired_weapon, 0); // forward scan first
+    CHECK(state.weapon_reverse);   // +0x3e8 flips
+    CHECK_EQ(state.attack_cooldown, 5);
+
+    // The next shot scans backwards and finds the last band.
+    state.attack_cooldown = 0;
+    out = step_once(state, config, nullptr, target);
+    CHECK_EQ(out.fired_weapon, 1);
+    CHECK(!state.weapon_reverse);
+
+    // No generator: no random bonus, cooldown is the band value.
+    config.timer_period = 1; // period 1 always matches
+    config.timer_step = 9;
+    gm::ThingMotionState no_rng = gm::thing_motion_spawn(config);
+    out = step_once(no_rng, config, nullptr, target);
+    CHECK_EQ(out.fired_weapon, 0);
+    CHECK_EQ(no_rng.attack_cooldown, 5);
+
+    // With a generator and period 1 the +0x3f0 step is always added.
+    gm::MsvcRand rng(1234u);
+    gm::ThingMotionState with_rng = gm::thing_motion_spawn(config);
+    out = step_once(with_rng, config, nullptr, target, 1.0, &rng);
+    CHECK_EQ(out.fired_weapon, 0);
+    CHECK_EQ(with_rng.attack_cooldown, 5 + 9);
+
+    // A zero period never draws.
+    config.timer_period = 0;
+    gm::MsvcRand rng2(1234u);
+    gm::ThingMotionState zero = gm::thing_motion_spawn(config);
+    out = step_once(zero, config, nullptr, target, 1.0, &rng2);
+    CHECK_EQ(zero.attack_cooldown, 5);
+}
+
 void test_projectile() {
     gm::ThingMotionConfig config = config_for(6, 2.0, 1.0);
     config.gravity = 1.0;
@@ -1116,6 +1170,7 @@ int main() {
     test_ram();
     test_seek_avoid();
     test_patrol_fire_gate();
+    test_patrol_scan_and_timer();
     test_projectile();
     test_floor_and_ceiling();
     test_impulse_bounce();

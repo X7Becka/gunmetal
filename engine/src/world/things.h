@@ -97,6 +97,12 @@ struct Thing {
     // 0x460000); `Things::location()` turns them into runtime positions.
     // Clamped to 32 entries (0x47daea rejects 0x20 < count), data only.
     std::vector<int> path_locations;
+    // `THING_TYPES +0x210/+0x214` -> instance +0x3ec/+0x3f0
+    // (`0x46dd71`/`0x46dd77`).  The offsets are proven; the names are the
+    // documented hypothesis "once every period ticks add step to the attack
+    // cooldown" (`0x476070`, docs/THING_FIELDS.md §4a.6).
+    int timer_period = 0;
+    int timer_step = 0;
     std::uint32_t timeout_event = 0; // +0x1c0
     std::uint32_t collide_event = 0; // +0x1c4, posted by 0x4752d0 on collision
     std::uint32_t expire_event = 0;  // +0x1ec, 0x4703a0 when hits/lifetime ends
@@ -132,6 +138,8 @@ struct ThingTypeEvents {
     std::array<double, 3> box{}; ///< +0x100/+0x108/+0x110
     std::vector<ProximityEntry> proximity; ///< THING_TYPES+0x218, up to 8
     std::vector<int> path_locations; ///< THING_TYPES+0x324[], up to 32 ids
+    int timer_period = 0; ///< +0x210, "every N ticks" (0x46dd71)
+    int timer_step = 0;   ///< +0x214, added to the cooldown (0x46dd77)
     int expire_ticks = 0; ///< +0x1e8 lifetime in ticks
     std::uint32_t collide_event = 0;
     std::uint32_t expire_event = 0;
@@ -303,6 +311,13 @@ public:
     /// so one list is shared by every instance.
     void set_push_targets(std::vector<ThingPushTarget> targets);
 
+    /// Generator for the deterministic parts of the automata that call
+    /// `rand()` (`0x480e30`): the mode-16 cooldown bonus
+    /// (`rand() % +0x3ec == 0`, `0x476070`).  Null (default) skips the bonus;
+    /// the pointer is caller-owned, like the path RNG in `Ai`.
+    void set_motion_rng(MsvcRand* rng) { motion_rng_ = rng; }
+    MsvcRand* motion_rng() const { return motion_rng_; }
+
     /// Motion state of `things()[index]`, or nullptr when motion is off, the
     /// index is out of range or the instance was never stepped.
     const ThingMotionState* motion_state(std::size_t index) const;
@@ -349,6 +364,7 @@ private:
     /// can distinguish "no aim yet" from "aim cleared".
     std::vector<bool> motion_target_seen_;
     std::vector<ThingPushTarget> push_targets_;
+    MsvcRand* motion_rng_ = nullptr;
 };
 
 } // namespace gm

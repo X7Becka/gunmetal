@@ -78,6 +78,8 @@ struct TypeTable {
     std::vector<std::array<double, 3>> boxes;
     std::vector<std::vector<ProximityEntry>> proximities;
     std::vector<std::vector<int>> path_locations;
+    std::vector<int> timer_periods;
+    std::vector<int> timer_steps;
     std::vector<double> search_radii;
     std::vector<int> target_zone_thresholds;
     std::vector<int> target_history_offsets;
@@ -131,6 +133,8 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.boxes.reserve(count);
         table.proximities.reserve(count);
         table.path_locations.reserve(count);
+        table.timer_periods.reserve(count);
+        table.timer_steps.reserve(count);
         table.search_radii.reserve(count);
         table.target_zone_thresholds.reserve(count);
         table.target_history_offsets.reserve(count);
@@ -212,6 +216,11 @@ TypeTable resolve_types(const SbtLevel& level) {
                     static_cast<std::int32_t>(rd32(entry + 0x324 + p * 4)));
             }
             table.path_locations.push_back(std::move(path_locations));
+            // +0x210/+0x214 -> instance +0x3ec/+0x3f0 (0x46dd71/0x46dd77).
+            table.timer_periods.push_back(
+                static_cast<std::int32_t>(rd32(entry + 0x210)));
+            table.timer_steps.push_back(
+                static_cast<std::int32_t>(rd32(entry + 0x214)));
             table.search_radii.push_back(std::bit_cast<double>(rd64(entry + 0x58)));
             table.target_zone_thresholds.push_back(
                 static_cast<std::int32_t>(rd32(entry + 0x1cc)));
@@ -262,6 +271,8 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.box = types.boxes[i];
     thing.proximity = types.proximities[i];
     thing.path_locations = types.path_locations[i];
+    thing.timer_period = types.timer_periods[i];
+    thing.timer_step = types.timer_steps[i];
     thing.search_radius = types.search_radii[i];
     thing.target_zone_threshold = types.target_zone_thresholds[i];
     thing.target_history_offset = types.target_history_offsets[i];
@@ -512,6 +523,8 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     out.box = types.boxes[index];
     out.proximity = types.proximities[index];
     out.path_locations = types.path_locations[index];
+    out.timer_period = types.timer_periods[index];
+    out.timer_step = types.timer_steps[index];
     out.expire_ticks = types.expire_ticks[index];
     out.collide_event = types.collide_events[index];
     out.expire_event = types.expire_events[index];
@@ -988,6 +1001,7 @@ void Things::tick(std::uint64_t ticks, EventQueue* events) {
             input.target = motion_targets_[index];
         }
         input.push_targets = push_targets_;
+        input.rng = motion_rng_;
         ThingMotionStep step = thing_motion_step(*slot, thing_motion_config(thing), input);
         motion_last_[index] = step;
         ++stats_.motion_steps;

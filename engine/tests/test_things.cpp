@@ -126,6 +126,8 @@ struct TypeSpec {
     std::uint32_t model_index;
     int expire_ticks = 0;       ///< THING_TYPES +0x1e8
     std::uint32_t expire_event = 0; ///< THING_TYPES +0x1ec
+    int timer_period = 0;       ///< THING_TYPES +0x210 -> instance +0x3ec
+    int timer_step = 0;         ///< THING_TYPES +0x214 -> instance +0x3f0
 };
 
 gm::SbtLevel make_level(const std::vector<std::uint8_t>& code,
@@ -155,6 +157,10 @@ gm::SbtLevel make_level(const std::vector<std::uint8_t>& code,
         put_u32(types_record.payload, base + 0x1E8,
                 static_cast<std::uint32_t>(types[i].expire_ticks));
         put_u32(types_record.payload, base + 0x1EC, types[i].expire_event);
+        put_u32(types_record.payload, base + 0x210,
+                static_cast<std::uint32_t>(types[i].timer_period));
+        put_u32(types_record.payload, base + 0x214,
+                static_cast<std::uint32_t>(types[i].timer_step));
     }
     level.records.push_back(std::move(types_record));
 
@@ -959,6 +965,40 @@ void test_spawn_remove() {
     CHECK_EQ(things.things().size(), slots_before);
 }
 
+// THING_TYPES +0x210/+0x214 -> instance +0x3ec/+0x3f0 (0x46dd71/0x46dd77):
+// the mode-16 "every N ticks add M to the cooldown" pair.  They are plain
+// type fields with no runtime consumer in `Things` yet; `thing_motion` reads
+// them through `thing_motion_config`.
+void test_timer_fields() {
+    std::vector<Row> rows;
+    std::vector<std::uint8_t> code;
+    add_thing(code, 0, 0, 0, 0, 0, 0, 0);
+    code.push_back(0xFF);
+    rows.push_back({0x3FF, 7, 0});
+    std::vector<TypeSpec> types = {{"TIMER", 0}};
+    types[0].timer_period = 91;
+    types[0].timer_step = 7;
+    const gm::SbtLevel level = make_level(code, rows, types, {"MODEL"});
+    const gm::VmState vm = gm::vm_state_from_level(level);
+    const gm::Things things = gm::Things::load(level, vm, single_context());
+    const gm::Thing* thing = things.by_id(0);
+    CHECK(thing != nullptr);
+    if (thing != nullptr) {
+        CHECK_EQ(thing->timer_period, 91);
+        CHECK_EQ(thing->timer_step, 7);
+    }
+    const std::optional<gm::ThingTypeEvents> events = gm::thing_type_events(level, 0);
+    CHECK(events.has_value());
+    if (events.has_value()) {
+        CHECK_EQ(events->timer_period, 91);
+        CHECK_EQ(events->timer_step, 7);
+    }
+    // Zero stays zero (a fresh type without the pair).
+    const std::optional<gm::ThingTypeEvents> none =
+        gm::thing_type_events(level, 5);
+    CHECK(!none.has_value());
+}
+
 void test_motion_tick() {
     // Movement automata are opt-in (`Things::set_motion_enabled`); with them on,
     // `tick` steps every live instance through `world/thing_motion`.
@@ -1196,6 +1236,7 @@ int main(int argc, char** argv) {
     test_expire_lifetime();
     test_spawn_remove();
     test_motion_tick();
+    test_timer_fields();
     test_motion_aim();
     test_generate_and_cycle();
     test_negatives();
