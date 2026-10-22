@@ -152,8 +152,8 @@
   `sbtvm`/`vm` зелёные). `--check` фиксирует аномалию, `--write` обновляет
   таблицу детерминированно.
 - **Покрытие.** `tools/qa/coverage.py` (stdlib `trace`): быстрый набор — 40,4 %
-  строк, тёмные места `render`/`png`/`sou2`/`sbv`/`sob`; `--full`, `--json`,
-  `--min` для гейта.
+  строк (`--full` — 43,5 %), тёмные места `render`/`sou2`/`sbv`/`sou1`/`sob`;
+  `--json`, `--missing MODULE`, `--min` для гейта.
 - **Контекст/токены.** `tools/ctx.py` (`doc`/`addr`/`find`/`outline`/`task`,
   бюджет 40 строк), `docs/INDEX.md`, правила в `AGENTS.md`, методика —
   `docs/RE_METHOD.md`.
