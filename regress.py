@@ -150,7 +150,7 @@ def _bundle_hash() -> str:
         if name.endswith(".py"):
             paths.append(os.path.join(gm_dir, name))
     for name in ("sob_writer.py", "sou_container.py", "sou1_model.py",
-                 "vm_exec.py", "sbtvm.py", "sbtvm_exec.py", "x86mini.py",
+                 "install_audit.py", "vm_exec.py", "sbtvm.py", "sbtvm_exec.py", "x86mini.py",
                  "emu.py"):
         paths.append(os.path.join(HERE, "tools", "re", name))
     paths.append(os.path.join(HERE, "tools", "parity_film.py"))
@@ -249,7 +249,8 @@ def config_checks(G: str, results: list[bool]) -> None:
                           "av1.91, unread by gundx.exe"))
 
 
-def trust_checks(G: str, results: list[bool], out: str) -> None:
+def trust_checks(G: str, results: list[bool], out: str,
+                 full: bool = False) -> None:
     """Trust-boundary checks: malformed input fails cleanly, outputs are guarded."""
     if not want("trust"):
         return
@@ -314,6 +315,31 @@ def trust_checks(G: str, results: list[bool], out: str) -> None:
     results.append(report("trust / malformed-input fuzz matrix",
                           p.returncode == 0, p.stdout.strip().splitlines()[0]
                           if p.stdout.strip() else "no output"))
+
+    # Installation drift: every shipped file must still be present byte for
+    # byte.  The three level1<->level2 swaps are a known property of the
+    # medium, so they are reported and accepted; missing/modified/extra fail.
+    if full:
+        p = cached_run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "install_audit.py"),
+                        "--game", G, "--json", "-", "--quiet"], G)
+        try:
+            rep = json.loads(p.stdout)
+        except (ValueError, TypeError):
+            rep = {}
+        counts = rep.get("counts", {})
+        groups = rep.get("swaps", [])
+        detail = ("%d ok, %d renamed in %d swaps, %d missing/%d modified/%d extra"
+                  % (counts.get("ok", 0), counts.get("renamed", 0), len(groups),
+                     counts.get("missing", 0), counts.get("modified", 0),
+                     counts.get("extra", 0)))
+        results.append(report("install / manifest audit (2161 files)",
+                              p.returncode == 0
+                              and counts.get("missing") == 0
+                              and counts.get("modified") == 0
+                              and counts.get("extra") == 0
+                              and counts.get("renamed") == 6
+                              and len(groups) == 3, detail))
 
 
 def audio_checks(G: str, results: list[bool], out: str) -> None:
@@ -1297,7 +1323,7 @@ def main() -> int:
         results.append(check("archives / music",    ["list", f"{G}/MUSIC/SOU.IDX"],    ["3092 entries"]))
         inventory_check(G, results)
 
-    trust_checks(G, results, out)
+    trust_checks(G, results, out, opts.full)
     audio_checks(G, results, out)
     anim_smoke_checks(G, results, out)
     render_variant_checks(results)
