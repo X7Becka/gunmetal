@@ -190,10 +190,20 @@
   `< box[1] + player+0x2d68`, `step = min(reach − d, dt·speed)`, толчок
   своей скорости по доминирующей оси (`+0x1b8` x / `+0x1c0` y), событие
   `+0x3f8` при `step > 0.1` и `+0x3f4 > 0`. CTest `test_push`.
+- **Гейт `0x428399` в blast-триггере**: `poll_blast` пропускает попадание,
+  если у объекта в `+0x70` стоит бит `0x10000` (функция возвращает ровно этот
+  бит, `0x44fb63` требует ноль); прицельный луч такого гейта не имеет.
+  `PolygonHit::object_flags`.
+- **Прицельный триггер в игровом слое**: `GameRuntime::aim_switch(player,
+  direction, max_distance = 10000)` — луч из глаза игрока
+  (`set_player_eyes`) через `CollisionWorld::raycast`, тройка из
+  `RayHit::triangle` (`sector`/`object`/`source_poly`), длина `hit.t`; далее
+  `poll_aim` + `post_switch_events`, как у `press_switch`. CTest `aim_switch`
+  (стена `x=100`: попадание, `max_distance`, радиус, чужие kind,
+  детерминизм 10 кадров).
 - Итог: `ctest` 52/59 — те же 7 внешних (`core`, `core_full`, `camera_rig`,
   `things_full`, `sbtvm`, `vm`, `vm_full`); `vm` 15 / `vm_full` 28 падений,
-  все level1/level2. `regress.py` 113/113 (после восстановления
-  `/tmp/opencode/gundx.exe`; теперь `savegame.py` берёт exe из кэша).
+  все level1/level2. `regress.py --full` 121/121.
 
 - **Трансформ `.sbw` исправлен** (`feat/sbw-transform`): заголовок объекта —
   **12 × `f64`** (origin + базис), в поставке базис единичный; множителя
