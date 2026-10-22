@@ -21,6 +21,7 @@
 //          target (-9.969262078590845, 4145.797985667433, -3054)
 //          forward (-0.9396926207859084, -0.3420201433256685, 0)
 #include "camera/camera.h"
+#include "game_path.h"
 
 #include "player/controller.h"
 #include "render/collide.h"
@@ -878,7 +879,11 @@ void test_real_spawns() {
     };
 
     for (const SpawnGolden& golden : goldens) {
-        const fs::path path = kGame / (std::string(golden.level) + ".sbt");
+        // by content: the shipped level1/level2 may be swapped by name
+        const auto resolved = gmtest::resolve_game_file(
+            kGame, std::string(golden.level) + ".sbt");
+        const fs::path path = resolved ? *resolved
+                                       : kGame / (std::string(golden.level) + ".sbt");
         const std::vector<std::uint8_t> raw = read_file(path);
         CHECK(!raw.empty());
         if (raw.empty()) {

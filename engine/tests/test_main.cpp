@@ -23,6 +23,7 @@
 #include "render/render.h"
 #include "res/anim.h"
 #include "core/hash.h"
+#include "game_path.h"
 
 #include <cmath>
 #include <cstdio>
@@ -1665,9 +1666,21 @@ void test_scene() {
             paths.push_back(entry.path());
         }
     }
-    std::sort(paths.begin(), paths.end(), [](const fs::path& a, const fs::path& b) {
-        return a.stem().string() < b.stem().string();
-    });
+    // Canonical names come from content, so a swapped/renamed level keeps the
+    // same aggregate (see engine/tests/game_content.h).
+    std::vector<std::pair<std::string, fs::path>> files;
+    files.reserve(paths.size());
+    for (const auto& path : paths) {
+        std::string name = path.stem().string();
+        if (const auto fnv = gmtest::file_fnv(path)) {
+            if (const char* canon = gmtest::canonical_name(*fnv)) {
+                name = fs::path(canon).stem().string();
+            }
+        }
+        files.emplace_back(std::move(name), path);
+    }
+    std::sort(files.begin(), files.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
 
     std::uint64_t hash = 0xcbf29ce484222325ull;
     auto mix = [&](const void* data, std::size_t size) {
@@ -1685,7 +1698,7 @@ void test_scene() {
     std::size_t levels = 0;
     std::size_t spawn_count = 0;
     std::string error;
-    for (const auto& path : paths) {
+    for (const auto& [stem, path] : files) {
         std::ifstream in(path, std::ios::binary);
         std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
                                         std::istreambuf_iterator<char>());
@@ -1700,7 +1713,6 @@ void test_scene() {
             continue;
         }
         ++levels;
-        const std::string stem = path.stem().string();
         mix(stem.data(), stem.size());
         mix_count(scene->lights.size());
         mix_count(scene->locations.size());
@@ -1745,12 +1757,11 @@ void test_scene() {
                 target *= 0x100000001b3ull;
             }
         };
-        for (const auto& path : paths) {
+        for (const auto& [stem, path] : files) {
             const auto scene = things_of(path, error);
             if (!scene) {
                 continue;
             }
-            const std::string stem = path.stem().string();
             mix_into(thing_hash, stem.data(), stem.size());
             const std::uint32_t count = static_cast<std::uint32_t>(scene->things.size());
             mix_into(thing_hash, &count, sizeof(count));

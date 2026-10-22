@@ -65,7 +65,8 @@ python3 regress.py --mirror                   # сам синхронизиру�
 | файл | назначение |
 |---|---|
 | `exelib.py` | общий модуль: разбор PE, `va2off`/`off2va`, `cstr`, `strings_in`, `sig_size`, чтение листинга (кэш + индекс) |
-| `gmcache.py` | постоянный кэш реверса: листинг/индекс/копия exe, зеркало установки, `status`/`build`/`mirror` |
+| `gmcache.py` | постоянный кэш реверса: листинг/индекс/копия exe, зеркало установки, `status`/`build`/`mirror`/`selftest` |
+| `game_content.py` | FNV-1a64 канонического содержимого `.sbt`/`.sbw` по манифесту; `--check` ловит переставленные/переименованные файлы, `--write` обновляет `engine/tests/game_content.h` |
 | `disrange.py` | печать диапазона VA из листинга: `disrange.py 450be0 450d60` |
 | `strdump.py` | строки по VA или все строки в диапазоне (`--range`) |
 | `xref.py` | поиск dword-ссылок на значение (обычно адрес строки) |

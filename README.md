@@ -62,6 +62,7 @@ tools/avatar.py       аватар из модели .sob: суперсэмпл�
 tools/re/             инструментарий реверса exe (PE-карта, дизасм, xref,
                       таблицы команд, эмулятор x86) — см. tools/re/README.md
 tools/re/gmcache.py   постоянный кэш: листинг+индекс, копия exe, зеркало игры
+tools/re/game_content.py  канонические хэши уровней для тестов (--check/--write)
 tools/ctx.py          точечные срезы документации (doc/addr/find/outline/task)
 docs/RE_METHOD.md     методика реверса: доказательства, скорость, бюджет контекста
 docs/REGRESSION.md    слои проверок, бюджеты времени, практики и known gaps

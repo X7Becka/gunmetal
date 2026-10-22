@@ -310,8 +310,11 @@ v1.0 и выполняется **последней, после `M12`** (реш�
       (ProcessPool), VM-корпус 38,7 → 4,0 с, film parity 19,3 → 1,8 с,
       `BigFile.read` без `open()` на запись (sou check 19,5 → 12,5 с);
       `regress.py --json` для CI; кэш результатов чистых проверок по хэшу
-      исходников и зеркала (повторный `--full` 106,9 → 79,8 с). Практики —
-      `docs/REGRESSION.md`.
+      исходников и зеркала (повторный `--full` 106,9 → 79,8 с); тесты C++
+      адресуют `.sbt`/`.sbw` по содержимому (`engine/tests/game_content.h`,
+      `tools/re/game_content.py`), поэтому переставленные в установке
+      `level1`/`level2` больше не дают ложных падений (quick 49/50).
+      Практики — `docs/REGRESSION.md`.
 
 ### Выход
 
@@ -689,6 +692,11 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > `retreat_steps`, столкновение и leash. A4: автомат (`path`/`loop`/`expire`,
       > 32 точки) подключён к patrol через `use_path`/`set_path`; expire
       > завершает агента, wall-шаг урезается, alert/attack не затронуты.
+      > **Мост `Ai` → `thing_motion`**: `Ai::apply_aim(Things&)` заполняет
+      > `Things::aim_motion_at()` (позиция + ошибки `0x473a00` в системе тела:
+      > `yaw_error` через `0x437909`/`0x4226e9`/`0x41e2b8`, `pitch_error = 0`,
+      > `vertical_error = Δz`) и очищает цель при `!has_aim`; CTest
+      > `test_apply_aim`, `test_motion_aim`.
       > `load_path_from_types` читает `THING_TYPES+0x324[]` и резолвит
       > `ADD_LOCATION` (`0x80d8e0`); 9/10/11/12 → path/loop/random/expire;
       > `pathrandom` берёт `rand()%count` на каждом прибытии через внешний

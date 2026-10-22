@@ -35,6 +35,8 @@
 #include <utility>
 #include <vector>
 
+#include "game_path.h"
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -614,6 +616,13 @@ bool load_level(const fs::path& path, gm::SbtLevel& level) {
     return true;
 }
 
+fs::path resolved_level(const char* name) {
+    if (const auto hit = gmtest::resolve_game_file(kGameDir, name)) {
+        return *hit;
+    }
+    return fs::path(kGameDir) / name;
+}
+
 void check_level(const fs::path& path, const LevelGolden& golden) {
     gm::SbtLevel level;
     if (!load_level(path, level)) {
@@ -675,7 +684,7 @@ void check_level(const fs::path& path, const LevelGolden& golden) {
 void test_main_scripts() {
     std::size_t ended = 0;
     for (const MainGolden& golden : kMain) {
-        const fs::path path = fs::path(kGameDir) / golden.name;
+        const fs::path path = resolved_level(golden.name);
         gm::SbtLevel level;
         if (!load_level(path, level)) {
             continue;
@@ -717,7 +726,7 @@ void test_corpus() {
     std::array<int, 12> counts{};
 
     for (const LevelGolden& golden : kLevels) {
-        const fs::path path = fs::path(kGameDir) / golden.name;
+        const fs::path path = resolved_level(golden.name);
         gm::SbtLevel level;
         if (!load_level(path, level)) {
             continue;
@@ -1605,7 +1614,7 @@ int main(int argc, char** argv) {
 
     if (full) {
         for (const LevelGolden& golden : kLevels) {
-            check_level(fs::path(kGameDir) / golden.name, golden);
+            check_level(resolved_level(golden.name), golden);
         }
         test_corpus();
     } else {
@@ -1613,7 +1622,7 @@ int main(int argc, char** argv) {
             const LevelGolden* golden = find_golden(name);
             CHECK(golden != nullptr);
             if (golden != nullptr) {
-                check_level(fs::path(kGameDir) / name, *golden);
+                check_level(resolved_level(name), *golden);
             }
         }
     }

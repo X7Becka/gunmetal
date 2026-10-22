@@ -3,6 +3,7 @@
 // (render) against goldens produced by gm/sbtvm.py over the same files.
 #include "core/bytes.h"
 #include "core/hash.h"
+#include "game_path.h"
 #include "res/sbt.h"
 #include "res/sbtvm.h"
 
@@ -145,12 +146,16 @@ void test_real_levels() {
 
     std::string error;
     for (const Golden& golden : kGolden) {
-        const fs::path path = dir / golden.name;
-        if (!fs::is_regular_file(path, ec)) {
-            std::fprintf(stderr, "FAIL missing %s\n", path.string().c_str());
+        // Resolve by content, not by name: an installation may rename or swap
+        // level files (this one does), and the golden describes the bytes.
+        const auto resolved = gmtest::resolve_game_file(dir, golden.name);
+        if (!resolved) {
+            std::fprintf(stderr, "FAIL %s: no file with the canonical content\n",
+                         golden.name);
             ++g_failures;
             continue;
         }
+        const fs::path path = *resolved;
         const auto bytes = read_file(path);
         const auto level = gm::parse_sbt(bytes, error);
         CHECK(level.has_value());
