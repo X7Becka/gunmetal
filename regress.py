@@ -656,6 +656,25 @@ def render_checks(G: str, results: list[bool], out: str, full: bool = False) -> 
     results.append(report("render / level interior (pos/look/clip)",
                           render.coverage(inside) > 0.5, "camera inside level0"))
 
+    # HUD panel: composer + the NCC instrument that refuted the 2D-blit claim
+    # (docs/HUD_AUDIT.md section 2.4).  Positive control: the panel pasted into
+    # its band must score ~1; negative control: a gradient frame must not.
+    from gm import hud, palette
+    pal = palette.installed(G)
+    panel = hud.load_panel(G, "PANEL")
+    pasted = bytearray(320 * 200 * 3)
+    top = hud.default_top(panel, 200)
+    pasted[top * 320 * 3:] = hud.panel_rgb(panel, pal)
+    diagonal = bytes((x * 3 + y * 5) % 256 for y in range(200) for x in range(320)
+                     for _ in range(3))
+    hit = hud.frame_ncc((320, 200, bytes(pasted)), panel, pal)
+    miss = hud.frame_ncc((320, 200, diagonal), panel, pal)
+    results.append(report("render / hud panel ncc",
+                          (panel.width, panel.height) == (320, 78)
+                          and hit["ncc"] > 0.99 and abs(miss["ncc"]) < 0.05,
+                          f"panel {panel.width}x{panel.height}, "
+                          f"hit {hit['ncc']}, miss {miss['ncc']}"))
+
     r = sob.parse(os.path.join(G, "SOBS", "rays10.sob"))
     on = render.render(r, 64, pool=pool, az=35, el=22)
     off = render.render(r, 64, pool=pool, az=35, el=22, materials=False)
