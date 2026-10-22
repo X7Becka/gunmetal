@@ -206,10 +206,22 @@ def render_frame(meshes, frame: dict, width: int, height: int,
                  focal, game: str, flat: bool, lightmap: bool,
                  materials: bool = True, ambient: float = 0.0,
                  chromakey: bool = False, uv: str = "fit",
-                 skip_untextured: bool = False) -> bytes:
+                 skip_untextured: bool = False,
+                 pitch_offset: float = 0.0) -> bytes:
     pool = None if flat else render.TexturePool(game)
+    look = frame["look"]
+    if pitch_offset:
+        # Sidecars written before 2026-10-23 carry only the *body* pitch
+        # (docs/ORACLE.md): the camera looks at `p[0x18] + p[0x2E60]`, and
+        # `oracle_fit.py` measures the missing term per frame (+8 deg on win2,
+        # +14 on win3).  Applying it here makes the frame comparable.
+        pitch = frame["pitch"] + math.radians(pitch_offset)
+        cy, sy = math.cos(pitch), math.sin(pitch)
+        cp, sp = math.cos(frame["yaw"]), math.sin(frame["yaw"])
+        fwd = (sp * cy, cp * cy, -sy)
+        look = tuple(frame["eye"][k] + fwd[k] * 100.0 for k in range(3))
     return render.render(meshes, width=width, height=height, pool=pool,
-                         pos=frame["eye"], look=frame["look"],
+                         pos=frame["eye"], look=look,
                          focal=focal, lightmap=lightmap,
                          materials=materials, ambient=ambient,
                          chromakey=chromakey, uv=uv,
@@ -361,6 +373,9 @@ def main(argv: list[str]) -> int:
                          "bit 0 is set (docs/ALPHA.md)")
     ap.add_argument("--eye-from", choices=("auto", "pos", "feet", "player"),
                     default="auto", help="how camera.pos maps to the eye")
+    ap.add_argument("--pitch-offset", type=float, default=0.0,
+                    help="extra camera pitch in degrees (the missing turret "
+                         "pitch of old sidecars, see --fit in oracle_fit.py)")
     ap.add_argument("--keep-border", action="store_true",
                     help="do not drop the 1 px window frame of the capture")
     ap.add_argument("--world-end", type=float, default=WORLD_END,
@@ -383,7 +398,7 @@ def main(argv: list[str]) -> int:
     data = render_frame(meshes, frame, opts.width, opts.height, focal,
                         opts.game, opts.flat, opts.lightmap,
                         opts.materials, opts.ambient, opts.chromakey,
-                        opts.uv, opts.skip_untextured)
+                        opts.uv, opts.skip_untextured, opts.pitch_offset)
     out_dir = os.path.dirname(os.path.abspath(opts.out))
     os.makedirs(out_dir, exist_ok=True)
     with open(opts.out, "wb") as fh:
@@ -404,6 +419,7 @@ def main(argv: list[str]) -> int:
         "materials": opts.materials,
         "chromakey": opts.chromakey,
         "uv": opts.uv,
+        "pitch_offset_deg": opts.pitch_offset,
         "skip_untextured": opts.skip_untextured,
         "ambient": opts.ambient,
         "textures": not opts.flat,
