@@ -557,12 +557,104 @@ void WorldState::clear() {
     switch_post_blocked_ = false;
     door_targets_.clear();
     lift_targets_.clear();
+    sound_requests_.clear();
+    sound_cursor_ = 0;
     stats_ = WorldStats{};
 }
 
 void WorldState::log_event(WorldEvent event) {
     events_.push_back(event);
     switch_event_sources_.push_back(std::nullopt);
+}
+
+// --- sound requests ----------------------------------------------------------
+//
+// The engine does not mix anything here: it fills a 3D-sound queue
+// (`0x62ce18`, stride `0x2c`, at most 256 entries) and the mixer
+// (`0x46bed0`) resolves the entries later.  The model does the same thing
+// with a plain vector: the world only *describes* what has to sound, the
+// consumer owns the audio.
+
+void WorldState::queue_sound(SoundRequest request) {
+    if (request.source != SoundSource::DoorMoveStop &&
+        (request.sample < 0 || request.sample >= kDoorSampleCount)) {
+        // The engine queues the request with any sample and lets the mixer
+        // drop it (`0x46b840`/the mixer resolve the index through
+        // `0x4ca720`).  A portable queue must not carry a broken index.
+        return;
+    }
+    if (sound_requests_.size() >= kMaxSoundRequests) {
+        ++stats_.sounds_dropped;
+        return;
+    }
+    sound_requests_.push_back(request);
+    ++stats_.sounds_queued;
+}
+
+void WorldState::queue_door_sound(std::size_t index, const Door& door, SoundSource source,
+                                  const DoorSound& sound) {
+    if (!door.bound) {
+        // 0x434419(sector, object) must return the leaf object, otherwise the
+        // engine plays nothing at all.
+        return;
+    }
+    SoundRequest request;
+    request.sample = sound.sample;
+    request.volume = sound.volume;
+    // The engine reads the leaf's origin (object `+0x00/+0x08/+0x10`) and
+    // truncates it to int (0x40e0e0).  `door_transform` is exactly what
+    // 0x44dfc0 -> 0x434887 wrote there.
+    request.position = door_transform(door).origin;
+    request.loop = source == SoundSource::DoorMove;
+    request.source = source;
+    request.class_id = request.loop ? static_cast<int>(kDoorSoundClassBase) +
+                                          static_cast<int>(index)
+                                    : 0;
+    queue_sound(request);
+}
+
+void WorldState::queue_door_move_stop(std::size_t index, const Door& door) {
+    if (door.move_sound.silent()) {
+        // No loop was ever started for this door; the engine still sends the
+        // stop request every idle tick (0x46ba90 is unconditional), but a
+        // portable queue must not carry a request for a sound that cannot
+        // exist.
+        return;
+    }
+    SoundRequest request;
+    request.sample = -1;
+    request.volume = 0;
+    request.loop = true;
+    request.source = SoundSource::DoorMoveStop;
+    request.class_id = static_cast<int>(kDoorSoundClassBase) + static_cast<int>(index);
+    queue_sound(request);
+}
+
+void WorldState::queue_switch_sound(int switch_id) {
+    if (switch_id < 0 || static_cast<std::size_t>(switch_id) >= switches_.size()) {
+        return;
+    }
+    const Switch& sw = switches_[static_cast<std::size_t>(switch_id)];
+    if (sw.sound < 0) {
+        // 0x44f9ca: a negative sound means silence.
+        return;
+    }
+    SoundRequest request;
+    request.sample = sw.sound;
+    request.volume = sw.aux;
+    request.source = SoundSource::Switch;
+    if (sw.kind == 0) {
+        // kind 0 stores a world position in the operands.
+        request.position = {static_cast<double>(sw.pos[0]), static_cast<double>(sw.pos[1]),
+                            static_cast<double>(sw.pos[2])};
+        request.position_known = true;
+    } else {
+        // kind >= 0x101 stores (sector, object, polygon); the engine plays
+        // the sound at the polygon centroid (0x43577c), which the world model
+        // cannot compute.
+        request.position_known = false;
+    }
+    queue_sound(request);
 }
 
 void WorldState::add_door(Door door) {
@@ -930,6 +1022,9 @@ bool WorldState::interact(int switch_id, std::int16_t source) {
 
 std::size_t WorldState::press_target(int switch_id, int target) {
     std::size_t acted = 0;
+    // 0x44f960 plays the switch sound right after the generate event, no
+    // matter whether the target matched a door, a lift or nothing at all.
+    queue_switch_sound(switch_id);
     for (const auto& row : door_targets_) {
         if (row.first != target) {
             continue;
@@ -964,6 +1059,11 @@ std::size_t WorldState::press_target(int switch_id, int target) {
                              door.active() ? door.start_sound.sample : -1,
                              door.start_sound.volume};
             log_event(event);
+            // 0x44f690 (state flip) plays the start slot at the leaf's
+            // origin; the looped movement slot follows with the next tick
+            // (0x44f3f0) and carries the class `1000000 + door index`.
+            queue_door_sound(index, door, SoundSource::DoorStart, door.start_sound);
+            queue_door_sound(index, door, SoundSource::DoorMove, door.move_sound);
         }
     }
     for (const auto& row : lift_targets_) {
@@ -1183,6 +1283,35 @@ std::size_t WorldState::trigger_at(const std::array<double, 3>& pos, std::int16_
     return fired;
 }
 
+std::size_t WorldState::drain_sounds(std::vector<SoundRequest>& out, std::size_t limit) {
+    if (sound_cursor_ > sound_requests_.size()) {
+        sound_cursor_ = sound_requests_.size();
+    }
+    const std::size_t pending = sound_requests_.size() - sound_cursor_;
+    const std::size_t take = std::min(pending, limit);
+    out.reserve(out.size() + take);
+    for (std::size_t k = 0; k < take; ++k) {
+        out.push_back(sound_requests_[sound_cursor_ + k]);
+    }
+    sound_cursor_ += take;
+    if (sound_cursor_ >= sound_requests_.size()) {
+        // Everything was handed out: the log is frame-local again.
+        sound_requests_.clear();
+        sound_cursor_ = 0;
+    }
+    return take;
+}
+
+std::span<const SoundRequest> WorldState::pending_sounds() const {
+    const std::size_t begin = std::min(sound_cursor_, sound_requests_.size());
+    return std::span<const SoundRequest>(sound_requests_).subspan(begin);
+}
+
+void WorldState::clear_sounds() {
+    sound_requests_.clear();
+    sound_cursor_ = 0;
+}
+
 bool WorldState::block_contact(int sector, int object) {
     for (Door& door : doors_) {
         if (door.sector != sector || door.object != object || !door.active()) {
@@ -1216,7 +1345,7 @@ bool WorldState::block_contact(int sector, int object) {
     return false;
 }
 
-void WorldState::advance_door(Door& door, std::uint64_t ticks) {
+void WorldState::advance_door(std::size_t index, Door& door, std::uint64_t ticks) {
     // 0x44f2e0 copies +0x8c into +0x90 before moving; 0x44f3f0 commits it back
     // (and 0x450590 can throw the whole tick away).  phase_prev is that copy.
     door.phase_prev = door.engine_phase();
@@ -1259,6 +1388,11 @@ void WorldState::advance_door(Door& door, std::uint64_t ticks) {
                                    : WorldEvent::Kind::DoorClosed,
                            -1, event_id, door.id, 0, door.stop_sound.sample,
                            door.stop_sound.volume});
+                // 0x44f3f0 plays the stop slot (v2/n2) when the leaf reaches
+                // either end and asks the mixer to stop the looped movement
+                // sound of this door (0x46ba90, class `1000000 + index`).
+                queue_door_sound(index, door, SoundSource::DoorStop, door.stop_sound);
+                queue_door_move_stop(index, door);
                 if (opening && door.hold_ticks > 0) {
                     door.timer = door.hold_ticks;
                 }
@@ -1274,6 +1408,11 @@ void WorldState::advance_door(Door& door, std::uint64_t ticks) {
                 // 0x44f3f0 plays v0/n0 when the dwell expires.
                 log_event({WorldEvent::Kind::DoorClosing, -1, door.event_close, door.id, 0,
                            door.start_sound.sample, door.start_sound.volume});
+                // The dwell expiry starts a new movement: the start slot
+                // sounds again (0x44f66b) and the looped movement slot
+                // follows with the next tick.
+                queue_door_sound(index, door, SoundSource::DoorStart, door.start_sound);
+                queue_door_sound(index, door, SoundSource::DoorMove, door.move_sound);
             }
         } else {
             break;
@@ -1349,12 +1488,19 @@ void WorldState::tick(std::uint64_t ticks) {
     }
     switch_post_blocked_ = blocked;
     door_post_blocked_ = blocked;
+    // A sound request that was not drained stays pending: the tail survives
+    // the tick, exactly like the unposted door records.  A fully drained log
+    // is dropped so the queue does not grow.
+    if (sound_cursor_ >= sound_requests_.size()) {
+        sound_requests_.clear();
+        sound_cursor_ = 0;
+    }
     if (ticks == 0) {
         return;
     }
     stats_.ticks += ticks;
-    for (Door& door : doors_) {
-        advance_door(door, ticks);
+    for (std::size_t k = 0; k < doors_.size(); ++k) {
+        advance_door(k, doors_[k], ticks);
     }
     for (Lift& lift : lifts_) {
         advance_lift(lift, ticks);

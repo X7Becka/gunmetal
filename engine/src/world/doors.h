@@ -34,6 +34,17 @@ inline constexpr double kDoorPhaseMaxToFraction = 1.0 / 65535.0;
 /// ``DoorSound::silent()`` is the model's own filter.
 inline constexpr int kDoorSampleCount = 300;
 
+/// The engine's 3D-source key of a door's looped movement sound:
+/// ``0x44f5e5`` computes ``1000000 + door index`` (``LEA EAX,[EBX+0xf4240]``)
+/// and hands it to ``0x46b9f0`` as the *class* of the request.  The mixer uses
+/// the class to update the running voice and to stop it when the door comes to
+/// rest (``0x46ba90`` -> ``0x40bf80``).
+inline constexpr int kDoorSoundClassBase = 1000000;
+
+/// The engine's 3D-sound queue holds at most 256 entries (``0x46b8d0``:
+/// ``DAT_0062fa18 < 0x100``); further requests are dropped silently.
+inline constexpr std::size_t kMaxSoundRequests = 256;
+
 /// Proven runtime state word (door record ``+0x80``):
 /// ``-1`` closing, ``0`` idle (at either end), ``+1`` opening.
 enum class DoorState : int {
@@ -51,6 +62,56 @@ struct DoorSound {
     int sample = -1;
     int volume = 0;
     bool silent() const { return sample < 0 || sample >= kDoorSampleCount; }
+};
+
+/// Which engine call site produced a sound request.  The names follow the
+/// disassembly, not the level data.
+///
+/// * ``0x44f690`` (GENERATE) plays the door's **start** slot when the door's
+///   state flips; the sound is one-shot and its class is 0.
+/// * ``0x44f3f0`` (the tick) plays the door's **movement** slot every tick
+///   while the door moves — a *looped* voice whose class is
+///   ``1000000 + door index`` — and the **stop** slot when the leaf reaches
+///   either end.
+/// * ``0x44f3f0`` -> ``0x46ba90`` asks the mixer to **stop** the looped
+///   movement sound of the door that just came to rest.
+/// * ``0x44f960`` (the type-2 switch handler) plays the **switch** sound
+///   (``+0x1c`` sample, ``+0x18`` volume) after the generate event.
+enum class SoundSource : std::uint8_t {
+    None = 0,
+    DoorStart,
+    DoorMove,
+    DoorStop,
+    DoorMoveStop,
+    Switch,
+};
+
+/// One portable sound request — the model counterpart of one entry of the
+/// engine's 3D-sound queue (``0x62ce18``, stride ``0x2c``, filled by
+/// ``0x46b8d0``/``0x46b840``/``0x46b9f0``/``0x46ba90``).
+struct SoundRequest {
+    /// ``SOUND_SAMPLE_TABLE`` index (``0x83d960``).  ``-1`` = no sample; the
+    /// model never queues a request with an invalid sample (the engine does
+    /// queue it and lets the mixer drop it — see `DoorSound::silent()`).
+    int sample = -1;
+    /// Base volume of the request (queue ``+0x1c``).  The mixer computes
+    /// ``volume - atten * distance`` (``0x46c246``).
+    int volume = 0;
+    /// World position of the source (queue ``+0x08/+0x0c/+0x10``).  The
+    /// engine truncates it to ``int`` (``0x40e0e0`` = ``__ftol``) before the
+    /// request is queued.
+    std::array<double, 3> position{};
+    /// The request is a looped voice (queue ``+0x28``).
+    bool loop = false;
+    /// The engine call site that produced the request.
+    SoundSource source = SoundSource::None;
+    /// The 3D-source key (queue ``+0x14``): ``1000000 + door index`` for the
+    /// door's looped movement sound, 0 for the one-shots.
+    int class_id = 0;
+    /// False when the model cannot compute the position (the engine plays the
+    /// switch sound at the polygon centroid of ``0x43577c``, and the world
+    /// model has no ``.sbw`` geometry).
+    bool position_known = true;
 };
 
 /// The object transform the engine writes for a door leaf.
@@ -312,6 +373,10 @@ struct WorldStats {
     std::size_t blast_presses = 0;
     std::size_t blocked_hits = 0;
     std::size_t crush_hits = 0;
+    /// Sound requests queued by the world model.
+    std::size_t sounds_queued = 0;
+    /// Requests dropped because the queue was full (`kMaxSoundRequests`).
+    std::size_t sounds_dropped = 0;
     std::uint64_t ticks = 0;
 };
 
@@ -416,6 +481,25 @@ public:
     /// frame, and an already posted record is never posted twice.
     std::size_t post_door_events(EventQueue& queue) const;
 
+    /// Copy the pending sound requests into *out* and return how many were
+    /// copied.  Every request leaves the queue exactly once: the cursor
+    /// (`sound_cursor_`) advances over the consumed ones, so a second call
+    /// without a new transition returns 0 and nothing is played twice.
+    ///
+    /// `limit` bounds how many requests are copied.  The rest stays pending
+    /// (the tail survives the next `tick`, like the unposted door records of
+    /// `post_door_events`).  The queue holds at most `kMaxSoundRequests`
+    /// entries — the engine's 3D queue has the same cap and drops the rest
+    /// (`stats().sounds_dropped`).
+    std::size_t drain_sounds(std::vector<SoundRequest>& out,
+                             std::size_t limit = static_cast<std::size_t>(-1));
+
+    /// The requests that were not drained yet (oldest first).
+    std::span<const SoundRequest> pending_sounds() const;
+
+    /// Drop every pending sound request.
+    void clear_sounds();
+
     /// Door state mapped onto the level objects it owns.  ``bound`` is false
     /// for a door whose ``(sector, object)`` does not exist in the ``.sbw``.
     std::vector<ObjectDoorState> apply_to_objects() const;
@@ -451,7 +535,7 @@ private:
     void clear();
     void rebuild_indexes();
     void add_door(Door door);
-    void advance_door(Door& door, std::uint64_t ticks);
+    void advance_door(std::size_t index, Door& door, std::uint64_t ticks);
     void advance_lift(Lift& lift, std::uint64_t ticks);
     void start_lift(Lift& lift);
     /// GENERATE path shared by `interact` and `poll_triggers`: toggle every
@@ -469,6 +553,26 @@ private:
     /// `switch_event_sources_` index-aligned.  A `SwitchPressed` starts
     /// unbound: `post_switch_events` binds it to the caller's `source`.
     void log_event(WorldEvent event);
+    /// Queue one sound request.  The model filters the sample itself (the
+    /// engine queues the request unconditionally and lets the mixer drop an
+    /// invalid one), so a request with an invalid sample never enters the
+    /// queue.
+    void queue_sound(SoundRequest request);
+    /// Queue a door sound at the leaf's origin (the object's ``+0x00`` the
+    /// engine reads through ``0x434419``).  `index` is the door's index in
+    /// `doors_`: the looped movement sound carries the class
+    /// ``1000000 + index``.
+    void queue_door_sound(std::size_t index, const Door& door, SoundSource source,
+                          const DoorSound& sound);
+    /// Queue the "stop the looped movement sound" request of a door that came
+    /// to rest (``0x46ba90`` with the class ``1000000 + index``).  Nothing is
+    /// queued for a door whose movement slot is silent.
+    void queue_door_move_stop(std::size_t index, const Door& door);
+    /// Queue the switch sound (``0x44f960``): sample ``+0x1c``, volume
+    /// ``+0x18`` (the base volume of the 3D request).  The engine plays it at
+    /// the switch position (kind 0) or at the polygon centroid (kind >=
+    /// 0x101); the world model has no geometry for the centroid.
+    void queue_switch_sound(int switch_id);
 
     std::vector<Door> doors_;
     std::vector<Switch> switches_;
@@ -489,6 +593,10 @@ private:
     /// A full queue left a switch record pending; only then does `tick()` keep
     /// the unposted tail.  Without a failed post the log is still frame-local.
     mutable bool switch_post_blocked_ = false;
+    /// Pending sound requests and the cursor of the requests that were
+    /// already handed to the caller (`drain_sounds`).
+    std::vector<SoundRequest> sound_requests_;
+    std::size_t sound_cursor_ = 0;
     WorldStats stats_;
 
     // GENERATE id (any of E1..E3) -> door indices.  A vector keeps the result

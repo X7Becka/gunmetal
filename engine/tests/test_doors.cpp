@@ -1054,6 +1054,227 @@ void test_block_contact() {
     CHECK_EQ(state.stats().blocked_hits, 2u);
 }
 
+// --- sound queue: portable requests born at the engine's transitions --------
+//
+// The engine fills its 3D-sound queue (0x62ce18, 256 entries) from five door
+// call sites — 0x44f690 (start), 0x44f66b (start on auto-close), 0x44f5ee
+// (movement loop), 0x44f4b1/0x44f53e (stop), 0x44f5a6 (loop stop) — and from
+// one switch call site (0x44f960).  0x450590 (crush) calls no sound function.
+
+gm::WorldState build_sound_level(const DoorSpec& door, const SwitchSpec& sw) {
+    gm::SbtLevel level;
+    gm::SbtRecord doors;
+    doors.type = 2;
+    doors.payload = make_door_payload({door});
+    gm::SbtRecord switches;
+    switches.type = 1;
+    switches.payload = make_switch_payload(std::vector<SwitchSpec>{sw});
+    level.records = {std::move(doors), std::move(switches)};
+    gm::WorldState state;
+    std::string error;
+    CHECK(state.build(level, make_world(1), &error));
+    CHECK(error.empty());
+    return state;
+}
+
+void test_sound_queue() {
+    DoorSpec spec;
+    spec.id = 20;
+    spec.ids = {0, 20, 0, 0, 0};
+    spec.size = {1.0, 1.0, 1.0};
+    spec.closed = {1.0, 1.0, 1.0};
+    spec.open = {11.0, 1.0, 1.0};
+    spec.volume = {64, 32, 48};
+    spec.sample = {130, 131, 132};
+    // kind 0: the operands are a world position (0x44f960 pushes them as the
+    // sound position), aux is the base volume, sound the sample index.
+    const SwitchSpec sw{0, 20, 128, {7, 8, 9}, 55, 42};
+    gm::WorldState state = build_sound_level(spec, sw);
+
+    // A fresh world is silent.
+    CHECK(state.pending_sounds().empty());
+    std::vector<gm::SoundRequest> drained;
+    CHECK_EQ(state.drain_sounds(drained), 0u);
+    CHECK(drained.empty());
+
+    // The GENERATE press: 0x44f960 plays the switch sound, 0x44f690 the door's
+    // start slot, 0x44f3f0 the looped movement slot.
+    CHECK(state.interact(0));
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 3u);
+    if (drained.size() == 3u) {
+        const gm::SoundRequest& sw_sound = drained[0];
+        CHECK(sw_sound.source == gm::SoundSource::Switch);
+        CHECK_EQ(sw_sound.sample, 42);
+        CHECK_EQ(sw_sound.volume, 55);
+        CHECK_NEAR(sw_sound.position[0], 7.0, 0.0);
+        CHECK_NEAR(sw_sound.position[1], 8.0, 0.0);
+        CHECK_NEAR(sw_sound.position[2], 9.0, 0.0);
+        CHECK(!sw_sound.loop);
+        CHECK(sw_sound.position_known);
+
+        const gm::SoundRequest& start = drained[1];
+        CHECK(start.source == gm::SoundSource::DoorStart);
+        CHECK_EQ(start.sample, 130);
+        CHECK_EQ(start.volume, 64);
+        // The request carries the leaf origin the engine reads from the
+        // object (obj+0x00/+0x08/+0x10).
+        const std::array<double, 3> origin = gm::door_transform(state.doors().at(0)).origin;
+        CHECK_NEAR(start.position[0], origin[0], 1e-12);
+        CHECK_NEAR(start.position[1], origin[1], 1e-12);
+        CHECK_NEAR(start.position[2], origin[2], 1e-12);
+        CHECK(!start.loop);
+
+        const gm::SoundRequest& move = drained[2];
+        CHECK(move.source == gm::SoundSource::DoorMove);
+        CHECK_EQ(move.sample, 131);
+        CHECK_EQ(move.volume, 32);
+        CHECK(move.loop);
+        CHECK_EQ(move.class_id, gm::kDoorSoundClassBase); // 1000000 + door index
+    }
+    CHECK_EQ(state.stats().sounds_queued, 3u);
+
+    // Nothing sounds twice: the cursor advances over the drained requests.
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 0u);
+    CHECK(drained.empty());
+    CHECK(state.pending_sounds().empty());
+
+    // The leaf reaches its end: the stop slot sounds and the loop is stopped.
+    state.tick(100);
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 2u);
+    if (drained.size() == 2u) {
+        const gm::SoundRequest& stop = drained[0];
+        CHECK(stop.source == gm::SoundSource::DoorStop);
+        CHECK_EQ(stop.sample, 132);
+        CHECK_EQ(stop.volume, 48);
+        // The leaf origin at the fully open phase.
+        const std::array<double, 3> opened = gm::door_transform(state.doors().at(0)).origin;
+        CHECK_NEAR(stop.position[0], opened[0], 1e-12);
+        CHECK_NEAR(stop.position[1], opened[1], 1e-12);
+        CHECK_NEAR(stop.position[2], opened[2], 1e-12);
+        CHECK(!stop.loop);
+
+        const gm::SoundRequest& loop_stop = drained[1];
+        CHECK(loop_stop.source == gm::SoundSource::DoorMoveStop);
+        CHECK_EQ(loop_stop.class_id, gm::kDoorSoundClassBase);
+        CHECK(loop_stop.loop);
+        CHECK_EQ(loop_stop.sample, -1);
+    }
+
+    // The tail survives a limited drain: the rest stays pending over the tick.
+    state.interact(0); // closing again: start + move
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained, 1), 1u);
+    CHECK_EQ(state.pending_sounds().size(), 2u);
+    state.tick(1);
+    CHECK_EQ(state.pending_sounds().size(), 2u);
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 2u);
+    CHECK(state.pending_sounds().empty());
+
+    // clear_sounds() drops the pending requests.
+    state.interact(0);
+    CHECK(!state.pending_sounds().empty());
+    state.clear_sounds();
+    CHECK(state.pending_sounds().empty());
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 0u);
+
+    // The closed end sounds the stop slot as well (0x44f4b1).
+    state.tick(100);
+    drained.clear();
+    state.drain_sounds(drained);
+    std::size_t stops = 0;
+    for (const gm::SoundRequest& request : drained) {
+        if (request.source == gm::SoundSource::DoorStop) {
+            ++stops;
+            CHECK_EQ(request.sample, 132);
+            CHECK_EQ(request.volume, 48);
+        }
+    }
+    CHECK_EQ(stops, 1u);
+
+    // A switch without a sound (-1) stays silent: 0x44f9ca skips the request.
+    SwitchSpec quiet_switch = sw;
+    quiet_switch.sound = -1;
+    gm::WorldState quiet = build_sound_level(spec, quiet_switch);
+    CHECK(quiet.interact(0));
+    drained.clear();
+    CHECK_EQ(quiet.drain_sounds(drained), 2u);
+    for (const gm::SoundRequest& request : drained) {
+        CHECK(request.source != gm::SoundSource::Switch);
+    }
+
+    // A door with a broken sample index never enters the queue.
+    DoorSpec mute = spec;
+    mute.sample = {-1, -1, -1};
+    mute.volume = {0, 0, 0};
+    gm::WorldState silent = build_sound_level(mute, sw);
+    CHECK(silent.interact(0));
+    drained.clear();
+    CHECK_EQ(silent.drain_sounds(drained), 1u); // only the switch sound
+    if (!drained.empty()) {
+        CHECK(drained[0].source == gm::SoundSource::Switch);
+    }
+    silent.tick(100);
+    drained.clear();
+    CHECK_EQ(silent.drain_sounds(drained), 0u);
+
+    // A sample index outside the table is dropped as well.
+    DoorSpec broken = spec;
+    broken.sample = {gm::kDoorSampleCount, gm::kDoorSampleCount, gm::kDoorSampleCount};
+    gm::WorldState invalid = build_sound_level(broken, sw);
+    CHECK(invalid.interact(0));
+    drained.clear();
+    CHECK_EQ(invalid.drain_sounds(drained), 1u);
+
+    // A polygon switch (kind >= 0x101) sounds at the polygon centroid
+    // (0x43577c), which the world model cannot compute: the request says so.
+    SwitchSpec poly = sw;
+    poly.kind = 0x101;
+    poly.pos = {1, 2, 3}; // (sector, object, polygon), not a position
+    gm::WorldState polygon = build_sound_level(spec, poly);
+    CHECK(polygon.interact(0));
+    drained.clear();
+    CHECK_EQ(polygon.drain_sounds(drained), 3u);
+    if (!drained.empty()) {
+        CHECK(drained[0].source == gm::SoundSource::Switch);
+        CHECK(!drained[0].position_known);
+        CHECK_NEAR(drained[0].position[0], 0.0, 0.0);
+    }
+}
+
+void test_crush_is_silent() {
+    // 0x450590 (kind 3) posts the crush event and calls no sound function.
+    DoorSpec spec;
+    spec.id = 53;
+    spec.flags = 3;
+    spec.ids = {0, 53, 0, 0, 0};
+    spec.size = {1.0, 1.0, 1.0};
+    spec.closed = {1.0, 1.0, 1.0};
+    spec.open = {11.0, 1.0, 1.0};
+    spec.volume = {64, 32, 48};
+    spec.sample = {130, 131, 132};
+    SwitchSpec sw{0, 53, 128, {7, 8, 9}, 55, 42};
+    gm::WorldState state = build_sound_level(spec, sw);
+
+    CHECK(state.interact(0));
+    std::vector<gm::SoundRequest> drained;
+    CHECK_EQ(state.drain_sounds(drained), 3u);
+    state.tick(10);
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 0u);
+
+    // The crush itself is silent.
+    CHECK(state.block_contact(0, 0));
+    CHECK_EQ(state.stats().crush_hits, 1u);
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 0u);
+    CHECK(state.pending_sounds().empty());
+}
+
 // --- `.sbt` / save writer: records 1, 2, 18 --------------------------------
 
 bool same_door_record(const gm::SbtDoorRecord& a, const gm::SbtDoorRecord& b) {
@@ -1711,6 +1932,54 @@ void test_real_dm1() {
     }
     CHECK_EQ(state.apply_to_objects().size(), 61u);
 
+    // Sound requests on the shipped level (dm1, tools/re/doors.py):
+    //   switch #22  — kind 0x102, sample 113, base volume 57; its target
+    //                 (-30243) matches no door, and the engine still plays
+    //                 the switch sound (0x44f960 plays it after the
+    //                 generate event, whatever the target does);
+    //   switch #51  — sound -1 (silent); it opens the three doors with
+    //                 ids[0..2] == -30231, whose start slot is silent
+    //                 (n0 = -1) and whose movement slot is sample 113 at
+    //                 volume 51.
+    {
+        gm::WorldState probe;
+        CHECK(probe.build(level.sbt, level.sbw, nullptr));
+        CHECK(probe.interact(22));
+        std::vector<gm::SoundRequest> sounds;
+        probe.drain_sounds(sounds);
+        CHECK_EQ(sounds.size(), 1u);
+        if (sounds.size() == 1u) {
+            CHECK(sounds[0].source == gm::SoundSource::Switch);
+            CHECK_EQ(sounds[0].sample, 113);
+            CHECK_EQ(sounds[0].volume, 57);
+            // kind 0x102: the engine plays at the polygon centroid, which the
+            // world model cannot compute.
+            CHECK(!sounds[0].position_known);
+        }
+    }
+    {
+        gm::WorldState probe;
+        CHECK(probe.build(level.sbt, level.sbw, nullptr));
+        CHECK(probe.interact(51));
+        std::vector<gm::SoundRequest> sounds;
+        probe.drain_sounds(sounds);
+        // The switch itself is silent; the three doors loop sample 113.
+        CHECK_EQ(sounds.size(), 3u);
+        for (const gm::SoundRequest& request : sounds) {
+            CHECK(request.source == gm::SoundSource::DoorMove);
+            CHECK_EQ(request.sample, 113);
+            CHECK_EQ(request.volume, 51);
+            CHECK(request.loop);
+            CHECK(request.class_id >= gm::kDoorSoundClassBase);
+        }
+        if (sounds.size() == 3u) {
+            // The doors with ids[0..2] == -30231 are #1, #38 and #39.
+            CHECK_EQ(sounds[0].class_id, gm::kDoorSoundClassBase + 1);
+            CHECK_EQ(sounds[1].class_id, gm::kDoorSoundClassBase + 38);
+            CHECK_EQ(sounds[2].class_id, gm::kDoorSoundClassBase + 39);
+        }
+    }
+
     // Golden: dm1 door #1 (-30231, step 1500) is driven by switch #51.
     gm::Door* door = state.find_door(-30231);
     CHECK(door != nullptr);
@@ -1887,6 +2156,8 @@ int main(int argc, char** argv) {
     test_negatives();
     test_geometry();
     test_door_sounds();
+    test_sound_queue();
+    test_crush_is_silent();
     test_triggers();
     test_block_contact();
     test_polygon_triggers();
