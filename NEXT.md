@@ -143,7 +143,7 @@
   совпал с `docs/manifests/sou1-fnv.json`, 0 расхождений).
 - **Кэш результатов.** С `--mirror` четыре чистые тяжёлые проверки
   (`sob_writer`, `sou_container`, VM-корпус, film parity) кэшируются по хэшу
-  исходников + digest зеркала + argv; повторный `--full` 106,9 → 79,8 с
+  исходников + digest зеркала + argv; повторный `--full` 106,9 → 79,8 → 60,5 с
   (`--json.cached`), падения не кэшируются.
 - **Тесты по содержимому.** `tools/re/game_content.py` (+ `engine/tests/
   game_content.h`, `game_path.h`): `.sbt`/`.sbw` резолвятся по FNV-1a64
@@ -151,6 +151,9 @@
   `level1`/`level2` больше не дают ложных падений (`core`/`camera_rig`/
   `sbtvm`/`vm` зелёные). `--check` фиксирует аномалию, `--write` обновляет
   таблицу детерминированно.
+- **Покрытие.** `tools/qa/coverage.py` (stdlib `trace`): быстрый набор — 40,4 %
+  строк, тёмные места `render`/`png`/`sou2`/`sbv`/`sob`; `--full`, `--json`,
+  `--min` для гейта.
 - **Контекст/токены.** `tools/ctx.py` (`doc`/`addr`/`find`/`outline`/`task`,
   бюджет 40 строк), `docs/INDEX.md`, правила в `AGENTS.md`, методика —
   `docs/RE_METHOD.md`.

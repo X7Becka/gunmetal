@@ -141,14 +141,18 @@ def _bundle_hash() -> str:
     if _bundle is not None:
         return _bundle
     h = hashlib.sha256()
+    # Only the sources that can change these four results: the oracle, the
+    # driver, and the tools the cached checks invoke.  Editing an unrelated
+    # tool must not invalidate the cache.
     paths = [os.path.join(HERE, "regress.py"), os.path.join(HERE, "gm.py")]
-    for sub in ("gm", "tools", "tools/re"):
-        base = os.path.join(HERE, sub)
-        for cur, dirs, files in os.walk(base):
-            dirs[:] = sorted(d for d in dirs if d != "__pycache__")
-            for name in sorted(files):
-                if name.endswith(".py"):
-                    paths.append(os.path.join(cur, name))
+    gm_dir = os.path.join(HERE, "gm")
+    for name in sorted(os.listdir(gm_dir)):
+        if name.endswith(".py"):
+            paths.append(os.path.join(gm_dir, name))
+    for name in ("sob_writer.py", "sou_container.py", "vm_exec.py",
+                 "sbtvm.py", "sbtvm_exec.py", "x86mini.py", "emu.py"):
+        paths.append(os.path.join(HERE, "tools", "re", name))
+    paths.append(os.path.join(HERE, "tools", "parity_film.py"))
     for path in paths:
         try:
             st = os.stat(path)
