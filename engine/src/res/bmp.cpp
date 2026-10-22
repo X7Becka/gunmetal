@@ -2,20 +2,60 @@
 
 #include "core/bytes.h"
 #include "core/path.h"
+#include "res/bigfile.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 
 namespace gm {
 namespace {
 
+/// Fallback carriers: loose BMPs that repeat the engine's table, except that
+/// the slots they never use hold magenta placeholders (``FLAG/naUSA.BMP``
+/// differs in 21 entries, including the whole light and red ramps).
 constexpr const char* kPaletteCarriers[] = {
     "FLAG/naUSA.BMP",
     "FLAG/aanataka.bmp",
     "PICS/oaktabl1.bmp",
     "PICS/mine-1c.bmp",
 };
+
+/// ``frontend\gamepal.bmp`` inside the FRONTEND big-file: the engine loads it
+/// at ``0x44af88`` through ``0x47efe0`` into ``0x83d320`` and publishes the
+/// table at ``0x83d2c4``; the art code reads it as ``[reg+0x83d320]``.  The
+/// error string is ``"Unable to load game palette (FRONTEND\GAMEPAL.BMP)"``.
+std::optional<std::vector<std::uint8_t>> engine_palette(const std::filesystem::path& game,
+                                                        std::string& error) {
+    const auto index = resolve_ci(game, "FRONTEND/BMP.IDX");
+    if (!index) {
+        return std::nullopt;
+    }
+    std::string open_error;
+    auto archive = BigFile::open(*index, open_error);
+    if (!archive) {
+        return std::nullopt;
+    }
+    for (const auto& entry : archive->entries()) {
+        std::string name = entry.name;
+        for (char& ch : name) {
+            ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+        }
+        if (name != "GAMEPAL") {
+            continue;
+        }
+        std::string read_error;
+        const auto bytes = archive->read(entry, read_error);
+        if (!bytes) {
+            error = read_error;
+            return std::nullopt;
+        }
+        return parse_bmp(*bytes, error)->palette;
+    }
+    return std::nullopt;
+}
 
 } // namespace
 
@@ -83,6 +123,12 @@ std::optional<BmpImage> parse_bmp(std::span<const std::uint8_t> data, std::strin
 
 std::optional<std::vector<std::uint8_t>> installed_palette(const std::filesystem::path& game,
                                                            std::string& error) {
+    // The engine's own table first (FRONTEND\GAMEPAL.BMP); the loose BMPs below
+    // are a fallback and their unused slots are magenta.
+    if (const auto from_archive = engine_palette(game, error)) {
+        return *from_archive;
+    }
+    error.clear();
     for (const char* rel : kPaletteCarriers) {
         const auto resolved = resolve_ci(game, rel);
         if (!resolved) {

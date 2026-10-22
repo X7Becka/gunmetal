@@ -1061,6 +1061,20 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > Таблица материалов, translucent-mix и аддитивный второй проход (сортировка
       > по глубине) работают; веса — как во вьювере, точная математика ждёт M2.
 - ⬜ `M4.1.6` Скайбокс/фон, туман (если есть), underwater palette.
+- ✅ `M4.1.7` Палитра движка и 1-based индексы текстур полигонов.
+      > Палитра берётся из `FRONTEND/GAMEPAL.BMP` (загрузчик `0x44af88` →
+      > `0x47efe0` → `0x83d320`, публикация `[0x83d2c4]`, чтение
+      > `[reg+0x83d320]`), а не из носителя `FLAG/naUSA.BMP`, где 21 слот
+      > (0, 173..175, 191, 240..255) занят magenta-заглушками — это и давало
+      > «magenta/шахматку» на светлых текстурах. Имя текстуры полигона —
+      > `tex_names[poly.texture - 1]` (1-based; доказано счётчиком ссылок:
+      > `value[i-1]` == число полигонов с индексом `i`, 11/12 точных, у
+      > ALUMNM4 +3 overlay). Python `gm/palette.py`, `gm/render.py`; C++
+      > `res/bmp.cpp`, `render/render.cpp`. Детали — `docs/PALETTE.md`,
+      > `docs/TEXTURE_AUDIT.md`. Проверено: `regress.py` 113/113,
+      > `tools/parity_mip.py` 50/50, CTest `core`/`sprite`, голдены
+      > пересчитаны через `tools/re/render_goldens.py` и
+      > `tools/re/sprite_goldens.py`.
 
 ### M4.2. Растеризатор
 
@@ -1073,10 +1087,11 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
 - 🟡 `M4.2.3` Текстуры: wrap/clamp, mip, фильтрация, прозрачный индекс.
       > Python: opt-in mip (fixed/auto LOD), bilinear, alpha-test по индексу 0
       > (`docs/MIPMAPS.md`, `tools/parity_mip.py`, 50 проверок); C++: fixed mip,
-      > auto-LOD, bilinear, alpha-test. Кадры level0 320x200 побитово = Python:
-      > fixed/bilinear/alpha `2d456b5942c1cac5`, auto `6bcef1ef53276ace`.
-      > Default — mip0/nearest, старые golden целы. Нет трилинейного смешивания
-      > и Glide-dither.
+      > auto-LOD, bilinear, alpha-test. Кадры level0 320x200 побитово = Python
+      > (голдены — `tools/re/render_goldens.py`; после правки палитры и
+      > 1-based индексов они пересчитаны: orbit `0d5410a3e5785095`, pos/look
+      > `668efd2b95299c61`, LEVEL10 `d8dd9c8551a0f57a`). Default — mip0/nearest.
+      > Нет трилинейного смешивания и Glide-dither.
 - ⬜ `M4.2.4` Смешивание: точная математика из `M2`, а не приближение.
 - 🟡 `M4.2.5` Освещение: нормали, brightness, лайтмапы, скриптовые источники.
       > ambient + |N·L|, brightness, лайтмапы; скриптовые источники и точная

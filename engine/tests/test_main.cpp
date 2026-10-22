@@ -1344,7 +1344,7 @@ void test_render() {
         std::uint64_t fnv;
     };
     const ModelGolden model_goldens[] = {
-        {"code492.sob", 0xd3fa091674e86a7aull},
+        {"code492.sob", 0xc26d1120d6c4a704ull},
         {"desertpc.sob", 0x1de0c4538c49b7c7ull},
         {"moonfb.sob", 0x4fb421bc5a2ff221ull},
     };
@@ -1382,7 +1382,7 @@ void test_render() {
             const auto image = gm::render_scene(meshes, options, &pool, lightmaps);
             CHECK_EQ(image.width, 320);
             CHECK_EQ(image.height, 200);
-            CHECK_EQ(fnv_rgb(image.rgb), 0x0f3642dba39e87beull);
+            CHECK_EQ(fnv_rgb(image.rgb), 0x0d5410a3e5785095ull);
 
             // The engine-faithful frame (lightmaps sampled in the polygon's
             // local frame) must differ, but stay close: same geometry, other
@@ -1407,7 +1407,7 @@ void test_render() {
                     inner.height = 200;
                     inner.lightmap_world = true;
                     const auto image = gm::render_scene(big_meshes, inner, &pool, maps);
-                    CHECK_EQ(fnv_rgb(image.rgb), 0xc4231f6cae99b7cdull);
+                    CHECK_EQ(fnv_rgb(image.rgb), 0xd8dd9c8551a0f57aull);
                 }
             }
 
@@ -1420,7 +1420,7 @@ void test_render() {
             options.eye = {0.0, 0.0, 600.0};
             options.target = {0.0, 0.0, 0.0};
             const auto view = gm::render_scene(meshes, options, &pool, lightmaps);
-            CHECK_EQ(fnv_rgb(view.rgb), 0x960866d8cf1acfa1ull);
+            CHECK_EQ(fnv_rgb(view.rgb), 0x668efd2b95299c61ull);
 
             // Opt-in mip 1 + bilinear + palette-index-0 alpha test: the same
             // frame as gm/render.py (mip=1, filter="bilinear", alpha_test).
@@ -1428,7 +1428,7 @@ void test_render() {
             options.bilinear = true;
             options.alpha_test = true;
             const auto sampled = gm::render_scene(meshes, options, &pool, lightmaps);
-            CHECK_EQ(fnv_rgb(sampled.rgb), 0x4003bc511bbd8301ull);
+            CHECK_EQ(fnv_rgb(sampled.rgb), 0x4c1e395a7a2b7b6aull);
 
             // Screen-space LOD ("auto", bias -0.75): same frame as Python.
             // The mip/bilinear/alpha-test switches are reset first so this
@@ -1438,7 +1438,7 @@ void test_render() {
             options.alpha_test = false;
             options.mip_auto = true;
             const auto lod = gm::render_scene(meshes, options, &pool, lightmaps);
-            CHECK_EQ(fnv_rgb(lod.rgb), 0x608f93cf56260860ull);
+            CHECK_EQ(fnv_rgb(lod.rgb), 0xd16a7de2ecfefb59ull);
             options.mip_auto = false;
             options.mip = 0;
             options.bilinear = false;
@@ -1499,7 +1499,7 @@ void test_render() {
                     thing_options.target = {0.0, 0.0, 0.0};
                     const auto things_image =
                         gm::render_scene(with_things, thing_options, &pool, lightmaps);
-                    CHECK_EQ(fnv_rgb(things_image.rgb), 0x02be67042ced3c0cull);
+                    CHECK_EQ(fnv_rgb(things_image.rgb), 0xff1b0740d1296b45ull);
                 }
             }
 
@@ -1548,7 +1548,7 @@ void test_render() {
                             spawn_options.eye.z + forward.z * 100.0};
                         const auto spawn_image = gm::render_scene(
                             meshes, spawn_options, &pool, lightmaps);
-                        CHECK_EQ(fnv_rgb(spawn_image.rgb), 0x1a66a07d54d35667ull);
+                        CHECK_EQ(fnv_rgb(spawn_image.rgb), 0xaa8b0dd6cf8d05a9ull);
                     }
                 }
             }
@@ -1618,7 +1618,7 @@ void test_soo_anim() {
         h ^= b;
         h *= 0x100000001b3ull;
     }
-    CHECK_EQ(h, 0x3adbef60432bc3ddull);
+    CHECK_EQ(h, 0x61f1780e04bd7e22ull);
 }
 
 void test_place_model() {

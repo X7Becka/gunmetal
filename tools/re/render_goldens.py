@@ -138,6 +138,33 @@ def level_case(game: str, name: str, width: int, height: int, out: dict) -> None
                                         pos=eye, look=look)
 
 
+def model_case(game: str, name: str, width: int, height: int, out: dict) -> None:
+    """``test_render``'s model frames: one ``.sob`` through the auto camera."""
+    path = os.path.join(game, "SOBS", name)
+    if not os.path.exists(path):
+        return
+    from gm import sob
+    pool = render.TexturePool(game)
+    model = sob.parse(path=path)
+    key = os.path.splitext(name)[0].lower().replace("-", "_")
+    out["model_" + key] = frame(render.model_meshes(model), width=width,
+                                 height=height, pool=pool)
+
+
+def morph_case(game: str, first: str, second: str, alpha: float,
+               width: int, height: int, out: dict) -> None:
+    """``test_render``'s morphed pair (``gm::morph_sob`` at ``pose->alpha``)."""
+    a = os.path.join(game, "SOBS", first)
+    b = os.path.join(game, "SOBS", second)
+    if not (os.path.exists(a) and os.path.exists(b)):
+        return
+    from gm import sob
+    pool = render.TexturePool(game)
+    morphed = render.morph_models(sob.parse(path=a), sob.parse(path=b), alpha)
+    out["morph_cult1"] = frame(render.model_meshes(morphed), width=width,
+                               height=height, pool=pool)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -147,6 +174,12 @@ def main() -> int:
     out: dict = {}
     level_case(args.game, "level0", 320, 200, out)
     level_case(args.game, "LEVEL10", 320, 200, out)
+    model_case(args.game, "20mmclp.sob", 160, 160, out)
+    model_case(args.game, "MOCLASS.SOB", 160, 160, out)
+    model_case(args.game, "code492.sob", 160, 160, out)
+    model_case(args.game, "desertpc.sob", 160, 160, out)
+    model_case(args.game, "moonfb.sob", 160, 160, out)
+    morph_case(args.game, "cult1a.sob", "cult1b.sob", 41.0 / 150.0, 240, 240, out)
     if args.json:
         print(json.dumps(out, indent=2, sort_keys=True))
         return 0

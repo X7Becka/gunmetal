@@ -128,9 +128,19 @@ class LevelMesh:
         for p in obj.polys:
             if len(p.indices) < 3:
                 continue
+            # Poly+0x00 is a **1-based** index into the texture table (0 = none,
+            # negative = the effect table); the engine rebases it like the
+            # lightmap.  Proof: the per-level refcount stored on each TexRef
+            # (``value``) equals the number of polygons pointing at it for the
+            # 0-based reading off by one — level0 entry ``i-1`` counts 283/81/
+            # 37/12/15/24/12/8/2/39/16/15, the polygons with index ``i`` count
+            # 280/81/37/12/15/24/12/8/2/39/16/15 (11 of 12 exact; ALUMNM4 also
+            # carries three overlays).  Reading ``tex_names[i]`` (as this file
+            # did until 2026-10-22) named the next texture, so every level face
+            # got its neighbour's art.
             name = "none"
-            if 0 <= p.texture < len(tex_names):
-                name = tex_names[p.texture]
+            if 0 < p.texture <= len(tex_names):
+                name = tex_names[p.texture - 1]
             self.faces.append(LevelFace(p, name))
 
     def uv(self, face, vertex):

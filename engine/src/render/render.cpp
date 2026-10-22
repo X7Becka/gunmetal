@@ -629,7 +629,12 @@ std::vector<RenderMesh> build_level_meshes(const SbwLevel& level, const Sbc* lig
                 }
                 RenderFace face;
                 face.indices = poly.indices;
-                face.texture = poly.texture < names.size() ? names[poly.texture] : "none";
+                // poly.texture is 1-based (0 = none, negative = effect table);
+                // the per-level refcount on each texture entry proves it — see
+                // gm/render.py::LevelMesh.
+                face.texture = (poly.texture > 0 && poly.texture <= names.size())
+                                   ? names[poly.texture - 1]
+                                   : "none";
                 face.material = poly.material < 6 ? poly.material : 0;
                 face.brightness = poly.brightness;
                 face.lightmap = poly.lightmap > 0 ? static_cast<int>(poly.lightmap) - 1 : -1;
