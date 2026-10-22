@@ -171,6 +171,31 @@ MCP-сервер, без запуска CLI: удобно для серии пр
 
 Общая методика и бюджет контекста — `docs/RE_METHOD.md` §5–6.
 
+## 5.2. Кэш декомпилятора: `tools/ghidra/fncache.py`
+
+Замер по истории проекта: **745 запросов декомпиляции на 343 разных адреса**
+(53 % — повторные), при этом результат нигде не сохранялся и умирал вместе с
+чатом. Кэш закрывает это: адрес → псевдо-C, ключ — SHA-256 exe.
+
+```sh
+python3 tools/ghidra/fncache.py get 0x4752d0            # из кэша или сети
+python3 tools/ghidra/fncache.py get 0x457390 --head 40  # большой функции — срез
+python3 tools/ghidra/fncache.py warm                    # все адреса names.csv
+python3 tools/ghidra/fncache.py stats
+python3 tools/ghidra/fncache.py export docs/re/ghidra/fn
+```
+
+- Кэш: `~/.cache/gunmetal-re/ghidra/<sha12>/<addr>.json` (переживает
+  `wsl --shutdown`, потерю worktree и перезапуск проекта Ghidra). Попадание
+  работает при выключенном MCP-сервере.
+- Таблицы и данные (`kind=table/data` в `names.csv`) пропускаются: они не
+  функции, декомпилятор отвечает «not found».
+- `--head N` обязателен для гигантов: `0x457390` (диспетчер ВМ) — 3014 строк,
+  ~120 КБ псевдо-C. Полный текст в контекст не тянем.
+- Псевдо-C в кэше — по-прежнему **гипотеза**: доказательство — байты, данные,
+  эмулятор или golden-тест (см. §5).
+
+
 ## 6. Ограничения текущего выбора
 
 - Нет `create_function`/struct-editor tools: функции, которые Ghidra не создала,
