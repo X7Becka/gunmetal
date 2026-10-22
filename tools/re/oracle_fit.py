@@ -91,13 +91,18 @@ def score_frames(oracle, ours, world_end: float = 0.7) -> dict:
             "mad": float(world.get("mad", 0.0))}
 
 
-def fit(score, combos, progress=None) -> list[dict]:
+def fit(score, combos, progress=None, origin=None) -> list[dict]:
     """Run ``score(combo) -> dict`` over ``combos``, best ``corr`` first.
 
-    ``combos`` are ``(yaw, pitch, focal_y)`` tuples.  Ties on ``corr`` are
-    broken by ``edges`` (higher is better), then by the distance from the
-    sidecar camera (``0, 0``), so a flat maximum prefers "no change".
+    ``combos`` are ``(yaw, pitch, focal_y, eye_z)`` tuples.  Ties on ``corr``
+    are broken by ``edges`` (higher is better), then by the distance from
+    ``origin`` (the sidecar camera), so a flat maximum prefers "no change".
+    The distance is measured in degrees plus ``|eye_z| / 10``, i.e. 10 world
+    units of eye height count as one degree (they are nearly degenerate for
+    distant geometry, see the module docstring).
     """
+    if origin is None:
+        origin = (0.0, 0.0, 0.0)
     rows = []
     for i, combo in enumerate(combos, 1):
         yaw, pitch, focal_y, eye_z = combo
@@ -108,9 +113,10 @@ def fit(score, combos, progress=None) -> list[dict]:
                      "mad": s["mad"]})
         if progress is not None:
             progress(i, len(combos), rows[-1])
+    oy, op, oz = origin[0], origin[1], origin[2]
     rows.sort(key=lambda r: (-r["corr"], -r["edges"],
-                             abs(r["yaw"]) + abs(r["pitch"])
-                             + abs(r["eye_z"]) / 10.0))
+                             abs(r["yaw"] - oy) + abs(r["pitch"] - op)
+                             + abs(r["eye_z"] - oz) / 10.0))
     return rows
 
 
@@ -170,7 +176,8 @@ def selftest() -> int:
         ok = False
     # Ties prefer "no change": identical scores must sort 0 before 3.
     rows2 = fit(lambda c: {"corr": 0.5, "edges": 0.1, "mad": 0.2},
-                [(3.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)])
+                [(3.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)],
+                origin=(0.0, 0.0, 0.0))
     if rows2[0]["yaw"] != 0.0:
         print("FAIL: tie-break did not prefer the sidecar camera")
         ok = False
@@ -276,7 +283,7 @@ def main(argv: list[str]) -> int:
                   f"  corr {row['corr']:+.4f}  edges {row['edges']:.3f}",
                   flush=True)
 
-    rows = fit(score, combos, progress)
+    rows = fit(score, combos, progress, origin=(base_yaw, base_pitch, 0.0))
     for r in rows:
         r["yaw_delta_deg"] = math.degrees(r["yaw"] - base_yaw)
         r["pitch_delta_deg"] = math.degrees(r["pitch"] - base_pitch)

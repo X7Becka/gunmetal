@@ -334,7 +334,10 @@ def _parse_poly(data: bytes, o: int) -> Poly:
     indices = struct.unpack_from("<%dH" % n_idx, data, o) if n_idx else ()
     o += 2 * n_idx
     scroll_u, scroll_v, u_scale, v_scale, uv_u, uv_v = struct.unpack_from("<6H", data, o)
-    uv_u_fp, uv_v_fp = struct.unpack_from("<II", data, o + 12)
+    # 0x54/0x58 are **signed** offsets (FORMATS.md: `texel = ftol((dot(u_axis,
+    # v-centre)*64 + 0x54)/2) >> 10`); 509 of the 1449 level0 polygons carry
+    # a negative one, so reading them as `<II` would turn -512 into 2^32-512.
+    uv_u_fp, uv_v_fp = struct.unpack_from("<ii", data, o + 12)
     centre, normal, u_axis, v_axis, corner_a, corner_b = (
         _vec3(data, o + 20 + 12 * t) for t in range(6))
     f74, f76, handle = struct.unpack_from("<3H", data, o + 92)

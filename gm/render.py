@@ -270,6 +270,18 @@ class Texture:
         self._rgb: list[tuple[int, int, bytes] | None] = [None] * self.levels
 
     @property
+    def keyed(self) -> bool:
+        """True when the game chroma-keys this texture.
+
+        ``docs/ALPHA.md``: there is no alpha channel in ``.sbm`` at all; the
+        transparency type is header ``flags`` bit 0, and the loader sets it from
+        the *zero-fraction* heuristic (``0x423947``), not from a per-texel
+        channel.  Palette index 0 (overridden to ``0x010101``, ``0x4187b4``) is
+        the key value (``grChromakeyValue``, ``0x4187d4``).
+        """
+        return bool(getattr(self.sbm, "flags", 0) & 1)
+
+    @property
     def transparent_index(self) -> int | None:
         """Palette index the game keys out, if level 0 actually contains it."""
         return 0 if b"\x00" in self.indices(0) else None
@@ -636,7 +648,7 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
            color=(180, 180, 190), bg: bool = True, pos=None, look=None,
            clip: float | None = None, materials: bool = True,
            brightness: bool = True, lightmap: bool = True,
-           ambient: float = 0.0, sectors: bool = True,
+           ambient: float = 0.0, sectors: bool = True, chromakey: bool = False,
            only_sector: int | None = None, markers=None, lights=None,
            marker_depth: bool = False, mip: int | str = 0,
            filter: str = "nearest", alpha_test: bool = False,
@@ -752,20 +764,27 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
             col = _face_color(face, tex := (pool.get(face.texture) if pool is not None
                                             else None), lit)
             texobj = None
-            if sampling is not None and pool is not None and tex is not None:
-                texobj = pool.get_texture(face.texture)
+            sampling_face = sampling
+            if pool is not None and tex is not None:
+                if sampling is not None:
+                    texobj = pool.get_texture(face.texture)
+                elif chromakey:
+                    probe = pool.get_texture(face.texture)
+                    if probe is not None and probe.keyed:
+                        texobj = probe
+                        sampling_face = (0, "nearest", True, 0, 0.0)
             if blend is not None:
                 vs = [mesh.vertices[i] for i in idx]
                 c = tuple(sum(v[k] for v in vs) / len(vs) for k in range(3))
                 d = _sub(c, eye)
                 blended.append((_dot(d, d), face, pts, uvs,
                                 (tex, shade, col, blend, uv, cull, lm, fit,
-                                 texobj, sampling)))
+                                 texobj, sampling_face)))
                 continue
             if solid:
                 _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col,
                            uv=uv, cull=cull, lm=lm, fit=fit,
-                           texobj=texobj, sampling=sampling)
+                           texobj=texobj, sampling=sampling_face)
             if wire:
                 for k in range(len(pts)):
                     a, b = pts[k], pts[(k + 1) % len(pts)]

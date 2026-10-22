@@ -204,12 +204,14 @@ def build_scene(game: str, level: str, lightmap: bool = True):
 
 def render_frame(meshes, frame: dict, width: int, height: int,
                  focal, game: str, flat: bool, lightmap: bool,
-                 materials: bool = True, ambient: float = 0.0) -> bytes:
+                 materials: bool = True, ambient: float = 0.0,
+                 chromakey: bool = False) -> bytes:
     pool = None if flat else render.TexturePool(game)
     return render.render(meshes, width=width, height=height, pool=pool,
                          pos=frame["eye"], look=frame["look"],
                          focal=focal, lightmap=lightmap,
-                         materials=materials, ambient=ambient)
+                         materials=materials, ambient=ambient,
+                         chromakey=chromakey)
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +347,9 @@ def main(argv: list[str]) -> int:
                     help="skip the blended material pass (translucent/add/...)")
     ap.add_argument("--ambient", type=float, default=0.0,
                     help="constant light added to every polygon (0..1 of 127)")
+    ap.add_argument("--chromakey", action="store_true",
+                    help="chroma-key palette index 0 on textures whose flags "
+                         "bit 0 is set (docs/ALPHA.md)")
     ap.add_argument("--eye-from", choices=("auto", "pos", "feet", "player"),
                     default="auto", help="how camera.pos maps to the eye")
     ap.add_argument("--keep-border", action="store_true",
@@ -368,7 +373,7 @@ def main(argv: list[str]) -> int:
                                             opts.lightmap)
     data = render_frame(meshes, frame, opts.width, opts.height, focal,
                         opts.game, opts.flat, opts.lightmap,
-                        opts.materials, opts.ambient)
+                        opts.materials, opts.ambient, opts.chromakey)
     out_dir = os.path.dirname(os.path.abspath(opts.out))
     os.makedirs(out_dir, exist_ok=True)
     with open(opts.out, "wb") as fh:
@@ -387,6 +392,7 @@ def main(argv: list[str]) -> int:
         "forward": [round(v, 6) for v in frame["forward"]],
         "lightmap": opts.lightmap,
         "materials": opts.materials,
+        "chromakey": opts.chromakey,
         "ambient": opts.ambient,
         "textures": not opts.flat,
         "meshes": len(meshes),
