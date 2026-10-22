@@ -283,7 +283,7 @@ void draw_triangle(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, in
                    double shade, int cr, int cg, int cb, double u0, double v0, double su,
                    double sv, const Blend& blend, bool z_write, const SbcRecord* lm_page,
                    const V2* lmuv, double lm_base, int mip, bool bilinear,
-                   bool alpha_test, int transparent_index) {
+                   bool alpha_test, int transparent_index, bool texel = false) {
     const double x0 = tri[0].sx, y0 = tri[0].sy, w0 = tri[0].invz;
     const double x1 = tri[1].sx, y1 = tri[1].sy, w1 = tri[1].invz;
     const double x2 = tri[2].sx, y2 = tri[2].sy, w2 = tri[2].invz;
@@ -352,10 +352,14 @@ void draw_triangle(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, in
                 const bool have_index = tex_level ? !tex_level->indices.empty()
                                                   : !tex->indices.empty();
                 if (!bilinear) {
-                    int tx = static_cast<int>((uu - u0) / su * static_cast<double>(tex_w)) %
-                             tex_w;
-                    int ty = static_cast<int>((vv - v0) / sv * static_cast<double>(tex_h)) %
-                             tex_h;
+                    int tx = texel
+                                 ? static_cast<int>(std::floor(uu)) % tex_w
+                                 : static_cast<int>((uu - u0) / su *
+                                                    static_cast<double>(tex_w)) % tex_w;
+                    int ty = texel
+                                 ? static_cast<int>(std::floor(vv)) % tex_h
+                                 : static_cast<int>((vv - v0) / sv *
+                                                    static_cast<double>(tex_h)) % tex_h;
                     tx = ((tx % tex_w) + tex_w) % tex_w;
                     ty = ((ty % tex_h) + tex_h) % tex_h;
                     const std::size_t o = (static_cast<std::size_t>(ty) * tex_w + tx) * 3;
@@ -368,8 +372,8 @@ void draw_triangle(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, in
                         transparent = true;
                     }
                 } else {
-                    double fu = (uu - u0) / su * tex_w - 0.5;
-                    double fv = (vv - v0) / sv * tex_h - 0.5;
+                    double fu = (texel ? uu : (uu - u0) / su * tex_w) - 0.5;
+                    double fv = (texel ? vv : (vv - v0) / sv * tex_h) - 0.5;
                     int tx0 = static_cast<int>(std::floor(fu));
                     int ty0 = static_cast<int>(std::floor(fv));
                     const double ax = fu - tx0;
@@ -460,7 +464,8 @@ void draw_poly(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, int wi
                const Texture* tex, double shade, int cr, int cg, int cb, bool fit_enabled,
                const Fit& fit, const Blend& blend, const SbcRecord* lm_page,
                const std::vector<V2>& lmuv, double lm_base, bool cull, int mip,
-               bool mip_auto, bool bilinear, bool alpha_test, int transparent_index) {
+               bool mip_auto, bool bilinear, bool alpha_test, int transparent_index,
+               bool texel = false) {
     if (pts.size() < 3) {
         return;
     }
@@ -517,7 +522,7 @@ void draw_poly(std::vector<std::uint8_t>& buf, std::vector<double>& zbuf, int wi
         }
         draw_triangle(buf, zbuf, width, height, tri, tuv, tex, shade, cr, cg, cb, f.u0, f.v0,
                       f.su, f.sv, blend, z_write, lm_page, lmp, lm_base, level,
-                      bilinear, alpha_test, transparent_index);
+                      bilinear, alpha_test, transparent_index, texel);
     }
 }
 
@@ -645,6 +650,8 @@ std::vector<RenderMesh> build_level_meshes(const SbwLevel& level, const Sbc* lig
                 face.uv_scale = 1.0f;
                 face.uv_u_fp = static_cast<std::int32_t>(poly.uv_u_fp);
                 face.uv_v_fp = static_cast<std::int32_t>(poly.uv_v_fp);
+                face.texture_index = static_cast<int>(poly.texture);
+                face.handle = static_cast<int>(poly.handle);
                 mesh.faces.push_back(std::move(face));
             }
             for (const auto& v : mesh.vertices) {
@@ -944,9 +951,19 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
                     continue;
                 }
             }
+            if (options.skip_untextured && face.texture_index == 0 && face.handle == 0) {
+                continue;
+            }
             for (std::uint16_t index : face.indices) {
                 const V3 d = sub(base_vertex(index), origin);
-                uvs.push_back({dot(d, uaxis) * uv_scale, dot(d, vaxis) * uv_scale});
+                if (options.texel_uv) {
+                    uvs.push_back({(dot(d, uaxis) * 64.0 +
+                                    static_cast<double>(face.uv_u_fp)) / 64.0,
+                                   (dot(d, vaxis) * 64.0 +
+                                    static_cast<double>(face.uv_v_fp)) / 64.0});
+                } else {
+                    uvs.push_back({dot(d, uaxis) * uv_scale, dot(d, vaxis) * uv_scale});
+                }
             }
             const Fit fit = uv_fit(uvs);
 
@@ -1056,10 +1073,10 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
                 // dropped only on textures whose `.sbm` flags bit 0 is set.
                 const bool keyed = options.chromakey && tex != nullptr && tex->keyed;
                 draw_poly(result.rgb, zbuf, options.width, options.height, pts, uvs, tex, shade,
-                          cr, cg, cb, tex != nullptr, fit, blend, page, lmuv, lm_base,
-                          options.cull, options.mip, options.mip_auto,
+                          cr, cg, cb, tex != nullptr && !options.texel_uv, fit, blend, page,
+                          lmuv, lm_base, options.cull, options.mip, options.mip_auto,
                           options.bilinear, options.alpha_test || keyed,
-                          keyed ? 0 : options.transparent_index);
+                          keyed ? 0 : options.transparent_index, options.texel_uv);
             }
             if (options.wire) {
                 for (std::size_t k = 0; k < pts.size(); ++k) {
@@ -1078,11 +1095,11 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
         for (const auto& item : blended) {
             const bool keyed = options.chromakey && item.tex != nullptr && item.tex->keyed;
             draw_poly(result.rgb, zbuf, options.width, options.height, item.pts, item.uvs,
-                      item.tex, item.shade, item.r, item.g, item.b, item.tex != nullptr,
-                      item.fit, item.blend, item.lm_page, item.lmuv, item.lm_base,
-                      options.cull, options.mip, options.mip_auto,
-                      options.bilinear, options.alpha_test || keyed,
-                      keyed ? 0 : options.transparent_index);
+                      item.tex, item.shade, item.r, item.g, item.b,
+                      item.tex != nullptr && !options.texel_uv, item.fit, item.blend,
+                      item.lm_page, item.lmuv, item.lm_base, options.cull, options.mip,
+                      options.mip_auto, options.bilinear, options.alpha_test || keyed,
+                      keyed ? 0 : options.transparent_index, options.texel_uv);
         }
     }
     return result;

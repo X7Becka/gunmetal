@@ -91,6 +91,11 @@ struct RenderFace {
     mutable const Texture* tex_ptr = nullptr;
     std::int32_t uv_u_fp = 0;
     std::int32_t uv_v_fp = 0;
+    // Raw polygon fields for the engine-faithful texture mode (docs/TEXUV.md):
+    // `texture_index == 0 && handle == 0` means "no geometry at all", and the
+    // texel UV uses `uv_u_fp` scaled by 64, not the lightmap's 2048.
+    int texture_index = -1;
+    int handle = 0;
 };
 
 struct RenderMesh {
@@ -157,6 +162,11 @@ struct RenderOptions {
     // `.sbm` flags bit 0 is set (the game's transparent type, docs/ALPHA.md).
     // Off by default so the historical renders stay byte-identical.
     bool chromakey = false;
+    // Engine texture projection (docs/TEXUV.md): texel coordinates repeat
+    // instead of stretching one copy, and polygons without a texture are
+    // skipped.  Off by default so the viewer history stays byte-identical.
+    bool texel_uv = false;
+    bool skip_untextured = false;
 };
 
 struct RenderResult {

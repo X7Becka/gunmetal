@@ -57,12 +57,17 @@ def morph_models(a, b, alpha: float):
 class LevelFace:
     """A `.sbw` polygon seen as a render face."""
 
-    __slots__ = ("indices", "texture", "normal", "u", "v", "origin",
-                 "material", "brightness", "overlay", "lightmap", "uv_fp")
+    __slots__ = ("indices", "texture", "texture_index", "handle", "normal",
+                 "u", "v", "origin", "material", "brightness", "overlay",
+                 "lightmap", "uv_fp")
 
     def __init__(self, poly, name: str):
         self.indices = list(poly.indices)
         self.texture = name
+        # 0 = "no texture" (the engine returns early for these unless
+        # `handle != 0`, docs/TEXUV.md); negative = effect table.
+        self.texture_index = poly.texture
+        self.handle = poly.handle
         self.normal = poly.normal
         self.u = poly.u_axis
         self.v = poly.v_axis
@@ -147,6 +152,19 @@ class LevelMesh:
         d = _sub(vertex, face.origin)
         return _dot(d, face.u), _dot(d, face.v)
 
+    def uv_texel(self, face, vertex):
+        """Texture coordinates in **texels** (engine formula, docs/TEXUV.md).
+
+        ``texel = (dot(u_axis, v - centre) * 64 + uv_u_fp) >> 6`` — one texel
+        per world unit, ``uv_u_fp`` is the texel offset scaled by 64 (the
+        lightmap uses the same numerator ``>> 11``, i.e. 32x coarser).  The
+        engine samples ``texel & (w-1)``, so the texture repeats.
+        """
+        d = _sub(vertex, face.origin)
+        fpu, fpv = face.uv_fp
+        return ((_dot(d, face.u) * 64.0 + fpu) / 64.0,
+                (_dot(d, face.v) * 64.0 + fpv) / 64.0)
+
     def lightmap_uv(self, face, vertex):
         return self.lightmaps.uv(face, vertex) if self.lightmaps is not None else None
 
@@ -200,6 +218,13 @@ class PlacedMesh(LevelMesh):
     def uv(self, face, vertex):
         d = _sub(self._local(vertex), face.origin)
         return _dot(d, face.u), _dot(d, face.v)
+
+    def uv_texel(self, face, vertex):
+        """See :meth:`LevelMesh.uv_texel` (the local frame is the same one)."""
+        d = _sub(self._local(vertex), face.origin)
+        fpu, fpv = face.uv_fp
+        return ((_dot(d, face.u) * 64.0 + fpu) / 64.0,
+                (_dot(d, face.v) * 64.0 + fpv) / 64.0)
 
     def lightmap_uv(self, face, vertex):
         if self.lightmaps is None:
@@ -649,6 +674,7 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
            clip: float | None = None, materials: bool = True,
            brightness: bool = True, lightmap: bool = True,
            ambient: float = 0.0, sectors: bool = True, chromakey: bool = False,
+           skip_untextured: bool = False,
            only_sector: int | None = None, markers=None, lights=None,
            marker_depth: bool = False, mip: int | str = 0,
            filter: str = "nearest", alpha_test: bool = False,
@@ -724,6 +750,13 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
             idx = face.indices
             if len(idx) < 3:
                 continue
+            if skip_untextured:
+                # The engine's texture setup returns -1 for a polygon with
+                # `texture == 0` and `handle == 0` (docs/TEXUV.md), and the
+                # drawer then draws no geometry at all: not white, not flat.
+                if (getattr(face, "texture_index", -1) == 0
+                        and getattr(face, "handle", 0) == 0):
+                    continue
             blend = face_blend(face, materials)
             view = [cam.view(mesh.vertices[i]) for i in idx]
             if clip is not None:
@@ -733,7 +766,11 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
                     c = _sub(tuple(sum(v[k] for v in vs) / len(vs) for k in range(3)), eye)
                 if _dot(c, c) > clip * clip:
                     continue
-            uvs = [mesh.uv(face, mesh.vertices[i]) for i in idx]
+            texel = uv == "texel" and hasattr(mesh, "uv_texel")
+            if texel:
+                uvs = [mesh.uv_texel(face, mesh.vertices[i]) for i in idx]
+            else:
+                uvs = [mesh.uv(face, mesh.vertices[i]) for i in idx]
             fit = _uv_fit(uvs) if uv == "fit" and len(uvs) > 2 else None
             lmuv = None
             page = None
@@ -779,12 +816,12 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
                 d = _sub(c, eye)
                 blended.append((_dot(d, d), face, pts, uvs,
                                 (tex, shade, col, blend, uv, cull, lm, fit,
-                                 texobj, sampling_face)))
+                                 texobj, sampling_face, texel)))
                 continue
             if solid:
                 _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col,
                            uv=uv, cull=cull, lm=lm, fit=fit,
-                           texobj=texobj, sampling=sampling_face)
+                           texobj=texobj, sampling=sampling_face, texel=texel)
             if wire:
                 for k in range(len(pts)):
                     a, b = pts[k], pts[(k + 1) % len(pts)]
@@ -794,10 +831,10 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
     if solid and blended:
         blended.sort(key=lambda t: -t[0])
         for _d, _face, pts, uvs, (tex, sh, col, blend, uv_, cull_, lm_, fit_,
-                                  texobj_, sampling_) in blended:
+                                  texobj_, sampling_, texel_) in blended:
             _draw_poly(buf, zbuf, width, height, pts, uvs, tex, sh, col,
                        uv=uv_, cull=cull_, blend=blend, lm=lm_, fit=fit_,
-                       texobj=texobj_, sampling=sampling_)
+                       texobj=texobj_, sampling=sampling_, texel=texel_)
 
     # scene overlay: scripted lights/locations/items/sounds (gm.scene)
     if markers:
@@ -843,7 +880,7 @@ def _face_color(face, tex, lit: bool):
 
 def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
                cull=False, blend=None, lm=None, fit=None, texobj=None,
-               sampling=None):
+               sampling=None, texel=False):
     """Triangulate the (convex) face as a fan and rasterise the triangles."""
     if cull:
         area = ((pts[1][0] - pts[0][0]) * (pts[2][1] - pts[0][1])
@@ -863,7 +900,7 @@ def _draw_poly(buf, zbuf, width, height, pts, uvs, tex, shade, col, uv="fit",
         tuv = (uvs[0], uvs[k], uvs[k + 1])
         tlm = (lm[0], (lm[1][0], lm[1][k], lm[1][k + 1]), lm[2]) if lm is not None else None
         _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col,
-                  u0, v0, su, sv, blend, z_write, tlm, texobj, sampling)
+                  u0, v0, su, sv, blend, z_write, tlm, texobj, sampling, texel)
 
 
 def _triangle_lod(tuv, tri, texobj, u0, v0, su, sv, bias: float) -> float:
@@ -892,7 +929,8 @@ def _triangle_lod(tuv, tri, texobj, u0, v0, su, sv, bias: float) -> float:
 
 
 def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, sv,
-              blend=None, z_write=True, lm=None, texobj=None, sampling=None):
+              blend=None, z_write=True, lm=None, texobj=None, sampling=None,
+              texel=False):
     (x0, y0, w0, z0), (x1, y1, w1, z1), (x2, y2, w2, z2) = tri
     minx = max(0, int(min(x0, x1, x2)))
     maxx = min(width - 1, int(max(x0, x1, x2)) + 1)
@@ -954,16 +992,23 @@ def _triangle(buf, zbuf, width, height, tri, tuv, tex, shade, col, u0, v0, su, s
                 # perspective-correct UVs
                 uu = (l0 * tuv[0][0] * w0 + l1 * tuv[1][0] * w1 + l2 * tuv[2][0] * w2) / iz
                 vv = (l0 * tuv[0][1] * w0 + l1 * tuv[1][1] * w1 + l2 * tuv[2][1] * w2) / iz
-                tx = int((uu - u0) / su * tex_w) % tex_w
-                ty = int((vv - v0) / sv * tex_h) % tex_h
+                if texel:
+                    tx = int(math.floor(uu)) % tex_w
+                    ty = int(math.floor(vv)) % tex_h
+                else:
+                    tx = int((uu - u0) / su * tex_w) % tex_w
+                    ty = int((vv - v0) / sv * tex_h) % tex_h
                 o = (ty * tex_w + tx) * 3
                 r, g, b = tpx[o], tpx[o + 1], tpx[o + 2]
             else:
                 lw, lh, lpx, lidx, filt, alpha, key = sampler
                 uu = (l0 * tuv[0][0] * w0 + l1 * tuv[1][0] * w1 + l2 * tuv[2][0] * w2) / iz
                 vv = (l0 * tuv[0][1] * w0 + l1 * tuv[1][1] * w1 + l2 * tuv[2][1] * w2) / iz
-                fu = (uu - u0) / su * lw
-                fv = (vv - v0) / sv * lh
+                if texel:
+                    fu, fv = uu, vv
+                else:
+                    fu = (uu - u0) / su * lw
+                    fv = (vv - v0) / sv * lh
                 if filt == "nearest":
                     tx = int(math.floor(fu)) % lw
                     ty = int(math.floor(fv)) % lh

@@ -315,6 +315,10 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.bilinear = (*v == "bilinear");
+        } else if (arg == "--uv-texel") {
+            options.texel_uv = true;
+        } else if (arg == "--skip-untextured") {
+            options.skip_untextured = true;
         } else if (arg == "--chromakey") {
             options.chromakey = true;
         } else if (arg == "--alpha-test") {
@@ -532,6 +536,9 @@ std::string usage() {
        << "      --mip N|auto  fixed mip level (default 0) or screen-space LOD\n"
        << "      --filter M    nearest|bilinear texture filtering\n"
        << "      --alpha-test  drop texels equal to --transparent-index\n"
+       << "      --uv-texel    engine texture projection (repeat) instead of\n"
+       << "                    stretching one copy (docs/TEXUV.md)\n"
+       << "      --skip-untextured  skip polygons with texture==0 and handle==0\n"
        << "      --chromakey   same, but only for textures whose .sbm flags bit 0\n"
        << "                    is set (the game's transparent type, docs/ALPHA.md)\n"
        << "      --transparent-index N  palette key (default 0)\n"
