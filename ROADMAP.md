@@ -864,8 +864,13 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > `vm_load_world`/`vm_load_poly_handles` (`POLY_HANDLE:`, max `0x1f4`);
       > handle-таблицы пишут **все** совпадения id. Осталось: UV-сдвиг по
       > таймеру `0x5a46e4`, `SET_SECTOR_LINK` — только проверка.
-- ⬜ `M2.3.4` Дверь (`0x8381a0`, шаг `0xB8`), переключатель (`0x5a4af0`,
+- ✅ `M2.3.4` Дверь (`0x8381a0`, шаг `0xB8`), переключатель (`0x5a4af0`,
       шаг `0x20`), лифт.
+      > `docs/DOOR_FIELDS.md` (742 строки) + `docs/WORLD_FIELDS.md` (517):
+      > карта полей двери/переключателя/лифта; `tools/re/door_fields.py`
+      > (`--self-test` OK, `level0 L7 all zero`) и `tools/re/world_fields.py`
+      > (`--self-test`: 3162 треугольника, все 36 уровней, инварианты).
+      > C++ `world/doors.*` + `game/doors.*`, CTest `doors`, `doors_full`.
       > **C++**: `SoundRequest`-очередь (`WorldState::drain_sounds`), call sites
       > `0x44f776/0x44f66b/0x44f5ee/0x44f4b1/0x44f53e/0x44f5a6`, форматы
       > `0x46b8d0/0x46b840/0x46b9f0/0x46ba90`, `+0x60` = attenuation 0.03;
