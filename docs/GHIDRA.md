@@ -66,6 +66,41 @@ loopback; `opencode.json` подключает его как remote MCP без O
 Бинарник в проекте называется **`/gundx.exe-902b77`**. Это имя нужно передавать
 в `binary_name` инструментов.
 
+### 3.1. Проект должен жить в `re/ghidra`, не в worktree
+
+Ghidra-проект — это **состояние**, а не расходник: имена, комментарии и типы
+копятся только в нём. Правило: `--project-path` всегда `$ROOT/re/ghidra`;
+`GM_GHIDRA_PROJECT` не должен указывать в `/tmp` или `/var/tmp` (worktree
+удаляется, проект умирает вместе с ним).
+
+Диагностика потери (наблюдалось 2026-10-22):
+
+```sh
+ls -l /proc/$(pgrep -f pyghidra-mcp)/cwd     # -> /var/tmp/gm-sub-... (deleted)
+python3 tools/ghidra/mcp.py symbols "weapon_target"   # -> пусто
+```
+
+Симптом: `rename_function` проходит, но `save` отвечает
+`java.io.IOException: File error during save` — каталог проекта удалён,
+изменения остаются только в памяти и исчезнут с перезапуском. Лечение:
+остановить сервер, `cp -a re/ghidra re/ghidra.bak-$(date +%F)`, запустить
+`tools/ghidra/start.sh` из корня репозитория и проверить
+`mcp.py metadata` (тот же SHA-256 exe) — импорт и анализ при живом проекте
+не перезапускаются.
+
+Имена и статусы восстанавливаются одной командой (идемпотентно):
+
+```sh
+python3 tools/ghidra/apply_names.py --dry-run   # план
+python3 tools/ghidra/apply_names.py             # rename + plate-комментарий + save
+```
+
+`names.csv` — единственный источник имён; статус (`код`/`гипотеза`) и
+доказательство попадают в комментарий функции, поэтому проект сам показывает,
+что проверено, а что нет. Данные/таблицы (`kind=table/data`) не
+переименовываются — это не функции.
+
+
 ## 4. Инструменты, которыми пользуемся
 
 - `decompile_function(binary, address|name, include_xrefs/strings/callees)` —
