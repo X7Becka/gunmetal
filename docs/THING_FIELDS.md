@@ -119,6 +119,8 @@
 | `+0x0c8` | `double` | `falling_fear` | `+0x1d0` | proven |
 | `+0x0d0` | `double` | `leash_distance` | `+0x290` | hypothesis |
 | `+0x0d8..0x197` | 4×(3+3)×`double` | смещения/углы детей | не копируются | proven |
+| `+0x0d8+0x18i` | 3×`double` | `child_offset[i]` (локальное смещение ребёнка) | — (спавн `0x46d000`) | proven |
+| `+0x138/158/178+8i` | 3×`double` | `child_pitch/roll/yaw[i]` | — (композиция `0x41e141`) | proven |
 | `+0x198/19c` | 2×`u32` | `f198/f19c` | не копируются (гейт спавна) | hypothesis |
 | `+0x1a0` | `u32` | `collision_kind` (0/1/2) | `+0x330` | proven |
 | `+0x1a4` | `u32` | `sob_index` (модель) | `+0x36c` | proven |
@@ -606,7 +608,7 @@ C++ (`engine/src`) **не** моделирует запись `0x528`: `gm::Thin
 | `+0x23c/25c band` | `ProximityEntry::low/high` | `test_things` high 20 |
 | `+0x27c cooldown` | `ProximityEntry::cooldown` | `test_things proximity` |
 | `+0x29c/2bc/2dc off` | `ProximityEntry::offset` | `test_things proximity` |
-| `+0x2fc..310 children` | разобрано в `Thing::child_types`/`child_params` (`Things::load`, clamp 4), спавн детей (`0x46d000`, локальный offset `+0xd8+0x18i` × базис родителя) не подключён | `test_child_table`; на 36 уровнях корпуса 591 экземпляр с детьми |
+| `+0x2fc..310 children` | разобрано в `Thing::child_types`/`child_params`/`child_offsets`/`child_angles` (`Things::load`, clamp 4); спавн детей (`0x46d000`: позиция `origin + базис·offset`, ориентация `0x41e141`/`0x41e2f9`) — `Things::spawn_children`, **opt-in** через `ThingsOptions::spawn_type_children` | `test_child_table`, `test_type_children`; на 36 уровнях корпуса 591 экземпляр с детьми |
 | `+0x320/324 path` | `Thing::path_locations`, `Ai::set_path_from_thing` | `test_ai path_locations` |
 | `+0x1b4 movement`, `+0x10 speed`, `+0x20 turn_accel`, `+0x28 turn_max` | `Thing::*`, `ThingMotionConfig` | `test_thing_motion` (spin/avoid) |
 | `+0x90/98/a0 angle_rate` | `Thing::angle_rate`, `ThingMotionState::pitch/roll/yaw_rate` | `test_thing_motion spin` |
