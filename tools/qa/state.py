@@ -15,7 +15,7 @@ Examples::
     python3 tools/qa/state.py                 # table
     python3 tools/qa/state.py --json          # one JSON object
     python3 tools/qa/state.py --ghidra        # + project path and function count
-    python3 tools/qa/state.py --check         # nonzero if the audit snapshot is behind HEAD
+    python3 tools/qa/state.py --check         # nonzero if CURRENT_STATE is behind HEAD
 """
 from __future__ import annotations
 
@@ -53,10 +53,15 @@ def roadmap_counts() -> dict:
     stage = None
     with open(path, encoding="utf-8") as fh:
         for line in fh:
-            m = STAGE_RE.match(line)
-            if m:
-                stage = m.group(1)
-                stages.setdefault(stage, {name: 0 for name in STATUS.values()})
+            # A level-two heading ends the current milestone.  Without this a
+            # suffix section (test strategy, DoD, ...) keeps feeding its items
+            # into the last milestone (M10) and inflates that row.
+            if line.startswith("## "):
+                m = STAGE_RE.match(line)
+                stage = m.group(1) if m else None
+                if stage:
+                    stages.setdefault(stage,
+                                      {name: 0 for name in STATUS.values()})
                 continue
             m = ITEM_RE.match(line)
             if not m:
@@ -65,7 +70,9 @@ def roadmap_counts() -> dict:
             totals[name] += 1
             if stage:
                 stages[stage][name] += 1
-    return {"totals": totals, "stages": stages}
+    stage_totals = {name: sum(counts[name] for counts in stages.values())
+                    for name in STATUS.values()}
+    return {"totals": totals, "stage_totals": stage_totals, "stages": stages}
 
 
 def regress_categories() -> int | None:
@@ -146,33 +153,37 @@ def snapshot(with_ghidra: bool) -> dict:
 
 
 def check(data: dict) -> int:
-    """Fail when the audit snapshot records a different commit count.
+    """Fail when CURRENT_STATE.md records a different commit count.
 
     Commit count is used instead of the HEAD hash: an amended docs commit
     changes the hash but not the count, so the marker stays verifiable.
     """
-    path = os.path.join(ROOT, "docs", "RE_AUDIT.md")
+    path = os.path.join(ROOT, "CURRENT_STATE.md")
     with open(path, encoding="utf-8") as fh:
         head = fh.read(4000)
     m = re.search(r"(\d+)\s+коммит", head)
     if not m:
-        print("check: docs/RE_AUDIT.md has no 'N коммитов' marker")
+        print("check: CURRENT_STATE.md has no 'N коммитов' marker")
         return 2
     recorded = int(m.group(1))
     actual = data["git"]["commits"]
     if recorded != actual:
-        print(f"check: audit snapshot is behind HEAD: {recorded} != {actual} commits")
+        print(f"check: CURRENT_STATE.md is behind HEAD: {recorded} != {actual} commits")
         return 1
-    print(f"check: audit snapshot matches HEAD ({actual} commits)")
+    print(f"check: CURRENT_STATE.md matches HEAD ({actual} commits)")
     return 0
 
 
 def print_table(data: dict) -> None:
     g = data["git"]
     r = data["roadmap"]["totals"]
+    s = data["roadmap"]["stage_totals"]
     print(f"HEAD {g['head']} ({g['head_date']}), commits {g['commits']}")
     print(f"roadmap: {r['done']} done / {r['partial']} partial / "
-          f"{r['todo']} todo / {r['blocked']} blocked")
+          f"{r['todo']} todo / {r['blocked']} blocked (all item lines)")
+    print(f"stages:  {s['done']} done / {s['partial']} partial / "
+          f"{s['todo']} todo / {s['blocked']} blocked "
+          f"({sum(s.values())} items)")
     for stage, counts in data["roadmap"]["stages"].items():
         total = sum(counts.values())
         print(f"  {stage:4s} {counts['done']:2d}✅ {counts['partial']:2d}🟡 "
