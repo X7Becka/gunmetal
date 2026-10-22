@@ -367,6 +367,11 @@ public:
     /// and this function applies only the proven ``<= radius`` rule.
     std::size_t poll_blast(const PolygonHit& hit, std::int16_t source = 0);
 
+    /// ``0x44fad0``: a ``kind == 0x102`` switch fires on an **exact**
+    /// ``(sector, object, polygon)`` triple, with no distance test at all
+    /// (the caller got the triple from an event record, not from a ray).
+    std::size_t trigger_poly(const PolygonHit& hit, std::int16_t source = 0);
+
     /// ``0x44fbd0``: a ``kind == 0x104`` switch fires on an exact position
     /// match (the engine compares the three integers, not a distance).
     std::size_t trigger_at(const std::array<double, 3>& pos, std::int16_t source = 0);

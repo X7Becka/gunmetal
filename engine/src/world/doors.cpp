@@ -1132,6 +1132,31 @@ std::size_t WorldState::post_door_events(EventQueue& queue) const {
     return posted;
 }
 
+std::size_t WorldState::trigger_poly(const PolygonHit& hit, std::int16_t source) {
+    // 0x44fad0 compares (op4, op5, op6) with the caller's three ints and
+    // requires kind == 0x102; the distance field is not consulted.
+    std::size_t fired = 0;
+    for (Switch& sw : switches_) {
+        if (sw.kind != 0x102) {
+            continue;
+        }
+        if (sw.pos[0] != static_cast<int>(hit.sector) ||
+            sw.pos[1] != static_cast<int>(hit.object) ||
+            sw.pos[2] != static_cast<int>(hit.polygon)) {
+            continue;
+        }
+        sw.pressed = true;
+        sw.inside = true;
+        ++fired;
+        log_event({WorldEvent::Kind::SwitchPressed, sw.id, sw.target, 0, 0});
+        switch_event_sources_.back() = source;
+        press_target(sw.id, sw.target);
+    }
+    stats_.switch_interactions += fired;
+    stats_.trigger_presses += fired;
+    return fired;
+}
+
 std::size_t WorldState::trigger_at(const std::array<double, 3>& pos, std::int16_t source) {
     std::size_t fired = 0;
     for (Switch& sw : switches_) {

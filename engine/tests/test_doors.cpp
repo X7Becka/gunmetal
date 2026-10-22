@@ -1564,6 +1564,19 @@ void test_polygon_triggers() {
     CHECK_EQ(state.poll_blast(hit(9, 9, 9, 0.0), 4), 0u);
     CHECK(fired().empty());
 
+    // 0x102 also has the exact-triple path of `0x44fad0`: no distance at all.
+    state.clear_events();
+    CHECK_EQ(state.trigger_poly(hit(2, 3, 4, 1e9), 6), 1u);
+    {
+        const std::vector<int> f = fired();
+        CHECK(f.size() == 1u && f[0] == 3);
+    }
+    // ... but it is limited to kind 0x102: 0x103 (same polygon) and 0x101 stay
+    // silent, and a wrong triple fires nothing.
+    state.clear_events();
+    CHECK_EQ(state.trigger_poly(hit(2, 3, 5, 0.0), 6), 0u);
+    CHECK(fired().empty());
+
     // 0x104 stays on `trigger_at`: an exact integer triple, not a hit.
     state.clear_events();
     CHECK_EQ(state.trigger_at({2.0, 3.0, 4.0}, 5), 1u);
