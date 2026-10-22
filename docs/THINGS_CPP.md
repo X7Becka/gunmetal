@@ -232,10 +232,25 @@ god_mode); переопределяются только `game_mode` и `playert
 у типа `+0x1e8 > 0` и `age` дошёл до него, вещь получает `expired=true` и в
 `events` (если передан) уходит один `+0x1ec` expire-event через
 `post_thing_event`; `alive` при этом **не** меняется — так же, как
-`0x4703a0`, который только постит событие. AI, движения, респауна и удаления
-в модуле нет: `kill/revive/set_alive` — явные операции. `children(parent)`
-возвращает указатели на экземпляры с данным `parent` в детерминированном
-порядке.
+`0x4703a0`, который только постит событие. AI, респауна и удаления в модуле
+нет: `kill/revive/set_alive` — явные операции. `children(parent)` возвращает
+указатели на экземпляры с данным `parent` в детерминированном порядке.
+
+**Движение (opt-in).** `set_motion_enabled(enabled, world)` включает автоматы
+`0x470c70` (`world/thing_motion.*`): каждый живой экземпляр с
+`movement_type 0..18` и `!expired` делает один шаг за тик. Состояние создаётся
+при первом шаге через `thing_motion_spawn(thing_motion_config(thing))`; для
+абсолютных вариантов (`position` есть) в него кладётся позиция из скрипта,
+для source-relative — начало координат (как спавн `0x46dfe9`). `Thing::position`
+не переписывается: int-операнды не несут double-состояния, а у
+source-relative вещей абсолютной позиции нет — авторитетно
+`motion_state(index)`. Цель для seek/турели/патруля — `set_motion_target`;
+тела для push-режима — `set_push_targets` (общий список, как таблица игроков
+в `0x476830`). `motion_last(index)` отдаёт последний `ThingMotionStep`
+(включая `fired_event` — это id `+0x21c`, постит его игровой слой).
+Выключение не стирает состояния, только перестаёт шагать; respawn слота
+сбрасывает состояние. Счётчики — `stats().motion_steps/motion_moved/
+motion_pushed`. Тест — `test_motion_tick` (`gm_things_tests`).
 
 ### 2.4. `stats()`
 
@@ -244,7 +259,8 @@ god_mode); переопределяются только `game_mode` и `playert
 `valid_model_refs`, `missing_model_refs`, `null_type_static`,
 `null_type_things`, `invalid_type_things`, `missing_model_things`,
 `static_site_duplicates`, `duplicate_ids`, `blocks`, `paths`, `max_depth`,
-`ticks`, `nesting_limit`, `decode_error`, `reasons` (стоп-причины VM).
+`ticks`, `motion_steps`, `motion_moved`, `motion_pushed`, `nesting_limit`,
+`decode_error`, `reasons` (стоп-причины VM).
 `model_refs()` = `valid_model_refs + missing_model_refs`.
 
 ---

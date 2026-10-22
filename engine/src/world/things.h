@@ -9,8 +9,10 @@
 #include <vector>
 
 #include "game/projectile.h"
+#include "render/collide.h"
 #include "res/sbt.h"
 #include "res/vm_exec.h"
+#include "world/thing_motion.h"
 
 namespace gm {
 
@@ -190,6 +192,11 @@ struct ThingStats {
     std::size_t paths = 0;                  // VM paths over the context matrix
     std::size_t max_depth = 0;
     std::uint64_t ticks = 0;
+    /// Movement automata counters (`set_motion_enabled`): instances stepped,
+    /// steps that moved the body and steps that reported a type-18 push.
+    std::size_t motion_steps = 0;
+    std::size_t motion_moved = 0;
+    std::size_t motion_pushed = 0;
     bool nesting_limit = false;
     bool decode_error = false;
     std::map<std::string, int> reasons; // VM stop reasons (recursion, ...)
@@ -240,11 +247,40 @@ public:
     /// ``0x476012``; ``nullptr`` when the id is not in the table.
     const VmLocation* location(int id) const;
 
-    /// Advance the 91 Hz clock.  No AI and no movement yet: every living
-    /// instance gets ``age += ticks``; dead instances stay dead.  A living
-    /// thing whose +0x1e8 lifetime is reached is marked `expired` and, when
-    /// `events` is given, posts its +0x1ec expire event once.
+    /// Advance the 91 Hz clock: every living instance gets ``age += ticks``;
+    /// dead instances stay dead.  A living thing whose +0x1e8 lifetime is
+    /// reached is marked `expired` and, when `events` is given, posts its
+    /// +0x1ec expire event once.
+    ///
+    /// When the movement automata are enabled (`set_motion_enabled`), every
+    /// living instance with a `movement_type` in 0..18 is stepped once per tick
+    /// with the state `thing_motion_spawn` builds on first use.  The motion
+    /// state is authoritative; `Thing::position` is left untouched (the int
+    /// operands cannot carry the double state, and source-relative things have
+    /// no absolute position at all).  Callers read `motion_state()`.
     void tick(std::uint64_t ticks = 1, EventQueue* events = nullptr);
+
+    // --- movement automata (opt-in) ----------------------------------------
+
+    /// Enable the `0x470c70` switch for this container.  *world* is the
+    /// geometry for probes/sweeps (null = every probe reports free, like a
+    /// headless test).  Enabling after a tick seeds the states at the next
+    /// tick; disabling keeps the states but stops stepping them.
+    void set_motion_enabled(bool enabled, const CollisionWorld* world = nullptr);
+    bool motion_enabled() const { return motion_enabled_; }
+
+    /// Target seen by the seek/turret/patrol modes of `things()[index]`.
+    /// Out-of-range indices are ignored.
+    void set_motion_target(std::size_t index, ThingMotionTarget target);
+    /// Bodies the type-18 push repels from; `0x476830` scans the player table,
+    /// so one list is shared by every instance.
+    void set_push_targets(std::vector<ThingPushTarget> targets);
+
+    /// Motion state of `things()[index]`, or nullptr when motion is off, the
+    /// index is out of range or the instance was never stepped.
+    const ThingMotionState* motion_state(std::size_t index) const;
+    /// Last step result of `things()[index]`, or nullptr like above.
+    const ThingMotionStep* motion_last(std::size_t index) const;
 
     /// Runtime spawn: append a thing, assign an id when `thing.id < 0`, mark it
     /// alive/executed and optionally post its +0x1f0 create event.  Returns the
@@ -272,6 +308,14 @@ private:
     ThingStats stats_;
     std::uint64_t clock_ = 0;
     std::string error_;
+
+    bool motion_enabled_ = false;
+    const CollisionWorld* motion_world_ = nullptr;
+    /// Index-aligned with `things_`; a nullopt slot has not been stepped yet.
+    std::vector<std::optional<ThingMotionState>> motion_;
+    std::vector<ThingMotionStep> motion_last_;
+    std::vector<ThingMotionTarget> motion_targets_;
+    std::vector<ThingPushTarget> push_targets_;
 };
 
 } // namespace gm

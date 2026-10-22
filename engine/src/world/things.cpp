@@ -831,26 +831,107 @@ std::vector<int> Things::child_ids(int parent) const {
     return out;
 }
 
+void Things::set_motion_enabled(bool enabled, const CollisionWorld* world) {
+    motion_enabled_ = enabled;
+    motion_world_ = enabled ? world : nullptr;
+    motion_last_.resize(things_.size());
+    if (motion_.size() < things_.size()) {
+        motion_.resize(things_.size());
+    }
+    if (motion_targets_.size() < things_.size()) {
+        motion_targets_.resize(things_.size());
+    }
+}
+
+void Things::set_motion_target(std::size_t index, ThingMotionTarget target) {
+    if (index >= things_.size()) {
+        return;
+    }
+    if (motion_targets_.size() <= index) {
+        motion_targets_.resize(index + 1);
+    }
+    motion_targets_[index] = target;
+}
+
+void Things::set_push_targets(std::vector<ThingPushTarget> targets) {
+    push_targets_ = std::move(targets);
+}
+
+const ThingMotionState* Things::motion_state(std::size_t index) const {
+    if (!motion_enabled_ || index >= motion_.size() || !motion_[index].has_value()) {
+        return nullptr;
+    }
+    return &*motion_[index];
+}
+
+const ThingMotionStep* Things::motion_last(std::size_t index) const {
+    if (!motion_enabled_ || index >= motion_last_.size()) {
+        return nullptr;
+    }
+    return &motion_last_[index];
+}
+
 void Things::tick(std::uint64_t ticks, EventQueue* events) {
     if (ticks == 0) {
         return;
     }
     clock_ += ticks;
     stats_.ticks = clock_;
-    for (Thing& thing : things_) {
+    if (motion_enabled_) {
+        if (motion_.size() < things_.size()) {
+            motion_.resize(things_.size());
+            motion_targets_.resize(things_.size());
+            motion_last_.resize(things_.size());
+        }
+    }
+    for (std::size_t index = 0; index < things_.size(); ++index) {
+        Thing& thing = things_[index];
         if (!thing.alive) {
             continue;
         }
         thing.age += ticks;
-        if (thing.expired || thing.expire_ticks <= 0) {
-            continue;
-        }
-        if (thing.age >= static_cast<std::uint64_t>(thing.expire_ticks)) {
+        if (!thing.expired && thing.expire_ticks > 0 &&
+            thing.age >= static_cast<std::uint64_t>(thing.expire_ticks)) {
             thing.expired = true;
             if (events != nullptr) {
                 post_thing_event(*events, thing, ThingEventKind::expire);
             }
         }
+        if (!motion_enabled_ || thing.expired || thing.movement_type < 0 ||
+            thing.movement_type >= 19) {
+            continue;
+        }
+        std::optional<ThingMotionState>& slot = motion_[index];
+        if (!slot.has_value()) {
+            slot = thing_motion_spawn(thing_motion_config(thing));
+            ThingMotionState& state = *slot;
+            // The spawn view carries the script position where it exists; the
+            // source-relative variants start at the origin like `0x46dfe9`.
+            if (thing.position.has_value()) {
+                state.position = {static_cast<double>((*thing.position)[0]),
+                                  static_cast<double>((*thing.position)[1]),
+                                  static_cast<double>((*thing.position)[2])};
+            }
+        }
+        ThingMotionInput input;
+        input.dt = static_cast<double>(ticks);
+        input.world = motion_world_;
+        if (index < motion_targets_.size()) {
+            input.target = motion_targets_[index];
+        }
+        input.push_targets = push_targets_;
+        ThingMotionStep step = thing_motion_step(*slot, thing_motion_config(thing), input);
+        motion_last_[index] = step;
+        ++stats_.motion_steps;
+        if (step.moved || step.pushed >= 0) {
+            ++stats_.motion_moved;
+        }
+        if (step.pushed >= 0) {
+            ++stats_.motion_pushed;
+        }
+        // Weapon/event ids stay in the step record: posting them belongs to the
+        // game layer (`step.fired_event` is a `THING_TYPES+0x21c` id, not the
+        // +0x1c4 collide id this module owns).
     }
 }
 
@@ -889,6 +970,13 @@ int Things::spawn(Thing thing, EventQueue* events) {
         by_id_.emplace(id, index);
     }
     Thing& spawned = things_[index];
+    if (motion_.size() < things_.size()) {
+        motion_.resize(things_.size());
+        motion_targets_.resize(things_.size());
+        motion_last_.resize(things_.size());
+    }
+    motion_[index].reset(); // a reused slot starts with the fresh-instance state
+    motion_last_[index] = ThingMotionStep{};
     ++stats_.executed;
     if (spawned.depth > 0) {
         ++stats_.executed_nested;

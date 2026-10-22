@@ -459,8 +459,10 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    `path`/`loop`/`expire`, `expire` убивает агента. Автоматы самого движка
    (`movement_type` 0..18) перенесены отдельным модулем `world/thing_motion`
    (§11) — включая пол/потолок (`0x472120`), отскок и турель. Остались
-   `pathrandom`, интеграция `thing_motion` в `Things::tick` (сейчас это
-   явный вызов на вещь) и `Ai`-решение → `thing_motion`. Маршрут из
+   `pathrandom` и `Ai`-решение → `thing_motion`. **Интеграция в `Things::tick`
+   сделана** (opt-in `set_motion_enabled(world)`, `motion_state/last`,
+   `set_motion_target`, `set_push_targets`, тест `test_motion_tick`).
+   Маршрут из
    `THING_TYPES +0x324[]` через таблицу локаций подключён третьим opt-in'ом
    (`load_path_from_types`, §8.2).
 4. **Бой**: оружие из таблицы `+0x21c` уже выбирается и постит событие

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -953,6 +954,147 @@ void test_spawn_remove() {
     CHECK_EQ(things.things().size(), slots_before);
 }
 
+void test_motion_tick() {
+    // Movement automata are opt-in (`Things::set_motion_enabled`); with them on,
+    // `tick` steps every live instance through `world/thing_motion`.
+    gm::Things things;
+    CHECK(things.motion_state(0) == nullptr);
+
+    gm::Thing spin;
+    spin.id = -1;
+    spin.type = 3;
+    spin.movement_type = 1; // 0x470c70 case 1: angles += angle_rate * dt
+    spin.angle_rate = {0.0, 0.0, 0.5};
+    spin.position = std::array<int, 3>{10, 20, 30};
+    CHECK_EQ(things.spawn(spin), 0);
+
+    // Disabled: a tick only ages the instance.
+    things.tick(1);
+    CHECK(things.motion_state(0) == nullptr);
+    CHECK_EQ(things.stats().motion_steps, std::size_t{0});
+
+    things.set_motion_enabled(true);
+    CHECK(things.motion_enabled());
+    things.tick(1);
+    CHECK_EQ(things.stats().motion_steps, std::size_t{1});
+    const gm::ThingMotionState* state = things.motion_state(0);
+    CHECK(state != nullptr);
+    if (state != nullptr) {
+        // `thing_motion_spawn` copies the three rates, the shared tick advances
+        // the targets by rate * dt.
+        CHECK(std::fabs(state->yaw_rate - 0.5) < 1e-15);
+        CHECK(std::fabs(state->yaw_target - 0.5) < 1e-15);
+        // The spawn view carries the script position.
+        CHECK(std::fabs(state->position.x - 10.0) < 1e-12);
+        CHECK(std::fabs(state->position.y - 20.0) < 1e-12);
+        CHECK(std::fabs(state->position.z - 30.0) < 1e-12);
+    }
+    const gm::ThingMotionStep* last = things.motion_last(0);
+    CHECK(last != nullptr);
+    if (last != nullptr) {
+        CHECK(last->supported);
+    }
+    // `Thing::position` stays the spawn view: the double state is authoritative.
+    CHECK_EQ((*things.by_id(0)->position)[0], 10);
+
+    // A walker (type 2) with a free world moves forward: yaw 0 means +y
+    // (basis row 1, `forward = (sin yaw, cos yaw)`), so the body advances on y.
+    gm::Thing walker;
+    walker.id = -1;
+    walker.type = 4;
+    walker.movement_type = 2;
+    walker.speed = 2.0;
+    walker.radius = 1.0;
+    walker.position = std::array<int, 3>{0, 0, 0};
+    CHECK_EQ(things.spawn(walker), 1);
+    const std::size_t moved_before = things.stats().motion_moved;
+    things.tick(1);
+    CHECK_EQ(things.stats().motion_moved, moved_before + 1);
+    const gm::ThingMotionState* walked = things.motion_state(1);
+    CHECK(walked != nullptr);
+    if (walked != nullptr) {
+        CHECK(walked->position.y > 0.0);
+    }
+
+    // Type 18 pushes away from the bodies installed with `set_push_targets`.
+    gm::Thing pusher;
+    pusher.id = -1;
+    pusher.type = 5;
+    pusher.movement_type = 18;
+    pusher.speed = 1.0;
+    pusher.box = {16.0, 10.0, 20.0};
+    pusher.position = std::array<int, 3>{0, 0, 0};
+    CHECK_EQ(things.spawn(pusher), 2);
+    gm::ThingPushTarget body;
+    body.position = {5.0, 0.0, 0.0};
+    things.set_push_targets({body});
+    things.tick(1);
+    CHECK_EQ(things.stats().motion_pushed, std::size_t{1});
+    const gm::ThingMotionState* pushed = things.motion_state(2);
+    CHECK(pushed != nullptr);
+    if (pushed != nullptr) {
+        CHECK(pushed->position.x < 0.0);
+    }
+
+    // Disabling stops the stepping but keeps the states readable.
+    things.set_motion_enabled(false);
+    const std::size_t steps_before = things.stats().motion_steps;
+    things.tick(1);
+    CHECK_EQ(things.stats().motion_steps, steps_before);
+    CHECK(things.motion_state(0) == nullptr); // motion off -> not exposed
+
+    // Re-enabling continues from the stored state (no re-seed).
+    things.set_motion_enabled(true);
+    const double yaw_before = things.motion_state(0)->yaw_target;
+    things.tick(1);
+    CHECK(std::fabs(things.motion_state(0)->yaw_target - (yaw_before + 0.5)) < 1e-15);
+
+    // A respawned id resets the motion state (fresh instance).
+    gm::Thing fresh = spin;
+    fresh.id = 0;
+    CHECK(things.remove(0));
+    CHECK_EQ(things.spawn(fresh), 0);
+    CHECK(things.motion_state(0) == nullptr); // reset until the next tick
+    things.tick(1);
+    CHECK(things.motion_state(0) != nullptr);
+    CHECK(std::fabs(things.motion_state(0)->yaw_target - 0.5) < 1e-15);
+
+    // Out-of-range indices are ignored, including the target setter.
+    things.set_motion_target(999, gm::ThingMotionTarget{});
+    CHECK(things.motion_state(999) == nullptr);
+    CHECK(things.motion_last(999) == nullptr);
+
+    // Determinism: two containers with the same setup tick identically.
+    gm::Things a;
+    gm::Things b;
+    for (gm::Things* list : {&a, &b}) {
+        gm::Thing item;
+        item.id = -1;
+        item.movement_type = 14;
+        item.speed = 1.5;
+        item.radius = 1.0;
+        item.position = std::array<int, 3>{0, 0, 0};
+        list->spawn(item);
+        gm::ThingMotionTarget target;
+        target.valid = true;
+        target.position = {100.0, 0.0, 0.0};
+        target.yaw_error = 1.0;
+        list->set_motion_target(0, target);
+        list->set_motion_enabled(true);
+        for (int tick = 0; tick < 20; ++tick) {
+            list->tick(1);
+        }
+    }
+    const gm::ThingMotionState* left = a.motion_state(0);
+    const gm::ThingMotionState* right = b.motion_state(0);
+    CHECK(left != nullptr && right != nullptr);
+    if (left != nullptr && right != nullptr) {
+        CHECK_EQ(left->position.x, right->position.x);
+        CHECK_EQ(left->position.y, right->position.y);
+        CHECK_EQ(left->yaw_target, right->yaw_target);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -960,6 +1102,7 @@ int main(int argc, char** argv) {
     test_synthetic();
     test_expire_lifetime();
     test_spawn_remove();
+    test_motion_tick();
     test_generate_and_cycle();
     test_negatives();
     test_real_dm1();
