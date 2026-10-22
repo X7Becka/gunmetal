@@ -58,4 +58,5 @@ Ghidra импортирует `gundx.exe` с `ImageBase 0x400000`; проект 
 | зеркало установки | `python3 tools/re/gmcache.py mirror --sync`, `regress.py --mirror` |
 | индекс листинга | `gundx.asm.idx`, собирается `exelib` (bisect + seek) |
 | срезы документации | `tools/ctx.py` (`doc`/`addr`/`find`/`outline`/`task`) |
+| адресация уровней по содержимому | `tools/re/game_content.py` → `engine/tests/game_content.h` |
 | методика | `docs/RE_METHOD.md` |
