@@ -68,6 +68,7 @@ CATEGORIES = {
     "extract": "full texture/sprite/sound/frontend extraction (implies --full)",
 }
 ONLY: set[str] = set()
+FAILED: list[str] = []
 
 
 def want(*categories: str) -> bool:
@@ -437,6 +438,8 @@ def check_result(name: str, args: list[str], expect: list[str] | None,
         if e not in out:
             ok = False
     status = "ok  " if ok else "FAIL"
+    if not ok:
+        FAILED.append(name)
     print(f"[{status}] {name}  [{stamp()}]")
     if not ok:
         print(f"        cmd: gm.py {' '.join(args)}")
@@ -474,6 +477,8 @@ def check_many(specs: list[tuple], workers: int = 4) -> list[bool]:
 
 
 def report(name: str, ok: bool, detail: str = "") -> bool:
+    if not ok:
+        FAILED.append(name)
     print(f"[{'ok  ' if ok else 'FAIL'}] {name}" + (f"  ({detail})" if ok and detail else "")
           + f"  [{stamp()}]")
     if not ok and detail:
@@ -1112,6 +1117,7 @@ def inventory_check(G: str, results: list[bool]) -> None:
 
 def main() -> int:
     ONLY.clear()
+    FAILED.clear()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--game", default=DEFAULT_GAME, help="Gunmetal installation directory")
@@ -1127,6 +1133,9 @@ def main() -> int:
                          "syncing it when it has drifted (drvfs is slow)")
     ap.add_argument("--verify-mirror", action="store_true",
                     help="with --mirror: re-validate the mirror before running")
+    ap.add_argument("--json", action="store_true",
+                    help="print one JSON summary line instead of the tail "
+                         "(cheap for agents/CI)")
     ap.add_argument("--list-categories", action="store_true",
                     help="print the category names and exit")
     opts = ap.parse_args()
@@ -1601,14 +1610,26 @@ def main() -> int:
                               (p.stdout.strip().splitlines() or ["no output"])[-1]))
 
     passed = sum(results)
+    seconds = time.time() - T0
     scope = ("  [" + ",".join(sorted(ONLY)) + "]") if ONLY else ""
     hint = ""
     if not opts.full and not ONLY:
         hint = "  (use --full for extraction checks)"
     elif not opts.full:
         hint = "  (add --full for heavy checks in these categories)"
-    print(f"\nregress: {passed}/{len(results)} checks passed in "
-          f"{time.time() - T0:.1f}s" + scope + hint)
+    if opts.json:
+        print(json.dumps({
+            "passed": passed,
+            "total": len(results),
+            "seconds": round(seconds, 1),
+            "full": bool(opts.full),
+            "categories": sorted(ONLY),
+            "game": G,
+            "failed": FAILED,
+        }, ensure_ascii=False))
+    else:
+        print(f"\nregress: {passed}/{len(results)} checks passed in "
+              f"{seconds:.1f}s" + scope + hint)
     return 0 if passed == len(results) else 1
 
 

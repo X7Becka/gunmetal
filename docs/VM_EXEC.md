@@ -143,11 +143,11 @@ then-ветки**, а не разделителем после неё (прим�
 | 24 | `SET_SOURCEWORLDOBJECT_HIT_OFF` | `` | event | 0x457f77 |
 | 25 | `SET_SOURCEWORLDOBJECT_HIT_ON` | `` | event | 0x457f89 |
 | 26 | `SET_SOURCEWORLDOBJECT_TEXTURES` | `T` | event | 0x457f9b |
-| 27 | `SET_SOURCESECTOR_MOVEMENT` | `LLLAAA` | event | 0x457fc6 |
-| 28 | `SET_SOURCESECTOR_BRIGHTNESS` | `L` | event | 0x458063 |
-| 29 | `SET_SOURCESECTOR_FLAGS` | `L` | event | 0x458111 |
-| 30 | `SET_SOURCESECTOR_TYPE` | `L` | event | 0x4580a9 |
-| 31 | `SET_SOURCESECTOR_DAMAGE` | `L` | event | 0x4580cf |
+| 27 | `SET_SOURCESECTOR_MOVEMENT` | `LLLAAA` | SECTOR_STUFF (h_sector; source/handle index) | 0x457fc6 |
+| 28 | `SET_SOURCESECTOR_BRIGHTNESS` | `L` | SECTOR_STUFF (h_sector; source/handle index) | 0x458063 |
+| 29 | `SET_SOURCESECTOR_FLAGS` | `L` | SECTOR_STUFF (h_sector; source/handle index) | 0x458111 |
+| 30 | `SET_SOURCESECTOR_TYPE` | `L` | SECTOR_STUFF (h_sector; source/handle index) | 0x4580a9 |
+| 31 | `SET_SOURCESECTOR_DAMAGE` | `L` | SECTOR_STUFF (h_sector; source/handle index) | 0x4580cf |
 | 32 | `SET_SOURCEPOLY_TEXTURE` | `T` | event | 0x458178 |
 | 33 | `SET_SOURCEPOLY_BRIGHTNESS` | `L` | event | 0x4581ab |
 | 34 | `SET_SOURCEPOLY_MATERIAL` | `M` | event | 0x458140 |
@@ -156,12 +156,12 @@ then-ветки**, а не разделителем после неё (прим�
 | 37 | `PLAY_SAMPLE_AT_SOURCE` | `NVLL` | event | 0x457dbb |
 | 38 | `PLAY_FRAME_LOOP_SAMPLE_AT_SOURCE` | `LENVL` | event | 0x457df4 |
 | 39 | `REMOVE_SOURCE_ITEM` | `` | event | 0x457bc0 |
-| 40 | `SET_HANDLESECTOR_MOVEMENT` | `ELLLAAA` | event | 0x45829b |
-| 41 | `SET_HANDLESECTOR_BRIGHTNESS` | `EL` | event | 0x4583a6 |
-| 42 | `SET_HANDLESECTOR_TYPE` | `EL` | event | 0x458429 |
-| 43 | `SET_HANDLESECTOR_DAMAGE` | `EL` | event | 0x458486 |
-| 44 | `SET_HANDLESECTOR_FLAGS` | `EL` | event | 0x4584e7 |
-| 45 | `SET_HANDLESECTOR_SOUND` | `ENVD` | event | 0x45833a |
+| 40 | `SET_HANDLESECTOR_MOVEMENT` | `ELLLAAA` | SECTOR_STUFF (h_sector; source/handle index) | 0x45829b |
+| 41 | `SET_HANDLESECTOR_BRIGHTNESS` | `EL` | SECTOR_STUFF (h_sector; source/handle index) | 0x4583a6 |
+| 42 | `SET_HANDLESECTOR_TYPE` | `EL` | SECTOR_STUFF (h_sector; source/handle index) | 0x458429 |
+| 43 | `SET_HANDLESECTOR_DAMAGE` | `EL` | SECTOR_STUFF (h_sector; source/handle index) | 0x458486 |
+| 44 | `SET_HANDLESECTOR_FLAGS` | `EL` | SECTOR_STUFF (h_sector; source/handle index) | 0x4584e7 |
+| 45 | `SET_HANDLESECTOR_SOUND` | `ENVD` | SECTOR_STUFF (h_sector; source/handle index) | 0x45833a |
 | 46 | `SET_HANDLEPOLY_TEXTURE` | `LT` | event | 0x45853a |
 | 47 | `SET_HANDLEPOLY_BRIGHTNESS` | `LL` | event | 0x4586d5 |
 | 48 | `SET_HANDLEPOLY_SCROLL` | `LLLLL` | event | 0x4587a1 |

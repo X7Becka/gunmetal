@@ -64,6 +64,8 @@ tools/re/             инструментарий реверса exe (PE-кар
 tools/re/gmcache.py   постоянный кэш: листинг+индекс, копия exe, зеркало игры
 tools/ctx.py          точечные срезы документации (doc/addr/find/outline/task)
 docs/RE_METHOD.md     методика реверса: доказательства, скорость, бюджет контекста
+docs/REGRESSION.md    слои проверок, бюджеты времени, практики и known gaps
+docs/TOOLING.md       инструменты помимо Ghidra: отладчики, LE/LX, diffs, эмуляция
 docs/INDEX.md         карта документации (генерируется tools/ctx.py index)
 tools/fuzz_formats.py фазз-матрица парсеров (пустые/битые/мутированные файлы)
 tools/parity_sou2.py  Python↔C++ паритет SOU2 (--fast/--quick/полный архив)

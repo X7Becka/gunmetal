@@ -52,11 +52,10 @@ LEGACY_IDX = ("ammo.idx",)
 HUD_FAMILIES = ("weapon", "ammo", "tank", "shield", "equip", "default")
 
 
-def fnv1a(data: bytes) -> int:
-    h = 0x811C9DC5
-    for b in data:
-        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
-    return h
+def crc32(data: bytes) -> int:
+    """Fast checksum for the report (zlib's C loop; FNV here cost 17 s)."""
+    import zlib
+    return zlib.crc32(data) & 0xFFFFFFFF
 
 
 def films(game: str) -> list[str]:
@@ -148,12 +147,13 @@ def main(argv: list[str] | None = None) -> int:
             continue
         total_tiles += len(film)
         total_bytes += len(raw)
-        if film.to_bytes() != raw or fnv1a(film.to_bytes()) != fnv1a(raw):
+        rebuilt = film.to_bytes()
+        if rebuilt != raw:
             bad.append((os.path.basename(path), "round-trip mismatch"))
         if not opts.json:
-            print("     %-14s %4d tiles  %8d B  FNV %08x -> %08x"
+            print("     %-14s %4d tiles  %8d B  CRC %08x -> %08x"
                   % (os.path.basename(path), len(film), len(raw),
-                     fnv1a(raw), fnv1a(film.to_bytes())))
+                     crc32(raw), crc32(rebuilt)))
     add("all .sof round-trip byte-exactly", not bad,
         "%d films, %d tiles, %d B%s"
         % (len(paths) - len(bad), total_tiles, total_bytes,

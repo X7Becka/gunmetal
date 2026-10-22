@@ -287,53 +287,73 @@ def do_cmdtable():
 # corpus sweep
 
 
+def _sweep_level(job):
+    """Worker: run every picked block of one level (picklable job)."""
+    path, args = job
+    _f, script = load_script(path)
+    picks = select_scripts(script, "all" if args.corpus_all else "main")
+    modes = [(None, None)]
+    if args.contexts == "all":
+        modes = [(gm, pt) for gm in (0, 1) for pt in (0, 1, 2, 3)]
+    merged = vm.Scene()
+    blocks_done = blocks_all_done = blocks_end = 0
+    reasons = collections.Counter()
+    cmd_counts = collections.Counter()
+    cond_counts = collections.Counter()
+    for game_mode, playertype in modes:
+        ex = make_executor(script, args, playertype=playertype,
+                           game_mode=game_mode, follow=False)
+        for eid, off in picks:
+            rs = ex.run(off, source_entity=eid)
+            blocks_done += 1
+            for op, n in ex.command_counts.items():
+                cmd_counts[sbtvm.COMMANDS.get(op, ("OP_%d" % op, ""))[0]] += n
+            cond_counts.update(ex.condition_counts)
+            ex.command_counts.clear()
+            ex.condition_counts.clear()
+            if all(r.reason in (vm.END, vm.PROGRAM_EXIT,
+                                vm.LEVEL_TRANSITION) for r in rs):
+                blocks_all_done += 1
+            if any(r.reason == vm.END for r in rs):
+                blocks_end += 1
+            reasons.update(r.reason for r in rs)
+            merged.extend(vm.merge_scenes(rs))
+    merged = _collapse(merged)
+    row = {
+        "level": os.path.basename(path)[:-4],
+        "blocks": blocks_done,
+        "blocks_ended": blocks_all_done,
+        "blocks_end": blocks_end,
+        "paths": sum(reasons.values()),
+        "reasons": dict(reasons),
+        "counts": merged.counts(),
+    }
+    if args.compare:
+        row.update(compare_level(_f, script, merged, args))
+    return row, dict(cmd_counts), dict(cond_counts)
+
+
 def sweep(paths, args):
+    """Run the corpus, one process per level (the scene decode dominates)."""
     report = []
     totals = collections.Counter()
     cmd_totals = collections.Counter()
     cond_totals = collections.Counter()
     t0 = time.monotonic()
-    for path in paths:
-        _f, script = load_script(path)
-        picks = select_scripts(script, "all" if args.corpus_all else "main")
-        modes = [(None, None)]
-        if args.contexts == "all":
-            modes = [(gm, pt) for gm in (0, 1) for pt in (0, 1, 2, 3)]
-        merged = vm.Scene()
-        blocks_done = blocks_all_done = blocks_end = 0
-        reasons = collections.Counter()
-        for game_mode, playertype in modes:
-            ex = make_executor(script, args, playertype=playertype,
-                               game_mode=game_mode, follow=False)
-            for eid, off in picks:
-                rs = ex.run(off, source_entity=eid)
-                blocks_done += 1
-                for op, n in ex.command_counts.items():
-                    cmd_totals[sbtvm.COMMANDS.get(op, ("OP_%d" % op, ""))[0]] += n
-                cond_totals.update(ex.condition_counts)
-                ex.command_counts.clear()
-                ex.condition_counts.clear()
-                if all(r.reason in (vm.END, vm.PROGRAM_EXIT,
-                                    vm.LEVEL_TRANSITION) for r in rs):
-                    blocks_all_done += 1
-                if any(r.reason == vm.END for r in rs):
-                    blocks_end += 1
-                reasons.update(r.reason for r in rs)
-                merged.extend(vm.merge_scenes(rs))
-        merged = _collapse(merged)
-        row = {
-            "level": os.path.basename(path)[:-4],
-            "blocks": blocks_done,
-            "blocks_ended": blocks_all_done,
-            "blocks_end": blocks_end,
-            "paths": sum(reasons.values()),
-            "reasons": dict(reasons),
-            "counts": merged.counts(),
-        }
-        if args.compare:
-            row.update(compare_level(_f, script, merged, args))
+    jobs = [(path, args) for path in paths]
+    workers = min(len(jobs), int(os.environ.get("GM_JOBS", "0")) or 16,
+                  os.cpu_count() or 1)
+    if workers > 1 and len(jobs) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(_sweep_level, jobs))
+    else:
+        results = [_sweep_level(job) for job in jobs]
+    for row, cmd_counts, cond_counts in results:
         report.append(row)
-        totals.update({k: v for k, v in row["counts"].items()})
+        totals.update(row["counts"])
+        cmd_totals.update(cmd_counts)
+        cond_totals.update(cond_counts)
     seconds = time.monotonic() - t0
     return report, totals, seconds, cmd_totals, cond_totals
 

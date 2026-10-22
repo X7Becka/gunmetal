@@ -20,8 +20,8 @@
 | `docs/COLLIDE.md` | 25 | 10 | Gunmetal — примитивы коллизий `.sbw` |
 | `docs/CONFIG.md` | 28 | 241 | `GUNMETAL.CFG` / `CONTROLS.CFG` — карта полей |
 | `docs/CONTROLS_CPP.md` | 13 | 19 | `input/controls.h` — `.key` profiles and controller config |
-| `docs/DOORS_CPP.md` | 38 | 61 | Gunmetal — C++-модель дверей, переключателей и лифтов |
-| `docs/DOOR_FIELDS.md` | 45 | 417 | Поля дверей, переключателей и лифтов (M2.3.4) |
+| `docs/DOORS_CPP.md` | 40 | 72 | Gunmetal — C++-модель дверей, переключателей и лифтов |
+| `docs/DOOR_FIELDS.md` | 45 | 418 | Поля дверей, переключателей и лифтов (M2.3.4) |
 | `docs/ENTITY_FIELDS.md` | 37 | 262 | Скриптовая таблица сущностей (`0x5b0df0`, `0x5e4680`, `0x616658`): карта (M2.3.6) |
 | `docs/EVENTS.md` | 24 | 91 | Event queue and `GENERATE` events |
 | `docs/FILM.md` | 27 | 107 | HUD-фильмы `.sof` / `.fdx` — формат, привязка, паритет |
@@ -44,9 +44,10 @@
 | `docs/PLAYER_FIELDS.md` | 52 | 1483 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
-| `docs/RECORDS.md` | 31 | 236 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
+| `docs/RECORDS.md` | 32 | 243 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
+| `docs/REGRESSION.md` | 7 | 1 | Регрессия: ворота, бюджет времени и практики |
 | `docs/RENDER.md` | 5 | 0 | Рендерер C++: конвейер и паритет с `gm/render.py` |
-| `docs/RE_METHOD.md` | 13 | 7 | Методика реверса `gunmetal-re` |
+| `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
 | `docs/RNG.md` | 7 | 41 | RNG: `rand()` оригинала, сид и потребители |
 | `docs/RUNTIME_CPP.md` | 35 | 5 | Gunmetal — C++-каркас фиксированного тика (`GameRuntime`) |
 | `docs/SANITIZERS.md` | 1 | 0 | Sanitizers (ASan/UBSan) |
@@ -79,6 +80,7 @@
 | `docs/THINGS_CPP.md` | 23 | 12 | Gunmetal — C++-runtime вещей (`Thing`) |
 | `docs/THING_FIELDS.md` | 51 | 436 | Thing type (`0x776d60`) и thing instance (`0x7ac080`): карта полей (M2.3.3) |
 | `docs/TOOLCHAIN.md` | 2 | 1 | Инструменты и версии |
+| `docs/TOOLING.md` | 8 | 2 | Инструменты помимо Ghidra: что брать и зачем |
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |
 | `docs/VM_CPP.md` | 16 | 11 | C++-исполнение SCRIPT-VM (`vm_exec.h` / `vm_exec.cpp`) |
 | `docs/VM_EXEC.md` | 45 | 436 | Исполнение SCRIPT-VM (`.sbt`, запись 11) — прототип |

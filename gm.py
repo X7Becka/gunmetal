@@ -417,6 +417,35 @@ def cmd_frontend(opts) -> int:
     return 0
 
 
+def _sbc_convert_one(job):
+    """Worker: parse one ``.sbc`` and write its PNG set (picklable)."""
+    import types
+    p, rel, out, check, rebuild, force = job
+    fake = types.SimpleNamespace(force=force)
+    try:
+        blob = sbc.parse_file(p)
+        if rebuild:
+            dst = os.path.join(rebuild, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with _wopen(dst, fake) as f:
+                f.write(blob.to_bytes())
+        written = 0
+        if not check:
+            base = os.path.join(out, os.path.splitext(rel)[0])
+            os.makedirs(base, exist_ok=True)
+            for i, rec in enumerate(blob.records):
+                with _wopen(os.path.join(
+                        base, f"{i:04d}_{rec.width}x{rec.height}.png"), fake) as f:
+                    f.write(rec.to_png())
+                written += 1
+            with _wopen(os.path.join(base, "_sheet.png"), fake) as f:
+                f.write(_sbc_sheet(blob))
+                written += 1
+        return rel, True, "", written
+    except (ValueError, OSError) as exc:
+        return rel, False, str(exc), 0
+
+
 def cmd_sbc(opts) -> int:
     paths = list(_iter_with_rel(opts.paths, ".sbc"))
     paths.sort()
@@ -426,29 +455,27 @@ def cmd_sbc(opts) -> int:
 
     if not opts.check:
         os.makedirs(opts.out, exist_ok=True)
+    jobs = [(p, rel, opts.out, opts.check, opts.rebuild,
+             getattr(opts, "force", False)) for p, rel in paths]
     ok = bad = 0
-    for p, rel in paths:
-        stem = os.path.splitext(rel)[0]
-        try:
-            blob = sbc.parse_file(p)
-        except ValueError as exc:
+    # Lightmap PNG encoding dominates a full dump (36 files, ~25 s serial);
+    # the files are independent, so fan out.  Parsing only (--check) is cheap.
+    workers = 0
+    if not opts.check and len(jobs) > 1:
+        workers = min(len(jobs), int(os.environ.get("GM_JOBS", "0")) or 16,
+                      os.cpu_count() or 1)
+    if workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            rows = list(pool.map(_sbc_convert_one, jobs))
+    else:
+        rows = [_sbc_convert_one(job) for job in jobs]
+    for rel, good, err, _written in rows:
+        if good:
+            ok += 1
+        else:
             bad += 1
-            print(f"  FAIL {p}: {exc}", file=sys.stderr)
-            continue
-        if opts.rebuild:
-            dst = os.path.join(opts.rebuild, rel)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            with _wopen(dst, opts) as f:
-                f.write(blob.to_bytes())
-        if not opts.check:
-            out = os.path.join(opts.out, stem)
-            os.makedirs(out, exist_ok=True)
-            for i, rec in enumerate(blob.records):
-                with _wopen(os.path.join(out, f"{i:04d}_{rec.width}x{rec.height}.png"), opts) as f:
-                    f.write(rec.to_png())
-            with _wopen(os.path.join(out, "_sheet.png"), opts) as f:
-                f.write(_sbc_sheet(blob))
-        ok += 1
+            print(f"  FAIL {rel}: {err}", file=sys.stderr)
     print(f"sbc: {ok} files, {bad} failed -> "
           f"{'(parsed only)' if opts.check else opts.out}")
     return 0 if bad == 0 else 1

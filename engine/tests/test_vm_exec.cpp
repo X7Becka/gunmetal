@@ -809,6 +809,182 @@ bool same_slot(const gm::VmSectorSlot& a, const gm::VmSectorSlot& b) {
            a.sound_count == b.sound_count && a.flags == b.flags;
 }
 
+void test_sector_source_and_handles() {
+    // SET_SOURCESECTOR_* (cids 0x1b..0x1f) address SECTOR_STUFF through the
+    // implicit source sector (`edi` = the third argument of 0x457390), and
+    // SET_HANDLESECTOR_* (0x28..0x2d) through the handle table
+    // 0x5b1df8/0x617fb8 (count 0x5e3de0, at most 0x100).
+    struct SigCase {
+        const char* name;
+        std::size_t bytes; // operand bytes, opcode excluded
+    };
+    for (const SigCase& item : {SigCase{"SET_SOURCESECTOR_MOVEMENT", 0x24},
+                                SigCase{"SET_SOURCESECTOR_BRIGHTNESS", 0x4},
+                                SigCase{"SET_SOURCESECTOR_FLAGS", 0x4},
+                                SigCase{"SET_SOURCESECTOR_TYPE", 0x4},
+                                SigCase{"SET_SOURCESECTOR_DAMAGE", 0x4},
+                                SigCase{"SET_HANDLESECTOR_MOVEMENT", 0x28},
+                                SigCase{"SET_HANDLESECTOR_BRIGHTNESS", 0x8},
+                                SigCase{"SET_HANDLESECTOR_TYPE", 0x8},
+                                SigCase{"SET_HANDLESECTOR_DAMAGE", 0x8},
+                                SigCase{"SET_HANDLESECTOR_FLAGS", 0x8},
+                                SigCase{"SET_HANDLESECTOR_SOUND", 0x14}}) {
+        const auto info = gm::vm_command_info(item.name);
+        CHECK(info.has_value());
+        if (info) {
+            Bytes code;
+            code.push_back(info->op);
+            for (std::size_t k = 0; k < item.bytes; ++k) {
+                code.push_back(0);
+            }
+            std::string error;
+            const auto insn = gm::vm_decode_at(code, 0, error);
+            CHECK(insn.has_value());
+            if (insn) {
+                CHECK_EQ(insn->next, 1 + item.bytes);
+            }
+        }
+    }
+
+    // 1. The source sector replaces the sector operand: 0x457fc6 never reads
+    // one, it writes 0x800b60 + edi*0x58.
+    {
+        gm::VmState state;
+        state.source_sector = 7;
+        Bytes code;
+        cmd(code, "SET_SOURCESECTOR_MOVEMENT",
+            {u(7), u(-3), u(2), d(1.5), d(-0.0), d(4096.5)});
+        code.push_back(0xFF);
+        const auto results = run_state(state, code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const gm::VmSectorSlot& slot = results[0].state.sectors[7];
+            CHECK_EQ(slot.move[0], 7.0);
+            CHECK_EQ(slot.move[1], -3.0);
+            CHECK_EQ(slot.move[2], 2.0);
+            CHECK_EQ(dbits(slot.extra[0]), dbits(1.5));
+            CHECK_EQ(dbits(slot.extra[1]), dbits(-0.0));
+            CHECK_EQ(dbits(slot.extra[2]), dbits(4096.5));
+            for (std::size_t i = 0; i < results[0].state.sectors.size(); ++i) {
+                if (i != 7) {
+                    CHECK(same_slot(results[0].state.sectors[i], gm::VmSectorSlot{}));
+                }
+            }
+            CHECK(results[0].state.source_sector == 7); // context is preserved
+        }
+    }
+
+    // 2. No source sector (-1) is the original's `edi < 0` error path.
+    {
+        Bytes code;
+        cmd(code, "SET_SOURCESECTOR_FLAGS", {u(0x1234)});
+        code.push_back(0xFF);
+        const auto results = run_state(gm::VmState{}, code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            CHECK_EQ(results[0].state.sectors[0].flags, 0u);
+        }
+    }
+
+    // 3. FLAGS and DAMAGE write the same fields as their SET_SECTOR twins.
+    {
+        gm::VmState state;
+        state.source_sector = 5;
+        Bytes code;
+        cmd(code, "SET_SOURCESECTOR_FLAGS", {u(0x8001)});
+        cmd(code, "SET_SOURCESECTOR_DAMAGE", {u(-2)}); // 0xfffffffe
+        code.push_back(0xFF);
+        const auto results = run_state(state, code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const gm::VmSectorSlot& slot = results[0].state.sectors[5];
+            CHECK_EQ(slot.flags, 0x8001u);
+            CHECK_EQ(slot.damage_a, 0xfffeu);
+            CHECK_EQ(slot.damage_b, -1);
+        }
+    }
+
+    // 4. BRIGHTNESS/TYPE do not touch the array (they write the .sbw sector
+    // record through 0x42d8a5/0x42d9d5).
+    {
+        gm::VmState state;
+        state.source_sector = 9;
+        Bytes code;
+        cmd(code, "SET_SOURCESECTOR_BRIGHTNESS", {u(200)});
+        cmd(code, "SET_SOURCESECTOR_TYPE", {u(3)});
+        code.push_back(0xFF);
+        const auto results = run_state(state, code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            CHECK(same_slot(results[0].state.sectors[9], gm::VmSectorSlot{}));
+        }
+    }
+
+    // 5. Handle table: first match wins, unknown handles are a no-op.
+    {
+        gm::VmState state;
+        state.sector_handles = {{42, 9}, {43, 200}, {42, 11}};
+        CHECK(state.sector_of_handle(42).value_or(-1) == 9); // 0x4582b3 scans in order
+        CHECK(state.sector_of_handle(43).value_or(-1) == 200);
+        CHECK(!state.sector_of_handle(44).has_value());
+
+        Bytes code;
+        cmd(code, "SET_HANDLESECTOR_MOVEMENT",
+            {u(42), u(1), u(2), u(3), d(0.5), d(0.25), d(-4.0)});
+        cmd(code, "SET_HANDLESECTOR_FLAGS", {u(42), u(0xabc)});
+        cmd(code, "SET_HANDLESECTOR_DAMAGE", {u(43), u(0x0003fffe)});
+        cmd(code, "SET_HANDLESECTOR_SOUND", {u(43), u(130), u(10), d(0.03)});
+        cmd(code, "SET_HANDLESECTOR_FLAGS", {u(99), u(0xffff)}); // unknown
+        code.push_back(0xFF);
+        const auto results = run_state(state, code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const gm::VmSectorSlot& nine = results[0].state.sectors[9];
+            CHECK_EQ(nine.move[0], 1.0);
+            CHECK_EQ(nine.move[1], 2.0);
+            CHECK_EQ(nine.move[2], 3.0);
+            CHECK_EQ(dbits(nine.extra[0]), dbits(0.5));
+            CHECK_EQ(dbits(nine.extra[1]), dbits(0.25));
+            CHECK_EQ(dbits(nine.extra[2]), dbits(-4.0));
+            CHECK_EQ(nine.flags, 0xabcu);
+            const gm::VmSectorSlot& two_hundred = results[0].state.sectors[200];
+            CHECK_EQ(two_hundred.damage_a, 0xfffeu);
+            CHECK_EQ(two_hundred.damage_b, 3);
+            CHECK_EQ(two_hundred.sound, 130);
+            CHECK_EQ(two_hundred.sound_count, 10);
+            CHECK_EQ(dbits(two_hundred.sound_param), dbits(0.03));
+            // The duplicate handle's second row is never used.
+            CHECK(same_slot(results[0].state.sectors[11], gm::VmSectorSlot{}));
+        }
+    }
+
+    // 6. Handle parser: `SECTOR_HANDLE: <ld> <ld>` (0x4b9888), per line, up to
+    //    0x100 entries; other record types and bad lines are skipped.
+    {
+        gm::VmState state;
+        const std::string text =
+            "POLY_HANDLE: 1 2 3\n"
+            "SECTOR_HANDLE: 700 12\n"
+            "SECTOR_HANDLE: -5 13\n"
+            "SECTOR_HANDLE: garbage\n"
+            "OBJECT_HANDLE: 9 9\n"
+            "SECTOR_HANDLE: 701 14";
+        CHECK_EQ(gm::vm_load_sector_handles(state, text), std::size_t{3});
+        CHECK_EQ(state.sector_handles.size(), std::size_t{3});
+        CHECK(state.sector_of_handle(700).value_or(-1) == 12);
+        CHECK(state.sector_of_handle(-5).value_or(-1) == 13);
+        CHECK(state.sector_of_handle(701).value_or(-1) == 14);
+
+        gm::VmState many;
+        std::string bulk;
+        for (int i = 0; i < 300; ++i) {
+            bulk += "SECTOR_HANDLE: " + std::to_string(i) + " " + std::to_string(i + 1) + "\n";
+        }
+        CHECK_EQ(gm::vm_load_sector_handles(many, bulk), std::size_t{0x100});
+        CHECK_EQ(many.sector_handles.size(), std::size_t{0x100});
+    }
+}
+
 void test_sector_stuff() {
     // Operand signatures and sizes: the handlers consume exactly these bytes
     // (0x457815 advances 0x28, 0x457961/0x457929 0x8, 0x4579ab 0xc,
@@ -1410,6 +1586,7 @@ int main(int argc, char** argv) {
 
     test_synthetic();
     test_sector_stuff();
+    test_sector_source_and_handles();
     test_entity_rows();
     test_sleep_table();
 

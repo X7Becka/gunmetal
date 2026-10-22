@@ -422,6 +422,28 @@ struct VmState {
     /// like loader 0x46b1b0 followed by a no-op 0x46b7b0.
     std::array<VmSectorSlot, kSbtSectorSlots> sectors{};
 
+    /// Sector the running script was triggered from: the third argument of
+    /// ``0x457390`` (``[ebp+0x10]`` at ``0x4573ab``), which the dispatcher
+    /// keeps in ``edi`` for the whole call.  ``SET_SOURCESECTOR_*``
+    /// (cids 27..31 / ``0x1b..0x1f``) use it as the SECTOR_STUFF index instead
+    /// of a sector operand (``0x457fef`` writes ``0x800b60 + edi*0x58``).  In
+    /// the engine the value comes from the event that generated the script
+    /// (the ``param`` field of the record, which for doors is the sector);
+    /// ``-1`` is the original's ``edi < 0`` error path.
+    int source_sector = -1;
+
+    /// SECTOR_STUFF "sector handles": the runtime table ``0x5b1df8`` (handle
+    /// id) / ``0x617fb8`` (sector), count ``0x5e3de0``, at most ``0x100``
+    /// entries.  It is **not** built from a level: ``0x456f50`` only clears the
+    /// count and ``0x463820`` appends one pair per ``SECTOR_HANDLE: <h> <s>``
+    /// line loaded from a text source, so the shipped levels start empty and
+    /// ``SET_HANDLESECTOR_*`` (cids 40..45) find nothing until this is filled.
+    std::vector<std::pair<int, int>> sector_handles;
+
+    /// Sector for *handle* (first match, as ``0x4582b3`` scans the arrays in
+    /// order), or ``nullopt`` when the handle is not registered.
+    std::optional<int> sector_of_handle(int handle) const;
+
     std::vector<VmStackFrame> stack;
     std::vector<std::size_t> active;
 
@@ -464,6 +486,14 @@ struct VmContext {
 /// State for a ``.sbt`` level: players plus the entity table
 /// (``n`` rows of flags/id/offset, ``gm.scene.entities``).
 VmState vm_state_from_level(const SbtLevel& level, const VmContext& context = {});
+
+/// Parse ``SECTOR_HANDLE: <handle> <sector>`` lines into
+/// ``state.sector_handles``.  The format string is
+/// ``s_SECTOR_HANDLE__ld__ld`` (``0x4b9888``, used by ``0x4638a0``); the reader
+/// ``0x463820`` appends one pair per line and enforces the 0x100 limit.  A line
+/// with a different prefix, a short line or a non-numeric field is skipped (the
+/// original prints an error per bad line and keeps the previous pairs).
+std::size_t vm_load_sector_handles(VmState& state, std::string_view text);
 
 /// Seed the SECTOR_STUFF view of *state* from a parsed block 8 / record 8.
 ///

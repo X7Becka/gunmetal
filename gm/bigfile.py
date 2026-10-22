@@ -66,6 +66,8 @@ class BigFile:
         if not os.path.exists(self.dat_path):
             self.dat_path = os.path.splitext(idx_path)[0] + ".dat"
 
+        self._fh = None          # lazy DAT handle: 4091 reads used to mean
+                                 # 4091 open() calls (~6.5 s on /mnt/d)
         idx = open(idx_path, "rb").read()
         if len(idx) < 12 or idx[: len(MAGIC)] != MAGIC:
             raise ValueError(f"{idx_path}: not a BIGFILE index")
@@ -116,13 +118,37 @@ class BigFile:
         if entry.offset + entry.size > self.dat_size:
             raise ValueError(f"entry {entry.name!r} runs past EOF: "
                              f"{entry.offset}+{entry.size} > {self.dat_size}")
-        with open(self.dat_path, "rb") as f:
-            f.seek(entry.offset)
-            blob = f.read(entry.size)
+        f = self._handle()
+        f.seek(entry.offset)
+        blob = f.read(entry.size)
         if len(blob) != entry.size:
             raise ValueError(f"short read for {entry.name!r}: "
                              f"{len(blob)} of {entry.size} bytes")
         return blob
+
+    def _handle(self):
+        """One lazily-opened DAT handle for all reads (sequential seeks)."""
+        if self._fh is None:
+            self._fh = open(self.dat_path, "rb")
+        return self._fh
+
+    def close(self) -> None:
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def extract_all(self, outdir: str, suffix: str = ".bin", on_entry=None) -> int:
         os.makedirs(outdir, exist_ok=True)

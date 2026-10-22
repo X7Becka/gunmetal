@@ -1206,6 +1206,64 @@ std::size_t vm_stop_sleeping(VmState& state, std::uint32_t handle) {
     return freed;
 }
 
+std::optional<int> VmState::sector_of_handle(int handle) const {
+    for (const auto& [registered, sector] : sector_handles) {
+        if (registered == handle) {
+            return sector;
+        }
+    }
+    return std::nullopt;
+}
+
+std::size_t vm_load_sector_handles(VmState& state, std::string_view text) {
+    std::size_t added = 0;
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const std::size_t end = text.find('\n', start);
+        const std::string_view line =
+            text.substr(start, end == std::string_view::npos ? std::string_view::npos
+                                                             : end - start);
+        start = (end == std::string_view::npos) ? text.size() + 1 : end + 1;
+        const std::size_t colon = line.find(':');
+        const std::string_view key = line.substr(0, colon);
+        if (key.find("SECTOR_HANDLE") == std::string_view::npos) {
+            continue;
+        }
+        if (state.sector_handles.size() >= 0x100) {
+            break; // 0x463820: "Maximum number of sector handles (256)"
+        }
+        const std::string_view rest =
+            colon == std::string_view::npos ? std::string_view{} : line.substr(colon + 1);
+        long values[2] = {0, 0};
+        std::size_t cursor = 0;
+        bool ok = true;
+        for (long& value : values) {
+            while (cursor < rest.size() && (rest[cursor] == ' ' || rest[cursor] == '\t')) {
+                ++cursor;
+            }
+            if (cursor >= rest.size()) {
+                ok = false;
+                break;
+            }
+            char* stop = nullptr;
+            const std::string field(rest.substr(cursor));
+            value = std::strtol(field.c_str(), &stop, 10);
+            if (stop == field.c_str()) {
+                ok = false;
+                break;
+            }
+            cursor += static_cast<std::size_t>(stop - field.c_str());
+        }
+        if (!ok) {
+            continue;
+        }
+        state.sector_handles.emplace_back(static_cast<int>(values[0]),
+                                          static_cast<int>(values[1]));
+        ++added;
+    }
+    return added;
+}
+
 void vm_load_sector_stuff(VmState& state, std::span<const SbtSectorSlot> slots) {
     state.sectors = {};
     const std::size_t n = std::min(slots.size(), state.sectors.size());
@@ -1341,6 +1399,19 @@ void VmExecutor::install_handlers() {
     set("SET_SECTOR_SOUND", &VmExecutor::h_sector);
     set("SET_SECTOR_EVENTS", &VmExecutor::h_sector);
     set("SET_SECTOR_FLAGS", &VmExecutor::h_sector);
+    // Same array addressed through the implicit source sector (edi) or a
+    // sector handle (0x5b1df8/0x617fb8); brightness/type stay plain events.
+    for (const char* name : {"SET_SOURCESECTOR_MOVEMENT", "SET_SOURCESECTOR_FLAGS",
+                             "SET_SOURCESECTOR_DAMAGE", "SET_SOURCESECTOR_BRIGHTNESS",
+                             "SET_SOURCESECTOR_TYPE", "SET_HANDLESECTOR_MOVEMENT",
+                             "SET_HANDLESECTOR_FLAGS", "SET_HANDLESECTOR_DAMAGE",
+                             "SET_HANDLESECTOR_SOUND", "SET_HANDLESECTOR_BRIGHTNESS",
+                             "SET_HANDLESECTOR_TYPE"}) {
+        const auto info = vm_command_info(name);
+        if (info.has_value()) {
+            handlers_[info->op] = &VmExecutor::h_sector;
+        }
+    }
     set("SOURCEPLAYER_KILL", &VmExecutor::h_kill);
 
     for (const auto& def : kCommands) {
@@ -2275,6 +2346,14 @@ std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& in
     case 11: case 14: wanted = 2; break;     // LL: index + value
     case 12: wanted = 4; break;              // LVND: index + V + N + D
     case 13: wanted = 3; break;              // LEE: index + two events
+    // SET_SOURCESECTOR_* (0x1b..0x1f): the sector is the implicit source
+    // sector in `edi`, so the operand list starts with the value.
+    case 0x1b: wanted = 6; break;            // LLLAAA
+    case 0x1c: case 0x1d: case 0x1e: case 0x1f: wanted = 1; break;
+    // SET_HANDLESECTOR_* (0x28..0x2d): first operand is the handle.
+    case 0x28: wanted = 7; break;            // ELLLAAA
+    case 0x29: case 0x2a: case 0x2b: case 0x2c: wanted = 2; break;
+    case 0x2d: wanted = 4; break;            // ENVD
     default: break;
     }
     if (args.size() < wanted) {
@@ -2283,7 +2362,46 @@ std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& in
         return std::nullopt;
     }
 
-    const int index = arg_i32(args[0]);
+    // Which SECTOR_STUFF slot the command addresses:
+    //   SET_SECTOR_*        operand 1 (0x457815 reads it into eax),
+    //   SET_SOURCESECTOR_*  edi = the sector the script was triggered from
+    //                       (0x457fc6 tests it but never reads an operand),
+    //   SET_HANDLESECTOR_*  operand 1 is a handle: the handler scans
+    //                       0x5b1df8[0..0x5e3de0) and takes 0x617fb8[i]
+    //                       (0x45829e..0x45832d).
+    std::size_t first_value = 1;
+    int index = -1;
+    switch (insn.op) {
+    case 0x1b: case 0x1c: case 0x1d: case 0x1e: case 0x1f:
+        index = state.source_sector;
+        first_value = 0;
+        break;
+    case 0x28: case 0x29: case 0x2a: case 0x2b: case 0x2c: case 0x2d: {
+        const int handle = arg_i32(args[0]);
+        const std::optional<int> sector = state.sector_of_handle(handle);
+        if (!sector.has_value()) {
+            // 0x45832f/0x45899a: the operands are consumed and the command is
+            // a no-op for a handle that is not in the table.
+            event(state, insn);
+            note(insn.name + " at " + hexs(insn.pc) + ": handle " +
+                 std::to_string(handle) + " is not registered");
+            return std::nullopt;
+        }
+        index = *sector;
+        break;
+    }
+    default:
+        index = arg_i32(args[0]);
+        break;
+    }
+    // 0x4578d6 (brightness) and 0x457a1c (type) do not touch the array at
+    // all: they write the .sbw sector record (0x42d8a5 +0x16, 0x42d9d5 +0x14).
+    if (insn.op == 0x1c || insn.op == 0x1e || insn.op == 0x29 || insn.op == 0x2a) {
+        event(state, insn);
+        note(insn.name + " at " + hexs(insn.pc) +
+             ": writes the .sbw sector record, not SECTOR_STUFF");
+        return std::nullopt;
+    }
     if (index < 0 || index >= static_cast<int>(kSbtSectorSlots)) {
         // Original: movement/sound print an error, damage/flags/events consume
         // the operands and continue; none of them write out of bounds.
@@ -2295,29 +2413,37 @@ std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& in
     VmSectorSlot& slot = state.sectors[static_cast<std::size_t>(index)];
 
     switch (insn.op) {
-    case 8: // SET_SECTOR_MOVEMENT
+    case 8:  // SET_SECTOR_MOVEMENT
+    case 0x1b: // SET_SOURCESECTOR_MOVEMENT (0x457fc6, same body, edi = sector)
+    case 0x28: // SET_HANDLESECTOR_MOVEMENT (0x45829b, same body, handle)
         for (std::size_t k = 0; k < 3; ++k) {
-            slot.move[k] = static_cast<double>(arg_i32(args[1 + k]));
-            slot.extra[k] = arg_f64(args[4 + k]);
+            slot.move[k] = static_cast<double>(arg_i32(args[first_value + k]));
+            slot.extra[k] = arg_f64(args[first_value + 3 + k]);
         }
         break;
-    case 11: { // SET_SECTOR_DAMAGE: one operand split into +0x40/+0x44
-        const std::int32_t value = arg_i32(args[1]);
+    case 11:   // SET_SECTOR_DAMAGE: one operand split into +0x40/+0x44
+    case 0x1f: // SET_SOURCESECTOR_DAMAGE (0x4580cf)
+    case 0x2b: // SET_HANDLESECTOR_DAMAGE (0x458486)
+    {
+        const std::int32_t value = arg_i32(args[first_value]);
         slot.damage_a = static_cast<std::uint32_t>(value) & 0xffffu;
         slot.damage_b = value >> 16; // arithmetic shift, sign-extended
         break;
     }
-    case 12: // SET_SECTOR_SOUND: V -> +0x48, N -> +0x4c, D -> +0x30
-        slot.sound = arg_i32(args[1]);
-        slot.sound_count = arg_i32(args[2]);
-        slot.sound_param = arg_f64(args[3]);
+    case 12:   // SET_SECTOR_SOUND: V -> +0x48, N -> +0x4c, D -> +0x30
+    case 0x2d: // SET_HANDLESECTOR_SOUND (0x45833a, handle + V + N + D)
+        slot.sound = arg_i32(args[first_value]);
+        slot.sound_count = arg_i32(args[first_value + 1]);
+        slot.sound_param = arg_f64(args[first_value + 2]);
         break;
     case 13: // SET_SECTOR_EVENTS
-        slot.event_a = arg_i32(args[1]);
-        slot.event_b = arg_i32(args[2]);
+        slot.event_a = arg_i32(args[first_value]);
+        slot.event_b = arg_i32(args[first_value + 1]);
         break;
-    case 14: // SET_SECTOR_FLAGS
-        slot.flags = arg_u32(args[1]);
+    case 14:   // SET_SECTOR_FLAGS
+    case 0x1d: // SET_SOURCESECTOR_FLAGS (0x458111, edi = sector)
+    case 0x2c: // SET_HANDLESECTOR_FLAGS (0x4584e7, handle)
+        slot.flags = arg_u32(args[first_value]);
         break;
     default:
         break;
