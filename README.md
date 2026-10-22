@@ -69,7 +69,10 @@ docs/RE_METHOD.md     методика реверса: доказательст�
 docs/REGRESSION.md    слои проверок, бюджеты времени, практики и known gaps
 docs/TOOLING.md       инструменты помимо Ghidra: отладчики, LE/LX, diffs, эмуляция
 docs/INDEX.md         карта документации (генерируется tools/ctx.py index)
-tools/fuzz_formats.py фазз-матрица парсеров (пустые/битые/мутированные файлы)
+tools/fuzz_formats.py фазз-матрица парсеров (пустые/битые/мутированные файлы;
+                      --save/--replay/--seed — воспроизводимый корпус)
+tools/qa/fuzz_corpus.py  инспектор корпуса (digest, sha256, --replay/--json)
+tools/re/install_audit.py аудит установки по манифесту (swaps, --strict/--json)
 tools/parity_sou2.py  Python↔C++ паритет SOU2 (--fast/--quick/полный архив)
 tools/gen_sou2_table.py  извлечение gain-таблицы 0x852340 из sou2.cpp
 tools/re/render_sou2.py  SOU2 → WAV через настоящий 0x8534c0 (32000 Гц)

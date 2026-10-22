@@ -147,8 +147,8 @@ html/jpg/png, архивы) — они видны в `gm.py manifest --all`. Л�
 * `python3 regress.py` — **113/113** за **78,8 с** (установка на `/mnt/d`);
 * `python3 regress.py --mirror` — **113/113** за **45,7 с** (зеркало на `/dev/sdd`);
 * `python3 regress.py --full --mirror` — **122/122** за **70,6 с** холодным
-  кэшем и **63,6 с** тёплым (было 175,7 с);
-* `python3 regress.py --full --mirror` повторно — **122/122 за 63,6 с**
+  кэшем и **60,2 с** тёплым (было 175,7 с);
+* `python3 regress.py --full --mirror` повторно — **122/122 за 60,2 с**
   (5 попаданий в кэш чистых проверок; холодный прогон 70,6 с);
 * `python3 tools/re/gmcache.py selftest` — 98 сэмплов строк, 0 расхождений с
   сырым листингом (283 626 строк);
@@ -156,7 +156,9 @@ html/jpg/png, архивы) — они видны в `gm.py manifest --all`. Л�
   полный набор — **61/61** за **235 с** (`-j 8`). `core`/`camera_rig`/
   `sbtvm`/`vm`/`things_full` починены адресацией уровней по содержимому
   (`engine/tests/game_content.h`, `tools/re/game_content.py --check`:
-  `level1`↔`level2` `.sbt`/`.sbw` действительно переставлены).
+  переставлены три пары `level1`↔`level2` — `.sbc`/`.sbt`/`.sbw`; аудит
+  установки `tools/re/install_audit.py`: 2154 ok, 6 renamed, 0 missing/
+  modified/extra, `GUNMETAL.CFG` — volatile; 4,3 с на 8 потоках).
 
 Что изменилось и почему:
 

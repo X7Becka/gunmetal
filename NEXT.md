@@ -143,7 +143,7 @@
   совпал с `docs/manifests/sou1-fnv.json`, 0 расхождений).
 - **Кэш результатов.** С `--mirror` четыре чистые тяжёлые проверки
   (`sob_writer`, `sou_container`, VM-корпус, film parity) кэшируются по хэшу
-  исходников + digest зеркала + argv; повторный `--full` 106,9 → 79,8 → 63,6 с
+  исходников + digest зеркала + argv; повторный `--full` 106,9 → 79,8 → 60,2 с
   (`--json.cached`), падения не кэшируются.
 - **Тесты по содержимому.** `tools/re/game_content.py` (+ `engine/tests/
   game_content.h`, `game_path.h`): `.sbt`/`.sbw` резолвятся по FNV-1a64
@@ -151,6 +151,12 @@
   `level1`/`level2` больше не дают ложных падений (`core`/`camera_rig`/
   `sbtvm`/`vm` зелёные). `--check` фиксирует аномалию, `--write` обновляет
   таблицу детерминированно.
+- **Аудит установки.** `tools/re/install_audit.py`: 2161 игровой файл,
+  2154 ok, 6 renamed (3 пары `.sbc`/`.sbt`/`.sbw`), 0 missing/modified/extra,
+  `GUNMETAL.CFG` volatile; 4,3 с на 8 потоках, `--strict` → rc=2.
+- **Фазз-корпус.** `tools/fuzz_formats.py --save/--replay/--seed` + инспектор
+  `tools/qa/fuzz_corpus.py`: 552 кейса quick / 1224 полных, манифест с sha256
+  входов, детерминизм проверен (`docs/FUZZ_CORPUS.md`).
 - **Покрытие.** `tools/qa/coverage.py` (stdlib `trace`): быстрый набор — 41,8 %
   строк (`--full` — 47,7 %), тёмные места `render`/`sou1`/`sbv`/`png`/`sml`;
   `--json`, `--missing MODULE`, `--min` для гейта.

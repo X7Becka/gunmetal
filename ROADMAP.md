@@ -312,13 +312,17 @@ v1.0 и выполняется **последней, после `M12`** (реш�
       `gm.py sounds` 28,6 → 9,6 с (ProcessPool), `sou1_model --verify`
       983 записи ~10 мин → ~2 мин (`--jobs`, JSON сверен с манифестом);
       `regress.py --json` для CI; кэш результатов чистых проверок по хэшу
-      исходников и зеркала (повторный `--full` 106,9 → 63,6 с); тесты C++
+      исходников и зеркала (повторный `--full` 106,9 → 60,2 с); тесты C++
       адресуют `.sbt`/`.sbw` по содержимому (`engine/tests/game_content.h`,
       `tools/re/game_content.py`), поэтому переставленные в установке
       `level1`/`level2` больше не дают ложных падений (CTest quick 50/50,
       полный 61/61).
       Покрытие Python-оракула — `tools/qa/coverage.py` (быстрый набор
-      41,8 %, `--full` 47,7 %, `--missing`, `--min` для гейта).
+      41,8 %, `--full` 47,7 %, `--missing`, `--min` для гейта). Аудит
+      установки — `tools/re/install_audit.py` (2161 файл, 4,3 с; находит
+      все 6 переставленных `level1`↔`level2` и `GUNMETAL.CFG` как volatile);
+      фазз-корпус — `fuzz_formats.py --save/--replay/--seed`
+      (`docs/FUZZ_CORPUS.md`).
       Практики — `docs/REGRESSION.md`.
 
 ### Выход

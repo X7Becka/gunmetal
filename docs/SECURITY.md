@@ -65,13 +65,17 @@
 
 ## 4. Фаззинг и регрессия
 
+Корпус можно сохранить и воспроизвести: `--save DIR` + `--replay DIR`
+(`--seed` фиксирует данные, манифест — sha256 каждого входа; спецификация —
+`docs/FUZZ_CORPUS.md`).
+
 `tools/fuzz_formats.py` — матрица «пустой/обрезанный/мутированный/extreme
 header» для BIGFILE, `.sbv` (включая декодирование кадра), `.sbw`, `.sbt`,
 `.sbm`, `.sbc`, `.sof/.fdx`, `.soo`, `.soe`, `.soa` и `SOU1`:
 
 ```bash
-python3 tools/fuzz_formats.py --quick      # 545 кейсов, <2 с
-python3 tools/fuzz_formats.py              # 1184 кейса, ~2 с
+python3 tools/fuzz_formats.py --quick      # 552 кейса, <2 с
+python3 tools/fuzz_formats.py              # 1224 кейса, ~2 с
 python3 tools/fuzz_formats.py --game … --timeout 2
 ```
 
