@@ -5,8 +5,8 @@
 // 0/128/255 and additive saturation.  The real cases blit shipped `.sbm`
 // sprites from PICS/ and sprites/ over a deterministic RGB background and
 // compare the whole frame (including row padding) with FNV-1a64 goldens from
-// a temporary Python reference built on gm/render.py's sampler and gm's
-// archive/palette readers.  Negatives cover malformed targets, palettes,
+// tools/re/sprite_goldens.py, an independent Python reference built on gm's
+// archive/sbm/palette readers and gm/render.py's blend rules (docs/SPRITE_GOLDENS.md).  Negatives cover malformed targets, palettes,
 // sprites, scales and channels.  Goldens and limits: docs/SPRITE.md.
 
 #include <cstdint>
@@ -406,19 +406,19 @@ void real_cases(const std::vector<std::uint8_t>& palette, const fs::path& game) 
     };
     const auto cases = std::vector<Case>{
         {"real_aflm1_nearest", "sprites", "AFLM0001", 160, 120, 0,
-         {-10, -20, 1, false, false, 255, false, 0}, false, 0xa51c5882558f4e82ull},
+         {-10, -20, 1, false, false, 255, false, 0}, false, 0xe1dd81f7c485545dull},
         {"real_blam10_scale2_flip", "sprites", "BLAM0010", 200, 160, 0,
-         {17, 9, 2, true, false, 255, false, 0}, false, 0x0e3f29d51a3d7c2eull},
+         {17, 9, 2, true, false, 255, false, 0}, false, 0x37a5e83b138b99d9ull},
         {"real_expl1_scale3_flipy_alpha", "sprites", "EXPL0001", 210, 190, 0,
          {-25, 40, 3, false, true, 128, false, 0}, false, 0xfa29573b5ea595e6ull},
         {"real_baracuda_pics", "PICS", "BARACUDA", 128, 96, 13,
-         {-17, 3, 1, false, false, 255, false, 0}, false, 0x19120dfff9a726eaull},
+         {-17, 3, 1, false, false, 255, false, 0}, false, 0x769c0a2eedd8c160ull},
         {"real_aflm1_bilinear", "sprites", "AFLM0001", 160, 140, 0,
-         {5, 7, 2, false, true, 255, false, 0}, true, 0x980692a7aeb84e98ull},
+         {5, 7, 2, false, true, 255, false, 0}, true, 0x5ff64da11eabe488ull},
         {"real_expl1_additive", "sprites", "EXPL0001", 180, 150, 0,
          {11, 13, 2, false, false, 255, true, 0}, false, 0x7a2fc62d8ea9b0d2ull},
         {"real_blam1_bilinear_alpha", "sprites", "BLAM0001", 256, 192, 0,
-         {-4, -6, 3, true, false, 128, false, 0}, true, 0xcfb1a077b4b1113bull},
+         {-4, -6, 3, true, false, 128, false, 0}, true, 0x825f434d7d1dfe0aull},
     };
     for (const Case& c : cases) {
         const auto loaded = load_real_sprite(game, c.sub, c.sprite);
