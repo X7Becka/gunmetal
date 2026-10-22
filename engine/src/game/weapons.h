@@ -409,6 +409,105 @@ ShotResult fire(const Weapons& table, Arsenal& arsenal, Vec3d origin, Vec3d dir,
 bool post_weapon_impact(EventQueue& queue, const Weapon& weapon,
                         const ShotResult& shot, std::uint32_t source = 0);
 
+// --- hitscan ray and cone (0x477f90 / 0x4779f0) -----------------------------
+
+/// Smallest projected depth of a target along the aim axis, in world units.
+///
+/// Proven: the constant `0.32` lives at `0x4a2658` and the original compares
+/// the projected depth with `FCOMP QWORD PTR [0x4a2658]`.  The FPU sets C3 on
+/// equality and the test is `TEST AH,0x41` (C0|C3), so a target is rejected
+/// when `depth <= 0.32` and kept only when `depth > 0.32`:
+/// `0x477f90` player branch `0x4781c1`, THING branch `0x4783cb`, thing shooter
+/// `0x4779f0` at `0x477bc0`.
+constexpr double kHitscanMinDepth = 0.32;
+
+/// Result of one hitscan ray against the world geometry.
+///
+/// The ray stops at the nearest triangle.  `sector`/`object`/`polygon` are the
+/// world point the original hands to the impact-event lookup
+/// (`FUN_0043c51f` -> `FUN_0044fad0`, event kind `0x102`).
+struct HitscanHit {
+    bool hit = false;
+    Vec3d point{};
+    Vec3d normal{};
+    double distance = 0.0;
+    std::uint32_t sector = 0;
+    std::uint32_t object = 0;
+    std::uint32_t polygon = 0;  ///< source polygon index inside the object
+    std::uint32_t triangle = 0; ///< index in `CollisionWorld::triangles()`
+    bool front_face = false;
+};
+
+/// Cast one hitscan ray and return the nearest world hit.
+///
+/// Pure query: no spawn, no damage, no event.  `direction` need not be unit
+/// (it is normalised internally); `max_distance` is the exclusive bound the
+/// original uses in the target scan (`0x477f90`: a target is accepted only
+/// when `distance < max_distance`, FCOMP + `TEST AH,0x1`), so a hit exactly
+/// at `max_distance` is *not* a hit.  A non-finite origin/direction, a zero
+/// direction and a non-positive or non-finite `max_distance` return a miss.
+HitscanHit cast_hitscan(const CollisionWorld& world, const Vec3d& origin,
+                        const Vec3d& direction, double max_distance);
+
+/// Aim frame of the shooter, in the original's terms.
+///
+/// `forward`/`right`/`up` are the rows of the shooter's matrix
+/// (`FUN_00437909` projects the target offset onto them): the row order is
+/// lateral 1, depth, lateral 2.  `spread_x`/`spread_y` are the tangents of
+/// the half angles (the `FIRE_SOURCEPLAYER_BULLET` operands 3 and 4; the
+/// same values the weapon table stores at `+0x08`/`+0x10`, checked for
+/// MACHINE GUN / CANNON / AUTOCANNON / RAILGUN).  `scale_x`/`scale_y`
+/// are the per-target factors of a player target (`0x81c028`/`0x81c030`); a
+/// THING target has none, so both are 1 there.
+struct HitscanCone {
+    Vec3d forward{0.0, 1.0, 0.0};
+    Vec3d right{1.0, 0.0, 0.0};
+    Vec3d up{0.0, 0.0, 1.0};
+    double spread_x = 0.0;
+    double spread_y = 0.0;
+    double scale_x = 1.0;
+    double scale_y = 1.0;
+    double min_depth = kHitscanMinDepth;
+};
+
+/// Exact cone test of the original (`0x477f90` for a player shooter,
+/// `0x4779f0` for a THING shooter).
+///
+/// The target offset is projected on the aim frame; the target is inside the
+/// cone when
+///
+///   * `depth > min_depth` (0.32 world units, `0x4a2658`), and
+///   * `|lateral_x| < scale_x * depth * spread_x`, and
+///   * `|lateral_y| < scale_y * depth * spread_y`.
+///
+/// The lateral comparisons are strict (`<`), exactly like the original's
+/// `FCOMPP` + `TEST AH,0x1`.  The basis vectors must be the (unit) rows of
+/// the shooter's matrix; a non-finite input returns false.
+bool hitscan_in_cone(const HitscanCone& cone, const Vec3d& origin,
+                     const Vec3d& target);
+
+/// Normalised-cosine cone test: the target direction must not be further than
+/// `acos(cos_limit)` away from `forward`.
+///
+/// This is the circular-cone form of the proven test above; the comparison is
+/// inclusive (`cos >= cos_limit`), while the original's lateral test is
+/// strict.  `hitscan_cos_limit()` converts a tangent half angle into the
+/// matching limit.  A zero/NaN vector or a NaN limit returns false.
+bool hitscan_in_cone(const Vec3d& forward, const Vec3d& to_target, double cos_limit);
+
+/// Cosine limit equivalent to the proven tangent test: `1/sqrt(1 + tan^2)`.
+///
+/// A negative tangent describes an empty cone (the limit is above 1, so
+/// nothing passes); an infinite tangent describes an unlimited cone (0).
+double hitscan_cos_limit(double tan_half_angle);
+
+/// Apply the shooter's spread scale (`0x477f90`, player field `0x81c020`).
+///
+/// The original divides the weapon spread by the scale only when the scale is
+/// strictly greater than 1.0 (`FCOMP 1.0` + `TEST AH,0x41`); every other
+/// value leaves the spread untouched.
+double hitscan_scale_spread(double spread, double shooter_scale);
+
 /// Start reloading `slot`.  Requires a magazine capacity > 0, a mask bit, a
 /// non-full magazine and a non-empty reserve.  With `reload_ticks == 0` the
 /// transfer is immediate; otherwise `tick()` completes it.  Switching slots

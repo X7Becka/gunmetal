@@ -1100,6 +1100,115 @@ bool post_weapon_impact(EventQueue& queue, const Weapon& weapon,
                                shot.point.x, shot.point.y, shot.point.z, source);
 }
 
+// --- hitscan ray and cone (0x477f90 / 0x4779f0) -----------------------------
+
+HitscanHit cast_hitscan(const CollisionWorld& world, const Vec3d& origin,
+                        const Vec3d& direction, double max_distance) {
+    HitscanHit result;
+    if (!finite(origin) || !finite(direction)) {
+        return result;
+    }
+    const double len = length(direction);
+    if (!(len > 0.0) || !std::isfinite(len)) {
+        return result;
+    }
+    if (!std::isfinite(max_distance) || !(max_distance > 0.0)) {
+        return result;
+    }
+    const std::optional<RayHit> hit = world.raycast(origin, direction, max_distance);
+    if (!hit.has_value()) {
+        return result;
+    }
+    // 0x477f90 keeps a target only when `distance < max_distance` (FCOMP +
+    // `TEST AH,0x1`), so the bound is exclusive.
+    if (!(hit->t < max_distance)) {
+        return result;
+    }
+    result.hit = true;
+    result.point = hit->point;
+    result.normal = hit->normal;
+    result.distance = hit->t;
+    result.sector = hit->sector;
+    result.front_face = hit->front_face;
+    result.triangle = hit->triangle_index;
+    if (hit->triangle != nullptr) {
+        result.object = hit->triangle->object;
+        result.polygon = hit->triangle->source_poly;
+    }
+    return result;
+}
+
+bool hitscan_in_cone(const HitscanCone& cone, const Vec3d& origin,
+                     const Vec3d& target) {
+    if (!finite(origin) || !finite(target) || !finite(cone.forward) ||
+        !finite(cone.right) || !finite(cone.up)) {
+        return false;
+    }
+    if (!std::isfinite(cone.spread_x) || !std::isfinite(cone.spread_y) ||
+        !std::isfinite(cone.scale_x) || !std::isfinite(cone.scale_y) ||
+        !std::isfinite(cone.min_depth)) {
+        return false;
+    }
+    const Vec3d delta = target - origin;
+    const double depth = dot(delta, cone.forward);
+    // 0x477f90: `FCOMP QWORD PTR [0x4a2658]` + `TEST AH,0x41` -> keep the
+    // target only when the projected depth is strictly greater than 0.32.
+    if (!(depth > cone.min_depth)) {
+        return false;
+    }
+    const double lateral_x = std::fabs(dot(delta, cone.right));
+    const double lateral_y = std::fabs(dot(delta, cone.up));
+    // 0x477f90 (player target): |lateral| < scale * depth * spread, strict.
+    if (!(lateral_x < cone.scale_x * depth * cone.spread_x)) {
+        return false;
+    }
+    if (!(lateral_y < cone.scale_y * depth * cone.spread_y)) {
+        return false;
+    }
+    return true;
+}
+
+bool hitscan_in_cone(const Vec3d& forward, const Vec3d& to_target, double cos_limit) {
+    if (!finite(forward) || !finite(to_target) || !std::isfinite(cos_limit)) {
+        return false;
+    }
+    const double forward_len = length(forward);
+    const double target_len = length(to_target);
+    if (!(forward_len > 0.0) || !(target_len > 0.0) ||
+        !std::isfinite(forward_len) || !std::isfinite(target_len)) {
+        return false;
+    }
+    const double cos_angle = dot(forward, to_target) / (forward_len * target_len);
+    return cos_angle >= cos_limit;
+}
+
+double hitscan_cos_limit(double tan_half_angle) {
+    if (std::isnan(tan_half_angle)) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    if (tan_half_angle < 0.0) {
+        return 2.0; // an empty cone: no cosine reaches 2
+    }
+    const double squared = tan_half_angle * tan_half_angle;
+    if (!std::isfinite(squared)) {
+        return 0.0; // an unlimited cone
+    }
+    return 1.0 / std::sqrt(1.0 + squared);
+}
+
+double hitscan_scale_spread(double spread, double shooter_scale) {
+    // 0x477f90: `FLD QWORD PTR [shooter+0x81c020]`, `FCOMP 1.0`,
+    // `TEST AH,0x41` -> the spread is divided only when the scale is
+    // strictly greater than 1.0.
+    if (!std::isfinite(spread) || !std::isfinite(shooter_scale)) {
+        return spread;
+    }
+    if (shooter_scale > 1.0) {
+        return spread / shooter_scale;
+    }
+    return spread;
+}
+
 bool reload(const Weapons& table, Arsenal& arsenal, int slot, FireError* why) {
     auto fail = [why](FireError error) {
         if (why != nullptr) {
