@@ -1442,6 +1442,17 @@ void test_render() {
             const auto view = gm::render_scene(meshes, options, &pool, lightmaps);
             CHECK_EQ(fnv_rgb(view.rgb), 0x668efd2b95299c61ull);
 
+            // Engine-faithful texture mode (docs/TEXUV.md): texel projection
+            // with repeat plus the "no texture, no handle" polygon skip.  The
+            // pin is the *Python* frame for the same parameters
+            // (gm/render.py: uv="texel", skip_untextured=True), i.e. this is a
+            // parity check, not a self-referential golden.
+            gm::RenderOptions texel_options = options;
+            texel_options.texel_uv = true;
+            texel_options.skip_untextured = true;
+            const auto texel = gm::render_scene(meshes, texel_options, &pool, lightmaps);
+            CHECK_EQ(fnv_rgb(texel.rgb), 0xa914848d24650304ull);
+
             // Opt-in mip 1 + bilinear + palette-index-0 alpha test: the same
             // frame as gm/render.py (mip=1, filter="bilinear", alpha_test).
             options.mip = 1;
