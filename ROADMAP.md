@@ -872,7 +872,12 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > crush звука не даёт. Лифт — в очереди (`LiftCall/LiftMove/LiftArrive/
       > LiftMoveStop`: `0x44f690`/`0x4502a0` → `0x46b840`/`0x46b960`/
       > `0x46ba90`, class `2000000+индекс`), позиция — origin кабины;
-      > центроид полигонального switch (`0x43577c`) в `Switch::world_position`.
+      > прибытие постит `WorldEvent::LiftArrived::event_id` (третья колонка
+      > остановки); выбор остановки — как `0x44f690` (alias `[0]` шаг,
+      > `[1]`/`[2]` вверх/вниз с зажимом, `floor_id` перекрывает, пустой
+      > выбор молчит); центроид полигонального switch (`0x43577c`) в
+      > `Switch::world_position`. CTest `test_lift_sound_queue`/
+      > `test_lift_call_aliases`/`test_polygon_switch_centroid`.
 - 🟡 `M2.3.5` Оружие (`0x80fa00`, шаг `0x2a8`), боеприпасы (`0x818960`, `0x38`),
       оборудование (`0x814c60`, `0x40`), шасси (`0x7995e0`, `0x1cc`).
       > `docs/WEAPON_FIELDS.md` + `tools/re/weapon_fields.py`
@@ -892,9 +897,15 @@ ADPCM: таблицы `0x850480/0x850500/0x850540`, состояние голо�
       > `0x477f90`/`0x4779f0` — проекция на строки матрицы `0x437909`,
       > глубина > 0.32 (`0x4a2658`, строго), строгие боковые сравнения,
       > масштабы `0x81c020/0x81c028/0x81c030`; `hitscan_cos_limit`,
-      > `hitscan_scale_spread`. CTest `test_hitscan_ray`/`test_hitscan_cone`.
-      > Осталось: выбор жертвы, impact-event `0x44fad0`, точка мира `0x43c51f`,
-      > подключение к игровому выстрелу.
+      > `hitscan_scale_spread`. `ShotResult` несёт тройку
+      > `sector/object/polygon`; `GameRuntime::resolve_hitscan_impact` зовёт
+      > exact-switch `0x44fad0` (kind `0x102`) и `impact_event`, а
+      > `update_player_weapon` делает это синхронно
+      > (`PlayerWeaponTick::impact`). `Weapon::hitscan_max_distance` — первый
+      > операнд FIRE (MG 9999, CANNON 9000), `fire()` берёт его границей луча.
+      > CTest `test_hitscan_ray`/`test_hitscan_cone`/`hitscan_impact_switch`/
+      > `player_weapon_impact`. Осталось: выбор жертвы и урон по сущностям
+      > (`0x478520`/конус), `FUN_0043c51f` как отдельный поиск точки.
 - 🟡 `M2.3.6` Скриптовая таблица сущностей (`0x5b0df0`, `0x5e4680`, `0x616658`).
       > `docs/ENTITY_FIELDS.md` + `tools/re/entity_fields.py` (`--map/--verify/
       > --json/--self-test`; 36 уровней, 15 061 строка, 15 025 блоков
