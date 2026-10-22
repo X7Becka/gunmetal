@@ -1,6 +1,6 @@
 # CURRENT_STATE: фактический срез и переоценка
 
-**Снимок:** 2026-10-23, код — HEAD `e0c649c`, всего **830 коммитов**
+**Снимок:** 2026-10-23, код — HEAD `7fd6c89`, всего **843 коммита**
 (включая этот docs-коммит).
 **Установка:** `/mnt/d/games/Gunmetal 3dfx` (v1.36, 3dfx).
 **План:** [`ROADMAP.md`](ROADMAP.md); аудит процесса — [`docs/RE_AUDIT.md`](docs/RE_AUDIT.md);
@@ -18,8 +18,8 @@
 
 | Источник | Что даёт |
 |---|---|
-| `git log` | 830 коммитов, 143 за последние сутки, 4 linked worktree, `master` чист |
-| `tools/qa/state.py` | 220 пунктов этапов `M0…M12`: 83 ✅ / 73 🟡 / 63 ⬜ / 1 ⛔; ещё 13 item-строк вне этапов (DoD, тестовая стратегия) |
+| `git log` | 843 коммита, 143 за последние сутки, 4 linked worktree, `master` чист |
+| `tools/qa/state.py` | 220 пунктов этапов `M0…M12`: 85 ✅ / 75 🟡 / 59 ⬜ / 1 ⛔; ещё 13 item-строк вне этапов (DoD, тестовая стратегия) |
 | `python3 regress.py --mirror` | **113/113** проверок за 57,8 с |
 | `python3 regress.py --full --mirror` | **122/123** за 90,2 с (5 из кэша); падает внешний `install / manifest audit` |
 | `ctest --test-dir build/sandbox -j4` | **60/61** за 230 с; падает `controls` |
