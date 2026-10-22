@@ -209,6 +209,11 @@ god_mode); переопределяются только `game_mode` и `playert
 ### 2.2a. Локации и AI-маршруты
 
 `Things` собирает выполненные `ADD_LOCATION` (`0x45bea6`) в таблицу
+`child_types`/`child_params` — таблица детей `THING_TYPES +0x300/+0x310`
+(clamp 4 по `+0x2fc`): id типа и параметр; сам спавн `0x46d000` ещё
+трансформирует локальный offset `+0xd8+0x18i` базисом родителя, поэтому
+сейчас это только данные (`test_child_table`).
+
 `locations()`: `{id, x, y, z, orient[3]}`. `location(id)` — первый матч,
 как линейный поиск `0x476012`. `Thing::path_locations` хранит сырые id из
 `THING_TYPES+0x324[]` (0..32); `Ai::set_path_from_thing` резолвит их через

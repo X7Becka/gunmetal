@@ -606,7 +606,7 @@ C++ (`engine/src`) **не** моделирует запись `0x528`: `gm::Thin
 | `+0x23c/25c band` | `ProximityEntry::low/high` | `test_things` high 20 |
 | `+0x27c cooldown` | `ProximityEntry::cooldown` | `test_things proximity` |
 | `+0x29c/2bc/2dc off` | `ProximityEntry::offset` | `test_things proximity` |
-| `+0x2fc..310 children` | не подключено (спавн детей — движок) | нет |
+| `+0x2fc..310 children` | разобрано в `Thing::child_types`/`child_params` (`Things::load`, clamp 4), спавн детей (`0x46d000`, локальный offset `+0xd8+0x18i` × базис родителя) не подключён | `test_child_table` |
 | `+0x320/324 path` | `Thing::path_locations`, `Ai::set_path_from_thing` | `test_ai path_locations` |
 | `+0x1b4 movement`, `+0x10 speed`, `+0x20 turn_accel`, `+0x28 turn_max` | `Thing::*`, `ThingMotionConfig` | `test_thing_motion` (spin/avoid) |
 | `+0x90/98/a0 angle_rate` | `Thing::angle_rate`, `ThingMotionState::pitch/roll/yaw_rate` | `test_thing_motion spin` |

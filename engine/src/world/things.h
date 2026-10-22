@@ -103,6 +103,13 @@ struct Thing {
     // cooldown" (`0x476070`, docs/THING_FIELDS.md §4a.6).
     int timer_period = 0;
     int timer_step = 0;
+    // THING_TYPES +0x2fc (count <= 4), +0x300 + 4*i (child type id) and
+    // +0x310 + 4*i (child param); 0x46d000 spawns them as children of this
+    // thing.  Parsed here for inspection: the spawn itself also needs the
+    // per-child local offset (+0xd8 + 0x18*i) and the parent basis, which the
+    // spawn view does not model yet.
+    std::vector<int> child_types;
+    std::vector<int> child_params;
     std::uint32_t timeout_event = 0; // +0x1c0
     std::uint32_t collide_event = 0; // +0x1c4, posted by 0x4752d0 on collision
     std::uint32_t expire_event = 0;  // +0x1ec, 0x4703a0 when hits/lifetime ends
@@ -140,6 +147,8 @@ struct ThingTypeEvents {
     std::vector<int> path_locations; ///< THING_TYPES+0x324[], up to 32 ids
     int timer_period = 0; ///< +0x210, "every N ticks" (0x46dd71)
     int timer_step = 0;   ///< +0x214, added to the cooldown (0x46dd77)
+    std::vector<int> child_types;  ///< +0x300+4i, child THING_TYPES ids
+    std::vector<int> child_params; ///< +0x310+4i, child param per entry
     int expire_ticks = 0; ///< +0x1e8 lifetime in ticks
     std::uint32_t collide_event = 0;
     std::uint32_t expire_event = 0;

@@ -128,6 +128,8 @@ struct TypeSpec {
     std::uint32_t expire_event = 0; ///< THING_TYPES +0x1ec
     int timer_period = 0;       ///< THING_TYPES +0x210 -> instance +0x3ec
     int timer_step = 0;         ///< THING_TYPES +0x214 -> instance +0x3f0
+    std::vector<int> child_types;  ///< THING_TYPES +0x300 + 4*i (<= 4)
+    std::vector<int> child_params; ///< THING_TYPES +0x310 + 4*i
 };
 
 gm::SbtLevel make_level(const std::vector<std::uint8_t>& code,
@@ -161,6 +163,19 @@ gm::SbtLevel make_level(const std::vector<std::uint8_t>& code,
                 static_cast<std::uint32_t>(types[i].timer_period));
         put_u32(types_record.payload, base + 0x214,
                 static_cast<std::uint32_t>(types[i].timer_step));
+        const std::size_t children =
+            std::min<std::size_t>(4, types[i].child_types.size());
+        put_u32(types_record.payload, base + 0x2FC,
+                static_cast<std::uint32_t>(children));
+        for (std::size_t c = 0; c < children; ++c) {
+            put_u32(types_record.payload, base + 0x300 + c * 4,
+                    static_cast<std::uint32_t>(types[i].child_types[c]));
+            const int param = c < types[i].child_params.size()
+                                  ? types[i].child_params[c]
+                                  : 0;
+            put_u32(types_record.payload, base + 0x310 + c * 4,
+                    static_cast<std::uint32_t>(param));
+        }
     }
     level.records.push_back(std::move(types_record));
 
@@ -999,6 +1014,58 @@ void test_timer_fields() {
     CHECK(!none.has_value());
 }
 
+// THING_TYPES +0x2fc..0x310: the child table 0x46d000 spawns from.  Only the
+// ids/params are parsed here; the spawn also transforms the per-child local
+// offset (+0xd8 + 0x18*i) by the parent basis, which the view does not model.
+void test_child_table() {
+    std::vector<Row> rows;
+    std::vector<std::uint8_t> code;
+    add_thing(code, 0, 0, 0, 0, 0, 0, 0);
+    code.push_back(0xFF);
+    rows.push_back({0x3FF, 9, 0});
+    std::vector<TypeSpec> types = {{"PARENT", 0}};
+    types[0].child_types = {1, 2, 3};
+    types[0].child_params = {10, 20, 30};
+    const gm::SbtLevel level = make_level(code, rows, types, {"MODEL"});
+    const gm::VmState vm = gm::vm_state_from_level(level);
+    const gm::Things things = gm::Things::load(level, vm, single_context());
+    const gm::Thing* parent = things.by_id(0);
+    CHECK(parent != nullptr);
+    if (parent != nullptr) {
+        CHECK_EQ(parent->child_types.size(), std::size_t{3});
+        CHECK_EQ(parent->child_params.size(), std::size_t{3});
+        if (parent->child_types.size() == 3 && parent->child_params.size() == 3) {
+            CHECK_EQ(parent->child_types[0], 1);
+            CHECK_EQ(parent->child_types[1], 2);
+            CHECK_EQ(parent->child_types[2], 3);
+            CHECK_EQ(parent->child_params[0], 10);
+            CHECK_EQ(parent->child_params[1], 20);
+            CHECK_EQ(parent->child_params[2], 30);
+        }
+    }
+    const std::optional<gm::ThingTypeEvents> events = gm::thing_type_events(level, 0);
+    CHECK(events.has_value());
+    if (events.has_value()) {
+        CHECK_EQ(events->child_types.size(), std::size_t{3});
+        CHECK_EQ(events->child_params.size(), std::size_t{3});
+    }
+
+    // The clamp is 4 entries (0x46d000 rejects longer tables).
+    std::vector<TypeSpec> many = {{"MANY", 0}};
+    many[0].child_types = {1, 2, 3, 4, 5, 6};
+    many[0].child_params = {1, 2, 3, 4, 5, 6};
+    const gm::SbtLevel long_level = make_level(code, rows, many, {"MODEL"});
+    const gm::VmState long_vm = gm::vm_state_from_level(long_level);
+    const gm::Things clamped = gm::Things::load(long_level, long_vm, single_context());
+    const gm::Thing* one = clamped.by_id(0);
+    CHECK(one != nullptr);
+    if (one != nullptr) {
+        CHECK_EQ(one->child_types.size(), std::size_t{4});
+        CHECK_EQ(one->child_params.size(), std::size_t{4});
+        CHECK_EQ(one->child_types[3], 4);
+    }
+}
+
 void test_motion_tick() {
     // Movement automata are opt-in (`Things::set_motion_enabled`); with them on,
     // `tick` steps every live instance through `world/thing_motion`.
@@ -1237,6 +1304,7 @@ int main(int argc, char** argv) {
     test_spawn_remove();
     test_motion_tick();
     test_timer_fields();
+    test_child_table();
     test_motion_aim();
     test_generate_and_cycle();
     test_negatives();

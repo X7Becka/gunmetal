@@ -80,6 +80,8 @@ struct TypeTable {
     std::vector<std::vector<int>> path_locations;
     std::vector<int> timer_periods;
     std::vector<int> timer_steps;
+    std::vector<std::vector<int>> child_types;
+    std::vector<std::vector<int>> child_params;
     std::vector<double> search_radii;
     std::vector<int> target_zone_thresholds;
     std::vector<int> target_history_offsets;
@@ -135,6 +137,8 @@ TypeTable resolve_types(const SbtLevel& level) {
         table.path_locations.reserve(count);
         table.timer_periods.reserve(count);
         table.timer_steps.reserve(count);
+        table.child_types.reserve(count);
+        table.child_params.reserve(count);
         table.search_radii.reserve(count);
         table.target_zone_thresholds.reserve(count);
         table.target_history_offsets.reserve(count);
@@ -221,6 +225,21 @@ TypeTable resolve_types(const SbtLevel& level) {
                 static_cast<std::int32_t>(rd32(entry + 0x210)));
             table.timer_steps.push_back(
                 static_cast<std::int32_t>(rd32(entry + 0x214)));
+            // +0x2fc count (0x46d000 clamps at 4), then the type/param arrays.
+            const std::int32_t child_count =
+                static_cast<std::int32_t>(rd32(entry + 0x2fc));
+            std::vector<int> kids;
+            std::vector<int> kid_params;
+            const int clamped_children = std::max(0, std::min(4, child_count));
+            kids.reserve(static_cast<std::size_t>(clamped_children));
+            kid_params.reserve(static_cast<std::size_t>(clamped_children));
+            for (int c = 0; c < clamped_children; ++c) {
+                kids.push_back(static_cast<std::int32_t>(rd32(entry + 0x300 + c * 4)));
+                kid_params.push_back(
+                    static_cast<std::int32_t>(rd32(entry + 0x310 + c * 4)));
+            }
+            table.child_types.push_back(std::move(kids));
+            table.child_params.push_back(std::move(kid_params));
             table.search_radii.push_back(std::bit_cast<double>(rd64(entry + 0x58)));
             table.target_zone_thresholds.push_back(
                 static_cast<std::int32_t>(rd32(entry + 0x1cc)));
@@ -273,6 +292,8 @@ void apply_type_fields(Thing& thing, const TypeTable& types) {
     thing.path_locations = types.path_locations[i];
     thing.timer_period = types.timer_periods[i];
     thing.timer_step = types.timer_steps[i];
+    thing.child_types = types.child_types[i];
+    thing.child_params = types.child_params[i];
     thing.search_radius = types.search_radii[i];
     thing.target_zone_threshold = types.target_zone_thresholds[i];
     thing.target_history_offset = types.target_history_offsets[i];
@@ -525,6 +546,8 @@ std::optional<ThingTypeEvents> thing_type_events(const SbtLevel& level,
     out.path_locations = types.path_locations[index];
     out.timer_period = types.timer_periods[index];
     out.timer_step = types.timer_steps[index];
+    out.child_types = types.child_types[index];
+    out.child_params = types.child_params[index];
     out.expire_ticks = types.expire_ticks[index];
     out.collide_event = types.collide_events[index];
     out.expire_event = types.expire_events[index];
