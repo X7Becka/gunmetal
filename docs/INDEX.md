@@ -9,7 +9,7 @@
 | `docs/AI_CPP.md` | 74 | 68 | Gunmetal — минимальный C++ AI вещей (`Ai`) |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |
-| `docs/BASELINE.md` | 8 | 0 | Baseline: установка, инвентарь и регрессия |
+| `docs/BASELINE.md` | 10 | 0 | Baseline: установка, инвентарь и регрессия |
 | `docs/BUILD.md` | 4 | 0 | Сборка движка (M3) |
 | `docs/CAMERA.md` | 31 | 209 | Gunmetal — камера первого лица: оси, матрица, проекция |
 | `docs/CAMERA_CPP.md` | 25 | 74 | `camera/camera.h` — камера первого/третьего лица |
@@ -24,7 +24,7 @@
 | `docs/FORMATS.md` | 202 | 947 | Gunmetal — спецификация форматов данных |
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
-| `docs/GHIDRA.md` | 9 | 20 | Ghidra: выбор, установка и рабочий процесс |
+| `docs/GHIDRA.md` | 10 | 20 | Ghidra: выбор, установка и рабочий процесс |
 | `docs/HUD_BIND.md` | 17 | 29 | HUD binding: `.sml`/`.sme` экраны → семейства `.sof`/`.fdx` и позиции `<I>` |
 | `docs/HUD_COMPOSE.md` | 17 | 9 | HUD composition: `.sml` + `.sof/.fdx` + `blit_indexed` за один вызов |
 | `docs/HUD_CPP.md` | 8 | 2 | C++ HUD-слой: блит кадров `.sof` |
