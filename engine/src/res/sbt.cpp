@@ -603,12 +603,32 @@ std::optional<SbtLevel> parse_sbt(std::span<const std::uint8_t> data, std::strin
             level.script.flag = flag;
             break;
         }
-        case 12:
-            if (!r.skip(0x4b0 + 0xa8c)) {
+        case 12: {
+            // 300 u32 counts + 300 nine-byte names (docs/SOUND_FIELDS.md);
+            // the reader keeps both, the mixer only needs the slot numbers.
+            gm::SoundSampleTable table;
+            for (std::uint32_t& count : table.counts) {
+                if (!r.u32(count)) {
+                    error = "bad SOUND_SAMPLE_TABLE record";
+                    return std::nullopt;
+                }
+            }
+            const std::size_t names_at = r.offset;
+            if (!r.need(static_cast<std::size_t>(gm::SoundSampleTable::kSlots) *
+                        gm::SoundSampleTable::kNameWidth)) {
                 error = "bad SOUND_SAMPLE_TABLE record";
                 return std::nullopt;
             }
+            for (std::size_t slot = 0; slot < gm::SoundSampleTable::kSlots; ++slot) {
+                table.names[slot] = fixed_name(
+                    data.data() + names_at + slot * gm::SoundSampleTable::kNameWidth,
+                    gm::SoundSampleTable::kNameWidth);
+            }
+            r.offset += static_cast<std::size_t>(gm::SoundSampleTable::kSlots) *
+                        gm::SoundSampleTable::kNameWidth;
+            level.sound_samples = std::move(table);
             break;
+        }
         case 15:
         case 16:
         case 17: {

@@ -208,6 +208,21 @@ std::vector<std::uint8_t> encode_counted(const std::vector<std::uint8_t>& body,
 
 /// Compiled ``.sbt`` level file: 84-byte header + typed record stream.
 /// Layout: docs/FORMATS.md §7 and gm/sbt.py.
+/// `SOUND_SAMPLE_TABLE` (record 12, docs/SOUND_FIELDS.md): 300 slots of
+/// `u32 count` followed by 300 nine-byte names.
+///
+/// The mixer indexes this table (`0x83d960`, stride 0x1c); levels, doors,
+/// lifts and the save stream all reference a slot by number, so the reader
+/// keeps the names for diagnostics and the counts for the table view.
+struct SoundSampleTable {
+    static constexpr std::size_t kSlots = 300;
+    static constexpr std::size_t kNameWidth = 9;
+    std::array<std::uint32_t, kSlots> counts{};
+    /// Decoded as latin1 and cut at the first NUL (the shipped files do have
+    /// bytes after it; `gm/sbt.py::SampleTable` keeps them separately).
+    std::array<std::string, kSlots> names;
+};
+
 struct SbtLevel {
     std::uint32_t version = 0;
     std::vector<SbtRecord> records;
@@ -228,6 +243,8 @@ struct SbtLevel {
     // save stream does, block 8); a repeated record overwrites the view,
     // like the original's loader 0x46b7b0 overwrites 0x800b60.
     std::vector<SbtSectorSlot> sector_stuff;
+    /// SOUND_SAMPLE_TABLE, when the file has record 12 (all 36 shipped levels).
+    std::optional<SoundSampleTable> sound_samples;
     std::size_t file_end = 0;
 };
 
