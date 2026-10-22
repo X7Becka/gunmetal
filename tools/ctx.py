@@ -45,6 +45,7 @@ def doc_paths() -> list[str]:
         if os.path.exists(path):
             out.append(path)
     out.extend(sorted(glob.glob(os.path.join(DOCS, "*.md"))))
+    out.extend(sorted(glob.glob(os.path.join(DOCS, "ADR", "*.md"))))
     return out
 
 

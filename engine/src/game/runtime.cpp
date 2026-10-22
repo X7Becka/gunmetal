@@ -364,6 +364,10 @@ void GameRuntime::tick_once() {
     //    the whole staging buffer once.  `pump` drains it, so the next tick
     //    cannot replay these records.
     post_switch_events(events_, world_, switch_source_);
+    // Door open/close/crush events (`0x44f3f0`, `0x450590`) are GENERATE
+    // records, not Trigger Switch ones: post them into the same staging queue
+    // so `last_events_` carries them to the VM/game layer.
+    world_.post_door_events(events_.queue());
     const std::uint32_t now = static_cast<std::uint32_t>(clock_);
     last_events_ = events_.pump(now);
     ++clock_;

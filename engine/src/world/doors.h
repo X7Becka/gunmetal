@@ -219,6 +219,10 @@ LiftTransform lift_transform(const Lift& lift);
 /// The rotation axis ``0x44dfc0`` picks: ``z`` wins over ``x``, which wins
 /// over ``y`` (``-1`` = all three angle operands are zero).
 int door_rotation_axis(const Door& door);
+/// ``0x450590`` posts this fixed id (``0xffffffea``) when a door crushes an
+/// entity; it is an engine event, not a level one.
+inline constexpr int kDoorCrushEvent = -22;
+
 /// Leaf transform at an explicit engine phase (``0..0xffff``).
 DoorTransform door_transform_at(const Door& door, std::uint32_t engine_phase);
 /// Leaf transform at the door's current phase (``0x44dfc0``).
@@ -390,6 +394,18 @@ public:
     /// `clear_events()` and `clear()` reset the cursor.
     std::size_t post_switch_events(EventQueue& queue, std::int16_t source = 0) const;
 
+    /// Post the GENERATE records the door state machine produced:
+    /// ``0x44f3f0`` calls ``event_post(ids[3])`` when the leaf is fully open,
+    /// ``event_post(ids[4])`` when it is fully closed and ``0x450590`` calls
+    /// ``event_post(-22, sector, object, …)`` on a crush.  All three go through
+    /// ``0x4795b0`` with ``param_3 = object != 0``, so the record is **type 1**
+    /// with ``id``, ``param = sector``, ``a = object``, ``x/y/z`` = object
+    /// origin and ``extra = -1``.  A zero id is dropped by the engine
+    /// (``param_1 != 0`` gate).  The walk is cursor-based like
+    /// `post_switch_events`: a full queue keeps the pending tail for the next
+    /// frame, and an already posted record is never posted twice.
+    std::size_t post_door_events(EventQueue& queue) const;
+
     /// Door state mapped onto the level objects it owns.  ``bound`` is false
     /// for a door whose ``(sector, object)`` does not exist in the ``.sbw``.
     std::vector<ObjectDoorState> apply_to_objects() const;
@@ -407,6 +423,8 @@ public:
         switch_event_sources_.clear();
         switch_event_cursor_ = 0;
         switch_post_blocked_ = false;
+        door_event_cursor_ = 0;
+        door_post_blocked_ = false;
     }
 
     Door* find_door(int id);
@@ -452,6 +470,10 @@ private:
     /// because posting is logically const: it does not change the world, only
     /// how far the queue mirror has consumed the event log.
     mutable std::size_t switch_event_cursor_ = 0;
+    /// Next `events_` entry `post_door_events` has to look at, and whether a
+    /// full queue left a door record pending across the tick.
+    mutable std::size_t door_event_cursor_ = 0;
+    mutable bool door_post_blocked_ = false;
     /// A full queue left a switch record pending; only then does `tick()` keep
     /// the unposted tail.  Without a failed post the log is still frame-local.
     mutable bool switch_post_blocked_ = false;

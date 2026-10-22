@@ -6,6 +6,10 @@
 
 | файл | КБ | адресов | о чём |
 |---|---:|---:|---|
+| `docs/ADR/0001-language.md` | 2 | 0 | ADR 0001 — язык и стек целевого движка |
+| `docs/ADR/0002-scope.md` | 2 | 0 | ADR 0002 — что считается «готовым движком» |
+| `docs/ADR/0003-saves.md` | 2 | 0 | ADR 0003 — сохранения: читать оригинал, писать совместимо где возможно |
+| `docs/ADR/0004-re-infrastructure.md` | 3 | 0 | ADR 0004 — инфраструктура реверса: кэш, зеркало, бюджет контекста |
 | `docs/AI_CPP.md` | 74 | 68 | Gunmetal — минимальный C++ AI вещей (`Ai`) |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |

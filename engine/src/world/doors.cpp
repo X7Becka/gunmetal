@@ -857,6 +857,9 @@ std::size_t WorldState::post_switch_events(EventQueue& queue,
     if (switch_event_cursor_ > events_.size()) {
         switch_event_cursor_ = events_.size();
     }
+    if (door_event_cursor_ > events_.size()) {
+        door_event_cursor_ = events_.size();
+    }
     if (switch_event_sources_.size() != events_.size()) {
         switch_event_sources_.resize(events_.size());
     }
@@ -1090,6 +1093,45 @@ std::size_t WorldState::poll_blast(const PolygonHit& hit, std::int16_t source) {
     return fired;
 }
 
+std::size_t WorldState::post_door_events(EventQueue& queue) const {
+    if (door_event_cursor_ > events_.size()) {
+        door_event_cursor_ = events_.size();
+    }
+    std::size_t posted = 0;
+    while (door_event_cursor_ < events_.size()) {
+        const WorldEvent& event = events_[door_event_cursor_];
+        const bool door_event = event.kind == WorldEvent::Kind::DoorOpened ||
+                                event.kind == WorldEvent::Kind::DoorClosed ||
+                                event.kind == WorldEvent::Kind::DoorCrush;
+        if (!door_event || event.target == 0) {
+            // Not a door record, or the engine's `param_1 != 0` gate would
+            // drop it anyway: advance instead of stalling the cursor.
+            ++door_event_cursor_;
+            continue;
+        }
+        const Door* door = find_door(event.door_id);
+        if (door == nullptr) {
+            ++door_event_cursor_;
+            continue;
+        }
+        const DoorTransform transform = door_transform(*door);
+        const bool ok = queue.post_generate_short(
+            event.target, static_cast<std::uint16_t>(door->sector),
+            static_cast<std::int16_t>(door->object), 0, transform.origin[0],
+            transform.origin[1], transform.origin[2], 0xffffffffu);
+        if (!ok) {
+            door_post_blocked_ = true;
+            break; // full queue: keep the cursor on the pending record
+        }
+        ++posted;
+        ++door_event_cursor_;
+    }
+    if (door_event_cursor_ >= events_.size()) {
+        door_post_blocked_ = false;
+    }
+    return posted;
+}
+
 std::size_t WorldState::trigger_at(const std::array<double, 3>& pos, std::int16_t source) {
     std::size_t fired = 0;
     for (Switch& sw : switches_) {
@@ -1134,7 +1176,9 @@ bool WorldState::block_contact(int sector, int object) {
             log_event({WorldEvent::Kind::DoorBlocked, -1, 0, door.id, 0});
         } else {
             // event_post(-22, sector, object, 0, lerp(closed, open), source)
-            log_event({WorldEvent::Kind::DoorCrush, -1, door.event_close, door.id, 0});
+            // 0x450590 posts the fixed id -22 (0xffffffea), not ids[4]: the
+            // crush damage handler is an engine event, not a level one.
+            log_event({WorldEvent::Kind::DoorCrush, -1, kDoorCrushEvent, door.id, 0});
             ++stats_.crush_hits;
         }
         return true;
@@ -1261,20 +1305,20 @@ void WorldState::tick(std::uint64_t ticks) {
         // event log even if a caller emptied one of them by hand.
         switch_event_sources_.resize(events_.size());
     }
-    if (switch_post_blocked_ && switch_event_cursor_ < events_.size()) {
-        events_.erase(events_.begin(),
-                      events_.begin() +
-                          static_cast<std::ptrdiff_t>(switch_event_cursor_));
-        switch_event_sources_.erase(
-            switch_event_sources_.begin(),
-            switch_event_sources_.begin() +
-                static_cast<std::ptrdiff_t>(switch_event_cursor_));
-    } else {
+    // A full queue can leave a tail unposted for either poster.  Keeping the
+    // whole frame log (instead of erasing a prefix) keeps both cursors valid;
+    // they are only meaningful while `events_` is alive, so they are reset
+    // together with the array.  The log grows only while the queue stays full,
+    // by the handful of events one tick produces.
+    const bool blocked = switch_post_blocked_ || door_post_blocked_;
+    if (!blocked) {
         events_.clear();
         switch_event_sources_.clear();
-        switch_post_blocked_ = false;
+        switch_event_cursor_ = 0;
+        door_event_cursor_ = 0;
     }
-    switch_event_cursor_ = 0;
+    switch_post_blocked_ = blocked;
+    door_post_blocked_ = blocked;
     if (ticks == 0) {
         return;
     }

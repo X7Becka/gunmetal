@@ -1342,6 +1342,118 @@ void test_sbt_writer(bool full) {
 }
 
 
+void test_door_events() {
+    // `0x44f3f0` posts `ids[3]` when the leaf is fully open, `ids[4]` when it
+    // is fully closed, and `0x450590` posts `-22` on a crush.  All of them go
+    // through `0x4795b0` with `param_3 = object != 0`, i.e. type-1 records
+    // (id, param = sector, a = object, x/y/z = object origin, extra = -1).
+    DoorSpec spec;
+    spec.sector = 0;
+    spec.object = 2;
+    spec.flags = 3; // animated, kind 3 (posts the crush event)
+    spec.ids = {700, 0, 0, 500, 501};
+    spec.closed = {1.0, 1.0, 1.0};
+    spec.open = {101.0, 1.0, 1.0};
+    spec.size = {1.0, 1.0, 1.0};
+    spec.step = 0x8000; // half the phase per tick: 2 ticks to the end
+    gm::SbtLevel level;
+    gm::SbtRecord door_record;
+    door_record.type = 2;
+    door_record.payload = make_door_payload({spec});
+    gm::SbtRecord switch_record;
+    switch_record.type = 1;
+    switch_record.payload = make_switch_payload({SwitchSpec{0, 700, 10, {0, 0, 0}, 0, -1}});
+    level.records = {std::move(door_record), std::move(switch_record)};
+
+    gm::WorldState state;
+    CHECK(state.build(level, make_world(3), nullptr));
+    gm::Door* door = state.find_door(700);
+    CHECK(door != nullptr);
+    if (door == nullptr) {
+        return;
+    }
+    CHECK_EQ(door->event_open, 500);
+    CHECK_EQ(door->event_close, 501);
+
+    gm::EventQueue queue;
+    CHECK_EQ(state.post_door_events(queue), 0u); // nothing happened yet
+    CHECK(queue.empty());
+
+    CHECK(state.interact(0)); // opening
+    state.tick(1);
+    CHECK_EQ(state.post_door_events(queue), 0u); // still moving
+    state.tick(1);
+    CHECK_EQ(door->phase, gm::kDoorPhaseFull);
+    CHECK_EQ(state.post_door_events(queue), 1u);
+    {
+        const gm::EventParseResult parsed = queue.drain();
+        CHECK(parsed.ok);
+        CHECK_EQ(parsed.events.size(), 1u);
+        if (!parsed.events.empty()) {
+            const gm::Event& event = parsed.events[0];
+            CHECK(event.type == gm::EventType::generate_short);
+            CHECK_EQ(event.id, 500);
+            CHECK_EQ(event.param, 0u); // sector
+            CHECK_EQ(event.a, 2);
+            CHECK_EQ(event.b, 0);
+            CHECK_EQ(event.extra, 0xffffffffu);
+        }
+    }
+    // Already posted: a second call posts nothing.
+    CHECK_EQ(state.post_door_events(queue), 0u);
+    CHECK(queue.empty());
+
+    // Closing posts `ids[4]`.
+    CHECK(state.interact(0));
+    state.tick(2);
+    CHECK_EQ(door->phase, 0u);
+    CHECK_EQ(state.post_door_events(queue), 1u);
+    {
+        const gm::EventParseResult parsed = queue.drain();
+        CHECK(parsed.ok);
+        CHECK(parsed.events.size() == 1u &&
+              parsed.events[0].id == 501 &&
+              parsed.events[0].type == gm::EventType::generate_short);
+    }
+
+    // Crush posts `-22` (type 1 as well: object != 0).
+    CHECK(state.interact(0)); // opening again
+    state.tick(1);
+    CHECK(state.block_contact(0, 2));
+    CHECK_EQ(state.post_door_events(queue), 1u);
+    {
+        const gm::EventParseResult parsed = queue.drain();
+        CHECK(parsed.ok);
+        CHECK(parsed.events.size() == 1u);
+        if (!parsed.events.empty()) {
+            CHECK_EQ(parsed.events[0].id, -22);
+            CHECK_EQ(parsed.events[0].type, gm::EventType::generate_short);
+            CHECK_EQ(parsed.events[0].a, 2);
+        }
+    }
+    // The crush record was posted once; the event log does not replay it.
+    CHECK_EQ(state.post_door_events(queue), 0u);
+
+    // A door without event ids posts nothing (the engine drops id 0).
+    DoorSpec quiet = spec;
+    quiet.ids = {701, 0, 0, 0, 0};
+    level.records.clear();
+    gm::SbtRecord quiet_record;
+    quiet_record.type = 2;
+    quiet_record.payload = make_door_payload({quiet});
+    gm::SbtRecord quiet_switch;
+    quiet_switch.type = 1;
+    quiet_switch.payload =
+        make_switch_payload({SwitchSpec{0, 701, 10, {0, 0, 0}, 0, -1}});
+    level.records = {std::move(quiet_record), std::move(quiet_switch)};
+    gm::WorldState silent;
+    CHECK(silent.build(level, make_world(3), nullptr));
+    CHECK(silent.interact(0));
+    silent.tick(2);
+    CHECK_EQ(silent.post_door_events(queue), 0u);
+    CHECK(queue.empty());
+}
+
 void test_polygon_triggers() {
     // `ADD_SWITCH` operands 4..6 are a (sector, object, polygon) triple for
     // every kind >= 0x101 (docs/DOOR_FIELDS.md §2.2); `0x101` is the aim ray
@@ -1742,6 +1854,7 @@ int main(int argc, char** argv) {
     test_triggers();
     test_block_contact();
     test_polygon_triggers();
+    test_door_events();
     test_sbt_writer(full);
     test_real_dm1();
     if (full) {
