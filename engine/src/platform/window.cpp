@@ -1,6 +1,7 @@
 #include "platform/window.h"
 
 #include "core/log.h"
+#include "render/scale.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -156,19 +157,11 @@ void Window::blit_rgb(const std::uint8_t* rgb, int width, int height) {
     }
     const int dst_w = impl_->width;
     const int dst_h = impl_->height;
-    auto sample = [&](int x, int y) -> std::uint32_t {
-        const int sx = std::min(width - 1, x * width / dst_w);
-        const int sy = std::min(height - 1, y * height / dst_h);
-        const std::uint8_t* p = rgb + (static_cast<std::size_t>(sy) * width + sx) * 3;
-        return 0xff000000u | (static_cast<std::uint32_t>(p[0]) << 16) |
-               (static_cast<std::uint32_t>(p[1]) << 8) | p[2];
-    };
+    // Aspect-preserving letterbox (M4.3.3, docs/PALETTE.md: the game is
+    // 320x200).  Nearest keeps the pixel art; the bars are black.
     if (impl_->headless) {
-        for (int y = 0; y < dst_h; ++y) {
-            for (int x = 0; x < dst_w; ++x) {
-                impl_->buffer[static_cast<std::size_t>(y) * dst_w + x] = sample(x, y);
-            }
-        }
+        blit_scaled(rgb, width, height, impl_->buffer.data(), dst_w, dst_h,
+                    ScaleFilter::Nearest);
         return;
     }
 #if GM_HAVE_SDL3
@@ -176,6 +169,8 @@ void Window::blit_rgb(const std::uint8_t* rgb, int width, int height) {
     if (surface == nullptr) {
         return;
     }
+    std::vector<std::uint32_t> scaled(static_cast<std::size_t>(dst_w) * dst_h);
+    blit_scaled(rgb, width, height, scaled.data(), dst_w, dst_h, ScaleFilter::Nearest);
     if (SDL_MUSTLOCK(surface)) {
         SDL_LockSurface(surface);
     }
@@ -184,7 +179,7 @@ void Window::blit_rgb(const std::uint8_t* rgb, int width, int height) {
                                                      static_cast<std::ptrdiff_t>(y) *
                                                          surface->pitch);
         for (int x = 0; x < dst_w; ++x) {
-            const std::uint32_t c = sample(x, y);
+            const std::uint32_t c = scaled[static_cast<std::size_t>(y) * dst_w + x];
             row[x] = SDL_MapSurfaceRGB(surface, static_cast<std::uint8_t>(c >> 16),
                                        static_cast<std::uint8_t>(c >> 8),
                                        static_cast<std::uint8_t>(c));
@@ -194,7 +189,7 @@ void Window::blit_rgb(const std::uint8_t* rgb, int width, int height) {
         SDL_UnlockSurface(surface);
     }
 #else
-    (void)sample;
+    (void)rgb;
 #endif
 }
 

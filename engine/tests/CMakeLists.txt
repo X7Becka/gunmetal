@@ -348,6 +348,13 @@ if(GM_PYTHON3)
     gm_label(vm_trace_dm1 quick)
 endif()
 
+# Interface scaling (M4.3.3): aspect-preserving letterbox and the two
+# filters, on synthetic pixels (no window, no SDL).
+add_executable(gm_scale_tests test_scale.cpp)
+target_link_libraries(gm_scale_tests PRIVATE gm_engine)
+add_test(NAME scale COMMAND gm_scale_tests)
+gm_label(scale quick)
+
 add_executable(gm_soe_tests test_soe.cpp)
 target_link_libraries(gm_soe_tests PRIVATE gm_engine)
 add_test(NAME soe COMMAND gm_soe_tests)
