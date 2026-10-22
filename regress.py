@@ -158,16 +158,14 @@ def _bundle_hash() -> str:
         h.update(str(st.st_size).encode())
         with open(path, "rb") as fh:
             h.update(fh.read())
-    try:
-        h.update(str(os.stat(os.environ.get("GUNMETAL_EXE", exelib_exe())).st_size).encode())
+    try:                      # the executable is an input for every RE tool
+        exe = os.environ.get("GUNMETAL_EXE",
+                             "/mnt/d/games/Gunmetal 3dfx/gundx.exe")
+        h.update(str(os.stat(exe).st_size).encode())
     except OSError:
         pass
     _bundle = h.hexdigest()
     return _bundle
-
-
-def exelib_exe() -> str:
-    return "/mnt/d/games/Gunmetal 3dfx/gundx.exe"
 
 
 def _game_digest(G: str) -> str:

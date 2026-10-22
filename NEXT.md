@@ -135,6 +135,10 @@
 - **Регистр имён.** `regress.py::gp()` и пары `.SME/.SML` больше не зависят
   от регистронезависимой drvfs (зеркало на ext4); `savegame.py` берёт exe из
   кэша, а не из `/tmp/opencode` (из-за этого прежний baseline давал 112/113).
+- **Кэш результатов.** С `--mirror` четыре чистые тяжёлые проверки
+  (`sob_writer`, `sou_container`, VM-корпус, film parity) кэшируются по хэшу
+  исходников + digest зеркала + argv; повторный `--full` 106,9 → 79,8 с
+  (`--json.cached`), падения не кэшируются.
 - **Контекст/токены.** `tools/ctx.py` (`doc`/`addr`/`find`/`outline`/`task`,
   бюджет 40 строк), `docs/INDEX.md`, правила в `AGENTS.md`, методика —
   `docs/RE_METHOD.md`.

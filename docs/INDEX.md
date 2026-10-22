@@ -10,7 +10,7 @@
 | `docs/ADR/0002-scope.md` | 2 | 0 | ADR 0002 — что считается «готовым движком» |
 | `docs/ADR/0003-saves.md` | 2 | 0 | ADR 0003 — сохранения: читать оригинал, писать совместимо где возможно |
 | `docs/ADR/0004-re-infrastructure.md` | 3 | 0 | ADR 0004 — инфраструктура реверса: кэш, зеркало, бюджет контекста |
-| `docs/AI_CPP.md` | 74 | 68 | Gunmetal — минимальный C++ AI вещей (`Ai`) |
+| `docs/AI_CPP.md` | 76 | 72 | Gunmetal — минимальный C++ AI вещей (`Ai`) |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |
 | `docs/BASELINE.md` | 10 | 0 | Baseline: установка, инвентарь и регрессия |
@@ -20,15 +20,15 @@
 | `docs/COLLIDE.md` | 25 | 10 | Gunmetal — примитивы коллизий `.sbw` |
 | `docs/CONFIG.md` | 28 | 241 | `GUNMETAL.CFG` / `CONTROLS.CFG` — карта полей |
 | `docs/CONTROLS_CPP.md` | 13 | 19 | `input/controls.h` — `.key` profiles and controller config |
-| `docs/DOORS_CPP.md` | 40 | 72 | Gunmetal — C++-модель дверей, переключателей и лифтов |
-| `docs/DOOR_FIELDS.md` | 45 | 418 | Поля дверей, переключателей и лифтов (M2.3.4) |
+| `docs/DOORS_CPP.md` | 42 | 75 | Gunmetal — C++-модель дверей, переключателей и лифтов |
+| `docs/DOOR_FIELDS.md` | 45 | 424 | Поля дверей, переключателей и лифтов (M2.3.4) |
 | `docs/ENTITY_FIELDS.md` | 37 | 262 | Скриптовая таблица сущностей (`0x5b0df0`, `0x5e4680`, `0x616658`): карта (M2.3.6) |
 | `docs/EVENTS.md` | 24 | 91 | Event queue and `GENERATE` events |
 | `docs/FILM.md` | 27 | 107 | HUD-фильмы `.sof` / `.fdx` — формат, привязка, паритет |
 | `docs/FORMATS.md` | 202 | 947 | Gunmetal — спецификация форматов данных |
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
-| `docs/GHIDRA.md` | 10 | 20 | Ghidra: выбор, установка и рабочий процесс |
+| `docs/GHIDRA.md` | 11 | 21 | Ghidra: выбор, установка и рабочий процесс |
 | `docs/HUD_BIND.md` | 17 | 29 | HUD binding: `.sml`/`.sme` экраны → семейства `.sof`/`.fdx` и позиции `<I>` |
 | `docs/HUD_COMPOSE.md` | 17 | 9 | HUD composition: `.sml` + `.sof/.fdx` + `blit_indexed` за один вызов |
 | `docs/HUD_CPP.md` | 8 | 2 | C++ HUD-слой: блит кадров `.sof` |
@@ -45,7 +45,7 @@
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
 | `docs/RECORDS.md` | 32 | 243 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
-| `docs/REGRESSION.md` | 7 | 1 | Регрессия: ворота, бюджет времени и практики |
+| `docs/REGRESSION.md` | 8 | 1 | Регрессия: ворота, бюджет времени и практики |
 | `docs/RENDER.md` | 5 | 0 | Рендерер C++: конвейер и паритет с `gm/render.py` |
 | `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
 | `docs/RNG.md` | 7 | 41 | RNG: `rand()` оригинала, сид и потребители |
@@ -77,8 +77,8 @@
 | `docs/SPRITE.md` | 11 | 0 | Спрайтовый блиттер: индексированные `.sbm` в RGB-кадр |
 | `docs/SUB.md` | 18 | 102 | `.sub` — таблицы подстановок спрайтов/текстур |
 | `docs/TEXT_LAYOUT.md` | 23 | 91 | SML: раскладка текста, шрифтовые атласы и пагинация |
-| `docs/THINGS_CPP.md` | 23 | 12 | Gunmetal — C++-runtime вещей (`Thing`) |
-| `docs/THING_FIELDS.md` | 51 | 436 | Thing type (`0x776d60`) и thing instance (`0x7ac080`): карта полей (M2.3.3) |
+| `docs/THINGS_CPP.md` | 24 | 15 | Gunmetal — C++-runtime вещей (`Thing`) |
+| `docs/THING_FIELDS.md` | 52 | 450 | Thing type (`0x776d60`) и thing instance (`0x7ac080`): карта полей (M2.3.3) |
 | `docs/TOOLCHAIN.md` | 2 | 1 | Инструменты и версии |
 | `docs/TOOLING.md` | 8 | 2 | Инструменты помимо Ghidra: что брать и зачем |
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |

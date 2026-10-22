@@ -127,9 +127,12 @@ python3 tools/ghidra/mcp.py batch /tmp/opencode/req.jsonl
 ```
 
 В Code Mode этого окружения те же операции доступны **нативно** —
-`tools.ghidra.*`: `read_bytes`, `search_strings`, `list_exports`/`list_imports`,
+`tools.ghidra.*`: `decompile_function`, `disassemble`, `list_xrefs`,
+`gen_callgraph`, `search_code`, `search_symbols_by_name`, `search_strings`,
+`read_bytes`, `list_exports`/`list_imports`, `list_project_binaries`,
 `list_project_binary_metadata`, `rename_function`, `rename_variable`,
-`set_comment`, `set_function_prototype`, `import_binary`, `save`. Это тот же
+`set_variable_type`, `set_comment`, `set_function_prototype`, `import_binary`,
+`save` (проверено: `read_bytes 0x4752d0` совпал с листингом). Это тот же
 MCP-сервер, без запуска CLI: удобно для серии правок проекта (имена,
 комментарии, прототипы), но правила прежние — правки делает основной агент,
 а вывод считается гипотезой до проверки данными/тестом. Для пакетных
