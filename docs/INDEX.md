@@ -42,7 +42,7 @@
 | `docs/MAINLOOP.md` | 7 | 209 | Главный цикл и машина состояний (M2.2.2) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
-| `docs/ORACLE.md` | 3 | 0 | Эталонный оракул (M4.4.2) |
+| `docs/ORACLE.md` | 6 | 0 | Эталонный оракул (M4.4.2) |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
 | `docs/PLAYER_CONTROLLER.md` | 27 | 46 | Gunmetal — контроллер игрока (капсула, 91 Гц) |
 | `docs/PLAYER_FIELDS.md` | 52 | 1483 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |

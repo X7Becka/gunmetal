@@ -137,7 +137,8 @@ python3 tools/ctx.py index                 # пересобрать docs/INDEX.m
 | таблицы команд/условий | `tools/re/cmdtable.py` |
 | раскладка записи по store-функции | `tools/re/table_layout.py` |
 | копирование записи A→B | `tools/re/copy_trace.py` |
-| декомпиляция/граф вызовов | `tools/ghidra/mcp.py` (headless, `batch` для пачки) |
+| декомпиляция/граф вызовов | `tools/ghidra/mcp.py` (headless, `batch` для пачки); кэш — `tools/ghidra/fncache.py` |
+| сравнить кадр оригинала с нашим | `tools/re/oracle_compare.py` (`--selftest`) |
 | исполнить байты как оракул | `tools/re/x86mini.py`, `tools/re/emu.py` |
 | состояние кэша/зеркала | `tools/re/gmcache.py status` |
 | контекст из доков | `tools/ctx.py` |
