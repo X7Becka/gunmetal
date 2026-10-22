@@ -57,6 +57,7 @@ struct Options {
     bool mip_auto = false;     // --mip auto: screen-space LOD
     bool bilinear = false;     // opt-in bilinear filtering
     bool alpha_test = false;   // key out the transparent palette index
+    bool chromakey = false;    // key palette 0 only on textures with flags bit 0
     int transparent_index = 0;
     bool spawn_camera = false;  // start the viewer at SET_PLAYER_START
     int spawn_slot = 0;

@@ -779,6 +779,7 @@ std::unique_ptr<Texture> TexturePool::load(const std::string& name) {
             continue;
         }
         Texture tex;
+        tex.keyed = (sbm->flags & 1u) != 0u;
         tex.levels.reserve(sbm->mips.size());
         for (const SbmLevel& level : sbm->mips) {
             const auto rgba = sbm_to_rgba(level, palette_);
@@ -1051,11 +1052,14 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
             }
 
             if (options.solid) {
+                // Per-texture chroma-key (docs/ALPHA.md): palette index 0 is
+                // dropped only on textures whose `.sbm` flags bit 0 is set.
+                const bool keyed = options.chromakey && tex != nullptr && tex->keyed;
                 draw_poly(result.rgb, zbuf, options.width, options.height, pts, uvs, tex, shade,
                           cr, cg, cb, tex != nullptr, fit, blend, page, lmuv, lm_base,
                           options.cull, options.mip, options.mip_auto,
-                          options.bilinear, options.alpha_test,
-                          options.transparent_index);
+                          options.bilinear, options.alpha_test || keyed,
+                          keyed ? 0 : options.transparent_index);
             }
             if (options.wire) {
                 for (std::size_t k = 0; k < pts.size(); ++k) {
@@ -1072,12 +1076,13 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
                              return a.distance > b.distance;
                          });
         for (const auto& item : blended) {
+            const bool keyed = options.chromakey && item.tex != nullptr && item.tex->keyed;
             draw_poly(result.rgb, zbuf, options.width, options.height, item.pts, item.uvs,
                       item.tex, item.shade, item.r, item.g, item.b, item.tex != nullptr,
                       item.fit, item.blend, item.lm_page, item.lmuv, item.lm_base,
                       options.cull, options.mip, options.mip_auto,
-                      options.bilinear, options.alpha_test,
-                      options.transparent_index);
+                      options.bilinear, options.alpha_test || keyed,
+                      keyed ? 0 : options.transparent_index);
         }
     }
     return result;

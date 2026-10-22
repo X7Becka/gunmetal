@@ -315,6 +315,8 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.bilinear = (*v == "bilinear");
+        } else if (arg == "--chromakey") {
+            options.chromakey = true;
         } else if (arg == "--alpha-test") {
             options.alpha_test = true;
         } else if (arg == "--transparent-index") {
@@ -530,6 +532,8 @@ std::string usage() {
        << "      --mip N|auto  fixed mip level (default 0) or screen-space LOD\n"
        << "      --filter M    nearest|bilinear texture filtering\n"
        << "      --alpha-test  drop texels equal to --transparent-index\n"
+       << "      --chromakey   same, but only for textures whose .sbm flags bit 0\n"
+       << "                    is set (the game's transparent type, docs/ALPHA.md)\n"
        << "      --transparent-index N  palette key (default 0)\n"
        << "      --things      place the scene's ADD_THING models\n"
        << "      --thing-scale X  extra scale for those models (default 1)\n"

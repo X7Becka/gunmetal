@@ -38,6 +38,9 @@ struct TextureLevel {
 struct Texture {
     int width = 0;
     int height = 0;
+    /// `.sbm` header bit 0: the game chroma-keys this texture
+    /// (`docs/ALPHA.md`; the loader sets it from the zero-fraction heuristic).
+    bool keyed = false;
     std::vector<std::uint8_t> rgb;
     std::vector<std::uint8_t> indices;
     std::vector<TextureLevel> levels;
@@ -150,6 +153,10 @@ struct RenderOptions {
     bool bilinear = false;
     bool alpha_test = false;
     int transparent_index = 0;
+    // Per-texture chroma-key: drop palette index 0 only on textures whose
+    // `.sbm` flags bit 0 is set (the game's transparent type, docs/ALPHA.md).
+    // Off by default so the historical renders stay byte-identical.
+    bool chromakey = false;
 };
 
 struct RenderResult {

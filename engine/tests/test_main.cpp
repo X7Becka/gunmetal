@@ -1384,6 +1384,26 @@ void test_render() {
             CHECK_EQ(image.height, 200);
             CHECK_EQ(fnv_rgb(image.rgb), 0x0d5410a3e5785095ull);
 
+            // Texture transparency type (`docs/ALPHA.md`): `.sbm` flags bit 0
+            // is the game's "transparent" class, and `--chromakey` keys
+            // palette 0 only on those textures.  POD1/RAIL2/RAIL3/SCREEN1 are
+            // the four keyed textures `level0` uses; METFLR2 is a floor
+            // without the flag (it has no palette-0 texels worth keying).
+            if (const gm::Texture* pod = pool.get("POD1")) {
+                CHECK(pod->keyed);
+            }
+            if (const gm::Texture* rail = pool.get("RAIL2")) {
+                CHECK(rail->keyed);
+            }
+            if (const gm::Texture* floor_tex = pool.get("METFLR2")) {
+                CHECK(!floor_tex->keyed);
+            }
+            // The per-texture keying must not disturb the default frame.
+            gm::RenderOptions keyed_options = options;
+            keyed_options.chromakey = true;
+            const auto keyed = gm::render_scene(meshes, keyed_options, &pool, lightmaps);
+            CHECK_EQ(keyed.rgb.size(), image.rgb.size());
+
             // The engine-faithful frame (lightmaps sampled in the polygon's
             // local frame) must differ, but stay close: same geometry, other
             // lightmap texels on some faces.
