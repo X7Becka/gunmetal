@@ -1481,7 +1481,8 @@ def main() -> int:
             for o in sec.objects:
                 if not o.vertices:
                     continue
-                vs = o.vertices
+                # the .sbw header is 12 x f64: world = origin + basis*local
+                vs = o.world_vertices()
                 if max(max(v[i] for v in vs) - min(v[i] for v in vs)
                        for i in range(3)) <= 4000:
                     core.extend(vs)
@@ -1504,23 +1505,31 @@ def main() -> int:
                                 best = d
             return best ** 0.5
 
-        sc_scale = scenemod.SCALE
-        # NOTE: the switch operands are compared against the *file-local*
-        # vertex frame (scale 1/1.875); the world frame (`origin + basis*local`)
-        # is the proven one for spawns/sprites/things, but the shipped switch
-        # data numerically matches the local frame 85 % of the time -- see
-        # docs/WORLD_FIELDS.md §3.1.  This check pins that (open) behaviour.
-        sw = sorted(_nearest(tuple(c * sc_scale for c in x.pos))
-                    for x in sc_dm1.switches)
-        dr = sorted(min(math.dist(tuple(c * sc_scale for c in d.corner), v)
-                        for v in core) for d in sc_dm1.doors)
-        med_sw = sw[len(sw) // 2]
+        # ``ADD_SWITCH`` operands 4..6 are a *world position* only for kind 0;
+        # for kind >= 0x101 they are a (sector, object, polygon) triple (see
+        # docs/DOOR_FIELDS.md §2.2).  The old check scaled them by 1/1.875 and
+        # read the polygon ids as coordinates, which is what produced the
+        # "1.875 frame" red herring.
+        sw_k0 = sorted(_nearest(tuple(x.pos))
+                       for x in sc_dm1.switches if not x.is_poly)
+        sw_poly = [x for x in sc_dm1.switches if x.is_poly]
+        poly_ok = sum(1 for x in sw_poly
+                      if 0 <= x.pos[0] < len(lvl.sectors)
+                      and 0 <= x.pos[1] < len(lvl.sectors[x.pos[0]].objects)
+                      and 0 <= x.pos[2]
+                      < len(lvl.sectors[x.pos[0]].objects[x.pos[1]].polys))
+        dr = sorted(min(math.dist(tuple(c), v) for v in core)
+                    for d in sc_dm1.doors for c in (d.corner,))
+        med_sw = sw_k0[len(sw_k0) // 2]
         med_dr = dr[len(dr) // 2]
         results.append(report(
-            "scene / switch positions land on the mesh",
-            med_sw <= 20 and med_dr > 300 and len(sw) == 129 and len(dr) == 61,
-            "dm1: switches median %.1f units from a vertex, door corners %.1f "
-            "(doors are not in the world frame)" % (med_sw, med_dr)))
+            "scene / switch triggers resolve in the world frame",
+            med_sw <= 100 and poly_ok == len(sw_poly) and len(sw_poly) > 0
+            and len(sw_k0) + len(sw_poly) == 129 and med_dr <= 100,
+            "dm1: %d kind-0 switches median %.1f units from a vertex, "
+            "%d/%d polygon switches index a real (sector, object, polygon), "
+            "door corners %.1f"
+            % (len(sw_k0), med_sw, poly_ok, len(sw_poly), med_dr)))
 
         # --- doors / switches / lifts (tools/re/doors.py) ---------------------
         p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "re",

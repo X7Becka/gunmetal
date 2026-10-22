@@ -65,14 +65,14 @@ positions land within 5 units of their level's mesh and the ``ADD_THING``
 median is 30-60 units, while the old ``1.875 * local`` frame put them 400-1500
 units away.
 
-``SCALE = 1/1.875`` is **not** a world factor.  It is only used by the
-switch/door alignment checks (``tools/re/doors.py`` and the ``regress.py``
-"switch positions land on the mesh" check), because the ``ADD_SWITCH``
-operands 3..5 of the shipped data numerically match ``1.875 * local`` (the
-``f64`` basis ``1.0`` read as its high ``f32`` dword) 85 % of the time, while
-the engine itself compares them with the player position directly
-(``0x44fc30``).  That is an open data question, not a transform question; see
-``docs/WORLD_FIELDS.md`` §3.1.
+There is **no** scene-wide scale constant any more.  The old ``SCALE =
+1/1.875`` existed only for the ``ADD_SWITCH`` alignment checks: their operands
+4..6 looked like ``1.875 * local`` for 85 % of the shipped switches, while the
+engine compares them with the player position directly (``0x44fc30``).  That
+anomaly is now resolved and is *not* a frame question: operands 4..6 are a
+world position only for ``kind == 0`` (531 switches), and for every ``kind >=
+0x101`` (3433 switches) they are a ``(sector, object, polygon)`` triple.  See
+``Switch`` below and ``docs/DOOR_FIELDS.md`` §2.2.
 """
 
 from __future__ import annotations
@@ -82,13 +82,10 @@ from dataclasses import dataclass, field, replace
 
 from . import sbt, sbtvm
 
-#: Script frame -> ``.sbw`` *local* frame.  Kept for the switch/door checks
-#: only (see the "Coordinate frame" note); positions that are world
-#: coordinates must not be scaled by it.
-SCALE = 1.0 / 1.875
-
 #: Script (and engine world) -> world.  The header basis is the identity, so
-#: scene positions are already world coordinates.
+#: scene positions are already world coordinates.  (The former ``SCALE =
+#: 1/1.875`` is gone: it was an artefact of reading ``ADD_SWITCH`` polygon ids
+#: as coordinates -- see the "Coordinate frame" note and ``Switch``.)
 VOLUME_SCALE = 1.0
 
 
@@ -322,22 +319,47 @@ class Switch:
     """``ADD_SWITCH``: a trigger, stored **verbatim** in ``0x5a4af0``.
 
     Handler ``0x45b6ff`` -> ``0x44e5f0`` copies the eight operands as-is (array
-    ``0x5a4af0``, stride ``0x20``, count ``0x5a945c``, at most 512).  The
-    consumer ``0x44f960`` tests operand 1 against ``0x101``, takes **operand 2 as
-    the id** and calls ``0x479960`` (GENERATE) with operands 4/5/6 as the source
-    context -- and 86.9% of those triples fall inside the level's core geometry
-    box, i.e. operands 4..6 are the trigger's position.
+    ``0x5a4af0``, stride ``0x20``, count ``0x5a945c``, at most 512).
+
+    Operands 4..6 mean **two different things** depending on operand 1, and the
+    engine never converts them (see ``docs/DOOR_FIELDS.md`` §2.2):
+
+    * ``kind == 0`` -- a **world position** (``int`` x/y/z), compared with the
+      player's world position by the octagonal metric ``0x4344df``; the trigger
+      fires when the metric is below operand 3 (the radius). Consumers:
+      ``0x44fc30`` (per player, every frame).
+    * ``kind >= 0x101`` -- a **(sector, object, polygon)** triple: the index of
+      a polygon in the level, not a coordinate.  All 3433 such switches of the
+      36 shipped levels index a polygon that exists.  Consumers:
+      ``0x44fc30`` (``0x101`` aimed ray, distance <= operand 3 checked against
+      the hit polygon), ``0x44fb30`` (``0x102``/``0x103``, blast/proximity to
+      the polygon, called from opcode 75), ``0x44fad0`` (``0x102`` exact
+      triple match) and ``0x44fbd0`` (``0x104`` exact triple match).
+    * ``0x44f960`` resolves the polygon to a world point for the generated
+      event via ``0x43577c``; ``SET_SOURCEPOLY_SWITCH_EVENT`` (opcode
+      ``0x24``, ``0x44e680``) rewrites operand 2 of the switch that owns the
+      caller's polygon.
     """
 
-    kind: int             # operand 1 (compared with 0x101)
+    kind: int             # operand 1: 0 = world point, >= 0x101 = polygon
     id: int               # operand 2: the entity the switch generates
-    radius: int = 0       # operand 3 (radius/delay, not proven)
-    pos: tuple = ()       # operands 4..6 (verified as a position)
-    extra: tuple = ()     # operands 7..8 (0, -1)
+    radius: int = 0       # operand 3: radius (kind 0) / max distance (0x101)
+    pos: tuple = ()       # operands 4..6: world x/y/z *or* (sector, obj, poly)
+    extra: tuple = ()     # operands 7..8: sound id and volume (0, -1 = none)
 
     @property
     def absolute(self) -> bool:
         return len(self.pos) == 3
+
+    @property
+    def is_poly(self) -> bool:
+        """Operands 4..6 are a ``(sector, object, polygon)`` triple."""
+        return self.kind >= 0x101
+
+    @property
+    def poly(self):
+        """The ``(sector, object, polygon)`` triple, or ``None`` for kind 0."""
+        return tuple(self.pos) if self.is_poly else None
 
 
 @dataclass

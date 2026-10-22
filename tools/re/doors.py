@@ -10,11 +10,12 @@
   and toggles the state words at ``+0x80`` and ``+0x8c`` (two of those ``L``s).
 * ``ADD_SWITCH`` (op 183, sig ``LELLLLVN``) -- ``0x45b6ff`` -> ``0x44e5f0``
   copies the eight operands **verbatim** into ``0x5a4af0`` (stride ``0x20``,
-  count ``0x5a945c``, at most 512).  Consumer ``0x44f960`` tests operand 1
-  against ``0x101``, takes **operand 2 (the ``E``) as the id** and calls the
-  ``GENERATE`` wrapper ``0x479960`` with operands 4/5/6 as the source context --
-  those are the trigger's position (they fall inside the level's core geometry
-  box for 86.9% of the shipped switches).
+  count ``0x5a945c``, at most 512).  Operands 4..6 mean two different things
+  (``docs/DOOR_FIELDS.md`` §2.3): a **world position** when operand 1
+  (``kind``) is ``0`` (531 switches; ``0x44fc30`` compares it with the player's
+  world position through ``0x4344df``), and a **(sector, object, polygon)**
+  triple for ``kind >= 0x101`` (3433 switches; ``0x44fc30`` aimed ray,
+  ``0x44fb30`` blast proximity, ``0x44fad0``/``0x44fbd0`` exact triples).
 * ``ADD_LIFT`` (structural op 188): ``0x94`` bytes + ``n`` stops of ``0xc``
   (text loader layout); the fields are not decoded (45 lifts in the game).
 
@@ -45,10 +46,15 @@ def entities_ids(sc) -> set:
 
 
 def core_box(level):
-    """Bounding box of the level's geometry without the sky objects."""
+    """Bounding box of the level's *world* geometry without the sky objects.
+
+    The ``.sbw`` header is 12 x f64 (``world = origin + basis*local``), so the
+    box must be built from ``world_vertices()``; the sky objects are the ones
+    whose local extent exceeds 4000 units (they are the backdrop shells).
+    """
     vs = [v for s in level.sectors for o in s.objects if o.vertices
           and max(max(abs(x[i]) for x in o.vertices) for i in range(3)) < 4000
-          for v in o.vertices]
+          for v in o.world_vertices()]
     if not vs:
         return None
     return [(min(v[i] for v in vs), max(v[i] for v in vs)) for i in range(3)]
@@ -74,7 +80,8 @@ def main(argv=None):
     data = {}
     totals = {"doors": 0, "switches": 0, "lifts": 0, "sliding": 0, "linked": 0,
               "parts": 0, "part_ok": 0, "part_distinct": set(),
-              "sw_id": 0, "sw_id_ok": 0, "pos": 0, "pos_ok": 0}
+              "sw_id": 0, "sw_id_ok": 0, "pos": 0, "pos_ok": 0,
+              "sw_K": 0, "sw_P": 0, "sw_poly_ok": 0}
     for path in files:
         stem = os.path.splitext(os.path.basename(path))[0]
         recs = sbtmod.parse_file(path).records_of(11)
@@ -106,16 +113,23 @@ def main(argv=None):
             if (s.id & 0xFFFFFFFF) in ids:
                 totals["sw_id_ok"] += 1
         if args.frame and sc.switches:
-            box = core_box(sbwmod.parse_file(
-                os.path.join(args.game, stem + ".sbw")))
-            if box:
-                for s in sc.switches:
-                    totals["pos"] += 1
-                    # script coordinates are engine world; the box is the
-                    # .sbw file frame (world / 1.875) -- see gm.scene.SCALE
-                    if all(box[i][0] <= s.pos[i] * scenemod.SCALE <= box[i][1]
-                           for i in range(3)):
-                        totals["pos_ok"] += 1
+            lvl = sbwmod.parse_file(os.path.join(args.game, stem + ".sbw"))
+            box = core_box(lvl)
+            for s in sc.switches:
+                if s.is_poly:
+                    # operands 4..6 are (sector, object, polygon) indices
+                    totals["sw_P"] += 1
+                    si, oi, pi = s.pos[:3]
+                    if (0 <= si < len(lvl.sectors)
+                            and 0 <= oi < len(lvl.sectors[si].objects)
+                            and 0 <= pi < len(lvl.sectors[si].objects[oi].polys)):
+                        totals["sw_poly_ok"] += 1
+                    continue
+                totals["sw_K"] += 1
+                totals["pos"] += 1
+                if box and all(box[i][0] <= s.pos[i] <= box[i][1]
+                               for i in range(3)):
+                    totals["pos_ok"] += 1
         data[stem] = d
 
     if args.json:
@@ -142,8 +156,10 @@ def main(argv=None):
     print("  switch ids in the level's entity table: %d/%d"
           % (totals["sw_id_ok"], totals["sw_id"]))
     if args.frame:
-        print("  switch positions inside the core geometry box: %d/%d"
-              % (totals["pos_ok"], totals["pos"]))
+        print("  kind-0 switch world positions inside the core geometry box: "
+              "%d/%d" % (totals["pos_ok"], totals["pos"]))
+        print("  kind>=0x101 switches whose (sector, object, polygon) exists: "
+              "%d/%d" % (totals["sw_poly_ok"], totals["sw_P"]))
     return 0
 
 
