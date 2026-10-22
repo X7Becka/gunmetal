@@ -8,13 +8,32 @@
 
 Путь к exe задаётся переменной `GUNMETAL_EXE` (по умолчанию — игра из
 `/mnt/d/games/Gunmetal 3dfx`). Листинг дизассемблера (`disrange.py` читает
-именно его, `objdump` каждый раз не зовётся) генерируется один раз:
+именно его, `objdump` каждый раз не зовётся) живёт в **постоянном кэше**, а не
+в `/tmp` (там tmpfs: `wsl --shutdown` стирал листинг и копию exe):
 
 ```sh
-objdump -D -M intel "/mnt/d/games/Gunmetal 3dfx/gundx.exe" > /tmp/opencode/gundx.asm
+python3 tools/re/gmcache.py build     # листинг + бинарный индекс + копия exe
+python3 tools/re/gmcache.py status    # что уже есть, sha256 exe
 ```
 
-Путь к листингу переопределяется переменной `GUNDX_ASM`.
+Кэш — `~/.cache/gunmetal-re` (переопределяется `GUNMETAL_CACHE`, листинг —
+`GUNDX_ASM`). Если листинга нет, `exelib` соберёт его сам из `GUNMETAL_EXE`
+(нужен `objdump`). Рядом лежит `gundx.asm.idx` — отсортированные VMA и
+смещения строк; `disasm()` ищет диапазон бинарным поиском и читает только
+нужные строки (было ~100 мс на запрос, стало ~0,02 мс). Индекс пересобирается
+сам, если листинг изменился по размеру/mtime, поэтому устареть молча не может.
+
+Локальное зеркало установки (drvfs медленный: `gm.py sob --check` 1,5 с → 0,07 с):
+
+```sh
+python3 tools/re/gmcache.py mirror --sync     # ~65 с первый раз, ~16 с инкремент
+python3 tools/re/gmcache.py mirror --check    # size+mtime, --verify — sha256
+python3 regress.py --mirror                   # сам синхронизирует при расхождении
+```
+
+Зеркало — кэш: `regress.py --mirror` сверяет его с установкой (быстрая проверка
+кэшируется на 15 минут, `GUNMETAL_MIRROR_TTL`), при расхождении копирует
+заново. Игра по-прежнему только читается.
 
 ## Карта PE (этот билд)
 
@@ -45,7 +64,8 @@ objdump -D -M intel "/mnt/d/games/Gunmetal 3dfx/gundx.exe" > /tmp/opencode/gundx
 
 | файл | назначение |
 |---|---|
-| `exelib.py` | общий модуль: разбор PE, `va2off`/`off2va`, `cstr`, `strings_in`, `sig_size`, чтение листинга |
+| `exelib.py` | общий модуль: разбор PE, `va2off`/`off2va`, `cstr`, `strings_in`, `sig_size`, чтение листинга (кэш + индекс) |
+| `gmcache.py` | постоянный кэш реверса: листинг/индекс/копия exe, зеркало установки, `status`/`build`/`mirror` |
 | `disrange.py` | печать диапазона VA из листинга: `disrange.py 450be0 450d60` |
 | `strdump.py` | строки по VA или все строки в диапазоне (`--range`) |
 | `xref.py` | поиск dword-ссылок на значение (обычно адрес строки) |
@@ -89,3 +109,24 @@ python3 tools/re/sbt_fields.py "/mnt/d/games/Gunmetal 3dfx/dm1.sbt" --table DEFI
 лету) и использовался как оракул для `Vid/*.sbv` (функции `0x49ee8c`,
 `0xa1d000`, `0xa1d940`). Пример запуска — в докстринге модуля; `emu.load_image()`
 читает exe, `emu.run(start)` крутит до `emu.SENTINEL`.
+
+## Методика и бюджет контекста
+
+Как добывать и фиксировать факты (лестница доказательств, провенанс,
+чеклисты, антипаттерны) — `docs/RE_METHOD.md`. Кратко:
+
+* сначала замер, потом оптимизация; тяжёлое — в `~/.cache/gunmetal-re`,
+  `/var/tmp`, `~/build`, не в `/tmp`;
+* разбор кэшируется (листинг + индекс), игра читается через зеркало;
+* большие доки целиком не читаются — только точечные срезы:
+
+```sh
+python3 tools/ctx.py addr 0x4752d0            # где адрес документирован
+python3 tools/ctx.py doc FORMATS sbw          # один раздел вместо 207 КБ
+python3 tools/ctx.py outline ROADMAP          # оглавление с номерами строк
+python3 tools/ctx.py find target_history --scope code --max 10
+python3 tools/ctx.py task                     # верх NEXT.md
+```
+
+* факт без адреса инструкции и без проверки на данных — не факт;
+* `ROADMAP.md` обновляется в том же коммите, `NEXT.md` — в конце хода.

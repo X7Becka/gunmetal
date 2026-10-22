@@ -11,6 +11,7 @@ format module that stops parsing (or a byte-offset regression) is caught here.
     python3 regress.py --category save       # only the save checks
     python3 regress.py --category render,scene
     python3 regress.py --category film --full
+    python3 regress.py --mirror               # local cache mirror (faster)
     python3 regress.py --game "D:/games/Gunmetal 3dfx" --out /tmp/opencode/regress
 
 Categories partition the quick suite exactly: every check belongs to one
@@ -889,6 +890,7 @@ def sml_checks(G: str, results: list[bool]) -> None:
     root = os.path.join(G, "SML")
     pairs = same = diff = enc_ok = enc_tot = 0
     for base, _dirs, files in os.walk(root):
+        by_lower = {n.lower(): n for n in files}
         for f in sorted(files):
             if os.path.splitext(f)[1].lower() != ".sme":
                 continue
@@ -897,8 +899,10 @@ def sml_checks(G: str, results: list[bool]) -> None:
             enc_tot += 1
             if sml.encode(sml.decode(blob)) == blob:
                 enc_ok += 1
-            twin = os.path.join(base, os.path.splitext(f)[0] + ".sml")
-            if os.path.exists(twin):
+            # the shipped install is case-insensitive: FOO.SME pairs with foo.SML
+            twin_name = by_lower.get((os.path.splitext(f)[0] + ".sml").lower())
+            if twin_name:
+                twin = os.path.join(base, twin_name)
                 pairs += 1
                 if sml.decode(blob) == open(twin, "rb").read():
                     same += 1
@@ -1118,6 +1122,11 @@ def main() -> int:
                     metavar="CAT",
                     help="run only these categories (repeatable or comma-separated); "
                          "see --list-categories")
+    ap.add_argument("--mirror", action="store_true",
+                    help="test a local mirror of --game (tools/re/gmcache.py), "
+                         "syncing it when it has drifted (drvfs is slow)")
+    ap.add_argument("--verify-mirror", action="store_true",
+                    help="with --mirror: re-validate the mirror before running")
     ap.add_argument("--list-categories", action="store_true",
                     help="print the category names and exit")
     opts = ap.parse_args()
@@ -1141,6 +1150,11 @@ def main() -> int:
         opts.full = True
 
     G = opts.game
+    if opts.mirror:
+        sys.path.insert(0, os.path.join(HERE, "tools", "re"))
+        import gmcache
+        G = gmcache.ensure_mirror(opts.game, force=opts.verify_mirror)
+        print("regress: game mirror %s" % G)
     out = opts.out or os.path.join(tempfile.gettempdir(), "opencode", "regress")
     os.makedirs(out, exist_ok=True)
     results: list[bool] = []

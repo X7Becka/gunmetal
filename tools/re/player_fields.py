@@ -44,6 +44,9 @@ import re
 import struct
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import exelib  # noqa: E402
+
 BASE = 0x819040
 STEP = 0x3510
 SLOTS = 8
@@ -57,7 +60,7 @@ TAIL_AFTER_SLOTS = 0x8338C0
 TAIL_REST = 7 + 0x50 + 0x3510 + 0x50 + 0x3510 + 1   # 27336
 SAVE_MARKER = b"\x09\x01"
 GAME_DEFAULT = "/mnt/d/games/Gunmetal 3dfx"
-ASM_DEFAULT = "/tmp/opencode/gundx.asm"
+ASM_DEFAULT = exelib.asm_path()
 
 # ---------------------------------------------------------------------------
 # field map
@@ -500,8 +503,8 @@ def cmd_census(args) -> int:
     path = args.asm or os.environ.get("GUNDX_ASM") or ASM_DEFAULT
     if not os.path.exists(path):
         print("нет листинга %s\n"
-              "сгенерируйте: objdump -D -M intel \"%s/gundx.exe\" > %s"
-              % (path, GAME_DEFAULT, path), file=sys.stderr)
+              "соберите кэш: python3 tools/re/gmcache.py build" % path,
+              file=sys.stderr)
         return 1
     hits = census(path)
     for off in sorted(hits):

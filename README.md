@@ -61,6 +61,10 @@ tools/avatar.py       аватар из модели .sob: суперсэмпл�
                       контактный лист ракурсов
 tools/re/             инструментарий реверса exe (PE-карта, дизасм, xref,
                       таблицы команд, эмулятор x86) — см. tools/re/README.md
+tools/re/gmcache.py   постоянный кэш: листинг+индекс, копия exe, зеркало игры
+tools/ctx.py          точечные срезы документации (doc/addr/find/outline/task)
+docs/RE_METHOD.md     методика реверса: доказательства, скорость, бюджет контекста
+docs/INDEX.md         карта документации (генерируется tools/ctx.py index)
 tools/fuzz_formats.py фазз-матрица парсеров (пустые/битые/мутированные файлы)
 tools/parity_sou2.py  Python↔C++ паритет SOU2 (--fast/--quick/полный архив)
 tools/gen_sou2_table.py  извлечение gain-таблицы 0x852340 из sou2.cpp

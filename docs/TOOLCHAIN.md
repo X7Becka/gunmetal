@@ -24,7 +24,8 @@
 
 | | |
 |---|---|
-| дизассемблер | `objdump -D -b pei-i386 -M intel gundx.exe` → `/tmp/opencode/gundx.asm` |
+| дизассемблер | `objdump -D -M intel gundx.exe` → `~/.cache/gunmetal-re/gundx.asm` (+ `.idx`) |
+| кэш реверса | `tools/re/gmcache.py` (`status`/`build`/`mirror`), `GUNMETAL_CACHE` |
 | обёртки | `tools/re/disrange.py`, `tools/re/xref.py`, `tools/re/exelib.py` |
 | карта адресов | `tools/re/names.csv` (119 записей) + `tools/re/names.py` |
 | декомпилятор | **Ghidra 12.1.4 PUBLIC** + **pyghidra-mcp 0.2.7**, headless |
@@ -48,3 +49,13 @@ Ghidra импортирует `gundx.exe` с `ImageBase 0x400000`; проект 
 | SDL3 | 3.4.18, статическая сборка, драйверы `dummy`/`offscreen` (без X11/Wayland) |
 
 Подробности сборки — `docs/BUILD.md`.
+
+## Скорость и контекст
+
+| | |
+|---|---|
+| кэш (листинг, индекс, exe, зеркало) | `~/.cache/gunmetal-re`, `tools/re/gmcache.py` |
+| зеркало установки | `python3 tools/re/gmcache.py mirror --sync`, `regress.py --mirror` |
+| индекс листинга | `gundx.asm.idx`, собирается `exelib` (bisect + seek) |
+| срезы документации | `tools/ctx.py` (`doc`/`addr`/`find`/`outline`/`task`) |
+| методика | `docs/RE_METHOD.md` |

@@ -80,11 +80,15 @@ def table(data):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--exe", default="/tmp/opencode/gundx.exe")
+    ap.add_argument("--exe", default=None,
+                    help="executable (default: the cache copy, else the install)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
-    data = open(args.exe, "rb").read()
+    exe = args.exe or exelib.cache_path("gundx.exe")
+    if not os.path.exists(exe):
+        exe = exelib.EXE          # cache not built yet
+    data = open(exe, "rb").read()
     for va, want in PATTERNS:
         got = exelib.cstr(va, 64)
         if got != want:

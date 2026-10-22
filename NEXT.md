@@ -120,6 +120,28 @@
     `+0x18`/`+0x54` без читателей; смысл `damage_a` vs `damage_b` не
     разделён. Карта — `docs/RECORDS.md` §2.
 
+## Инфраструктура (2026-10-22, ✅)
+
+- **Постоянный кэш вместо tmpfs.** `tools/re/gmcache.py`: листинг objdump,
+  бинарный индекс `gundx.asm.idx`, копия exe и зеркало установки в
+  `~/.cache/gunmetal-re` (переживает `wsl --shutdown`). `exelib` собирает
+  листинг сам; `disasm()` — bisect + seek (≈100 мс → ≈0,02 мс на запрос),
+  `gmcache.py selftest` — 98 сэмплов, 0 расхождений на 283 626 строках.
+- **Зеркало игры.** `regress.py --mirror` (сверка + автоСинхронизация):
+  `113/113 за 45,7 с` против `113/113 за 78,8 с` на `/mnt/d`;
+  `gm.py inventory` 7,1 с → 0,14 с, `sob --check` 1,5 с → 0,07 с.
+- **Регистр имён.** `regress.py::gp()` и пары `.SME/.SML` больше не зависят
+  от регистронезависимой drvfs (зеркало на ext4); `savegame.py` берёт exe из
+  кэша, а не из `/tmp/opencode` (из-за этого прежний baseline давал 112/113).
+- **Контекст/токены.** `tools/ctx.py` (`doc`/`addr`/`find`/`outline`/`task`,
+  бюджет 40 строк), `docs/INDEX.md`, правила в `AGENTS.md`, методика —
+  `docs/RE_METHOD.md`.
+- **Проверено:** `regress.py` 113/113 на установке и на зеркале,
+  `player_fields --self-test`, `names`/`table_layout`/`xref`,
+  `gmcache selftest`, `ctx.py index`.
+- **Следующий шаг:** очередь без изменений — пункт 1 (ввод игрока в цикле и
+  передача `state.charge` в `fire(...)`). Блокеров нет.
+
 ## Стоп-условия
 
 - Пользователь написал `STOP`/`пауза`.
