@@ -46,12 +46,12 @@ python3 tools/ghidra/mcp.py symbols "weapon_target"
 | Цель | C++-переиздание Gunmetal v1.36 3dfx (`gundx.exe`, SHA `929ffa72…`) | `docs/RE_METHOD.md` §2, манифест установки |
 | Данные | все форматы прочитаны, round-trip на полном корпусе | `regress.py` 113/113; `--full --mirror` 122/123 (единственное падение — внешний `install_audit`: изменены `KEYCFG/*.key`, `docs/BASELINE.md`) |
 | C++ | 43,8k строк (`engine/src`), паритет рендера с `gm/render.py` | CTest 60/61 (`build/sandbox`); падает только `controls` из-за тех же `KEYCFG/*.key` |
-| Roadmap | 71 ✅ / 53 🟡 / 105 ⬜ / 1 ⛔ (по item-строкам) | `python3 tools/qa/state.py` |
+| Roadmap | 83 ✅ / 74 🟡 / 74 ⬜ / 1 ⛔ (по item-строкам) | `python3 tools/qa/state.py` |
 | Готовые зоны | `M1` 48 ✅, `M2` 6 ✅ / 16 🟡, `M4` 2 ✅ / 17 🟡 | `ROADMAP.md` |
 | Нулевые зоны | `M5` (ВМ — код есть, roadmap не размечен), `M6`, `M9`, `M11`, `M12` | `ROADMAP.md`, нужна сверка |
-| Инструменты | 67 скриптов в `tools/re`, 92 документа в `docs` | `ls`, `docs/INDEX.md` |
+| Инструменты | 73 скрипта в `tools/re`, 97 документов в `docs` | `ls`, `docs/INDEX.md` |
 | Ghidra | 1506 функций, 196 943 инструкции; проект `re/ghidra`, 119 имён | `metadata`, `state.py --ghidra`, `names.csv` |
-| Рендер | палитра движка + 1-based индексы текстур исправлены, кривая света доказана | `docs/PALETTE.md`, `docs/LOOK16.md`, CTest `core`/`sprite` |
+| Рендер | палитра и 1-based индексы исправлены; кривая света доказана; текстурная проекция движка и пропуск полигонов без текстуры реализованы с байтовым паритетом Python↔C++ | `docs/PALETTE.md`, `docs/LOOK16.md`, `docs/TEXUV.md`, CTest `core` (FNV-пин) |
 
 ## 3. Узкие места
 
