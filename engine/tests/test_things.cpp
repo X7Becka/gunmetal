@@ -719,6 +719,13 @@ void test_real_dm1() {
     CHECK_EQ(things.stats().executed_top_level, 41u);
     CHECK_EQ(things.stats().max_depth, 2u);
 
+    // The child table is parsed for every instance: the two arrays always have
+    // the same length and the clamp is four (0x46d000).
+    for (const gm::Thing& thing : things.things()) {
+        CHECK_EQ(thing.child_types.size(), thing.child_params.size());
+        CHECK(thing.child_types.size() <= 4u);
+    }
+
     // Golden first runtime instance (Python: dm1 executed[0]).
     const gm::Thing* first = things.by_id(0);
     CHECK(first != nullptr);
@@ -827,6 +834,7 @@ void test_corpus() {
     std::size_t null_static = 0;
     std::size_t null_runtime = 0;
     std::size_t levels = 0;
+    std::size_t with_children = 0;
     for (const LevelGolden& golden : kLevels) {
         // resolve by content: the shipped level1/level2 may be swapped
         const auto resolved = gmtest::resolve_game_file(
@@ -851,6 +859,13 @@ void test_corpus() {
         missing_models += things.stats().missing_model_refs;
         null_static += things.stats().null_type_static;
         null_runtime += things.stats().null_type_things;
+        for (const gm::Thing& thing : things.things()) {
+            CHECK_EQ(thing.child_types.size(), thing.child_params.size());
+            CHECK(thing.child_types.size() <= 4u);
+            if (!thing.child_types.empty()) {
+                ++with_children;
+            }
+        }
     }
     CHECK_EQ(levels, 36u);
     CHECK_EQ(top, 4008u);
@@ -862,8 +877,10 @@ void test_corpus() {
     CHECK_EQ(missing_models, 0u);
     CHECK_EQ(null_static, 13u);
     CHECK_EQ(null_runtime, 13u);
-    std::printf("things: corpus %zu/%zu/%zu, spawns %zu, types %zu\n", top, recursive,
-                executed, spawns, types);
+    CHECK_EQ(with_children, 591u); // real instances whose type has children
+    std::printf("things: corpus %zu/%zu/%zu, spawns %zu, types %zu, "
+                "instances with children %zu\n",
+                top, recursive, executed, spawns, types, with_children);
 }
 
 void test_expire_lifetime() {

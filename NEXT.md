@@ -240,8 +240,9 @@
   `test_weapon_timer_bonus`.
 - **Таблица детей типа**: `Thing::child_types/child_params` из
   `THING_TYPES+0x300/+0x310` (count `+0x2fc`, clamp 4), тест
-  `test_child_table`; спавн детей (`0x46d000`, локальный offset `+0xd8+0x18i`
-  × базис родителя) пока не подключён.
+  `test_child_table`; на корпусе 591 экземпляр с детьми, clamp/парность
+  массивов проверяются на всех 36 уровнях. Спавн детей (`0x46d000`,
+  локальный offset `+0xd8+0x18i` × базис родителя) пока не подключён.
 - **Луч прицела из камеры**: `GameState::aim_direction()` =
   `camera_basis(angles[1], angles[0], angles[2]).forward` — готовый вход для
   `GameRuntime::aim_switch_from_basis()` (CTest `test_aim_direction`).
