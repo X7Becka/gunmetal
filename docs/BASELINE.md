@@ -178,3 +178,25 @@ html/jpg/png, архивы) — они видны в `gm.py manifest --all`. Л�
   прежнего baseline;
 * контекст: `tools/ctx.py` + `docs/INDEX.md` (срезы вместо чтения 200-КБ
   документов целиком), методика — `docs/RE_METHOD.md`.
+
+### Внешние расхождения установки (2026-10-22)
+
+`tools/re/install_audit.py` находит в установке ещё одно отличие от манифеста:
+**изменены `KEYCFG/PERFECT.key`, `KEYCFG/SPLIT1.KEY`, `KEYCFG/SPLIT2.KEY`**
+(плюс известные swaps `level1`↔`level2` и volatile `GUNMETAL.CFG`). Из-за
+этого же файла падает CTest `controls`: тест сверяет пары клавиш с
+зафиксированными значениями, а в установке лежат другие.
+
+Это внешнее расхождение, а не регрессия кода — правится только переустановкой
+игры, поэтому:
+
+| прогон | результат | причина |
+|---|---|---|
+| `regress.py --full --mirror` | **122/123** (66,5 с) | `install / manifest audit` — KEYCFG |
+| `ctest --test-dir build/sandbox -j 6` | **60/61** (258,6 с) | `controls` — KEYCFG |
+| `regress.py --mirror` | 113/113 | быстрый набор аудит не запускает |
+| `ctest -L quick` без `controls` | 49/49 | — |
+
+Остальные 60 тестов CTest зелёные, включая `core`, `sprite`, `sbv_parity`,
+`sou2_full`, `core_full` после правки палитры и 1-based индексов текстур
+(`docs/PALETTE.md`).
