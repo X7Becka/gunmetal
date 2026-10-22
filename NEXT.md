@@ -295,11 +295,20 @@
   `+0x3f0` к кулдауну; в C++ `AiConfig::use_weapon_timer` +
   `Ai::set_weapon_rng` (`Thing::timer_period/step`), CTest
   `test_weapon_timer_bonus`.
-- **Таблица детей типа**: `Thing::child_types/child_params` из
-  `THING_TYPES+0x300/+0x310` (count `+0x2fc`, clamp 4), тест
-  `test_child_table`; на корпусе 591 экземпляр с детьми, clamp/парность
-  массивов проверяются на всех 36 уровнях. Спавн детей (`0x46d000`,
-  локальный offset `+0xd8+0x18i` × базис родителя) пока не подключён.
+- **Таблица детей типа + спавн `0x46d000`** (merge `f96ebfc`):
+  `Thing::child_types/child_params/child_offsets/child_angles` из
+  `THING_TYPES+0x300/+0x310/+0xd8+0x18i/+0x138/158/178` (count `+0x2fc`,
+  clamp 4), тест `test_child_table`; на корпусе 591 экземпляр с детьми,
+  clamp/парность массивов проверяются на всех 36 уровнях.
+  `Things::spawn_children()` — один уровень детей, позиция
+  `origin + basis·offset`, композиция ориентации `0x41e141`/`0x41e2f9`,
+  флаги `тип | child_param | param_12`, create-event `+0x1f0`, родитель
+  получает id детей. Пока **opt-in** (`ThingsOptions::spawn_type_children`,
+  по умолчанию false): включение сдвигает golden-счётчики 7 617/591.
+  CTest `test_type_children`, `test_type_children_real` (level11: 37 детей
+  у 293 инстансов). Осталось: включить по умолчанию и пересчитать голдены;
+  source-relative родитель остаётся с нулевым origin (нет мировой позиции);
+  порядок id детей отличается от оригинала (ребёнок сразу за родителем).
 - **Луч прицела из камеры**: `GameState::aim_direction()` =
   `camera_basis(angles[1], angles[0], angles[2]).forward` — готовый вход для
   `GameRuntime::aim_switch_from_basis()` (CTest `test_aim_direction`).
