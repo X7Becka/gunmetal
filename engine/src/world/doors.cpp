@@ -778,13 +778,24 @@ void WorldState::rebuild_indexes() {
     }
     for (std::size_t k = 0; k < lifts_.size(); ++k) {
         const Lift& lift = lifts_[k];
+        // 0x44f690 matches three call aliases *and* every stop's floor id;
+        // dedup so one target reaches the lift once even when the ids repeat.
+        std::set<int> aliases;
         if (lift.id != 0) {
-            lift_targets_.push_back({lift.id, k});
+            aliases.insert(lift.id);
         }
         for (int call : lift.call_ids) {
             if (call != 0) {
-                lift_targets_.push_back({call, k});
+                aliases.insert(call);
             }
+        }
+        for (const LiftStop& stop : lift.stops) {
+            if (stop.floor_id != 0) {
+                aliases.insert(stop.floor_id);
+            }
+        }
+        for (int alias : aliases) {
+            lift_targets_.push_back({alias, k});
         }
     }
     std::set<std::pair<int, int>> distinct;
@@ -1034,28 +1045,73 @@ bool WorldState::build(const SbtLevel& level, const SbwLevel& world, std::string
     return true;
 }
 
-void WorldState::start_lift(std::size_t index, Lift& lift) {
-    if (lift.stops.size() < 2 || lift.speed <= 0) {
-        return;
+bool WorldState::start_lift(std::size_t index, Lift& lift, int call_id) {
+    if (lift.kind != 1 || lift.stops.size() < 2 || lift.speed <= 0) {
+        // 0x44f7b6 / 0x45019b: only `kind == 1` lifts run the state machine.
+        return false;
     }
-    std::size_t next = static_cast<std::size_t>(std::max(lift.stop_index, 0)) + 1;
-    if (next >= lift.stops.size()) {
-        next = 0;
+    const int count = static_cast<int>(lift.stops.size());
+    int stop = std::clamp(lift.stop_index, 0, count - 1);
+    bool acted = false;
+
+    if (call_id == lift.id) {
+        // Model convenience: `lift_targets_` also exposes the record index,
+        // so a caller can address a lift directly.  Walk to the next stop.
+        stop = (stop + 1) % count;
+        acted = true;
     }
-    lift.stop_index = static_cast<int>(next);
-    lift.target = lift.stops[next].height;
-    const std::int64_t distance = static_cast<std::int64_t>(lift.target) - lift.height;
-    lift.direction = distance == 0 ? 0 : (distance > 0 ? 1 : -1);
-    lift.moving = lift.direction != 0;
+    // 0x44f6c0..0x44f710: the three call aliases.  `call_ids[0]` is the
+    // "next floor" button (step, wrap), `[1]` goes up (clamped) and `[2]`
+    // down (clamped); pressing the edge alias does nothing.
+    if (call_id == lift.call_ids[0]) {
+        stop = (stop + 1) % count;
+        acted = true;
+    }
+    if (call_id == lift.call_ids[1] && stop < count - 1) {
+        ++stop;
+        acted = true;
+    }
+    if (call_id == lift.call_ids[2] && stop > 0) {
+        --stop;
+        acted = true;
+    }
+
+    // 0x44f730..0x44f7a0: a stop whose floor id equals the call id wins over
+    // the step/clamp result.  A stop already at the current height only
+    // selects itself (direction 0); it does not start a travel by itself.
+    for (int i = 0; i < count; ++i) {
+        if (lift.stops[static_cast<std::size_t>(i)].floor_id != call_id) {
+            continue;
+        }
+        if (lift.stops[static_cast<std::size_t>(i)].height == lift.height) {
+            lift.direction = 0;
+            stop = i;
+        } else if (stop != i || lift.direction == 0) {
+            stop = i;
+            acted = true;
+        }
+    }
+
+    lift.stop_index = stop;
+    if (!acted) {
+        lift.moving = false;
+        lift.wait = 0;
+        return false;
+    }
+
     lift.wait = 0;
     lift.height_tick = lift.height;
+    lift.target = lift.stops[static_cast<std::size_t>(stop)].height;
+    // 0x44f840: `height < stop.height ? 1 : -1` (equal height still gets -1;
+    // the next state tick immediately arrives and zeroes it).
+    lift.direction = lift.height < lift.target ? 1 : -1;
+    lift.moving = true;
     // 0x44f690 plays the call/departure slot (n_a/v_a) when it commits the
     // stop; 0x4502a0 then starts the movement loop on the next state tick.
     queue_lift_sound(index, lift, SoundSource::LiftCall, lift.call_sound, false);
-    if (lift.moving) {
-        queue_lift_sound(index, lift, SoundSource::LiftMove, lift.move_sound, true);
-        lift.move_sound_queued = true;
-    }
+    queue_lift_sound(index, lift, SoundSource::LiftMove, lift.move_sound, true);
+    lift.move_sound_queued = true;
+    return true;
 }
 
 std::size_t WorldState::post_switch_events(EventQueue& queue,
@@ -1186,11 +1242,16 @@ std::size_t WorldState::press_target(int switch_id, int target) {
         }
         Lift& lift = lifts_[row.second];
         if (!lift.moving) {
-            start_lift(row.second, lift);
-            ++stats_.lift_calls;
-            log_event({WorldEvent::Kind::LiftCalled, switch_id, target, 0, lift.id,
-                       lift.call_sound.sample, lift.call_sound.volume});
+            // The target matched a call id; the lift may still refuse it
+            // (e.g. "up" at the top stop), in which case 0x44f690 returns
+            // silently but the switch target did resolve.
+            const bool started = start_lift(row.second, lift, target);
             ++acted;
+            if (started) {
+                ++stats_.lift_calls;
+                log_event({WorldEvent::Kind::LiftCalled, switch_id, target, 0, lift.id,
+                           lift.call_sound.sample, lift.call_sound.volume});
+            }
         }
     }
     if (acted == 0) {

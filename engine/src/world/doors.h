@@ -563,7 +563,11 @@ private:
     void add_door(Door door);
     void advance_door(std::size_t index, Door& door, std::uint64_t ticks);
     void advance_lift(std::size_t index, Lift& lift, std::uint64_t ticks);
-    void start_lift(std::size_t index, Lift& lift);
+    /// `0x44f690` for one lift: select the stop from *call_id* (`call_ids[0]`
+    /// steps, `[1]`/`[2]` clamp up/down, a stop with the matching `floor_id`
+    /// overrides) and start the travel.  Returns false when the call selects
+    /// nothing (`bVar2` stays false), e.g. "up" at the top stop.
+    bool start_lift(std::size_t index, Lift& lift, int call_id);
     /// GENERATE path shared by `interact` and `poll_triggers`: toggle every
     /// door whose ``ids[0..2]`` match *target* and call every lift whose
     /// call id matches.  Returns the number of doors/lifts that reacted.

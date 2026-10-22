@@ -184,7 +184,8 @@ std::vector<std::uint8_t> make_switch_payload(const std::vector<int>& targets) {
     return make_switch_payload(specs);
 }
 
-std::vector<std::uint8_t> make_lift_payload() {
+std::vector<std::uint8_t> make_lift_payload(int call0 = 500, int call1 = 0,
+                                           int call2 = 0) {
     constexpr std::size_t kRecord = 0xA8;
     constexpr std::size_t kStops = 2;
     std::vector<std::uint8_t> payload(4 + kRecord + 4 + kStops * 12, 0);
@@ -199,14 +200,18 @@ std::vector<std::uint8_t> make_lift_payload() {
     put_i32(payload, base + 0x60, 0);   // target
     put_i32(payload, base + 0x68, 0);   // moving
     put_i32(payload, base + 0x6C, 0);   // stop index
-    put_i32(payload, base + 0x70, 500); // call id
+    put_i32(payload, base + 0x70, call0); // call ids
+    put_i32(payload, base + 0x74, call1);
+    put_i32(payload, base + 0x78, call2);
     put_i32(payload, base + 0x9C, static_cast<int>(kStops));
     put_i32(payload, base + 0xA0, 0);
 
     const std::size_t columns = base + kRecord + 4;
     put_u32(payload, base + kRecord, static_cast<std::uint32_t>(kStops));
-    put_i32(payload, columns + 0, 500);            // floor ids
-    put_i32(payload, columns + 4, 501);
+    // Deliberately not equal to the call ids: a matching floor id would
+    // override the step/clamp alias in 0x44f730.
+    put_i32(payload, columns + 0, 700);            // floor ids
+    put_i32(payload, columns + 4, 701);
     put_i32(payload, columns + kStops * 4 + 0, 0); // heights
     put_i32(payload, columns + kStops * 4 + 4, 100);
     put_i32(payload, columns + kStops * 8 + 0, 0); // sounds
@@ -1419,6 +1424,69 @@ void test_lift_sound_queue() {
     }
 }
 
+// 0x44f690 walks the lift's three call aliases (`[0]` next, `[1]` up,
+// `[2]` down) and then every stop's floor id; the floor match wins.  A call
+// that selects nothing (`bVar2` false, e.g. "up" at the top) returns silently.
+void test_lift_call_aliases() {
+    gm::SbtLevel level;
+    gm::SbtRecord switches;
+    switches.type = 1;
+    // 0: floor id 701 (stop 1, height 100); 1/2: "up" alias 601 at the top;
+    // 3: "down" alias 602; 4: "next" alias 600.
+    switches.payload = make_switch_payload(
+        std::vector<int>{701, 601, 601, 602, 600});
+    gm::SbtRecord lifts;
+    lifts.type = 18;
+    lifts.payload = make_lift_payload(600, 601, 602);
+    level.records = {std::move(switches), std::move(lifts)};
+    gm::WorldState state;
+    std::string error;
+    gm::SbwLevel world;
+    CHECK(state.build(level, world, &error));
+    CHECK(error.empty());
+    gm::Lift* lift = state.find_lift(0);
+    CHECK(lift != nullptr);
+    if (lift == nullptr) {
+        return;
+    }
+
+    // A floor id selects its stop directly (0x44f730), even though it is not
+    // one of the three call aliases.
+    CHECK(state.interact(0));
+    CHECK_EQ(state.stats().lift_calls, 1u);
+    CHECK_EQ(lift->stop_index, 1);
+    CHECK_EQ(lift->target, 100);
+    state.tick(10);
+    CHECK_EQ(lift->height, 100);
+    CHECK(!lift->moving);
+    std::vector<gm::SoundRequest> drained;
+    state.drain_sounds(drained);
+
+    // "Up" at the top stop: the alias is clamped (`stop < count-1` fails),
+    // the floor loop finds nothing, so the call returns without a sound.
+    CHECK(state.interact(1));
+    CHECK_EQ(state.stats().lift_calls, 1u);
+    CHECK(!lift->moving);
+    drained.clear();
+    CHECK_EQ(state.drain_sounds(drained), 0u);
+    for (const gm::WorldEvent& event : state.events()) {
+        CHECK(event.kind != gm::WorldEvent::Kind::LiftCalled);
+    }
+
+    // "Down" and "next" still work.
+    CHECK(state.interact(3));
+    CHECK_EQ(state.stats().lift_calls, 2u);
+    CHECK_EQ(lift->stop_index, 0);
+    CHECK_EQ(lift->target, 0);
+    state.tick(10);
+    CHECK_EQ(lift->height, 0);
+
+    CHECK(state.interact(4));
+    CHECK_EQ(state.stats().lift_calls, 3u);
+    CHECK_EQ(lift->stop_index, 1);
+    CHECK_EQ(lift->target, 100);
+}
+
 void test_crush_is_silent() {
     // 0x450590 (kind 3) posts the crush event and calls no sound function.
     DoorSpec spec;
@@ -1539,7 +1607,7 @@ void test_sbt_writer(bool full) {
             CHECK_EQ(lift_block.lifts[0].stop_start, 0);
         }
         if (lift_block.stops.size() == 2u) {
-            CHECK_EQ(lift_block.stops[0].floor_id, 500);
+            CHECK_EQ(lift_block.stops[0].floor_id, 700);
             CHECK_EQ(lift_block.stops[1].height, 100);
             CHECK_EQ(lift_block.stops[1].sound, 7);
         }
@@ -2342,6 +2410,7 @@ int main(int argc, char** argv) {
     test_sound_queue();
     test_polygon_switch_centroid();
     test_lift_sound_queue();
+    test_lift_call_aliases();
     test_crush_is_silent();
     test_triggers();
     test_block_contact();
