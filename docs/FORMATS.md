@@ -1974,13 +1974,13 @@ DM-цепочка задана скриптами: `dm1 TRAILER PARK` → `DM2` 
 
 | Уровень | Имя | Секретов | Лучшее время | Выходы (в скобках — условие) |
 |---|---|---|---|---|
-| `level0` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
-| `level00` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
-| `level000` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
-| `level0a` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
-| `level0b` | COMMAND POST | — | — | `NEXT_LEVEL [SOURCEPLAYER_AMMO_FULL]` |
-| `level1` | POWER STATION | 5 | 180 | `level3 [DM]`; `level00` |
-| `level2` | TESTING RANGE | 4 | 48 | `level2 [DM]`; `level00` |
+| `level0` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCE_IS_PLAYER]` |
+| `level00` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCE_IS_PLAYER]` |
+| `level000` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCE_IS_PLAYER]` |
+| `level0a` | HEADQUARTERS | — | — | `NEXT_LEVEL [SOURCE_IS_PLAYER]` |
+| `level0b` | COMMAND POST | — | — | `NEXT_LEVEL [SOURCE_IS_PLAYER]` |
+| `level1` | TESTING RANGE | 4 | 48 | `level2 [DM]`; `level00` |
+| `level2` | POWER STATION | 5 | 180 | `level3 [DM]`; `level00` |
 | `level3` | NATAKA TOWER | 6 | 84 | `level4 [DM]`; `level00` |
 | `level4` | OIL RIG | 5 | 166 | `secrt1`; `level5 [DM]`; `level00` |
 | `level5` | OIL REFINERY | 4 | 91 | `level6 [DM]`; `level00` |
@@ -2011,25 +2011,32 @@ DM-цепочка задана скриптами: `dm1 TRAILER PARK` → `DM2` 
 | `secrt2` | SECRET LEVEL - PROCESSOR | — | 238 | `level19 [DM]`; `level000` |
 | `temple` | DM5 - TEMPLE | — | — | `level5 [DM]`; `level00` |
 
-`[DM]` = `DEATHMATCH_CLASSIC_GAME`. Из таблицы видно устройство:
+`[DM]` = `DEATHMATCH_GAME` (cid 12; условие `DEATHMATCH_CLASSIC_GAME` в
+поставке не встречается ни разу — в classic оно тоже истинно). Из таблицы
+видно устройство:
 
 * **Хаб кампании.** Одиночные концовки миссий ведут не на следующий уровень, а
   в штаб — и уже штаб переключает миссию через `NEXT_LEVEL` под
-  `IF SOURCEPLAYER_AMMO_FULL` (условие «миссия сдана»). Разделение по актам:
+  `IF SOURCE_IS_PLAYER` (cid 9). ⚠️ Поправка 2026-10-23: раньше здесь стояло
+  `SOURCEPLAYER_AMMO_FULL` — это условие **не встречается в поставке ни
+  разу** (`docs/VM_SCENE.md` §5.5). Разделение по актам:
   акт 1 (уровни 1…8) → `level00`, акт 2 (9…16) → `level000`, акт 3 (17…18) →
   `level0a`, акт 4 (20…23) → `level0b` (COMMAND POST); `level0` — стартовый штаб
   (новую игру начинает фронтенд, своих переходов у него нет). Именно поэтому
   `level00`/`level000`/`level0a` — три сборки одной карты (см. выше), а
   `level0b` — карта с другим именем и другим содержимым.
 * **DM-классик** — сплошная цепочка по «боевым» картам кампании, замкнутая в
-  цикл: `level1 → level3 → level4 → level5 → level6 → … → level16 →
+  цикл: `level1 → level2 → level3 → level4 → level5 → level6 → … → level16 →
   level17/18 → level19 → level20 → … → level24 → dm1 → dm2 → dm3 → dm4 →
-  level1`. `level2` (учебный) в этой цепочке замыкается сам на себя, `level19` —
-  единственный «боевой» уровень без выхода в штаб (у него `NEXT_LEVEL`).
+  level1`. ⚠️ Поправка 2026-10-23: раньше здесь были «level1 → level3» и
+  «level2 замыкается сам на себя» — строки `level1`/`level2` в таблице были
+  перепутаны местами целиком (имя, секреты, время и оба выхода); в `.sbt`
+  `level1` → `level2`, `level2` → `level3` (`docs/VM_SCENE.md` §5.5).
+  `level19` — единственный «боевой» уровень без выхода в штаб (`NEXT_LEVEL`).
 * **Секретные ветки** (`secrt1` из `level4`, `secrt2` из `level16`) — отдельные
   под-скрипты **без условий**, рядом с обычной концовкой.
-* Лучшие времена — `SET_LEVEL_BEST_TIME` (секунды): самое быстрое — `level2`
-  (48), самое долгое — `level8` (824).
+* Лучшие времена — `SET_LEVEL_BEST_TIME` (секунды): самое быстрое — `level1`
+  (48, TESTING RANGE), самое долгое — `level8` (824).
 
 **Список уровней в меню.** «SELECT LEVEL FOR NEW GAME» (`0x48a3c0`) берёт список
 не из таблицы, а **сканирует каталог**: `0x48b170` вызывает сканер `0x48b1c0`
@@ -2051,8 +2058,9 @@ DM-цепочка задана скриптами: `dm1 TRAILER PARK` → `DM2` 
 `NEW_LEVEL` в числовой ветке увеличивает (`0x457b2e`), а условие
 `NEXT_LEVEL_NUMBER` с ним сравнивается (`0x45ea26`). Экрана «выбор миссии» в
 штабах нет: единственный выход штаба — под-скрипт
-`IF SOURCEPLAYER_AMMO_FULL { NEXT_LEVEL }` (запуск миссии, когда игрок полностью
-снаряжён), а разбивка на акты «зашита» в скрипты **миссий** — каждая возвращает
+`IF SOURCE_IS_PLAYER { NEXT_LEVEL }` (запуск миссии с источником-игроком;
+поправка 2026-10-23, раньше стояло `SOURCEPLAYER_AMMO_FULL`), а разбивка на
+акты «зашита» в скрипты **миссий** — каждая возвращает
 игрока в свой штаб (`level00` → акт 1, `level000` → акт 2, `level0a` → акт 3,
 `level0b`/COMMAND POST → акт 4).
 
