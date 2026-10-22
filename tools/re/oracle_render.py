@@ -205,8 +205,8 @@ def build_scene(game: str, level: str, lightmap: bool = True):
 def render_frame(meshes, frame: dict, width: int, height: int,
                  focal, game: str, flat: bool, lightmap: bool,
                  materials: bool = True, ambient: float = 0.0,
-                 chromakey: bool = False, uv: str = "fit",
-                 skip_untextured: bool = False,
+                 chromakey: bool = False, uv: str = "texel",
+                 skip_untextured: bool = True,
                  pitch_offset: float = 0.0) -> bytes:
     pool = None if flat else render.TexturePool(game)
     look = frame["look"]
@@ -361,13 +361,13 @@ def main(argv: list[str]) -> int:
                     help="skip the blended material pass (translucent/add/...)")
     ap.add_argument("--ambient", type=float, default=0.0,
                     help="constant light added to every polygon (0..1 of 127)")
-    ap.add_argument("--uv", choices=("fit", "texel"), default="fit",
-                    help="texture mapping: stretch one copy (fit, viewer "
-                         "history) or the engine texel projection (texel, "
-                         "docs/TEXUV.md)")
-    ap.add_argument("--skip-untextured", action="store_true",
-                    help="skip polygons with texture==0 and handle==0, as the "
-                         "engine does (docs/TEXUV.md)")
+    ap.add_argument("--uv", choices=("fit", "texel"), default="texel",
+                    help="texture mapping: the engine texel projection (default, "
+                         "docs/TEXUV.md) or the old viewer stretch (fit)")
+    ap.add_argument("--keep-untextured", dest="skip_untextured",
+                    action="store_false",
+                    help="draw polygons with texture==0 anyway (historical "
+                         "viewer behaviour; the engine skips them)")
     ap.add_argument("--chromakey", action="store_true",
                     help="chroma-key palette index 0 on textures whose flags "
                          "bit 0 is set (docs/ALPHA.md)")
