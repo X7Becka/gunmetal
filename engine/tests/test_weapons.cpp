@@ -154,6 +154,14 @@ std::vector<TriSpec> wall_x(double x) {
     return out;
 }
 
+/// One triangle in the plane x = `x`.  (x, 0, 0) is strictly inside it, so a
+/// +X ray from the origin hits exactly this triangle (and only it).
+std::vector<TriSpec> panel_x(double x) {
+    return {{gm::Vec3d{x, -100.0, -100.0},
+             gm::Vec3d{x, 300.0, -100.0},
+             gm::Vec3d{x, -100.0, 300.0}}};
+}
+
 // --- synthetic weapons -----------------------------------------------------
 
 gm::Weapon make_weapon(int slot, int fire_ticks, bool hitscan) {
@@ -405,6 +413,150 @@ void test_hitscan_hit_miss() {
     CHECK(no_world.ok);
     CHECK(!no_world.hit);
     CHECK_NEAR(no_world.distance, 100.0, 1e-12);
+}
+
+// --- hitscan ray and cone (0x477f90 / 0x4779f0) ---------------------------
+
+void test_hitscan_ray() {
+    // Two panels: one at x = 10, one at x = 30.  Each panel is a separate
+    // object with a single polygon, so the world point of the hit is pinned.
+    std::vector<TriSpec> panels = panel_x(10.0);
+    const std::vector<TriSpec> far = panel_x(30.0);
+    panels.insert(panels.end(), far.begin(), far.end());
+    const gm::CollisionWorld world = build_world(panels);
+
+    // The near panel wins over the far one: the ray stops at the first hit,
+    // so the target behind the wall is never reached.
+    const gm::HitscanHit hit =
+        gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 100.0);
+    CHECK(hit.hit);
+    CHECK_NEAR(hit.distance, 10.0, 1e-12);
+    CHECK_NEAR(hit.point.x, 10.0, 1e-9);
+    CHECK_NEAR(hit.point.y, 0.0, 1e-9);
+    CHECK_NEAR(hit.point.z, 0.0, 1e-9);
+    CHECK_NEAR(hit.normal.x, -1.0, 1e-9); // the normal faces the incoming ray
+    CHECK_EQ(hit.sector, 0U);
+    CHECK_EQ(hit.object, 0U);
+    CHECK_EQ(hit.polygon, 0U);
+    CHECK_EQ(hit.triangle, 0U);
+
+    // Started between the panels the far one is the only candidate.
+    const gm::HitscanHit far_hit =
+        gm::cast_hitscan(world, {20.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 100.0);
+    CHECK(far_hit.hit);
+    CHECK_NEAR(far_hit.distance, 10.0, 1e-12);
+    CHECK_NEAR(far_hit.point.x, 30.0, 1e-9);
+    CHECK_EQ(far_hit.object, 1U);
+    CHECK_EQ(far_hit.polygon, 0U);
+
+    // A non-unit direction is normalised: the same ray, same distance.
+    const gm::HitscanHit scaled =
+        gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {7.0, 0.0, 0.0}, 100.0);
+    CHECK(scaled.hit);
+    CHECK_NEAR(scaled.distance, 10.0, 1e-12);
+
+    // Range: the bound is exclusive (0x477f90 keeps `distance < max`).
+    const gm::HitscanHit too_short =
+        gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 5.0);
+    CHECK(!too_short.hit);
+    CHECK_NEAR(too_short.distance, 0.0, 0.0);
+    const gm::HitscanHit exact =
+        gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 10.0);
+    CHECK(!exact.hit);
+    const gm::HitscanHit just_inside =
+        gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 10.5);
+    CHECK(just_inside.hit);
+    CHECK_NEAR(just_inside.distance, 10.0, 1e-12);
+
+    // Misses: away from the panels, and an empty world.
+    const gm::HitscanHit away =
+        gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {-1.0, 0.0, 0.0}, 100.0);
+    CHECK(!away.hit);
+    const gm::CollisionWorld empty;
+    const gm::HitscanHit nothing =
+        gm::cast_hitscan(empty, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 100.0);
+    CHECK(!nothing.hit);
+
+    // Negatives: zero/NaN direction, NaN origin, bad range.
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    CHECK(!gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 100.0).hit);
+    CHECK(!gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {nan, 0.0, 0.0}, 100.0).hit);
+    CHECK(!gm::cast_hitscan(world, {nan, 0.0, 0.0}, {1.0, 0.0, 0.0}, 100.0).hit);
+    CHECK(!gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 0.0).hit);
+    CHECK(!gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, -5.0).hit);
+    CHECK(!gm::cast_hitscan(world, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, nan).hit);
+}
+
+void test_hitscan_cone() {
+    // The proven frame (FUN_00437909): row 0 = lateral 1, row 1 = depth,
+    // row 2 = lateral 2.
+    gm::HitscanCone cone;
+    cone.forward = {0.0, 1.0, 0.0};
+    cone.right = {1.0, 0.0, 0.0};
+    cone.up = {0.0, 0.0, 1.0};
+    cone.spread_x = 0.5; // tan(26.565 deg)
+    cone.spread_y = 0.5;
+    const gm::Vec3d origin{0.0, 0.0, 0.0};
+
+    // Inside: straight ahead and just inside the lateral limit.
+    CHECK(gm::hitscan_in_cone(cone, origin, {0.0, 10.0, 0.0}));
+    CHECK(gm::hitscan_in_cone(cone, origin, {4.9, 10.0, 0.0}));
+    CHECK(gm::hitscan_in_cone(cone, origin, {0.0, 10.0, -4.9}));
+    // The lateral comparison is strict: exactly on the limit is outside.
+    CHECK(!gm::hitscan_in_cone(cone, origin, {5.0, 10.0, 0.0}));
+    CHECK(!gm::hitscan_in_cone(cone, origin, {0.0, 10.0, 5.0}));
+    // Outside: beyond the limit, and behind the shooter.
+    CHECK(!gm::hitscan_in_cone(cone, origin, {5.1, 10.0, 0.0}));
+    CHECK(!gm::hitscan_in_cone(cone, origin, {0.0, -10.0, 0.0}));
+
+    // The depth floor is 0.32 world units (0x4a2658) and is strict.
+    CHECK(!gm::hitscan_in_cone(cone, origin, {0.0, gm::kHitscanMinDepth, 0.0}));
+    CHECK(gm::hitscan_in_cone(cone, origin, {0.0, 0.33, 0.0}));
+
+    // The per-target player factors (0x81c028/0x81c030) narrow the cone.
+    gm::HitscanCone scaled = cone;
+    scaled.scale_x = 0.5;
+    scaled.scale_y = 0.5;
+    CHECK(!gm::hitscan_in_cone(scaled, origin, {4.9, 10.0, 0.0}));
+    CHECK(gm::hitscan_in_cone(scaled, origin, {2.4, 10.0, 0.0}));
+    CHECK(!gm::hitscan_in_cone(scaled, origin, {0.0, 10.0, -4.9}));
+
+    // Zero spread: the original compares strictly (`|lateral| < 0` can never
+    // hold), so the cone is empty.  Every shipped hitscan weapon has a
+    // non-zero spread, so the case never arises in the game.
+    gm::HitscanCone tight = cone;
+    tight.spread_x = 0.0;
+    tight.spread_y = 0.0;
+    CHECK(!gm::hitscan_in_cone(tight, origin, {0.0, 10.0, 0.0}));
+    CHECK(!gm::hitscan_in_cone(tight, origin, {0.001, 10.0, 0.0}));
+
+    // The shooter's spread scale (0x81c020): divided only when > 1.0.
+    CHECK_NEAR(gm::hitscan_scale_spread(0.5, 1.0), 0.5, 0.0);
+    CHECK_NEAR(gm::hitscan_scale_spread(0.5, 2.0), 0.25, 1e-15);
+    CHECK_NEAR(gm::hitscan_scale_spread(0.5, 0.5), 0.5, 0.0);
+    CHECK_NEAR(gm::hitscan_scale_spread(0.5, 0.0), 0.5, 0.0);
+
+    // The normalised-cosine form: 1/sqrt(1 + tan^2).
+    CHECK_NEAR(gm::hitscan_cos_limit(0.0), 1.0, 0.0);
+    CHECK_NEAR(gm::hitscan_cos_limit(1.0), 1.0 / std::sqrt(2.0), 1e-15);
+    CHECK_NEAR(gm::hitscan_cos_limit(0.5), 1.0 / std::sqrt(1.25), 1e-15);
+    CHECK(gm::hitscan_cos_limit(-1.0) > 1.0); // an empty cone
+    CHECK(std::isnan(gm::hitscan_cos_limit(
+        std::numeric_limits<double>::quiet_NaN())));
+
+    const gm::Vec3d forward{0.0, 1.0, 0.0};
+    CHECK(gm::hitscan_in_cone(forward, {0.0, 10.0, 0.0}, 0.5));
+    CHECK(!gm::hitscan_in_cone(forward, {0.0, -10.0, 0.0}, 0.5));
+    CHECK(gm::hitscan_in_cone(forward, {1.0, 1.0, 0.0}, 0.5));
+    CHECK(!gm::hitscan_in_cone(forward, {1.0, 0.0, 0.0}, 0.5));
+    // The boundary is inclusive in the cosine form: cos == limit passes.
+    CHECK(gm::hitscan_in_cone({1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, 0.0));
+    // Negatives: zero/NaN vectors and a NaN limit.
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    CHECK(!gm::hitscan_in_cone({0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, 0.5));
+    CHECK(!gm::hitscan_in_cone(forward, {0.0, 0.0, 0.0}, 0.5));
+    CHECK(!gm::hitscan_in_cone(forward, {nan, 0.0, 0.0}, 0.5));
+    CHECK(!gm::hitscan_in_cone(forward, {0.0, 1.0, 0.0}, nan));
 }
 
 void test_spread_determinism() {
@@ -3835,6 +3987,8 @@ int main() {
     test_magazine_and_reload();
     test_switch_slot_and_mask();
     test_hitscan_hit_miss();
+    test_hitscan_ray();
+    test_hitscan_cone();
     test_spread_determinism();
     test_projectile();
     test_charge_state();
