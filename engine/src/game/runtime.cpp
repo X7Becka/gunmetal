@@ -369,7 +369,29 @@ void GameRuntime::tick(std::uint64_t ticks) {
     }
 }
 
+void GameRuntime::ensure_motion_automata() {
+    if (!config_.ai_apply_aim || !ai_attached_) {
+        return;
+    }
+    if (things_.motion_enabled()) {
+        return;
+    }
+    // The collision world of the runtime is the probe geometry of the
+    // automata.  The pointer stays valid: `GameRuntime` is neither copyable
+    // nor movable, and `build_world()` replaces the *contents* of
+    // `collision_`, not the member itself.
+    things_.set_motion_enabled(true, &collision_);
+}
+
 void GameRuntime::tick_once() {
+    // 0. Opt-in aim bridge (see `GameRuntimeConfig::ai_apply_aim`): the
+    //    movement automata must be enabled *before* phase 1, because
+    //    `Things::tick` creates their state and `aim_motion_at` needs the
+    //    body angles of a stepped state.  With the bridge off nothing here
+    //    changes: the automata stay disabled and every phase is
+    //    byte-for-byte as before.
+    ensure_motion_automata();
+
     // 1. Things: age, lifetime, expire events (posted once per thing).
     things_.tick(1, &events_.queue());
 
@@ -377,6 +399,19 @@ void GameRuntime::tick_once() {
     //    damage dies here), then runs one fixed 1/91 s state step.
     if (ai_attached_) {
         ai_.tick(collision_, kAiTickSeconds);
+    }
+
+    // 2a. AI aim -> movement automata (opt-in).  The AI phase is the only
+    //     producer of `aim_point`, so the bridge runs right after it: the
+    //     decision of this tick reaches the automata, which consume it in the
+    //     next tick (phase 1 steps them).
+    //
+    //     The order against the AI-shot bridge (2b) does not change any
+    //     observable: the shot records (origin, direction, aim) are computed
+    //     inside `Ai::tick` from `agent.aim_point`, so the shots of this tick
+    //     are the same whether the aim bridge runs before or after them.
+    if (config_.ai_apply_aim && ai_attached_) {
+        stats_.aimed_things = ai_.apply_aim(things_);
     }
 
     // 2b. AI shots -> projectiles (opt-in).  The queue is drained exactly once
@@ -757,6 +792,7 @@ void GameRuntime::reset() {
     last_projectile_results_.clear();
     blasted_results_.clear();
     last_events_ = EventDispatchResult{};
+    stats_ = GameRuntimeStats{};
 }
 
 void GameRuntime::clear_events() {
@@ -766,6 +802,8 @@ void GameRuntime::clear_events() {
     last_projectile_results_.clear();
     blasted_results_.clear();
     last_events_ = EventDispatchResult{};
+    // The aim counter describes the last tick, whose results are dropped here.
+    stats_ = GameRuntimeStats{};
 }
 
 void GameRuntime::clear_projectiles() {

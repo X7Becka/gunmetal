@@ -23,6 +23,8 @@
 //
 //   1. things      `Things::tick(1, queue)`
 //   2. AI          `Ai::sync_vitals()` + `Ai::tick(collision, 1/91 s)`
+//   2a. AI aim     opt-in: `Ai::apply_aim(things_)` hands every agent's
+//                  `aim_point` to the movement automata of `Things`
 //   2b. AI shots   opt-in: drain `Ai::take_weapon_shots()` and spawn one
 //                  `Projectiles` round per accepted shot (create events go to
 //                  the same queue)
@@ -130,6 +132,29 @@ struct GameRuntimeConfig {
     /// seam to the caller: call `update_player_weapon()` explicitly when the
     /// immediate result is needed.
     bool player_weapons_in_tick = false;
+    /// Opt-in bridge from the AI to the movement automata: `tick_once()` calls
+    /// `Ai::apply_aim(things_)` right after the AI phase, so every agent's
+    /// `aim_point` reaches `Things::aim_motion_at()` (the three errors of
+    /// `0x473a00`) and an agent that lost its target gets `valid == false`.
+    ///
+    /// The bridge needs the movement automata, so the runtime enables them for
+    /// its thing container (opt-in, `Things::set_motion_enabled`) with the
+    /// runtime's collision world as the probe geometry.  The target set in one
+    /// tick is consumed by the automata in the *next* tick: the automata are
+    /// stepped in phase 1, the AI decides in phase 2.
+    ///
+    /// `false` (default) keeps every phase byte-for-byte as before: no
+    /// movement automata are enabled, no motion target is written and
+    /// `stats().aimed_things` stays 0.
+    bool ai_apply_aim = false;
+};
+
+/// Counters of the last tick (docs/RUNTIME_CPP.md §2).
+struct GameRuntimeStats {
+    /// Number of agents that got a movement target in the last tick
+    /// (`Ai::apply_aim`).  0 when the `ai_apply_aim` bridge is off or when
+    /// no agent had a target.
+    std::size_t aimed_things = 0;
 };
 
 /// One `apply_projectile_blasts()` call.  `damage` merges the applied blasts in
@@ -404,6 +429,11 @@ public:
     /// after a step that queued nothing.  Valid until the next `tick()/reset()`.
     const EventDispatchResult& last_events() const { return last_events_; }
 
+    /// Counters of the last tick.  `reset()` and `clear_events()` clear them
+    /// (both drop the results of the last tick); a tick without the
+    /// `ai_apply_aim` bridge leaves `aimed_things` at 0.
+    const GameRuntimeStats& stats() const { return stats_; }
+
     // --- projectile -> blast bridge ----------------------------------------
 
     /// Apply the selected weapon's impact/expire blasts for the projectile
@@ -584,6 +614,10 @@ public:
 
 private:
     void tick_once();
+    /// Enable the movement automata of `things_` when the opt-in aim bridge
+    /// needs them (the collision world of the runtime is the probe geometry).
+    /// Idempotent: the flag is only applied once per `Things` instance.
+    void ensure_motion_automata();
     /// Drain the AI shot queue through `ai_shot_projectile_spawn()` with a
     /// fresh runtime id per shot.  Returns the number of spawned rounds.
     std::size_t bridge_ai_shots();
@@ -651,6 +685,8 @@ private:
     /// generation was already blasted.  Cleared by every new `tick_results`
     /// assignment and by the explicit clears.
     std::vector<std::uint8_t> blasted_results_;
+    /// Counters of the last tick (`aimed_things`).
+    GameRuntimeStats stats_;
 
     // Scratch target arrays of the blast bridge: rebuilt from `Things` on each
     // `apply_projectile_blasts()` call but kept between calls, so a steady
