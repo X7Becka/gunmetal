@@ -440,3 +440,19 @@ python3 tools/re/disrange.py 0x453b50 --lines 8      # damage_player
 python3 tools/ghidra/fncache.py get 0x428421 --head 30
 python3 tools/ghidra/fncache.py get 0x40c7d0 --head 40
 ```
+
+## Реализация (2026-10-23)
+
+* **C++**: `VmState::haze` / `haze_rate`, обработчик op 80
+  (`VmExecutor::h_camera_haze`: `rate = арг2·0.91`) и тик `vm_tick_haze`
+  (`dt ≤ 45 мс`, кламп 0). CTest `vm` проверяет синтетику (пять кадров
+  `1 → 0`, `arg2 ≤ 0` без затухания, отрицательный `dt` игнорируется) и
+  реальный `level0` (op 80 исполняется в главном блоке).
+* **Python**: `gm/render.fade_rgb(alpha)` + `render(fade=…)`, CLI
+  `oracle_render.py --fade 0..1` (self-test 20/20: 0 — кадр без изменений,
+  255 — белый, 128 — середина, монотонность).
+* **Асимметрия намеренная**: Python-ВМ op 80 не моделирует — её состояние не
+  входит в сцену, а сравнение трасс (`docs/VM_TRACE.md`) смотрит операнды,
+  не поля состояния. Фейд к кадру применяет вызывающая сторона.
+* Не сделано: рисование фейда в C++-рендере, вызов `vm_tick_haze` из
+  игрового цикла.
