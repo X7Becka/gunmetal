@@ -1640,6 +1640,12 @@ void WorldState::advance_lift(std::size_t index, Lift& lift, std::uint64_t ticks
                              lift.arrive_sound, false);
             queue_lift_move_stop(index, lift);
             lift.move_sound_queued = false;
+            // 0x4502a0 -> 0x4795b0(sound column of the arrival stop).
+            if (static_cast<std::size_t>(lift.stop_index) < lift.stops.size()) {
+                log_event({WorldEvent::Kind::LiftArrived, 0, lift.id, 0, lift.id,
+                           -1, 0,
+                           lift.stops[static_cast<std::size_t>(lift.stop_index)].sound});
+            }
             if (static_cast<std::size_t>(lift.stop_index) < lift.stops.size() &&
                 lift.stops[static_cast<std::size_t>(lift.stop_index)].height ==
                     lift.height) {

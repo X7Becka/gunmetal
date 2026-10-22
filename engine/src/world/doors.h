@@ -352,6 +352,10 @@ struct WorldEvent {
         DoorClosed,
         DoorLocked,
         LiftCalled,
+        /// ``0x4502a0`` posts the arrival stop's third column through
+        /// ``0x4795b0`` when the cabin reaches it (the id is a script event,
+        /// not an audio cue).
+        LiftArrived,
         NoTarget,
         /// ``0x450590`` kind 2: an entity blocked the leaf, the tick's phase is
         /// dropped and the door goes back to opening.
@@ -370,6 +374,10 @@ struct WorldEvent {
     /// through ``0x46b8d0``/``0x46b9f0`` with the object origin as position.
     int sample = -1;
     int volume = 0;
+    /// Script event id carried by the record.  Only `LiftArrived` uses it: the
+    /// lift stop's `sound` column (`+0x...`, docs/DOOR_FIELDS.md §3.1) is the
+    /// id handed to ``event_post``, not a sample.
+    int event_id = 0;
 };
 
 struct WorldStats {

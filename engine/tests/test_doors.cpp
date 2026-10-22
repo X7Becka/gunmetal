@@ -1390,8 +1390,21 @@ void test_lift_sound_queue() {
     drained.clear();
     CHECK_EQ(state.drain_sounds(drained), 0u);
 
-    // Arrival: n_c/v_c one-shot, then the 0x46ba90 stop for the loop.
+    // Arrival: n_c/v_c one-shot, then the 0x46ba90 stop for the loop; the
+    // stop's third column is posted as a script event (0x4502a0 -> 0x4795b0).
+    state.clear_events();
     state.tick(5);
+    {
+        bool arrived = false;
+        for (const gm::WorldEvent& event : state.events()) {
+            if (event.kind == gm::WorldEvent::Kind::LiftArrived) {
+                arrived = true;
+                CHECK_EQ(event.lift_id, 0);
+                CHECK_EQ(event.event_id, 7); // the second stop's sound column
+            }
+        }
+        CHECK(arrived);
+    }
     drained.clear();
     CHECK_EQ(state.drain_sounds(drained), 2u);
     if (drained.size() == 2u) {

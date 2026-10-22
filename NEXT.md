@@ -263,8 +263,10 @@
     `test_lift_call_aliases`.
   * **Звук лифта в очереди** (в master): `0x44f690`/`0x4502a0` → `0x46b840`
     (`n_a/v_a` вызов, `n_c/v_c` прибытие), `0x46b960` (петля `n_b/v_b`,
-    class `2000000+индекс`), `0x46ba90` (стоп петли); позиция — origin
-    кабины (`lift_transform`). `LiftMove` отдаётся один раз на движение,
+    class `2000000+индекс`), `0x46ba90` (стоп петли), событие прибытия
+    `0x4795b0` с id из третьей колонки остановки
+    (`WorldEvent::LiftArrived::event_id`); позиция — origin кабины
+    (`lift_transform`). `LiftMove` отдаётся один раз на движение,
     `LiftMoveStop` — на прибытии; сейв с уже едущей кабиной догоняет петлю
     на первом тике. Центроид полигонального switch (`0x43577c`) считается
     в `WorldState::build` (`Switch::world_position`). CTest

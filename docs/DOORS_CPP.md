@@ -191,7 +191,7 @@ source)` из `game/events.h`: она кладёт type-2 в очередь ра
 | `LiftStop` | `floor_id, height, sound` |
 | `ObjectDoorState` | `door_id, sector, object, state, open_fraction, sliding, linked, bound, transform` |
 | `WorldStats` | счётчики дверей/переключателей/лифтов, `doors_bound`, `doors_distinct_objects`, `bad_records`, `bad_bindings`, `locked_hits`, `unmatched_targets`, `lift_calls`, `trigger_presses`, `blocked_hits`, `crush_hits`, `ticks` |
-| `WorldEvent` | `SwitchPressed, DoorOpening, DoorClosing, DoorOpened, DoorClosed, DoorLocked, LiftCalled, NoTarget, DoorBlocked, DoorCrush` + `sample/volume` |
+| `WorldEvent` | `SwitchPressed, DoorOpening, DoorClosing, DoorOpened, DoorClosed, DoorLocked, LiftCalled, LiftArrived, NoTarget, DoorBlocked, DoorCrush` + `sample/volume/event_id` |
 | `SoundRequest` | `sample, volume, position[3], loop, source, class_id, position_known` — переносимый запрос звука (§3.3) |
 | `SoundSource` | `None, DoorStart, DoorMove, DoorStop, DoorMoveStop, Switch` |
 
@@ -455,8 +455,9 @@ for (const auto& o : state.apply_to_objects()) {
 `0x46b840(n_a = +0x90, v_a = +0x84, rate 0x2b11, priority 1000, поз.)`;
 `0x4502a0` на каждом тике движения играет петлю `0x46b960(n_b = +0x94,
 class = 2000000 + индекс, v_b = +0x88, rate 0x2b11, priority 1000, поз.)`,
-на прибытии — `0x46b840(n_c = +0x98, v_c = +0x8c, …)`, а затем гасит петлю
-`0x46ba90(2000000 + индекс)`. Позиция во всех трёх случаях — origin объекта
+на прибытии — `0x46b840(n_c = +0x98, v_c = +0x8c, …)`, постит событие `0x4795b0` с id из
+третьей колонки остановки (`WorldEvent::LiftArrived::event_id`), а затем гасит
+петлю `0x46ba90(2000000 + индекс)`. Позиция во всех трёх случаях — origin объекта
 кабины (`+0x30` → `0x4277cd`), то есть `lift_transform().origin`. Флаг
 `0x4aa384` закрывает и эти вызовы.
 
