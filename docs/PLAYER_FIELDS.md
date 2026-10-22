@@ -308,7 +308,7 @@ m   = +0x2fe0            // делитель ускорения от массы
 | `+0x329c` | u32[12] | `ammo` | доказано | `0x4455ad` (`[slot*4+0x81c2dc]`) |
 | `+0x3318` | i32 | `fire_cooldown` | доказано | `0x4453f8`; сброс в `0x5b`/`0xb6` |
 | `+0x331c` | i32 | `fire_timer` | гипотеза | `0x44535e` |
-| `+0x3320` | i32 | `fire_anim` | гипотеза | `0x445fd6..0x44611x` |
+| `+0x3320` | i32 | `equipment_index` | доказано | `0x445fd6`/`0x446053` (next), `0x4461a5` (prev), `0x45bdd9` (sell-all → `-1`), HUD `0x492b32`; `-1` = ничего не выбрано (было `fire_anim`, гипотеза — эти же адреса и есть выбор экипировки, `docs/EQUIPMENT.md` §4.1) |
 | `+0x3324` | u32 | `equipment_mask` | доказано | биты таблицы `0x814c8c` (`0x47ac..`) |
 | `+0x3328` | u32 | `equipment_active_mask` | доказано | `0x47aad1` снимает бит при снятии предмета |
 | `+0x332c` | i32 | `equipment_cost_total` | доказано | `0x47b0xx` (2000 в saved0) |
@@ -682,7 +682,7 @@ python3 tools/ghidra/mcp.py disasm 0x444118 --count 12 --bytes   # yaw -> cos/si
 | `+0x329c` | 55 | `0x4455ad` `0x445614` `0x4456ab` | ammo | proven |
 | `+0x3318` | 10 | `0x4453f8` `0x445404` `0x44540c` | fire_cooldown | proven |
 | `+0x331c` | 9 | `0x44535e` `0x4453ad` `0x445a40` | fire_timer | hypothesis |
-| `+0x3320` | 22 | `0x445fd6` `0x44601e` `0x446053` | fire_anim | hypothesis |
+| `+0x3320` | 22 | `0x445fd6` `0x44601e` `0x446053` | equipment_index | proven |
 | `+0x3324` | 33 | `0x445fe6` `0x446038` `0x4460d8` | equipment_mask | proven |
 | `+0x3328` | 26 | `0x4461cd` `0x4463a9` `0x4464db` | equipment_active_mask | proven |
 | `+0x332c` | 65 | `0x452e61` `0x452eaa` `0x452ec3` | equipment_cost_total | proven |
