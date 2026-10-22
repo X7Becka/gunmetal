@@ -26,6 +26,7 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -106,6 +107,12 @@ struct ThingMotionConfig {
     std::uint32_t flags_c = 0;         ///< +0x1b0 -> +0x368
     int expire_ticks = 0;              ///< +0x1e8 type field
     std::vector<ProximityEntry> weapons; ///< +0x218 table (low/high/cooldown)
+    /// Mode 18 (`0x476830`): instance +0x3f8 is the event id posted when a push
+    /// step exceeds 0.1 and the gate +0x3f4 is non-zero.  Neither field is part
+    /// of the spawn record `Thing` models yet, so both default to 0 (no event),
+    /// exactly the state of a fresh instance.
+    std::int32_t push_event = 0;
+    std::int32_t push_event_gate = 0;
 };
 
 /// The proven fields of a spawned `Thing`; unknown fields stay at their
@@ -171,6 +178,15 @@ struct ThingMotionTarget {
 /// config, exactly the `0x46dd11` / `0x46d9b6..0x46d9f2` spawn block.
 ThingMotionState thing_motion_spawn(const ThingMotionConfig& config);
 
+/// One body of the mode-18 scan.  `0x476830` walks the eight player records
+/// (base `0x81c250`, stride `0x3510`) and adds the player's own extents
+/// (`+0x2d80` vertical, `+0x2d68` planar) to the pusher's `box[2]`/`box[1]`.
+struct ThingPushTarget {
+    Vec3d position{};
+    double z_band = 0.0; ///< player +0x2d80
+    double range = 0.0;  ///< player +0x2d68
+};
+
 struct ThingMotionInput {
     double dt = 1.0;                  ///< ticks; the engine passes an integer
     ThingMotionTarget target{};
@@ -179,6 +195,8 @@ struct ThingMotionInput {
     /// what the headless tests without a .sbw use.
     const CollisionWorld* world = nullptr;
     bool apply_velocity = true;       ///< false keeps the displacement to the caller
+    /// Mode 18 only: the bodies to repel from, in scan order.
+    std::span<const ThingPushTarget> push_targets{};
 };
 
 /// What one step did; also the tracelog the tests pin.
@@ -190,6 +208,9 @@ struct ThingMotionStep {
     bool bounced = false;    ///< an impulse was reflected this step
     int turn = 0;            ///< 0 straight, 2 left, 3 right (proven indices)
     Vec3d displacement{};
+    /// Mode 18: index into `input.push_targets` of the last body this step
+    /// pushed the instance away from (-1 = none).
+    int pushed = -1;
     int fired_weapon = -1;   ///< index into cfg.weapons (patrol mode)
     std::uint32_t fired_event = 0; ///< its `+0x21c` event id
 };

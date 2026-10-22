@@ -498,6 +498,73 @@ void step_patrol(ThingMotionState& state, const ThingMotionConfig& config,
 /// the same arithmetic plus the proximity table, the `+0x32c hits` counter and
 /// the expire event.  This step owns none of those: it only integrates
 /// gravity, moves with collision and applies `damping` on contact.
+/// `0x4344df`: `max + (mid + min) / 4` over the absolute components.
+double drive_distance(double dx, double dy, double dz) {
+    double a = std::fabs(dx);
+    double b = std::fabs(dy);
+    double c = std::fabs(dz);
+    if (a < b) {
+        std::swap(a, b);
+    }
+    if (a < c) {
+        std::swap(a, c);
+    }
+    return a + (b + c) * 0.25;
+}
+
+/// `0x476830` (type 18): repel the body from every overlapping target.
+///
+/// For each target the original checks the vertical band
+/// `|thing.z - target.z| < thing.box[2] + target.z_band` (0x476874), then the
+/// planar octagon `0x4344df(dx, dy, 0) < thing.box[1] + target.range`
+/// (0x47689f..0x4768b0).  The step is `min(reach - distance, dt * speed)` and
+/// moves the small-axis velocity component away from the target: the dominant
+/// planar axis decides which component (0x4768c4..0x476920).  A step above 0.1
+/// posts `+0x3f8` once per target when `+0x3f4 > 0` (0x476929..0x47695c).
+void step_push(ThingMotionState& state, const ThingMotionConfig& config,
+               const ThingMotionInput& input, ThingMotionStep& out) {
+    state.velocity = {};
+    for (std::size_t i = 0; i < input.push_targets.size(); ++i) {
+        const ThingPushTarget& target = input.push_targets[i];
+        const double band = config.box[2] + target.z_band;
+        if (!(std::fabs(target.position.z - state.position.z) < band)) {
+            continue;
+        }
+        const double dx = state.position.x - target.position.x;
+        const double dy = state.position.y - target.position.y;
+        const double reach = config.box[1] + target.range;
+        const double distance = drive_distance(dx, dy, 0.0);
+        if (!(distance < reach)) {
+            continue;
+        }
+        double step = reach - distance;
+        const double limit = input.dt * state.speed;
+        if (limit < step) {
+            step = limit; // dVar2 = min(reach - d, dt * speed), 0x4768b8
+        }
+        if (!(step > 0.0)) {
+            continue;
+        }
+        if (std::fabs(dx) <= std::fabs(dy)) {
+            // Equal or larger y delta: the y component is pushed.
+            if (target.position.y - state.position.y >= 0.0) {
+                state.velocity.y -= step;
+            } else {
+                state.velocity.y += step;
+            }
+        } else if (target.position.x - state.position.x >= 0.0) {
+            state.velocity.x -= step;
+        } else {
+            state.velocity.x += step;
+        }
+        out.moved = true;
+        out.pushed = static_cast<int>(i);
+        if (step > 0.1 && config.push_event_gate > 0) {
+            out.fired_event = static_cast<std::uint32_t>(config.push_event);
+        }
+    }
+}
+
 void step_projectile(ThingMotionState& state, const ThingMotionConfig& config,
                      const ThingMotionInput& input, ThingMotionStep& out) {
     const double dt = input.dt;
@@ -574,8 +641,8 @@ const std::array<ThingMoveInfo, 19>& thing_move_table() {
          "fire gate/bands/cooldown proven, aim supplied by the caller"},
         {17, ThingMove::seek_17, "seek-17", "0x473240", "proven",
          "same body, third mode flag (not written by this build)"},
-        {18, ThingMove::push, "push", "0x476830", "stub",
-         "no shipped type uses it"},
+        {18, ThingMove::push, "push", "0x476830", "proven",
+         "repel from overlapping targets; no shipped type uses it"},
     }};
     return table;
 }
@@ -718,8 +785,11 @@ ThingMotionStep thing_motion_step(ThingMotionState& state,
         case 6:
             step_projectile(state, config, input, out);
             break;
+        case 18:
+            step_push(state, config, input, out);
+            break;
         default:
-            // Types 7..12 and 18: proven elsewhere or not ported.
+            // Types 7..12 live in game/projectile.h and world/ai_move.h.
             break;
     }
 

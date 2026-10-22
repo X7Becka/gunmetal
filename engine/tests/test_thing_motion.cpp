@@ -223,6 +223,153 @@ gm::ThingMotionTarget target_at(const gm::ThingMotionState& state, gm::Vec3d pos
 
 // --- tests -----------------------------------------------------------------
 
+void test_push() {
+    // 0x476830 (type 18): repel from every overlapping target, two-axis band
+    // check then the planar octagon; the step is min(reach - d, dt * speed).
+    gm::ThingMotionConfig config = config_for(18, 1.0, 4.0);
+    config.box = {16.0, 10.0, 20.0}; // <0x80/0x88/0x90>
+    gm::ThingMotionState state = gm::thing_motion_spawn(config);
+    state.position = {0.0, 0.0, 0.0};
+
+    // 1. A target on +x, 5 units away: planar reach 10 + 0 = 10 > 5, so the
+    // step is min(5, 1 * 1) = 1 and the body moves to -x.
+    gm::ThingPushTarget near_x;
+    near_x.position = {5.0, 0.0, 0.0};
+    {
+        gm::ThingMotionInput input;
+        input.dt = 1.0;
+        input.push_targets = std::span<const gm::ThingPushTarget>(&near_x, 1);
+        gm::ThingMotionState one = state;
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, config, input);
+        CHECK_EQ(out.pushed, 0);
+        CHECK(out.moved);
+        CHECK_NEAR(out.displacement.x, -1.0, 1e-12);
+        CHECK_NEAR(out.displacement.y, 0.0, 0.0);
+        CHECK_NEAR(one.position.x, -1.0, 1e-12);
+    }
+
+    // 2. Outside the vertical band (box[2] + z_band = 20): no push even when
+    // the planar distance is zero.
+    gm::ThingPushTarget high;
+    high.position = {0.0, 0.0, 25.0};
+    {
+        gm::ThingMotionInput input;
+        input.push_targets = std::span<const gm::ThingPushTarget>(&high, 1);
+        gm::ThingMotionState one = state;
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, config, input);
+        CHECK_EQ(out.pushed, -1);
+        CHECK(!out.moved);
+        CHECK_NEAR(one.position.x, 0.0, 0.0);
+    }
+
+    // 3. Inside the band: the player's own extents are added to the box.
+    high.z_band = 6.0; // 20 + 6 = 26 > 25
+    {
+        gm::ThingMotionInput input;
+        input.push_targets = std::span<const gm::ThingPushTarget>(&high, 1);
+        gm::ThingMotionState one = state;
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, config, input);
+        CHECK_EQ(out.pushed, 0);
+        CHECK(out.moved);
+        CHECK_NEAR(out.displacement.z, 0.0, 0.0); // z is never pushed
+    }
+
+    // 4. The dominant planar axis chooses the component: a target on +y with a
+    // small x offset pushes y, not x.
+    gm::ThingPushTarget near_y;
+    near_y.position = {1.0, 4.0, 0.0};
+    {
+        gm::ThingMotionInput input;
+        input.push_targets = std::span<const gm::ThingPushTarget>(&near_y, 1);
+        gm::ThingMotionState one = state;
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, config, input);
+        CHECK(out.moved);
+        CHECK_NEAR(out.displacement.x, 0.0, 1e-12);
+        CHECK_NEAR(out.displacement.y, -1.0, 1e-12);
+    }
+
+    // 5. Two targets on opposite sides cancel: the octagon still measures each
+    // one, and the velocities accumulate.
+    gm::ThingPushTarget left;
+    left.position = {-5.0, 0.0, 0.0};
+    {
+        const std::array<gm::ThingPushTarget, 2> both{near_x, left};
+        gm::ThingMotionInput input;
+        input.push_targets = both;
+        gm::ThingMotionState one = state;
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, config, input);
+        CHECK_EQ(out.pushed, 1); // last scanned target wins the report
+        CHECK_NEAR(out.displacement.x, 0.0, 1e-12);
+    }
+
+    // 6. The limit `dt * speed` caps the step: speed 0 means no movement, and
+    // a fractional dt scales it.
+    {
+        gm::ThingMotionConfig slow = config;
+        slow.speed = 0.25;
+        gm::ThingMotionInput input;
+        input.dt = 2.0;
+        input.push_targets = std::span<const gm::ThingPushTarget>(&near_x, 1);
+        gm::ThingMotionState one = gm::thing_motion_spawn(slow);
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, slow, input);
+        CHECK_NEAR(out.displacement.x, -0.5, 1e-12); // min(5, 2 * 0.25)
+    }
+    {
+        gm::ThingMotionConfig frozen = config;
+        frozen.speed = 0.0;
+        gm::ThingMotionInput input;
+        input.push_targets = std::span<const gm::ThingPushTarget>(&near_x, 1);
+        gm::ThingMotionState one = gm::thing_motion_spawn(frozen);
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, frozen, input);
+        CHECK(!out.moved);
+        CHECK_EQ(out.pushed, -1);
+    }
+
+    // 7. The event only fires when the instance gate (+0x3f4) is set and the
+    // step exceeds 0.1 (0x476929).
+    {
+        gm::ThingMotionConfig events = config;
+        events.push_event = 0x1234;
+        events.push_event_gate = 1;
+        gm::ThingMotionInput input;
+        input.push_targets = std::span<const gm::ThingPushTarget>(&near_x, 1);
+        gm::ThingMotionState one = gm::thing_motion_spawn(events);
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, events, input);
+        CHECK_EQ(out.fired_event, 0x1234u);
+    }
+    {
+        gm::ThingMotionConfig events = config;
+        events.push_event = 0x1234; // gate left at 0
+        gm::ThingMotionInput input;
+        input.push_targets = std::span<const gm::ThingPushTarget>(&near_x, 1);
+        gm::ThingMotionState one = gm::thing_motion_spawn(events);
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, events, input);
+        CHECK_EQ(out.fired_event, 0u);
+    }
+
+    // 8. No targets: the mode does nothing and the body stays put.
+    {
+        gm::ThingMotionInput input;
+        gm::ThingMotionState one = state;
+        const gm::ThingMotionStep out = gm::thing_motion_step(one, config, input);
+        CHECK(!out.moved);
+        CHECK_EQ(out.pushed, -1);
+        CHECK_NEAR(one.position.x, 0.0, 0.0);
+    }
+
+    // 9. Determinism: the same input twice gives bit-identical displacement.
+    {
+        gm::ThingMotionInput input;
+        input.push_targets = std::span<const gm::ThingPushTarget>(&near_y, 1);
+        gm::ThingMotionState a = state;
+        gm::ThingMotionState b = state;
+        const gm::ThingMotionStep first = gm::thing_motion_step(a, config, input);
+        const gm::ThingMotionStep second = gm::thing_motion_step(b, config, input);
+        CHECK_NEAR(first.displacement.x, second.displacement.x, 0.0);
+        CHECK_NEAR(first.displacement.y, second.displacement.y, 0.0);
+    }
+}
+
 void test_mode_table() {
     const auto& table = gm::thing_move_table();
     CHECK_EQ(table.size(), 19u);
@@ -955,6 +1102,7 @@ void test_real_level(const fs::path& path, const std::string& name,
 
 int main() {
     test_mode_table();
+    test_push();
     test_basis_agrees_with_camera();
     test_spawn_copy();
     test_spin();
