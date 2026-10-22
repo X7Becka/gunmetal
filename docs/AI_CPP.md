@@ -226,6 +226,17 @@ AI **не меняет** `Things` — только читает. Счётчик�
 `yaw_error ≈ +π/2`, `apply_aim` возвращает 1; после `clear_players()` цель
 становится `valid=false`.
 
+**Кто вызывает.** Владелец тика. `GameRuntime` — такой владелец: там мост
+подключён как отдельная фаза тика (2a, opt-in
+`GameRuntimeConfig::ai_apply_aim`, `docs/RUNTIME_CPP.md` §6) и вызывается
+сразу после AI-фазы — AI-фаза единственный производитель `aim_point`, а
+выстрелы (`Ai::take_weapon_shots()`) вычислены внутри `Ai::tick` и от порядка
+моста не зависят. Мост включается вместе с автоматами движения: без них
+`aim_motion_at` не может посчитать ошибки в системе тела (состояние создаёт
+`Things::tick`). С выключенным флагом `apply_aim` не зовёт никто, и поведение
+тиков остаётся прежним. Тесты рантайма — `test_runtime_ai_apply_aim*`
+(`gm_game_state_tests`).
+
 ---
 
 ## 2. Состояния и переходы
@@ -481,10 +492,12 @@ clamp 1..239 — **данные+код** (`docs/SAVE_FIELDS.md`, `docs/SOE.md`).
    (§11) — включая пол/потолок (`0x472120`), отскок и турель. **Мост
    `Ai` → `thing_motion` есть**: `Ai::apply_aim(Things&)` раздаёт
    `agent.aim_point` через `Things::aim_motion_at()` (ошибки `0x473a00` в
-   системе тела), а потерянная цель очищает её (`valid=false`). **Интеграция в `Things::tick`
-   сделана** (opt-in `set_motion_enabled(world)`, `motion_state/last`,
-   `set_motion_target`, `set_push_targets`, тест `test_motion_tick`).
-   Маршрут из
+   системе тела), а потерянная цель очищает её (`valid=false`).
+   **Интеграция в `Things::tick` сделана** (opt-in `set_motion_enabled(world)`,
+   `motion_state/last`, `set_motion_target`, `set_push_targets`, тест
+   `test_motion_tick`). **Подключено к тику**: `GameRuntime` зовёт `apply_aim`
+   отдельной фазой (2a, opt-in `GameRuntimeConfig::ai_apply_aim`,
+   `docs/RUNTIME_CPP.md` §6). Маршрут из
    `THING_TYPES +0x324[]` через таблицу локаций подключён третьим opt-in'ом
    (`load_path_from_types`, §8.2).
 4. **Бой**: оружие из таблицы `+0x21c` уже выбирается и постит событие
