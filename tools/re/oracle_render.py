@@ -215,7 +215,7 @@ def render_frame(meshes, frame: dict, width: int, height: int,
                  materials: bool = True, ambient: float = 0.0,
                  chromakey: bool = False, uv: str = "texel",
                  skip_untextured: bool = True,
-                 pitch_offset: float = 0.0) -> bytes:
+                 pitch_offset: float = 0.0, fade: float = 0.0) -> bytes:
     pool = None if flat else render.TexturePool(game)
     look = frame["look"]
     if pitch_offset:
@@ -232,7 +232,7 @@ def render_frame(meshes, frame: dict, width: int, height: int,
                          pos=frame["eye"], look=look,
                          focal=focal, lightmap=lightmap,
                          materials=materials, ambient=ambient,
-                         chromakey=chromakey, uv=uv,
+                         chromakey=chromakey, uv=uv, fade=fade,
                          skip_untextured=skip_untextured)
 
 
@@ -278,6 +278,16 @@ def selftest() -> int:
     check("shifted corr < 0.999", shifted["corr"] < 0.999, f"{shifted['corr']:.4f}")
     check("noise corr is low", abs(noise["corr"]) < 0.5, f"{noise['corr']:+.4f}")
     check("noise edges < 1", noise["edges"] < 1.0, f"{noise['edges']:.4f}")
+
+    # 1a. haze fade (`SET_CAMERA_HAZE`, docs/SCREEN_FX.md)
+    frame_rgb = bytes([10, 20, 30] * 4)
+    check("fade 0 keeps the frame", render.fade_rgb(frame_rgb, 0) == frame_rgb)
+    check("fade 255 is white", render.fade_rgb(frame_rgb, 255) == b"\xff" * 12,
+          repr(render.fade_rgb(frame_rgb, 255)))
+    half = render.fade_rgb(b"\x00\x00\x00", 128)
+    check("fade 128 on black is mid-grey", half == b"\x80\x80\x80", repr(half))
+    check("fade is monotonic",
+          render.fade_rgb(frame_rgb, 64)[0] < render.fade_rgb(frame_rgb, 192)[0])
 
     # 2. oracle preprocessing: border crop + area downsample keep the mix
     with tempfile.TemporaryDirectory() as tmp:
@@ -387,6 +397,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--effects", action="store_true",
                     help="draw negative-texture polygons with the .sbw effect "
                          "table's frame at --tick (docs/EFFECTS.md)")
+    ap.add_argument("--fade", type=float, default=0.0,
+                    help="white haze 0..1 (`SET_CAMERA_HAZE`, docs/SCREEN_FX.md)")
     ap.add_argument("--tick", type=int, default=0,
                     help="engine ticks for --effects frame selection (91 Hz)")
     ap.add_argument("--keep-border", action="store_true",
@@ -412,7 +424,8 @@ def main(argv: list[str]) -> int:
     data = render_frame(meshes, frame, opts.width, opts.height, focal,
                         opts.game, opts.flat, opts.lightmap,
                         opts.materials, opts.ambient, opts.chromakey,
-                        opts.uv, opts.skip_untextured, opts.pitch_offset)
+                        opts.uv, opts.skip_untextured, opts.pitch_offset,
+                        opts.fade)
     out_dir = os.path.dirname(os.path.abspath(opts.out))
     os.makedirs(out_dir, exist_ok=True)
     with open(opts.out, "wb") as fh:

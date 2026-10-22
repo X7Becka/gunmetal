@@ -715,6 +715,30 @@ def _uv_fit(uvs) -> tuple[float, float, float, float]:
     return u0, v0, max(1e-9, max(us) - u0), max(1e-9, max(vs) - v0)
 
 
+def fade_rgb(rgb: bytes, alpha: int) -> bytes:
+    """White haze over a frame: the engine's `0x4188b2` full-screen quad.
+
+    `SET_CAMERA_HAZE` keeps a 0..1 value in `0x80f9a8`; the frame pass copies it
+    to `ctx+0xe8` (`0x446764`) and the quad draws white with
+    ``alpha = ftol(255 * haze)`` (docs/SCREEN_FX.md).  The blend itself is the
+    standard over-operator: ``out = out * (255 - a) / 255 + 255 * a / 255``.
+    ``alpha <= 0`` returns the frame unchanged, so the default pipeline is
+    untouched.
+    """
+    a = max(0, min(255, int(alpha)))
+    if a == 0:
+        return rgb
+    if a >= 255:
+        return b"\xff" * len(rgb)
+    out = bytearray(rgb)
+    keep = 255 - a
+    for i in range(0, len(out) - 2, 3):
+        out[i] = (out[i] * keep + 255 * a) // 255
+        out[i + 1] = (out[i + 1] * keep + 255 * a) // 255
+        out[i + 2] = (out[i + 2] * keep + 255 * a) // 255
+    return bytes(out)
+
+
 def render(meshes, width: int = 480, height: int | None = None, *, az: float = 35.0,
            el: float = 22.0, zoom: float = 1.0, fov: float = 45.0,
            pool: TexturePool | None = None, lit: bool = True, wire: bool = False,
@@ -729,7 +753,8 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
            filter: str = "nearest", alpha_test: bool = False,
            transparent_index: int | None = 0,
            lod_bias: float = -0.75,
-           focal: tuple[float, float] | None = None) -> bytes:
+           focal: tuple[float, float] | None = None,
+           fade: float = 0.0) -> bytes:
     """Render one mesh or a list of meshes into an RGB PNG.
 
     ``pos``/``look`` override the auto-fitted camera (for level interiors),
@@ -894,7 +919,11 @@ def render(meshes, width: int = 480, height: int | None = None, *, az: float = 3
             _draw_marker(buf, zbuf, width, height, int(p[0]), int(p[1]), p[2], rgb,
                          test=marker_depth)
 
-    return png.rgb(width, height, bytes(buf))
+    frame = bytes(buf)
+    if fade > 0.0:
+        # `SET_CAMERA_HAZE` 0..1 -> the quad's 8-bit alpha (docs/SCREEN_FX.md)
+        frame = fade_rgb(frame, int(max(0.0, min(1.0, fade)) * 255.0))
+    return png.rgb(width, height, frame)
 
 
 def _face_normal(face) -> Vec3:
