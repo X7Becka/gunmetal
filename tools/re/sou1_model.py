@@ -439,40 +439,66 @@ def _model_pcm(rate: int, channels: int, payload_streams) -> tuple[array.array, 
     return interleaved, slots
 
 
-def check_manifest(game: str, path: str) -> int:
+def _check_name(bf, name: str, want: dict):
+    data = bf.read(bf[name])
+    rate, channels, payload, streams = _payload_streams(data)
+    pcm, slots = _model_pcm(rate, channels, streams)
+    raw = pcm.tobytes()
+    got = {
+        "rate": rate,
+        "channels": channels,
+        "payload_bytes": len(payload),
+        "slots_per_channel": slots,
+        "seconds": round(slots / RATE_OUT, 6),
+        "fnv1a64": "%016x" % fnv1a64(raw),
+        "fnv1a64_pcm16": "%016x" % fnv1a64(pcm16(raw)),
+    }
+    return got, any(got[k] != want[k] for k in got)
+
+
+def _check_chunk(job):
+    """Worker: model-only check of a slice of manifest entries."""
+    game, path, names, expected = job
+    bf = bigfile.BigFile(os.path.join(game, "sounds", "SOU.IDX"))
+    return [(name, *_check_name(bf, name, expected[name])) for name in names]
+
+
+def check_manifest(game: str, path: str, jobs: int | None = None) -> int:
     """Model-only regression check against a committed FNV manifest.
 
-    This does not run the x86 emulator, so it is fast; it proves the static
+    This does not run the x86 emulator, so it is cheap; it proves the static
     model still produces the same PCM (FNV-1a64, lengths, durations) that was
-    verified bit-exactly against ``gundx.exe``.
+    verified bit-exactly against ``gundx.exe``.  Entries are independent, so
+    the 983-entry sweep is split over workers.
     """
     with open(path, encoding="utf-8") as fh:
         manifest = json.load(fh)
     expected = {e["name"]: e for e in manifest["entries"]}
-    bf = bigfile.BigFile(os.path.join(game, "sounds", "SOU.IDX"))
+    names = sorted(expected)
+    workers = jobs if jobs is not None else min(
+        16, int(os.environ.get("GM_JOBS", "0")) or 16, os.cpu_count() or 1)
+    step = 64
+    chunks = [(game, path, names[i:i + step], expected)
+              for i in range(0, len(names), step)]
+    parts = []
+    if workers > 1 and len(chunks) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=min(workers, len(chunks))) as pool:
+            for part in pool.map(_check_chunk, chunks):
+                parts.extend(part)
+    else:
+        bf = bigfile.BigFile(os.path.join(game, "sounds", "SOU.IDX"))
+        for index in range(0, len(names), step):
+            for name in names[index:index + step]:
+                parts.append((name, *_check_name(bf, name, expected[name])))
     bad = 0
-    checked = 0
-    for name in sorted(expected):
-        data = bf.read(bf[name])
-        rate, channels, payload, streams = _payload_streams(data)
-        pcm, slots = _model_pcm(rate, channels, streams)
-        raw = pcm.tobytes()
-        want = expected[name]
-        got = {
-            "rate": rate,
-            "channels": channels,
-            "payload_bytes": len(payload),
-            "slots_per_channel": slots,
-            "seconds": round(slots / RATE_OUT, 6),
-            "fnv1a64": "%016x" % fnv1a64(raw),
-            "fnv1a64_pcm16": "%016x" % fnv1a64(pcm16(raw)),
-        }
-        checked += 1
-        if any(got[k] != want[k] for k in got):
+    for name, got, mismatch in parts:
+        if mismatch:
             bad += 1
-            print("MANIFEST MISMATCH %s: %r != %r" % (name, got, want))
+            print("MANIFEST MISMATCH %s: %r != %r"
+                  % (name, got, expected[name]))
     print("manifest check: %d/%d entries match %s"
-          % (checked - bad, checked, os.path.basename(path)))
+          % (len(parts) - bad, len(parts), os.path.basename(path)))
     return 1 if bad else 0
 
 
@@ -544,7 +570,7 @@ def main(argv=None) -> int:
         return verify(opts.game, opts.limit, opts.json, opts.chunk,
                       jobs=opts.jobs)
     if opts.check:
-        return check_manifest(opts.game, opts.check)
+        return check_manifest(opts.game, opts.check, jobs=opts.jobs)
     if not opts.name or not opts.out:
         ap.error("NAME and OUT are required unless --list/--verify is used")
     data = read_entry(opts.name, opts.game)

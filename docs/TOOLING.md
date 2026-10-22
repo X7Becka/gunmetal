@@ -88,7 +88,7 @@ Linux-сторону и не должно становиться обязате�
 | `perf record -g` | профиль Python/C++ без правок кода | есть |
 | `hyperfine` | честные замеры «до/после» с прогревом | нет (`time` в цикле — замена) |
 | `py-spy` | профиль без перезапуска, удобно для TUI/сервисов | нет |
-| `coverage.py` / `llvm-cov` | чего не тестируем (см. `docs/REGRESSION.md` §4) | нет |
+| `tools/qa/coverage.py` (stdlib `trace`), `--missing MODULE` | чего не тестируем (см. `docs/REGRESSION.md` §4) | нет; `llvm-cov` для C++ не собран |
 
 ## 7. Что не тащить
 

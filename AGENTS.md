@@ -82,7 +82,7 @@
 ## Сборка и тесты
 
 - Python-оракул: `python3 regress.py` (113 проверок; ~79 с на `/mnt/d`,
-  ~46 с с `--mirror`) и `python3 regress.py --full --mirror` (121, ~99 с). Для точечной проверки:
+  ~46 с с `--mirror`) и `python3 regress.py --full --mirror` (122, ~64–71 с). Для точечной проверки:
   `python3 regress.py --category save` (список — `--list-categories`; фильтр
   повторяемый, `--full` включает тяжёлые проверки выбранной категории). Во время
   прогона не редактировать `gm.py`, `gm/*`, `tools/re/*`. Новая проверка должна

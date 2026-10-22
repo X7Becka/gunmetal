@@ -149,8 +149,9 @@ def _bundle_hash() -> str:
     for name in sorted(os.listdir(gm_dir)):
         if name.endswith(".py"):
             paths.append(os.path.join(gm_dir, name))
-    for name in ("sob_writer.py", "sou_container.py", "vm_exec.py",
-                 "sbtvm.py", "sbtvm_exec.py", "x86mini.py", "emu.py"):
+    for name in ("sob_writer.py", "sou_container.py", "sou1_model.py",
+                 "vm_exec.py", "sbtvm.py", "sbtvm_exec.py", "x86mini.py",
+                 "emu.py"):
         paths.append(os.path.join(HERE, "tools", "re", name))
     paths.append(os.path.join(HERE, "tools", "parity_film.py"))
     for path in paths:
@@ -1359,6 +1360,17 @@ def main() -> int:
                                                      "sou_container.py"), "--check"], G)
         results.append(report("sou / 4091-entry rebuild", p.returncode == 0
                               and "4091/4091" in p.stdout,
+                              (p.stdout.strip().splitlines() or ["no output"])[-1]))
+        # Model-only sweep against the 983-entry manifest that was verified
+        # bit-exactly against gundx.exe; catches decoder drift in seconds.
+        p = cached_run([sys.executable, os.path.join(HERE, "tools", "re",
+                                                     "sou1_model.py"),
+                        "--check", os.path.join(HERE, "docs", "manifests",
+                                                "sou1-fnv.json"),
+                        "--jobs", "16"], G)
+        results.append(report("sou1 / model vs 983-entry FNV manifest",
+                              p.returncode == 0
+                              and "983/983 entries match" in p.stdout,
                               (p.stdout.strip().splitlines() or ["no output"])[-1]))
     if opts.full and want("vm"):
         p = cached_run([sys.executable, os.path.join(HERE, "tools", "re",
