@@ -1075,9 +1075,12 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > перезаписана на `0x010101`, `0x4187b4`), признак — `flags` бит 0
       > (126/1648 PICS, 178/179 спрайтов; у `level0` 4 текстуры / 57
       > полигонов). `grConstantColorValue` в кадре — литерал `0xFFFFFFFF`,
-      > не свет. В `gm/render.py` есть `chromakey=`/`--chromakey` (за флагом:
-      > на `win1..win3` вклад ниже измеримого). Вьюверный `face_blend` —
-      > приближение, включать его «по LUT» нельзя.
+      > не свет. Хрома-кей реализован с двух сторон одинаково: Python
+      > `render(chromakey=)`/`--chromakey`, C++ `RenderOptions::chromakey` +
+      > `Texture::keyed` (флаги в `TexturePool::load`), CLI `--chromakey`;
+      > CTest `core` проверяет `POD1`/`RAIL2` = keyed, `METFLR2` = нет.
+      > По умолчанию выключен (на `win1..win3` кадр побитово тот же).
+      > Вьюверный `face_blend` — приближение, включать его «по LUT» нельзя.
 - 🟡 `M4.1.6` Скайбокс/фон, туман (если есть), underwater palette.
       > **Фона-заливки нет вообще**: единственный `grBufferClear` (`0x418859`)
       > идёт с `grColorMask(FALSE, TRUE)` — чистится только depth/alpha;
