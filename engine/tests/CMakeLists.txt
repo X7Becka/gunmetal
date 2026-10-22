@@ -338,6 +338,13 @@ target_link_libraries(gm_vm_trace_dump PRIVATE gm_engine)
 
 # Interface scaling (M4.3.3): aspect-preserving letterbox and the two
 # filters, on synthetic pixels (no window, no SDL).
+# Full-screen haze fade (M4.2.8): alpha truncation and the over blend, byte
+# for byte with gm/render.py::fade_rgb.
+add_executable(gm_postfx_tests test_postfx.cpp)
+target_link_libraries(gm_postfx_tests PRIVATE gm_engine)
+add_test(NAME postfx COMMAND gm_postfx_tests)
+gm_label(postfx quick)
+
 add_executable(gm_scale_tests test_scale.cpp)
 target_link_libraries(gm_scale_tests PRIVATE gm_engine)
 add_test(NAME scale COMMAND gm_scale_tests)

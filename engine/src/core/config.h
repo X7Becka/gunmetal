@@ -60,6 +60,7 @@ struct Options {
     bool chromakey = false;    // key palette 0 only on textures with flags bit 0
     bool texel_uv = false;     // engine texture projection (docs/TEXUV.md)
     bool skip_untextured = false; // drop texture==0 && handle==0 polygons
+    double haze = 0.0;            // white fade 0..1 (SET_CAMERA_HAZE)
     int transparent_index = 0;
     bool spawn_camera = false;  // start the viewer at SET_PLAYER_START
     int spawn_slot = 0;

@@ -167,6 +167,10 @@ struct RenderOptions {
     // skipped.  Off by default so the viewer history stays byte-identical.
     bool texel_uv = false;
     bool skip_untextured = false;
+    /// Camera haze 0..1 (`SET_CAMERA_HAZE`, docs/SCREEN_FX.md): the white
+    /// full-screen quad `0x4188b2` with `alpha = ftol(255 * haze)` is applied
+    /// to the finished frame.  0 disables it (historical renders unchanged).
+    double haze = 0.0;
 };
 
 struct RenderResult {

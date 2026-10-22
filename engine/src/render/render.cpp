@@ -1,5 +1,7 @@
 #include "render/render.h"
 
+#include "render/postfx.h"
+
 #include "core/path.h"
 #include "res/bmp.h"
 #include "res/sbm.h"
@@ -1101,6 +1103,11 @@ RenderResult render_scene(const std::vector<RenderMesh>& meshes,
                       options.mip_auto, options.bilinear, options.alpha_test || keyed,
                       keyed ? 0 : options.transparent_index, options.texel_uv);
         }
+    }
+
+    if (options.haze > 0.0) {
+        // `0x4188b2`: white full-screen quad, alpha = ftol(255 * haze).
+        fade_white(result.rgb, options.haze);
     }
     return result;
 }

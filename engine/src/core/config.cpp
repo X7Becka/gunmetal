@@ -319,6 +319,21 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             options.texel_uv = true;
         } else if (arg == "--skip-untextured") {
             options.skip_untextured = true;
+        } else if (arg == "--haze") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.haze = std::stod(std::string(*v));
+            } catch (...) {
+                error = "--haze expects a number in 0..1";
+                return std::nullopt;
+            }
+            if (!(options.haze >= 0.0 && options.haze <= 1.0)) {
+                error = "--haze expects a number in 0..1";
+                return std::nullopt;
+            }
         } else if (arg == "--chromakey") {
             options.chromakey = true;
         } else if (arg == "--alpha-test") {
@@ -539,6 +554,7 @@ std::string usage() {
        << "      --uv-texel    engine texture projection (repeat) instead of\n"
        << "                    stretching one copy (docs/TEXUV.md)\n"
        << "      --skip-untextured  skip polygons with texture==0 and handle==0\n"
+       << "      --haze N           white fade 0..1 (SET_CAMERA_HAZE, docs/SCREEN_FX.md)\n"
        << "      --chromakey   same, but only for textures whose .sbm flags bit 0\n"
        << "                    is set (the game's transparent type, docs/ALPHA.md)\n"
        << "      --transparent-index N  palette key (default 0)\n"

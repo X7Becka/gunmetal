@@ -819,6 +819,7 @@ int render_image(const gm::Options& options) {
     render.chromakey = options.chromakey;
     render.texel_uv = options.texel_uv;
     render.skip_untextured = options.skip_untextured;
+    render.haze = options.haze;
     if (options.has_pos != options.has_look) {
         gm::logf(gm::LogLevel::Error, "render", "--pos and --look must be given together");
         return 2;
@@ -1912,6 +1913,7 @@ int run(const gm::Options& options) {
             render.chromakey = options.chromakey;
             render.texel_uv = options.texel_uv;
             render.skip_untextured = options.skip_untextured;
+            render.haze = options.haze;
             render.camera_override = true;
             render.eye = eye;
             render.target = target;

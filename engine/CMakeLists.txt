@@ -17,6 +17,7 @@ add_library(gm_engine STATIC
     src/res/cache.cpp
     src/render/render.cpp
     src/render/scale.cpp
+    src/render/postfx.cpp
     src/render/collide.cpp
     src/player/controller.cpp
     src/input/controls.cpp
