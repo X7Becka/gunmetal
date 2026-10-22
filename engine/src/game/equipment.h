@@ -81,6 +81,31 @@ struct EquipmentState {
 /// maximum (types 0..14, docs/EQUIPMENT.md §2).
 using AmmoPool = std::array<std::int32_t, 16>;
 
+/// Action bits of `player+0x3344` (`0x81c384`) that `0x445fa0` consumes.
+inline constexpr std::uint32_t kEquipNext = 0x10000;
+inline constexpr std::uint32_t kEquipPrev = 0x20000;
+inline constexpr std::uint32_t kEquipToggle = 0x40000;
+/// Hotkey *id* (1..10) is `kEquipToggle << id`, matched against `object_id`.
+inline constexpr std::uint32_t kEquipHotkeyBase = 0x80000;
+
+/// What one input tick of `0x445fa0` asks the level script to do.
+struct EquipmentInput {
+    int record = -1;          ///< record whose event to post, -1 = nothing
+    std::int32_t event = 0;   ///< E2 (selected), E3 (on) or E4 (off)
+};
+
+/// Selection state machine of `FUN_00445fa0`: next/previous owned item, toggle
+/// the current one, or a per-item hotkey.  The active bit is *not* changed
+/// here — the script does that with `SOURCEPLAYER_EQUIPMENT_ACTIVATE` (op 130),
+/// so a toggle only posts `E3`/`E4`.
+///
+/// Cycling skips records without the `owned` bit and records with `flags & 4`
+/// (`BALLAST`: it is bought, but never selected by next/previous).  Hotkeys map
+/// `kEquipToggle << object_id` to the record whose `E11` equals that id; id 0
+/// (`SELF-DESTRUCT`, `FLIGHT PACK`, `BALLAST`) has no hotkey.
+EquipmentInput equipment_input(const EquipmentTable& table, EquipmentState& state,
+                               std::uint32_t actions);
+
 /// One tick of `0x4463a9`.  Spends `ammo_per_tick * ticks` for every active
 /// record and returns the *record indexes* whose pool reached zero (the caller
 /// posts `event_no_ammo`; the script decides what happens).

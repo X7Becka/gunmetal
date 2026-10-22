@@ -82,6 +82,75 @@ void EquipmentState::set_active(int record, bool on) {
     }
 }
 
+namespace {
+
+/// `owned & !(flags & 4)`: bought and selectable by cycling.
+bool cycle_selectable(const EquipmentTable& table, const EquipmentState& state,
+                      int record) {
+    const EquipmentDef* def = table.find(record);
+    return def != nullptr && state.is_owned(record) && (def->flags() & 4) == 0;
+}
+
+} // namespace
+
+EquipmentInput equipment_input(const EquipmentTable& table, EquipmentState& state,
+                               std::uint32_t actions) {
+    EquipmentInput out;
+    const int count = static_cast<int>(table.size());
+    if (count == 0) {
+        return out;
+    }
+
+    // 0x4460ab / 0x4461a5: next and previous owned item, wrapping.
+    const int dir = (actions & kEquipNext) ? 1 : ((actions & kEquipPrev) ? -1 : 0);
+    if (dir != 0) {
+        const int from = state.index;
+        for (int step = 1; step <= count; ++step) {
+            const int record = ((from + dir * step) % count + count) % count;
+            if (!cycle_selectable(table, state, record)) {
+                continue;
+            }
+            state.index = record;
+            out.record = record;
+            // E2 is the "selection changed" event; in the shipped data it is
+            // always 0 (docs/EQUIPMENT.md §4.1).
+            out.event = table.defs[static_cast<std::size_t>(record)].activate_event();
+            return out;
+        }
+        return out;
+    }
+
+    // 0x4461b1..0x446234: toggle the current item; the script flips the bit.
+    if (actions & kEquipToggle) {
+        const EquipmentDef* def = table.find(state.index);
+        if (def != nullptr) {
+            out.record = state.index;
+            out.event = state.is_active(state.index) ? def->event_off()
+                                                     : def->event_on();
+        }
+        return out;
+    }
+
+    // 0x44623d..0x44638d: hotkey `1 << 10 << object_id` (ids 1..10).
+    for (int id = 1; id <= 10; ++id) {
+        const std::uint32_t bit = kEquipHotkeyBase << (id - 1);
+        if ((actions & bit) == 0) {
+            continue;
+        }
+        for (int record = 0; record < count; ++record) {
+            const EquipmentDef& def = table.defs[static_cast<std::size_t>(record)];
+            if (def.object_id() != id || !state.is_owned(record)) {
+                continue;
+            }
+            out.record = record;
+            out.event = state.is_active(record) ? def.event_off() : def.event_on();
+            return out;
+        }
+        return out;
+    }
+    return out;
+}
+
 std::vector<int> equipment_tick(const EquipmentTable& table,
                                 const EquipmentState& state, AmmoPool& ammo,
                                 int ticks) {

@@ -2178,6 +2178,64 @@ void test_equipment() {
         CHECK_EQ(ammo[10], 50);
     }
 
+    // Input (0x445fa0): next/prev skip records that are not owned or carry
+    // flags & 4 (BALLAST), toggle posts E3/E4, hotkeys map `0x40000 << id` to
+    // the record with that object_id (docs/EQUIPMENT.md §4.1).
+    if (table) {
+        gm::EquipmentState state;
+        gm::EquipmentInput in = gm::equipment_input(*table, state, 0);
+        CHECK_EQ(in.record, -1);
+        CHECK_EQ(in.event, 0);
+
+        // Nothing owned: next does not move.
+        state.index = -1;
+        in = gm::equipment_input(*table, state, gm::kEquipNext);
+        CHECK_EQ(in.record, -1);
+        CHECK_EQ(state.index, -1);
+
+        // Own record 0 (HEADLIGHTS): next selects it, its E2 is 0.
+        state.owned = 1u << 0;
+        in = gm::equipment_input(*table, state, gm::kEquipNext);
+        CHECK_EQ(in.record, 0);
+        CHECK_EQ(state.index, 0);
+        CHECK_EQ(in.event, table->defs[0].activate_event());
+        // Wrapping next from the last owned record comes back to it.
+        in = gm::equipment_input(*table, state, gm::kEquipNext);
+        CHECK_EQ(in.record, 0);
+        // Prev wraps the same way.
+        in = gm::equipment_input(*table, state, gm::kEquipPrev);
+        CHECK_EQ(in.record, 0);
+
+        // Toggle posts E3 when the bit is clear and E4 when it is set; the bit
+        // itself is the script's business (op 130).
+        state.active = 0;
+        in = gm::equipment_input(*table, state, gm::kEquipToggle);
+        CHECK_EQ(in.record, 0);
+        CHECK_EQ(in.event, table->defs[0].event_on());
+        state.set_active(0, true);
+        in = gm::equipment_input(*table, state, gm::kEquipToggle);
+        CHECK_EQ(in.event, table->defs[0].event_off());
+        CHECK(state.is_active(0)); // untouched by the input layer
+
+        // Hotkey id 7 resolves to the synthetic HEADLIGHTS (object_id 7);
+        // an id without an owned record stays silent.
+        state.active = 0;
+        in = gm::equipment_input(*table, state, gm::kEquipHotkeyBase << 6);
+        CHECK_EQ(in.record, 0);
+        CHECK_EQ(in.event, table->defs[0].event_on());
+        in = gm::equipment_input(*table, state, gm::kEquipHotkeyBase << 1);
+        CHECK_EQ(in.record, -1);
+
+        // id 0 records (SELF-DESTRUCT / FLIGHT PACK) have no hotkey bit.
+        for (int id = 1; id <= 10; ++id) {
+            const gm::EquipmentInput probe =
+                gm::equipment_input(*table, state, gm::kEquipHotkeyBase << (id - 1));
+            if (probe.record >= 0) {
+                CHECK_EQ(table->defs[static_cast<std::size_t>(probe.record)].object_id(), id);
+            }
+        }
+    }
+
     // Real data: the level script defines 12 records (13 in level0, which also
     // carries BALLAST), and every value pair resolves (docs/EQUIPMENT.md §3).
     struct Expected {
@@ -2214,6 +2272,45 @@ void test_equipment() {
             for (const gm::EquipmentDef& def : parsed->defs) {
                 CHECK(def.ammo_type() < 16);
                 CHECK(def.ammo_per_tick() >= 0);
+            }
+            // Real hotkey map: `0x40000 << object_id` selects the record whose
+            // E11 is that id (docs/EQUIPMENT.md §4.1).
+            if (std::string(want.level) == "level0.sbt") {
+                gm::EquipmentState owned;
+                owned.owned = 0xFFFFFFFFu;
+                auto hotkey = [&](int id) {
+                    return gm::equipment_input(*parsed, owned,
+                                               gm::kEquipHotkeyBase << (id - 1));
+                };
+                const gm::EquipmentInput first = hotkey(1);
+                CHECK_EQ(first.record, 0);
+                if (first.record >= 0) {
+                    CHECK_EQ(parsed->defs[static_cast<std::size_t>(first.record)].name,
+                             std::string("HEADLIGHTS"));
+                }
+                const gm::EquipmentInput last = hotkey(10);
+                CHECK_EQ(last.record, 11);
+                if (last.record >= 0) {
+                    CHECK_EQ(parsed->defs[static_cast<std::size_t>(last.record)].name,
+                             std::string("DECOY"));
+                }
+                // id 0 (SELF-DESTRUCT, FLIGHT PACK, BALLAST) has no hotkey.
+                for (int id = 1; id <= 10; ++id) {
+                    const gm::EquipmentInput probe = hotkey(id);
+                    if (probe.record >= 0) {
+                        CHECK_EQ(parsed->defs[static_cast<std::size_t>(probe.record)]
+                                     .object_id(),
+                                 id);
+                    }
+                }
+                // Cycling skips BALLAST (`flags & 4`), so next after DECOY
+                // wraps to HEADLIGHTS, and prev from HEADLIGHTS is DECOY.
+                gm::EquipmentState cycle;
+                cycle.owned = 0xFFFFFFFFu;
+                cycle.index = 11;
+                CHECK_EQ(gm::equipment_input(*parsed, cycle, gm::kEquipNext).record, 0);
+                cycle.index = 0;
+                CHECK_EQ(gm::equipment_input(*parsed, cycle, gm::kEquipPrev).record, 11);
             }
         }
         CHECK_EQ(found, want.records);
