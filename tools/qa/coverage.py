@@ -128,8 +128,13 @@ def main(argv=None) -> int:
                     help="also run the extraction commands (slower)")
     ap.add_argument("--json", help="write the table as JSON")
     ap.add_argument("--keep", help="keep .cover files in this directory")
+    ap.add_argument("--show-missing", type=int, default=40,
+                    help="lines printed by --missing (default 40)")
     ap.add_argument("--show", type=int, default=12,
                     help="modules printed in the summary (default 12)")
+    ap.add_argument("--missing", metavar="MODULE",
+                    help="list unexecuted line numbers for one module "
+                         "(e.g. gm/sbw.py or gm.sbw)")
     ap.add_argument("--min", type=float, default=0.0,
                     help="exit 1 when total coverage is below this percentage")
     opts = ap.parse_args(argv)
@@ -181,6 +186,34 @@ def main(argv=None) -> int:
         print("coverage: cover files kept in %s" % tmp, file=sys.stderr)
     else:
         shutil.rmtree(tmp, ignore_errors=True)
+    if opts.missing:
+        key = opts.missing
+        if key.endswith(".py"):
+            key = key if "/" in key else "gm/" + key
+        elif key.startswith("gm."):
+            key = "gm/" + key[3:].replace(".", "/") + ".py"
+        else:
+            key = "gm/" + key.replace(".", "/") + ".py"
+        if key not in merged:
+            print("coverage: %s was not traced in this run" % opts.missing,
+                  file=sys.stderr)
+        else:
+            lines = merged[key]
+            missing = [no for no, hit in sorted(lines.items()) if not hit]
+            print("%s: %d unexecuted of %d executable lines"
+                  % (key, len(missing), len(lines)))
+            source = []
+            try:
+                with open(os.path.join(ROOT, key), "r", encoding="utf-8",
+                          errors="replace") as fh:
+                    source = fh.read().splitlines()
+            except OSError:
+                pass
+            for no in missing[:opts.show_missing]:
+                text = source[no - 1].strip() if no <= len(source) else ""
+                print("  %5d  %s" % (no, text[:120]))
+            if len(missing) > opts.show_missing:
+                print("  ... %d more" % (len(missing) - opts.show_missing))
     total_pct = 100.0 * total_hit / total_exec
     if opts.min and total_pct < opts.min:
         print("coverage: %.1f%% is below --min %.1f%%" % (total_pct, opts.min),
