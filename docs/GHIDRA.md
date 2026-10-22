@@ -246,6 +246,22 @@ python3 tools/ghidra/fncache.py export docs/re/ghidra/fn
   ~120 КБ псевдо-C. Полный текст в контекст не тянем.
 - Псевдо-C в кэше — по-прежнему **гипотеза**: доказательство — байты, данные,
   эмулятор или golden-тест (см. §5).
+- Догрев по самым упоминаемым в доках адресам (на 2026-10-22: 3424 адреса в
+  `.text`, прогрето 139 записей / 807 КБ, включая 60 самых частых; один
+  адрес — `0x45c500` — таблица переходов ВМ, не функция):
+
+```sh
+python3 - <<'PY' > /tmp/opencode/top.txt
+import re,glob,collections
+c=collections.Counter()
+for p in glob.glob('docs/**/*.md',recursive=True)+['NOTES.md','FORMATS.md']:
+    for a in re.findall(r'0x[0-9a-f]{6,8}',open(p,encoding='utf-8').read()):
+        v=int(a,16)
+        if 0x401000<=v<0x4a1000: c[v]+=1
+print(' '.join(f'0x{a:x}' for a,_ in c.most_common(60)))
+PY
+python3 tools/ghidra/fncache.py get --no-headers --head 1 $(cat /tmp/opencode/top.txt)
+```
 
 
 ## 6. Ограничения текущего выбора
