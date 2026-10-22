@@ -11,6 +11,7 @@
 #include <string_view>
 #include <vector>
 
+#include "res/sbw.h"
 #include "res/sbt.h"
 #include "res/sbtvm.h"
 
@@ -322,6 +323,55 @@ struct VmSpawn {
     int occ = 0;
 };
 
+/// One **world sector** record: the runtime array ``0x5670d8`` (count
+/// ``0x5670dc``, stride ``0x18``), docs/WORLD_FIELDS.md §2.1.  It is a
+/// different array than ``SECTOR_STUFF`` (``0x800b60``): this one is the
+/// geometry the renderer walks, and it is what ``SET_SECTOR_BRIGHTNESS`` /
+/// ``SET_SECTOR_TYPE`` and their source/handle twins write.
+///
+/// Only the two fields the SCRIPT-VM can reach are modelled:
+///  * ``kind``  — ``+0x14``, the sector type multiplied by 6 (setter
+///    ``0x42d9d5``, getter ``0x42d99f`` divides it back by 6);
+///  * ``light`` — ``+0x16``, the sector light byte (writer ``0x4578f8``).
+struct VmWorldSector {
+    std::uint16_t kind = 0; ///< +0x14: ``type * 6``
+    std::uint8_t light = 0;  ///< +0x16: sector light
+};
+
+/// One **world polygon** record: the runtime record of ``0x80`` bytes that
+/// lives inside an object (``object+0x6c[i]``), addressed by the
+/// ``(sector, object, poly)`` triple of the getter ``0x434463``
+/// (docs/WORLD_FIELDS.md §2.4).  Only the fields the SCRIPT-VM can write are
+/// modelled:
+///
+///  * ``texture``   — ``+0x00`` (``0x457a68``, ``0x45819a``, ``0x4585a4``);
+///  * ``material``  — ``+0x02`` (``0x458166``, ``0x458671``);
+///  * ``scroll_u``  — ``+0x5c`` (``0x457ebd``, ``0x458256``, ``0x458825``);
+///  * ``scroll_v``  — ``+0x60`` (``0x457ecf``, ``0x458268``, ``0x45883a``);
+///  * ``brightness``— ``+0x70`` (``0x457aa0``, ``0x4581cc``, ``0x45873e``).
+struct VmWorldPoly {
+    int sector = 0; ///< address: sector index
+    int object = 0; ///< address: object index inside the sector
+    int poly = 0;   ///< address: polygon index inside the object
+    std::int16_t texture = 0;    ///< +0x00
+    std::uint16_t material = 0;  ///< +0x02
+    std::int16_t scroll_u = 0;   ///< +0x5c
+    std::int16_t scroll_v = 0;   ///< +0x60
+    std::uint8_t brightness = 0; ///< +0x70
+};
+
+/// One ``POLY_HANDLE`` row: the four parallel runtime tables ``0x5b21f8``
+/// (handle id), ``0x618b88`` (sector), ``0x5e5680`` (object) and ``0x6183b8``
+/// (polygon), count ``0x5e4678``, at most ``0x1f4`` rows.  The loader is
+/// ``0x463290`` (format string ``0x4b9640``:
+/// ``"POLY_HANDLE\n%ld %ld %ld %ld"``).
+struct VmPolyHandle {
+    int handle = 0;
+    int sector = 0;
+    int object = 0;
+    int poly = 0;
+};
+
 /// Everything the executed script builds.  Category names and order match
 /// ``gm.sbtvm_exec.Scene.counts()``.
 struct VmScene {
@@ -444,6 +494,51 @@ struct VmState {
     /// order), or ``nullopt`` when the handle is not registered.
     std::optional<int> sector_of_handle(int handle) const;
 
+    /// World-sector table (``0x5670d8``): the array the sector brightness /
+    /// type family writes.  Its size is the sector count ``0x5670dc``; an
+    /// empty table means "no world loaded", and then every write is rejected
+    /// exactly like the engine's getter ``0x42d8a5`` does.
+    std::vector<VmWorldSector> world_sectors;
+
+    /// World-polygon table (the ``0x80``-byte records): addressed by the
+    /// ``(sector, object, poly)`` triple of ``0x434463``.  A polygon that is
+    /// not in the table does not exist, and the engine's getter returns NULL
+    /// for it ("Script run error: unable to obtain poly %ld %ld %ld").
+    std::vector<VmWorldPoly> world_polys;
+
+    /// ``POLY_HANDLE`` rows (``0x5b21f8``/``0x618b88``/``0x5e5680``/
+    /// ``0x6183b8``, count ``0x5e4678``).  Like the sector handle table this
+    /// one is **not** built from a level: ``0x463290`` appends one row per
+    /// ``POLY_HANDLE: <h> <sector> <object> <poly>`` line of a text source.
+    std::vector<VmPolyHandle> poly_handles;
+
+    /// The world polygon the running script was triggered from: the fourth and
+    /// fifth arguments of ``0x457390`` (``[ebp+0x14]`` / ``[ebp+0x18]``).
+    /// ``SET_SOURCEPOLY_*`` (cids 32..35) address the polygon through them
+    /// together with ``source_sector``; ``-1`` is the original's "no source
+    /// polygon" case (the getter then fails).
+    int source_object = -1;
+    int source_poly = -1;
+
+    /// The world-sector record *index*, or nullptr when the index is outside
+    /// the table — the engine's getter ``0x42d8a5`` returns NULL there.
+    VmWorldSector* world_sector(int index);
+    const VmWorldSector* world_sector(int index) const;
+
+    /// The world polygon *(sector, object, poly)*, or nullptr (the engine's
+    /// getter ``0x434463``).
+    VmWorldPoly* world_poly(int sector, int object, int poly);
+    const VmWorldPoly* world_poly(int sector, int object, int poly) const;
+
+    /// **Every** sector registered under *handle*.  The original does not stop
+    /// at the first match: ``0x4583c2``..``0x45841c`` walks the whole handle
+    /// table and writes every row with the requested id.
+    std::vector<int> sectors_of_handle(int handle) const;
+
+    /// **Every** polygon registered under *handle* (``0x458701``..``0x458790``
+    /// walks the whole poly handle table).
+    std::vector<VmPolyHandle> polys_of_handle(int handle) const;
+
     std::vector<VmStackFrame> stack;
     std::vector<std::size_t> active;
 
@@ -494,6 +589,24 @@ VmState vm_state_from_level(const SbtLevel& level, const VmContext& context = {}
 /// with a different prefix, a short line or a non-numeric field is skipped (the
 /// original prints an error per bad line and keeps the previous pairs).
 std::size_t vm_load_sector_handles(VmState& state, std::string_view text);
+
+/// Parse ``POLY_HANDLE: <handle> <sector> <object> <poly>`` lines into
+/// ``state.poly_handles``.  The format string is ``0x4b9640``
+/// (``"POLY_HANDLE\n%ld %ld %ld %ld"``), used by ``0x463290``; the reader
+/// appends one row per line and enforces the ``0x1f4`` (500) limit
+/// (``0x463295``: "Maximum number of poly handles").  A line with a different
+/// prefix, a short line or a non-numeric field is skipped.
+std::size_t vm_load_poly_handles(VmState& state, std::string_view text);
+
+/// Seed the world tables of *state* from a parsed ``.sbw``.
+///
+/// The runtime world is the array of sectors ``0x5670d8`` (count
+/// ``0x5670dc``) with the polygons inside them; this fills the two views the
+/// SCRIPT-VM writes: ``world_sectors`` (the sector light ``+0x16`` is zero at
+/// load, ``0x42ae05``; the type ``+0x14`` comes from the file) and
+/// ``world_polys`` (the polygon records, addressed by ``(sector, object,
+/// poly)``).  An empty level clears both tables.
+void vm_load_world(VmState& state, const SbwLevel& level);
 
 /// Seed the SECTOR_STUFF view of *state* from a parsed block 8 / record 8.
 ///
@@ -653,6 +766,15 @@ private:
     std::optional<std::size_t> h_event(VmState&, const VmInsn&);
     // SECTOR_STUFF writes (SET_SECTOR_MOVEMENT/DAMAGE/SOUND/EVENTS/FLAGS)
     std::optional<std::size_t> h_sector(VmState&, const VmInsn&);
+    /// One SECTOR_STUFF slot write, shared by the plain/source/handle variants.
+    void write_sector_stuff(VmState&, const VmInsn&, int index,
+                            const std::vector<SbtValue>& args, std::size_t first_value);
+    // World-sector writes (SET_SECTOR_BRIGHTNESS/TYPE and their source/handle
+    // twins: the runtime array 0x5670d8, not SECTOR_STUFF).
+    std::optional<std::size_t> h_world_sector(VmState&, const VmInsn&);
+    // World-polygon writes (SET_POLY_*/SET_SOURCEPOLY_*/SET_HANDLEPOLY_*:
+    // the 0x80-byte polygon records of the world).
+    std::optional<std::size_t> h_world_poly(VmState&, const VmInsn&);
     // state
     std::optional<std::size_t> h_level(VmState&, const VmInsn&);
     std::optional<std::size_t> h_add_ammo(VmState&, const VmInsn&);

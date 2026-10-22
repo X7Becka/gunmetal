@@ -13,6 +13,7 @@
 //   (one campaign context, difficulty 1, seed 0x12345678, follow=False)
 // and, for the corpus totals, by summing the same run over all 36 levels.
 #include "res/save.h"
+#include "res/sbw.h"
 #include "res/sbt.h"
 #include "res/vm_exec.h"
 
@@ -929,13 +930,21 @@ void test_sector_source_and_handles() {
         }
     }
 
-    // 5. Handle table: first match wins, unknown handles are a no-op.
+    // 5. Handle table: every row with the id is written (the original's loops
+    //    have no break: 0x4582b3..0x45832d, 0x458445, 0x45849e, 0x458504),
+    //    unknown handles are a no-op.
     {
         gm::VmState state;
         state.sector_handles = {{42, 9}, {43, 200}, {42, 11}};
         CHECK(state.sector_of_handle(42).value_or(-1) == 9); // 0x4582b3 scans in order
         CHECK(state.sector_of_handle(43).value_or(-1) == 200);
         CHECK(!state.sector_of_handle(44).has_value());
+        const std::vector<int> rows = state.sectors_of_handle(42);
+        CHECK_EQ(rows.size(), std::size_t{2});
+        if (rows.size() == 2) {
+            CHECK_EQ(rows[0], 9);
+            CHECK_EQ(rows[1], 11);
+        }
 
         Bytes code;
         cmd(code, "SET_HANDLESECTOR_MOVEMENT",
@@ -962,8 +971,12 @@ void test_sector_source_and_handles() {
             CHECK_EQ(two_hundred.sound, 130);
             CHECK_EQ(two_hundred.sound_count, 10);
             CHECK_EQ(dbits(two_hundred.sound_param), dbits(0.03));
-            // The duplicate handle's second row is never used.
-            CHECK(same_slot(results[0].state.sectors[11], gm::VmSectorSlot{}));
+            // The duplicate handle's second row is written as well.
+            const gm::VmSectorSlot& eleven = results[0].state.sectors[11];
+            CHECK_EQ(eleven.move[0], 1.0);
+            CHECK_EQ(eleven.move[1], 2.0);
+            CHECK_EQ(eleven.move[2], 3.0);
+            CHECK_EQ(eleven.flags, 0xabcu);
         }
     }
 
@@ -1109,8 +1122,9 @@ void test_sector_stuff() {
         }
     }
 
-    // 4. SET_SECTOR_BRIGHTNESS/TYPE write the .sbw sector record, not this
-    // array (0x4578f8 stores sector+0x16, 0x42d9d5 stores sector+0x14=value*6).
+    // 4. SET_SECTOR_BRIGHTNESS/TYPE write the world sector record
+    // (0x5670d8), not this array (0x4578f8 stores sector+0x16, 0x42d9d5
+    // stores sector+0x14=value*6).
     {
         Bytes code;
         cmd(code, "SET_SECTOR_BRIGHTNESS", {u(9), u(200)});
@@ -1175,6 +1189,452 @@ void test_sector_stuff() {
             gm::vm_load_sector_stuff(cleared, {});
             for (const gm::VmSectorSlot& slot : cleared.sectors) {
                 CHECK(same_slot(slot, gm::VmSectorSlot{}));
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The world sector (0x5670d8) and the world polygons (the 0x80-byte records):
+// the brightness / type / texture / material / scroll families.  These write
+// real state, not events (docs/VM_EXEC.md §3.1, docs/WORLD_FIELDS.md §2.1,
+// §2.4).
+// ---------------------------------------------------------------------------
+
+/// A world table with *sectors* sectors and one polygon per (sector, object,
+/// poly) triple.
+gm::VmState world_state(std::size_t sectors, const std::vector<std::array<int, 3>>& polys) {
+    gm::VmState state;
+    for (std::size_t i = 0; i < sectors; ++i) {
+        gm::VmWorldSector sector;
+        sector.kind = static_cast<std::uint16_t>(i * 6);
+        state.world_sectors.push_back(sector);
+    }
+    for (const auto& address : polys) {
+        gm::VmWorldPoly poly;
+        poly.sector = address[0];
+        poly.object = address[1];
+        poly.poly = address[2];
+        state.world_polys.push_back(poly);
+    }
+    return state;
+}
+
+void test_world_sector_and_poly() {
+    // 1. Operand sizes: every handler consumes exactly the bytes of the
+    //    original (the cursor advances of 0x4578d6, 0x457a1c, 0x458063,
+    //    0x4580a9, 0x4583a6, 0x458429, 0x457a40, 0x457a79, 0x457e7e, 0x458178,
+    //    0x4581ab, 0x458140, 0x45821e, 0x45853a, 0x4586d5, 0x4587a1, 0x458607).
+    struct SigCase {
+        const char* name;
+        std::size_t bytes;
+    };
+    for (const SigCase& item : {SigCase{"SET_SECTOR_BRIGHTNESS", 0x8},
+                                SigCase{"SET_SECTOR_TYPE", 0x8},
+                                SigCase{"SET_SOURCESECTOR_BRIGHTNESS", 0x4},
+                                SigCase{"SET_SOURCESECTOR_TYPE", 0x4},
+                                SigCase{"SET_HANDLESECTOR_BRIGHTNESS", 0x8},
+                                SigCase{"SET_HANDLESECTOR_TYPE", 0x8},
+                                SigCase{"SET_POLY_TEXTURE", 0x10},
+                                SigCase{"SET_POLY_BRIGHTNESS", 0x10},
+                                SigCase{"SET_POLY_SCROLL", 0x1c},
+                                SigCase{"SET_SOURCEPOLY_TEXTURE", 0x4},
+                                SigCase{"SET_SOURCEPOLY_BRIGHTNESS", 0x4},
+                                SigCase{"SET_SOURCEPOLY_MATERIAL", 0x4},
+                                SigCase{"SET_SOURCEPOLY_SCROLL", 0x10},
+                                SigCase{"SET_HANDLEPOLY_TEXTURE", 0x8},
+                                SigCase{"SET_HANDLEPOLY_BRIGHTNESS", 0x8},
+                                SigCase{"SET_HANDLEPOLY_SCROLL", 0x14},
+                                SigCase{"SET_HANDLEPOLY_MATERIAL", 0x8}}) {
+        const auto info = gm::vm_command_info(item.name);
+        CHECK(info.has_value());
+        if (info) {
+            Bytes code;
+            code.push_back(info->op);
+            for (std::size_t k = 0; k < item.bytes; ++k) {
+                code.push_back(0);
+            }
+            std::string error;
+            const auto insn = gm::vm_decode_at(code, 0, error);
+            CHECK(insn.has_value());
+            if (insn) {
+                CHECK_EQ(insn->next, 1 + item.bytes);
+            }
+        }
+    }
+
+    // 2. The plain sector writes: the light is the LOW BYTE of the operand
+    //    (0x4578f5) and the type is stored as value*6 (0x42d9d5).
+    {
+        gm::VmState state = world_state(4, {});
+        Bytes code;
+        cmd(code, "SET_SECTOR_BRIGHTNESS", {u(3), u(200)});
+        cmd(code, "SET_SECTOR_BRIGHTNESS", {u(2), u(0x1234)});
+        cmd(code, "SET_SECTOR_TYPE", {u(1), u(3)});
+        cmd(code, "SET_SECTOR_TYPE", {u(0), u(0x10000)}); // (value*6) & 0xffff == 0
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const auto& sectors = results[0].state.world_sectors;
+            CHECK_EQ(sectors.size(), std::size_t{4});
+            CHECK_EQ(sectors[3].light, 200);
+            CHECK_EQ(sectors[2].light, 0x34); // only the low byte
+            CHECK_EQ(sectors[1].kind, 18);   // 3 * 6
+            CHECK_EQ(sectors[0].kind, 0);    // (0x10000 * 6) & 0xffff
+            CHECK_EQ(sectors[0].light, 0);
+            // The type write does not touch the light and vice versa.
+            CHECK_EQ(sectors[1].light, 0);
+            CHECK_EQ(sectors[3].kind, 18); // the seed value (3 * 6) survived
+            CHECK_EQ(results[0].state.events.size(), std::size_t{4});
+        }
+    }
+
+    // 3. Out-of-range sector: the getter 0x42d8a5 returns NULL, the original
+    //    prints "Script run error: bad set_sector_%ld." and writes nothing;
+    //    the type (0x42d9d5) fails silently.
+    {
+        gm::VmState state = world_state(2, {});
+        Bytes code;
+        cmd(code, "SET_SECTOR_BRIGHTNESS", {u(2), u(7)});
+        cmd(code, "SET_SECTOR_BRIGHTNESS", {u(0xffffffffu), u(7)});
+        cmd(code, "SET_SECTOR_TYPE", {u(5), u(1)});
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            CHECK(results[0].reason == gm::VmReason::End);
+            CHECK_EQ(results[0].state.world_sectors.size(), std::size_t{2});
+            for (const gm::VmWorldSector& sector : results[0].state.world_sectors) {
+                CHECK_EQ(sector.light, 0);
+            }
+            CHECK_EQ(results[0].state.world_sectors[0].kind, 0);
+            CHECK_EQ(results[0].state.world_sectors[1].kind, 6);
+            CHECK_EQ(results[0].state.events.size(), std::size_t{3});
+        }
+    }
+
+    // 4. The source variants address the source sector (edi).  The type also
+    //    rejects everything outside 0..0xff (0x4580a9), the light does not.
+    {
+        gm::VmState state = world_state(300, {});
+        state.source_sector = 250;
+        Bytes code;
+        cmd(code, "SET_SOURCESECTOR_BRIGHTNESS", {u(0x1234)});
+        cmd(code, "SET_SOURCESECTOR_TYPE", {u(2)});
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            CHECK_EQ(results[0].state.world_sectors[250].light, 0x34);
+            CHECK_EQ(results[0].state.world_sectors[250].kind, 12); // 2 * 6
+        }
+    }
+    {
+        gm::VmState state = world_state(301, {});
+        state.source_sector = 300; // >= 0x100: the type is rejected (0x4580a9)
+        Bytes code;
+        cmd(code, "SET_SOURCESECTOR_TYPE", {u(2)});
+        cmd(code, "SET_SOURCESECTOR_BRIGHTNESS", {u(9)});
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            CHECK_EQ(results[0].state.world_sectors[300].kind, 1800); // 300 * 6
+            CHECK_EQ(results[0].state.world_sectors[300].light, 9);
+        }
+    }
+    {
+        // No source sector (-1) is the original's "edi < 0" error path.
+        gm::VmState state = world_state(4, {});
+        Bytes code;
+        cmd(code, "SET_SOURCESECTOR_BRIGHTNESS", {u(9)});
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            for (const gm::VmWorldSector& sector : results[0].state.world_sectors) {
+                CHECK_EQ(sector.light, 0);
+            }
+        }
+    }
+
+    // 5. The handle variants: the handle table is walked to the end, so every
+    //    row with the id is written (0x4583c2..0x45841c, 0x458445..0x458479).
+    {
+        gm::VmState state = world_state(4, {});
+        state.sector_handles = {{7, 0}, {8, 1}, {7, 3}};
+        Bytes code;
+        cmd(code, "SET_HANDLESECTOR_BRIGHTNESS", {u(7), u(0x41)});
+        cmd(code, "SET_HANDLESECTOR_TYPE", {u(7), u(1)});
+        cmd(code, "SET_HANDLESECTOR_BRIGHTNESS", {u(99), u(0x41)}); // unknown
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const auto& sectors = results[0].state.world_sectors;
+            CHECK_EQ(sectors[0].light, 0x41);
+            CHECK_EQ(sectors[3].light, 0x41);
+            CHECK_EQ(sectors[1].light, 0);
+            CHECK_EQ(sectors[0].kind, 6); // 1 * 6
+            CHECK_EQ(sectors[3].kind, 6);
+            CHECK_EQ(sectors[2].kind, 12); // the seed value, not in the table
+            CHECK_EQ(results[0].state.events.size(), std::size_t{3});
+        }
+    }
+
+    // 6. The plain polygon writes: the getter 0x434463 addresses the polygon
+    //    by (sector, object, poly).
+    {
+        gm::VmState state = world_state(3, {{1, 0, 0}, {1, 0, 1}, {2, 1, 0}});
+        Bytes code;
+        cmd(code, "SET_POLY_TEXTURE", {u(1), u(0), u(0), u(77)});
+        cmd(code, "SET_POLY_BRIGHTNESS", {u(1), u(0), u(1), u(0x1ff)});
+        cmd(code, "SET_POLY_SCROLL", {u(2), u(1), u(0), u(5), u(6), u(0), u(0)});
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const auto* first = results[0].state.world_poly(1, 0, 0);
+            CHECK(first != nullptr);
+            if (first) {
+                CHECK_EQ(first->texture, 77);
+                CHECK_EQ(first->brightness, 0);
+            }
+            const auto* second = results[0].state.world_poly(1, 0, 1);
+            CHECK(second != nullptr);
+            if (second) {
+                CHECK_EQ(second->brightness, 0xff); // only the low byte
+                CHECK_EQ(second->texture, 0);
+            }
+            const auto* third = results[0].state.world_poly(2, 1, 0);
+            CHECK(third != nullptr);
+            if (third) {
+                CHECK_EQ(third->scroll_u, 5);
+                CHECK_EQ(third->scroll_v, 6);
+            }
+        }
+    }
+
+    // 7. A polygon that does not exist: the original prints "Script run error:
+    //    unable to obtain poly %ld %ld %ld." and writes nothing.
+    {
+        gm::VmState state = world_state(3, {{1, 0, 0}});
+        Bytes code;
+        cmd(code, "SET_POLY_TEXTURE", {u(2), u(0), u(0), u(77)});
+        cmd(code, "SET_POLY_TEXTURE", {u(1), u(0), u(5), u(77)});
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            CHECK(results[0].reason == gm::VmReason::End);
+            const auto* poly = results[0].state.world_poly(1, 0, 0);
+            CHECK(poly != nullptr);
+            if (poly) {
+                CHECK_EQ(poly->texture, 0);
+            }
+            CHECK(results[0].state.world_poly(2, 0, 0) == nullptr);
+            CHECK_EQ(results[0].state.events.size(), std::size_t{2});
+        }
+    }
+
+    // 8. The source polygon variants: the polygon of the running script is
+    //    (source_sector, source_object, source_poly) — the third, fourth and
+    //    fifth arguments of 0x457390.
+    {
+        gm::VmState state = world_state(3, {{1, 0, 0}, {1, 2, 3}});
+        state.source_sector = 1;
+        state.source_object = 2;
+        state.source_poly = 3;
+        Bytes code;
+        cmd(code, "SET_SOURCEPOLY_TEXTURE", {u(9)});
+        cmd(code, "SET_SOURCEPOLY_BRIGHTNESS", {u(0x40)});
+        cmd(code, "SET_SOURCEPOLY_MATERIAL", {u(3)});
+        cmd(code, "SET_SOURCEPOLY_SCROLL", {u(1), u(2), u(0), u(0)});
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const auto* poly = results[0].state.world_poly(1, 2, 3);
+            CHECK(poly != nullptr);
+            if (poly) {
+                CHECK_EQ(poly->texture, 9);
+                CHECK_EQ(poly->brightness, 0x40);
+                CHECK_EQ(poly->material, 3);
+                CHECK_EQ(poly->scroll_u, 1);
+                CHECK_EQ(poly->scroll_v, 2);
+            }
+            // The other polygon of the sector is untouched.
+            const auto* other = results[0].state.world_poly(1, 0, 0);
+            CHECK(other != nullptr);
+            if (other) {
+                CHECK_EQ(other->texture, 0);
+                CHECK_EQ(other->brightness, 0);
+            }
+        }
+    }
+
+    // 9. The poly handle variants: the poly handle table
+    //    (0x5b21f8/0x618b88/0x5e5680/0x6183b8) is walked to the end, so every
+    //    row with the id is written.
+    {
+        gm::VmState state = world_state(3, {{1, 0, 0}, {2, 1, 0}});
+        state.poly_handles = {{5, 1, 0, 0}, {6, 2, 1, 0}, {5, 2, 1, 0}};
+        Bytes code;
+        cmd(code, "SET_HANDLEPOLY_TEXTURE", {u(5), u(42)});
+        cmd(code, "SET_HANDLEPOLY_BRIGHTNESS", {u(5), u(0x80)});
+        cmd(code, "SET_HANDLEPOLY_MATERIAL", {u(5), u(2)});
+        cmd(code, "SET_HANDLEPOLY_SCROLL", {u(5), u(3), u(4), u(0), u(0)});
+        cmd(code, "SET_HANDLEPOLY_TEXTURE", {u(99), u(42)}); // unknown handle
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            const auto* first = results[0].state.world_poly(1, 0, 0);
+            CHECK(first != nullptr);
+            if (first) {
+                CHECK_EQ(first->texture, 42);
+                CHECK_EQ(first->brightness, 0x80);
+                CHECK_EQ(first->material, 2);
+                CHECK_EQ(first->scroll_u, 3);
+                CHECK_EQ(first->scroll_v, 4);
+            }
+            const auto* second = results[0].state.world_poly(2, 1, 0);
+            CHECK(second != nullptr);
+            if (second) {
+                CHECK_EQ(second->texture, 42);
+                CHECK_EQ(second->brightness, 0x80);
+                CHECK_EQ(second->material, 2);
+                CHECK_EQ(second->scroll_u, 3);
+                CHECK_EQ(second->scroll_v, 4);
+            }
+            CHECK_EQ(results[0].state.events.size(), std::size_t{5});
+        }
+    }
+
+    // 10. No world loaded: every write is rejected, nothing crashes and the
+    //     state stays empty (the getter 0x42d8a5 returns NULL as well).
+    {
+        gm::VmState state;
+        Bytes code;
+        cmd(code, "SET_SECTOR_BRIGHTNESS", {u(0), u(1)});
+        cmd(code, "SET_SECTOR_TYPE", {u(0), u(1)});
+        cmd(code, "SET_POLY_TEXTURE", {u(0), u(0), u(0), u(1)});
+        cmd(code, "SET_POLY_BRIGHTNESS", {u(0), u(0), u(0), u(1)});
+        code.push_back(0xFF);
+        const auto results = run_state(std::move(state), code);
+        CHECK_EQ(results.size(), std::size_t{1});
+        if (results.size() == 1) {
+            CHECK(results[0].reason == gm::VmReason::End);
+            CHECK(results[0].state.world_sectors.empty());
+            CHECK(results[0].state.world_polys.empty());
+            CHECK_EQ(results[0].state.events.size(), std::size_t{4});
+        }
+    }
+
+    // 11. Determinism: the same script over the same world gives the same
+    //     state twice.
+    {
+        auto run_once = []() {
+            gm::VmState state = world_state(4, {{1, 0, 0}});
+            state.sector_handles = {{3, 2}};
+            state.poly_handles = {{4, 1, 0, 0}};
+            Bytes code;
+            cmd(code, "SET_SECTOR_BRIGHTNESS", {u(2), u(0x33)});
+            cmd(code, "SET_SECTOR_TYPE", {u(2), u(4)});
+            cmd(code, "SET_HANDLEPOLY_TEXTURE", {u(4), u(11)});
+            code.push_back(0xFF);
+            return run_state(std::move(state), code);
+        };
+        const auto first = run_once();
+        const auto second = run_once();
+        CHECK_EQ(first.size(), second.size());
+        if (first.size() == 1 && second.size() == 1) {
+            CHECK_EQ(first[0].state.world_sectors[2].light, 0x33);
+            CHECK_EQ(first[0].state.world_sectors[2].kind, 24); // 4 * 6
+            CHECK_EQ(first[0].state.world_poly(1, 0, 0)->texture, 11);
+            CHECK_EQ(second[0].state.world_sectors[2].light,
+                     first[0].state.world_sectors[2].light);
+            CHECK_EQ(second[0].state.world_sectors[2].kind,
+                     first[0].state.world_sectors[2].kind);
+            CHECK_EQ(second[0].state.world_poly(1, 0, 0)->texture,
+                     first[0].state.world_poly(1, 0, 0)->texture);
+        }
+    }
+
+    // 12. The poly handle parser: `POLY_HANDLE: <ld> <ld> <ld> <ld>`
+    //     (0x4b9640, reader 0x463290), at most 0x1f4 rows.
+    {
+        gm::VmState state;
+        const std::string text =
+            "POLY_HANDLE: 1 2 3 4\n"
+            "POLY_HANDLE: -5 6 7 8\n"
+            "POLY_HANDLE: 9 10\n"        // too few
+            "POLY_HANDLE: garbage\n"     // not a number
+            "SECTOR_HANDLE: 700 12\n"
+            "POLY_HANDLE: 11 12 13 14";
+        CHECK_EQ(gm::vm_load_poly_handles(state, text), std::size_t{3});
+        CHECK_EQ(state.poly_handles.size(), std::size_t{3});
+        CHECK_EQ(state.poly_handles[0].handle, 1);
+        CHECK_EQ(state.poly_handles[0].sector, 2);
+        CHECK_EQ(state.poly_handles[0].object, 3);
+        CHECK_EQ(state.poly_handles[0].poly, 4);
+        CHECK_EQ(state.poly_handles[1].handle, -5);
+        CHECK_EQ(state.poly_handles[2].handle, 11);
+        CHECK_EQ(state.poly_handles[2].poly, 14);
+        const auto matches = state.polys_of_handle(11);
+        CHECK_EQ(matches.size(), std::size_t{1});
+        if (!matches.empty()) {
+            CHECK_EQ(matches[0].sector, 12);
+        }
+
+        gm::VmState many;
+        std::string bulk;
+        for (int i = 0; i < 600; ++i) {
+            bulk += "POLY_HANDLE: " + std::to_string(i) + " 1 2 3\n";
+        }
+        CHECK_EQ(gm::vm_load_poly_handles(many, bulk), std::size_t{0x1f4});
+        CHECK_EQ(many.poly_handles.size(), std::size_t{0x1f4});
+    }
+
+    // 13. The world loader: level0.sbw has 58 sectors, 192 objects and 1449
+    //     polygons (docs/WORLD_FIELDS.md §0); the sector light is zero at load
+    //     (0x42ae05).
+    if (fs::exists(fs::path(kGameDir) / "level0.sbw")) {
+        const std::vector<std::uint8_t> bytes = read_file(fs::path(kGameDir) / "level0.sbw");
+        std::string error;
+        const auto level = gm::parse_sbw(bytes, error);
+        CHECK(level.has_value());
+        if (level) {
+            gm::VmState state;
+            gm::vm_load_world(state, *level);
+            CHECK_EQ(state.world_sectors.size(), std::size_t{58});
+            CHECK_EQ(state.world_polys.size(), std::size_t{1449});
+            for (const gm::VmWorldSector& sector : state.world_sectors) {
+                CHECK_EQ(sector.light, 0);
+            }
+            // The first polygon of the first sector keeps the file values.
+            const auto* poly = state.world_poly(0, 0, 0);
+            CHECK(poly != nullptr);
+            if (poly) {
+                CHECK_EQ(poly->texture,
+                         static_cast<std::int16_t>(level->geometry[0].polys[0].texture));
+                CHECK_EQ(poly->brightness, level->geometry[0].polys[0].brightness);
+            }
+            // A write through the VM lands in the loaded table.
+            Bytes code;
+            cmd(code, "SET_SECTOR_BRIGHTNESS", {u(0), u(0x40)});
+            cmd(code, "SET_POLY_TEXTURE", {u(0), u(0), u(0), u(1234)});
+            code.push_back(0xFF);
+            const auto results = run_state(std::move(state), code);
+            CHECK_EQ(results.size(), std::size_t{1});
+            if (results.size() == 1) {
+                CHECK_EQ(results[0].state.world_sectors[0].light, 0x40);
+                const auto* written = results[0].state.world_poly(0, 0, 0);
+                CHECK(written != nullptr);
+                if (written) {
+                    CHECK_EQ(written->texture, 1234);
+                }
             }
         }
     }
@@ -1596,6 +2056,7 @@ int main(int argc, char** argv) {
     test_synthetic();
     test_sector_stuff();
     test_sector_source_and_handles();
+    test_world_sector_and_poly();
     test_entity_rows();
     test_sleep_table();
 

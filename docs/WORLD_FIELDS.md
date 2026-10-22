@@ -78,8 +78,8 @@
 | `0x0a` | `u16` | `n_sprites` | обнуляется `0x42adfc`; `+1` — `0x43659f`, `-1` — `0x4363de` | доказано |
 | `0x0c` | `u32` | резерв | обнуляется `memset` в `0x422f03`; потребителей нет | гипотеза |
 | `0x10` | `u32*` | `sprites[n]` (второй список, запись спрайта) | рост `0x43659f`, удаление `0x4363de`, чтение `0x428215` | доказано |
-| `0x14` | `u16` | `kind` = тип×6 | загрузчик `0x42adbd`; геттер `0x42d99f` (÷6), сеттер `0x42d9d5` (×6) | доказано |
-| `0x16` | `u8` | `light` (байт света сектора) | обнуляется `0x42ae05`; `SET_SECTOR_BRIGHTNESS` пишет `[sector+0x16]` в `0x4578f8` (геттер `0x42d8a5`) | доказано |
+| `0x14` | `u16` | `kind` = тип×6 | загрузчик `0x42adbd`; геттер `0x42d99f` (÷6), сеттер `0x42d9d5` (×6); из ВМ: `SET_SECTOR_TYPE` `0x457a1c`, `SET_SOURCESECTOR_TYPE` `0x4580a9`, `SET_HANDLESECTOR_TYPE` `0x458429` | доказано |
+| `0x16` | `u8` | `light` (байт света сектора) | обнуляется `0x42ae05`; `SET_SECTOR_BRIGHTNESS` пишет `[sector+0x16]` в `0x4578f8` (геттер `0x42d8a5`); из ВМ также `SET_SOURCESECTOR_BRIGHTNESS` `0x458063` и `SET_HANDLESECTOR_BRIGHTNESS` `0x4583a6` | доказано |
 | `0x17` | `u8` | `sub` | загрузчик `0x42adde`; писатель `.sow` `0x42906c` | доказано |
 
 Итого `0x18`; `0x08`/`0x0c` — выравнивание/резерв, в загрузчике только
@@ -154,8 +154,8 @@ max = origin + bounds + max(0, extent)
 
 | смещ. | тип | поле | кто | статус |
 |---:|---|---|---|---|
-| `0x00` | `i16` | `texture` | `>0` — 1-based таблица текстур, `<0` — таблица эффектов, `0` — нет; рендер `0x437fe2` | доказано |
-| `0x02` | `u16` | `material` | индекс таблицы материалов; рендер `0x437fb3`, луч `0x437d05` | доказано |
+| `0x00` | `i16` | `texture` | `>0` — 1-based таблица текстур, `<0` — таблица эффектов, `0` — нет; рендер `0x437fe2`; из ВМ: `SET_POLY_TEXTURE` `0x457a40`, `SET_SOURCEPOLY_TEXTURE` `0x458178`, `SET_HANDLEPOLY_TEXTURE` `0x45853a` | доказано |
+| `0x02` | `u16` | `material` | индекс таблицы материалов; рендер `0x437fb3`, луч `0x437d05`; из ВМ: `SET_SOURCEPOLY_MATERIAL` `0x458140`, `SET_HANDLEPOLY_MATERIAL` `0x458607` | доказано |
 | `0x04` | `i16` | `lightmap` | 1-based, `0` — нет; компакция/переиндексация `0x429e3b` | доказано |
 | `0x06` | `u16` | `u_scale` | производное `uv_u_fp >> 7` (`0x425db4`) | доказано |
 | `0x08` | 3 × `f32` | `centre` | рендер, лайтмапы, луч (`0x437d05`, `0x437f90`) | доказано |
@@ -168,15 +168,15 @@ max = origin + bounds + max(0, extent)
 | `0x52` | `u16` | `uv_v` | то же | доказано |
 | `0x54` | `i32` | `uv_u_fp` | формула тексела/лайтмапа; интерполяция `0x4342f0` | доказано |
 | `0x58` | `i32` | `uv_v_fp` | то же | доказано |
-| `0x5c` | `i16` | `scroll_u` (вес) | `0x434c11` (вход `0x434c80`): `t·(s16[0x5c]·u_axis + s16[0x60]·v_axis)/256`; интерполяция `0x433e00` | доказано |
+| `0x5c` | `i16` | `scroll_u` (вес) | `0x434c11` (вход `0x434c80`): `t·(s16[0x5c]·u_axis + s16[0x60]·v_axis)/256`; интерполяция `0x433e00`; из ВМ: `SET_POLY_SCROLL` `0x457e7e`, `SET_SOURCEPOLY_SCROLL` `0x45821e`, `SET_HANDLEPOLY_SCROLL` `0x4587a1` | доказано |
 | `0x5e` | `u16` | `anim0` | интерполяция по 16-битным половинам `0x433e00` (`0x4342f0`) | доказано |
-| `0x60` | `i16` | `scroll_v` (вес) | `0x434c11`; `0x433e00` | доказано |
+| `0x60` | `i16` | `scroll_v` (вес) | `0x434c11`; `0x433e00`; из ВМ: `SET_POLY_SCROLL` `0x457e7e`, `SET_SOURCEPOLY_SCROLL` `0x45821e`, `SET_HANDLEPOLY_SCROLL` `0x4587a1` | доказано |
 | `0x62` | `u16` | `anim1` | `0x433e00` | доказано |
 | `0x64` | `u16` | `v_scale` | производное `uv_v_fp >> 7` (`0x425ddc`) | доказано |
 | `0x66` | `u16` | `anim2` | `0x433e00` | доказано |
 | `0x68` | `u32` | `reserved` | всегда 0 (235 069/235 069) | доказано (данные) |
 | `0x6c` | `u16*` | `indices[n_idx]` | alloc `0x422a51`, загрузка `0x425f4c`, фан `0x434463`/рендер | доказано |
-| `0x70` | `u8` | `brightness` | яркость: `0x43c51f`/`0x43d8e3` (`poly+0x70 + obj+0x74 + sector+0x16` + лайтмап); `0x433b53` принудительно ставит `0x7f`; интерполируется `0x433e00` | доказано |
+| `0x70` | `u8` | `brightness` | яркость: `0x43c51f`/`0x43d8e3` (`poly+0x70 + obj+0x74 + sector+0x16` + лайтмап); `0x433b53` принудительно ставит `0x7f`; интерполируется `0x433e00`; из ВМ: `SET_POLY_BRIGHTNESS` `0x457a79`, `SET_SOURCEPOLY_BRIGHTNESS` `0x4581ab`, `SET_HANDLEPOLY_BRIGHTNESS` `0x4586d5` | доказано |
 | `0x71` | `u8` | `n_idx` (3..12) | все циклы полигона | доказано |
 | `0x72` | `u16` | `link_sector+1` | `0x42f183` (резолв/склейка, маркеры `0x7ff8`/`0x7ff9`), `0x42d045` (портальный трансформ), `0x43869a` (биты «портал»), писатель `.sow` `0x426ac3`; на диске читается первым из трёх (`0x425f4c`) | доказано |
 | `0x74` | `u16` | `link_object` | `0x42f183`; на диске — второй из трёх (`0x425f4c`) | доказано |
@@ -431,6 +431,7 @@ object — `0x74`, poly — `0x76−1`).
 | `lightmap` | `Triangle.lightmap`, `RenderFace.lightmap` (+ `Sbc`) | `collide`, `core` |
 | `centre/normal/u_axis/v_axis/uv_*` | `RenderFace`, рендер | `core` |
 | `brightness` | `RenderFace.brightness` | `core` |
+| поля сектора/полигона, доступные из ВМ (`kind`, `light`, `texture`, `material`, `scroll_u/v`, `brightness`) | `VmState::world_sectors` / `VmState::world_polys` (`vm_load_world`) — `docs/VM_EXEC.md` §3.2 | `vm` |
 | `overlay`, `scroll_*`, `anim*`, `f7a`, `link_*`, `flags 0x7c` | парсятся, не используются | — |
 | AABB сектора | `CollisionWorld::sector_bounds` — **из всех треугольников**, не из объекта 0 | `collide` (секторные тесты) |
 | `(sector, object)` двери/створки | `WorldState::build/apply_to_objects`, `Door`/`ObjectDoorState` | `doors`, `doors_full` |

@@ -396,27 +396,31 @@ const std::unordered_set<std::string_view> kState = {
     "SET_LEVEL_END_CAMERA_XYZ",
     "DEFINE_SHIELDS", "DEFINE_VIRUS", "DEFINE_REGENERATION_MARKER",
     "SOURCE_CLEAR", "SOURCEPLAYER_KILL",
+    // SECTOR_STUFF (0x800b60): the sector gameplay table.
+    "SET_SECTOR_MOVEMENT", "SET_SECTOR_DAMAGE", "SET_SECTOR_SOUND",
+    "SET_SECTOR_EVENTS", "SET_SECTOR_FLAGS",
+    "SET_SOURCESECTOR_MOVEMENT", "SET_SOURCESECTOR_FLAGS", "SET_SOURCESECTOR_DAMAGE",
+    "SET_HANDLESECTOR_MOVEMENT", "SET_HANDLESECTOR_FLAGS", "SET_HANDLESECTOR_DAMAGE",
+    "SET_HANDLESECTOR_SOUND",
+    // The world sector records (0x5670d8): light (+0x16) and type (+0x14).
+    "SET_SECTOR_BRIGHTNESS", "SET_SECTOR_TYPE",
+    "SET_SOURCESECTOR_BRIGHTNESS", "SET_SOURCESECTOR_TYPE",
+    "SET_HANDLESECTOR_BRIGHTNESS", "SET_HANDLESECTOR_TYPE",
+    // The world polygon records (0x80 bytes): texture, material, scroll, light.
+    "SET_POLY_TEXTURE", "SET_POLY_BRIGHTNESS", "SET_POLY_SCROLL",
+    "SET_SOURCEPOLY_TEXTURE", "SET_SOURCEPOLY_BRIGHTNESS",
+    "SET_SOURCEPOLY_MATERIAL", "SET_SOURCEPOLY_SCROLL",
+    "SET_HANDLEPOLY_TEXTURE", "SET_HANDLEPOLY_BRIGHTNESS",
+    "SET_HANDLEPOLY_SCROLL", "SET_HANDLEPOLY_MATERIAL",
 };
 
 const std::unordered_set<std::string_view> kEvent = {
-    "SET_SECTOR_MOVEMENT", "SET_SECTOR_BRIGHTNESS", "SET_SECTOR_TYPE",
-    "SET_SECTOR_DAMAGE", "SET_SECTOR_SOUND", "SET_SECTOR_EVENTS",
-    "SET_SECTOR_FLAGS", "SET_POLY_TEXTURE", "SET_POLY_BRIGHTNESS",
-    "SET_POLY_SCROLL", "LOG_MESSAGE", "PLAY_SAMPLE",
+    "LOG_MESSAGE", "PLAY_SAMPLE",
     "PLAY_SAMPLE_AT_LOCATION", "SPEAK_NUMBER", "SPEAK_SAMPLE",
     "SET_SOURCEWORLDOBJECT_HIT_OFF", "SET_SOURCEWORLDOBJECT_HIT_ON",
-    "SET_SOURCEWORLDOBJECT_TEXTURES", "SET_SOURCESECTOR_MOVEMENT",
-    "SET_SOURCESECTOR_BRIGHTNESS", "SET_SOURCESECTOR_FLAGS",
-    "SET_SOURCESECTOR_TYPE", "SET_SOURCESECTOR_DAMAGE",
-    "SET_SOURCEPOLY_TEXTURE", "SET_SOURCEPOLY_BRIGHTNESS",
-    "SET_SOURCEPOLY_MATERIAL", "SET_SOURCEPOLY_SCROLL",
+    "SET_SOURCEWORLDOBJECT_TEXTURES",
     "SET_SOURCEPOLY_SWITCH_EVENT", "PLAY_SAMPLE_AT_SOURCE",
     "PLAY_FRAME_LOOP_SAMPLE_AT_SOURCE", "REMOVE_SOURCE_ITEM",
-    "SET_HANDLESECTOR_MOVEMENT", "SET_HANDLESECTOR_BRIGHTNESS",
-    "SET_HANDLESECTOR_TYPE", "SET_HANDLESECTOR_DAMAGE",
-    "SET_HANDLESECTOR_FLAGS", "SET_HANDLESECTOR_SOUND",
-    "SET_HANDLEPOLY_TEXTURE", "SET_HANDLEPOLY_BRIGHTNESS",
-    "SET_HANDLEPOLY_SCROLL", "SET_HANDLEPOLY_MATERIAL",
     "ADD_SCREEN_TEXT", "ADD_SOURCESCREEN_TEXT", "SET_DOOR_DELTAS",
     "SET_DOOR_POSITION", "SET_DOOR_SOUNDS", "SET_DOOR_SPEED",
     "ITEMS_MOVE_CHECK", "SET_SOURCEITEM_TRIGGER_EVENT", "SOURCE_CLEAR",
@@ -1215,6 +1219,63 @@ std::optional<int> VmState::sector_of_handle(int handle) const {
     return std::nullopt;
 }
 
+std::vector<int> VmState::sectors_of_handle(int handle) const {
+    // 0x4583c2..0x45841c (and the twins 0x4582b3, 0x458445, 0x45849e,
+    // 0x458504): the loop has no break, so every row with a matching id is
+    // written, not just the first one.
+    std::vector<int> out;
+    for (const auto& [registered, sector] : sector_handles) {
+        if (registered == handle) {
+            out.push_back(sector);
+        }
+    }
+    return out;
+}
+
+std::vector<VmPolyHandle> VmState::polys_of_handle(int handle) const {
+    // 0x458566..0x4585f6 (and the twins 0x458633, 0x458701, 0x4587cd): the
+    // poly handle table is walked to the end, every match is written.
+    std::vector<VmPolyHandle> out;
+    for (const VmPolyHandle& row : poly_handles) {
+        if (row.handle == handle) {
+            out.push_back(row);
+        }
+    }
+    return out;
+}
+
+VmWorldSector* VmState::world_sector(int index) {
+    if (index < 0 || index >= static_cast<int>(world_sectors.size())) {
+        return nullptr;
+    }
+    return &world_sectors[static_cast<std::size_t>(index)];
+}
+
+const VmWorldSector* VmState::world_sector(int index) const {
+    if (index < 0 || index >= static_cast<int>(world_sectors.size())) {
+        return nullptr;
+    }
+    return &world_sectors[static_cast<std::size_t>(index)];
+}
+
+VmWorldPoly* VmState::world_poly(int sector, int object, int poly) {
+    for (VmWorldPoly& record : world_polys) {
+        if (record.sector == sector && record.object == object && record.poly == poly) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+const VmWorldPoly* VmState::world_poly(int sector, int object, int poly) const {
+    for (const VmWorldPoly& record : world_polys) {
+        if (record.sector == sector && record.object == object && record.poly == poly) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
 std::size_t vm_load_sector_handles(VmState& state, std::string_view text) {
     std::size_t added = 0;
     std::size_t start = 0;
@@ -1262,6 +1323,103 @@ std::size_t vm_load_sector_handles(VmState& state, std::string_view text) {
         ++added;
     }
     return added;
+}
+
+std::size_t vm_load_poly_handles(VmState& state, std::string_view text) {
+    // 0x463290: the reader parses "%ld %ld %ld %ld" (0x4b9640) after the
+    // "POLY_HANDLE" keyword (0x4b96ac) and appends one row per line; the
+    // table holds at most 0x1f4 rows ("Maximum number of poly handles (%ld)
+    // has been exceeded.").
+    std::size_t added = 0;
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const std::size_t end = text.find('\n', start);
+        const std::string_view line =
+            text.substr(start, end == std::string_view::npos ? std::string_view::npos
+                                                             : end - start);
+        start = (end == std::string_view::npos) ? text.size() + 1 : end + 1;
+        const std::size_t colon = line.find(':');
+        const std::string_view key = line.substr(0, colon);
+        if (key.find("POLY_HANDLE") == std::string_view::npos) {
+            continue;
+        }
+        if (state.poly_handles.size() >= 0x1f4) {
+            break; // 0x463295
+        }
+        const std::string_view rest =
+            colon == std::string_view::npos ? std::string_view{} : line.substr(colon + 1);
+        long values[4] = {0, 0, 0, 0};
+        std::size_t cursor = 0;
+        bool ok = true;
+        for (long& value : values) {
+            while (cursor < rest.size() && (rest[cursor] == ' ' || rest[cursor] == '\t')) {
+                ++cursor;
+            }
+            if (cursor >= rest.size()) {
+                ok = false;
+                break;
+            }
+            char* stop = nullptr;
+            const std::string field(rest.substr(cursor));
+            value = std::strtol(field.c_str(), &stop, 10);
+            if (stop == field.c_str()) {
+                ok = false;
+                break;
+            }
+            cursor += static_cast<std::size_t>(stop - field.c_str());
+        }
+        if (!ok) {
+            continue;
+        }
+        state.poly_handles.push_back(VmPolyHandle{static_cast<int>(values[0]),
+                                                  static_cast<int>(values[1]),
+                                                  static_cast<int>(values[2]),
+                                                  static_cast<int>(values[3])});
+        ++added;
+    }
+    return added;
+}
+
+void vm_load_world(VmState& state, const SbwLevel& level) {
+    // The runtime world is the sector array 0x5670d8 (count 0x5670dc) with
+    // the objects and their polygons inside.  The .sbw gives the sector type
+    // (+0x14) and the polygon records; the sector light (+0x16) is zero at
+    // load (0x42ae05).
+    state.world_sectors.clear();
+    state.world_polys.clear();
+    const std::size_t sectors = level.header.sectors.size();
+    state.world_sectors.reserve(sectors);
+    for (std::size_t s = 0; s < sectors; ++s) {
+        VmWorldSector sector;
+        sector.kind = level.header.sectors[s].kind;
+        state.world_sectors.push_back(sector);
+    }
+    // The geometry is sector-major (parse_sbw walks the sectors and, inside
+    // them, the objects), so the object index inside a sector is the running
+    // counter of that sector.
+    std::size_t geometry_index = 0;
+    for (std::size_t s = 0; s < sectors; ++s) {
+        const std::size_t objects = level.header.sectors[s].objects.size();
+        for (std::size_t o = 0; o < objects; ++o, ++geometry_index) {
+            if (geometry_index >= level.geometry.size()) {
+                return; // truncated level: stop, the rest stays empty
+            }
+            const SbwGeometry& geometry = level.geometry[geometry_index];
+            for (std::size_t p = 0; p < geometry.polys.size(); ++p) {
+                const SbwPoly& in = geometry.polys[p];
+                VmWorldPoly poly;
+                poly.sector = static_cast<int>(s);
+                poly.object = static_cast<int>(o);
+                poly.poly = static_cast<int>(p);
+                poly.texture = static_cast<std::int16_t>(in.texture);
+                poly.material = in.material;
+                poly.scroll_u = static_cast<std::int16_t>(in.scroll_u);
+                poly.scroll_v = static_cast<std::int16_t>(in.scroll_v);
+                poly.brightness = in.brightness;
+                state.world_polys.push_back(poly);
+            }
+        }
+    }
 }
 
 void vm_load_sector_stuff(VmState& state, std::span<const SbtSectorSlot> slots) {
@@ -1400,16 +1558,35 @@ void VmExecutor::install_handlers() {
     set("SET_SECTOR_EVENTS", &VmExecutor::h_sector);
     set("SET_SECTOR_FLAGS", &VmExecutor::h_sector);
     // Same array addressed through the implicit source sector (edi) or a
-    // sector handle (0x5b1df8/0x617fb8); brightness/type stay plain events.
+    // sector handle (0x5b1df8/0x617fb8).
     for (const char* name : {"SET_SOURCESECTOR_MOVEMENT", "SET_SOURCESECTOR_FLAGS",
-                             "SET_SOURCESECTOR_DAMAGE", "SET_SOURCESECTOR_BRIGHTNESS",
-                             "SET_SOURCESECTOR_TYPE", "SET_HANDLESECTOR_MOVEMENT",
+                             "SET_SOURCESECTOR_DAMAGE", "SET_HANDLESECTOR_MOVEMENT",
                              "SET_HANDLESECTOR_FLAGS", "SET_HANDLESECTOR_DAMAGE",
-                             "SET_HANDLESECTOR_SOUND", "SET_HANDLESECTOR_BRIGHTNESS",
-                             "SET_HANDLESECTOR_TYPE"}) {
+                             "SET_HANDLESECTOR_SOUND"}) {
         const auto info = vm_command_info(name);
         if (info.has_value()) {
             handlers_[info->op] = &VmExecutor::h_sector;
+        }
+    }
+    // The world sector (0x5670d8) and the world polygons (the 0x80-byte
+    // records): brightness, type, texture, material and scroll are real
+    // state, not events.
+    for (const char* name : {"SET_SECTOR_BRIGHTNESS", "SET_SECTOR_TYPE",
+                             "SET_SOURCESECTOR_BRIGHTNESS", "SET_SOURCESECTOR_TYPE",
+                             "SET_HANDLESECTOR_BRIGHTNESS", "SET_HANDLESECTOR_TYPE"}) {
+        const auto info = vm_command_info(name);
+        if (info.has_value()) {
+            handlers_[info->op] = &VmExecutor::h_world_sector;
+        }
+    }
+    for (const char* name : {"SET_POLY_TEXTURE", "SET_POLY_BRIGHTNESS", "SET_POLY_SCROLL",
+                             "SET_SOURCEPOLY_TEXTURE", "SET_SOURCEPOLY_BRIGHTNESS",
+                             "SET_SOURCEPOLY_MATERIAL", "SET_SOURCEPOLY_SCROLL",
+                             "SET_HANDLEPOLY_TEXTURE", "SET_HANDLEPOLY_BRIGHTNESS",
+                             "SET_HANDLEPOLY_SCROLL", "SET_HANDLEPOLY_MATERIAL"}) {
+        const auto info = vm_command_info(name);
+        if (info.has_value()) {
+            handlers_[info->op] = &VmExecutor::h_world_poly;
         }
     }
     set("SOURCEPLAYER_KILL", &VmExecutor::h_kill);
@@ -2335,9 +2512,9 @@ std::optional<std::size_t> VmExecutor::h_event(VmState& state, const VmInsn& ins
 //                   no write, then 0x40c030 restarts the audio voices
 //   op 13 0x4579ab  +0x38 = E1, +0x3c = E2 (0x4579d6/0x4579e0)
 //   op 14 0x457929  +0x50 = value (0x457955, byte-wise 0x800bb0 for slot 0)
-// SET_SECTOR_BRIGHTNESS (0x4578d6) and SET_SECTOR_TYPE (0x457a1c) do *not*
-// touch this array: they write the .sbw sector record (+0x16 light byte via
-// 0x42d8a5, +0x14 type*6 via 0x42d9d5), so they stay plain events here.
+// The sector *brightness* and *type* are **not** part of this array: they are
+// fields of the world sector record (0x5670d8) and are handled by
+// h_world_sector().
 std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& insn) {
     const std::vector<SbtValue>& args = insn.args;
     std::size_t wanted = 2; // sector index + at least one operand
@@ -2349,10 +2526,10 @@ std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& in
     // SET_SOURCESECTOR_* (0x1b..0x1f): the sector is the implicit source
     // sector in `edi`, so the operand list starts with the value.
     case 0x1b: wanted = 6; break;            // LLLAAA
-    case 0x1c: case 0x1d: case 0x1e: case 0x1f: wanted = 1; break;
+    case 0x1d: case 0x1f: wanted = 1; break; // L: value only
     // SET_HANDLESECTOR_* (0x28..0x2d): first operand is the handle.
     case 0x28: wanted = 7; break;            // ELLLAAA
-    case 0x29: case 0x2a: case 0x2b: case 0x2c: wanted = 2; break;
+    case 0x2b: case 0x2c: wanted = 2; break; // EL
     case 0x2d: wanted = 4; break;            // ENVD
     default: break;
     }
@@ -2372,14 +2549,16 @@ std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& in
     std::size_t first_value = 1;
     int index = -1;
     switch (insn.op) {
-    case 0x1b: case 0x1c: case 0x1d: case 0x1e: case 0x1f:
+    case 0x1b: case 0x1d: case 0x1f:
         index = state.source_sector;
         first_value = 0;
         break;
-    case 0x28: case 0x29: case 0x2a: case 0x2b: case 0x2c: case 0x2d: {
+    case 0x28: case 0x2b: case 0x2c: case 0x2d: {
         const int handle = arg_i32(args[0]);
-        const std::optional<int> sector = state.sector_of_handle(handle);
-        if (!sector.has_value()) {
+        // The handle table is walked to the end (0x4582b3..0x45832d has no
+        // break): every row with this id is written.
+        const std::vector<int> sectors = state.sectors_of_handle(handle);
+        if (sectors.empty()) {
             // 0x45832f/0x45899a: the operands are consumed and the command is
             // a no-op for a handle that is not in the table.
             event(state, insn);
@@ -2387,20 +2566,15 @@ std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& in
                  std::to_string(handle) + " is not registered");
             return std::nullopt;
         }
-        index = *sector;
-        break;
+        for (const int sector : sectors) {
+            write_sector_stuff(state, insn, sector, args, first_value);
+        }
+        event(state, insn);
+        return std::nullopt;
     }
     default:
         index = arg_i32(args[0]);
         break;
-    }
-    // 0x4578d6 (brightness) and 0x457a1c (type) do not touch the array at
-    // all: they write the .sbw sector record (0x42d8a5 +0x16, 0x42d9d5 +0x14).
-    if (insn.op == 0x1c || insn.op == 0x1e || insn.op == 0x29 || insn.op == 0x2a) {
-        event(state, insn);
-        note(insn.name + " at " + hexs(insn.pc) +
-             ": writes the .sbw sector record, not SECTOR_STUFF");
-        return std::nullopt;
     }
     if (index < 0 || index >= static_cast<int>(kSbtSectorSlots)) {
         // Original: movement/sound print an error, damage/flags/events consume
@@ -2410,8 +2584,26 @@ std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& in
              std::to_string(index) + " out of range");
         return std::nullopt;
     }
-    VmSectorSlot& slot = state.sectors[static_cast<std::size_t>(index)];
+    write_sector_stuff(state, insn, index, args, first_value);
 
+    event(state, insn);
+    return std::nullopt;
+}
+
+// One SECTOR_STUFF slot write (the shared body of the SET_SECTOR_*,
+// SET_SOURCESECTOR_* and SET_HANDLESECTOR_* commands).
+void VmExecutor::write_sector_stuff(VmState& state, const VmInsn& insn, int index,
+                                    const std::vector<SbtValue>& args,
+                                    std::size_t first_value) {
+    if (index < 0 || index >= static_cast<int>(kSbtSectorSlots)) {
+        // The plain and the source variants check the index (0x457815,
+        // 0x457fc6); the handle variants do not (0x4582bc) and would write
+        // outside the array in the original.
+        note(insn.name + " at " + hexs(insn.pc) + ": sector " +
+             std::to_string(index) + " out of range");
+        return;
+    }
+    VmSectorSlot& slot = state.sectors[static_cast<std::size_t>(index)];
     switch (insn.op) {
     case 8:  // SET_SECTOR_MOVEMENT
     case 0x1b: // SET_SOURCESECTOR_MOVEMENT (0x457fc6, same body, edi = sector)
@@ -2447,6 +2639,158 @@ std::optional<std::size_t> VmExecutor::h_sector(VmState& state, const VmInsn& in
         break;
     default:
         break;
+    }
+}
+
+// The world-sector family: SET_SECTOR_BRIGHTNESS (0x4578d6),
+// SET_SECTOR_TYPE (0x457a1c) and their source/handle twins write the runtime
+// sector array 0x5670d8 (count 0x5670dc, stride 0x18) — a different array
+// than SECTOR_STUFF (0x800b60).
+//
+//   op  9 0x4578d6  the index is operand 0; the getter 0x42d8a5 returns NULL
+//                   outside 0..count-1 -> "Script run error: bad set_sector_%ld."
+//                   (0x457909); the light byte (sector+0x16) is the LOW BYTE of
+//                   operand 1 (0x4578f8)
+//   op 10 0x457a1c  the setter 0x42d9d5 stores (operand 1 * 6) as a u16 at
+//                   sector+0x14 and returns -1 outside the table (no message)
+//   op 28 0x458063  the source sector (edi) instead of an index; the getter
+//                   0x42d8a5 fails -> "bad set_sector_%ld" (0x45808d)
+//   op 30 0x4580a9  the source sector; 0x4580a9 rejects everything outside
+//                   0..0xff (jump to 0x45c36a) before 0x42d9d5 runs
+//   op 41 0x4583a6  the sector handle table (0x5b1df8/0x617fb8) is walked to
+//                   the end: EVERY row with the id is written
+//   op 42 0x458429  the same, for the type
+std::optional<std::size_t> VmExecutor::h_world_sector(VmState& state, const VmInsn& insn) {
+    const std::vector<SbtValue>& args = insn.args;
+    const bool source = (insn.op == 0x1c || insn.op == 0x1e);
+    const bool handle = (insn.op == 0x29 || insn.op == 0x2a);
+    const bool brightness = (insn.op == 9 || insn.op == 0x1c || insn.op == 0x29);
+
+    // Operand layout: (index, value) | (value) | (handle, value).
+    const std::size_t wanted = source ? 1 : 2;
+    if (args.size() < wanted) {
+        event(state, insn);
+        note(insn.name + " at " + hexs(insn.pc) + ": truncated operands");
+        return std::nullopt;
+    }
+    const int value = arg_i32(args[source ? 0 : 1]);
+
+    std::vector<int> sectors;
+    if (handle) {
+        sectors = state.sectors_of_handle(arg_i32(args[0]));
+    } else if (source) {
+        sectors.push_back(state.source_sector);
+    } else {
+        sectors.push_back(arg_i32(args[0]));
+    }
+
+    for (const int sector : sectors) {
+        // The source variant of the type rejects everything outside 0..0xff
+        // before it even looks at the sector table (0x4580a9).
+        if (source && insn.op == 0x1e && (sector < 0 || sector >= 0x100)) {
+            continue;
+        }
+        VmWorldSector* record = state.world_sector(sector);
+        if (record == nullptr) {
+            if (brightness) {
+                // 0x457909 / 0x45808d / 0x4583f6 print
+                // "Script run error: bad set_sector_%ld." and write nothing.
+                note("Script run error: bad set_sector_" + std::to_string(sector) + ".");
+            }
+            continue;
+        }
+        if (brightness) {
+            record->light = static_cast<std::uint8_t>(value & 0xff);
+        } else {
+            // 0x42d9d5: `imul ecx,ecx,6` and a u16 store into sector+0x14.
+            // The multiply wraps like the 32-bit `imul` of the original.
+            const std::uint32_t scaled = static_cast<std::uint32_t>(value) * 6u;
+            record->kind = static_cast<std::uint16_t>(scaled & 0xffffu);
+        }
+    }
+
+    event(state, insn);
+    return std::nullopt;
+}
+
+// The world-polygon family: SET_POLY_TEXTURE (0x457a40),
+// SET_POLY_BRIGHTNESS (0x457a79), SET_POLY_SCROLL (0x457e7e) and their
+// source/handle twins write the 0x80-byte polygon records of the world,
+// reached through the getter 0x434463 (sector, object, poly).
+//
+//   op 15 0x457a40  (sector, object, poly, texture) -> poly+0x00 (0x457a68)
+//   op 16 0x457a79  (sector, object, poly, light)   -> poly+0x70 (0x457aa0)
+//   op 17 0x457e7e  (sector, object, poly, ...)     -> poly+0x5c/+0x60
+//   op 32 0x458178  the source polygon (edi, [ebp+0x14], [ebp+0x18])
+//   op 33 0x4581ab  -> poly+0x70
+//   op 34 0x458140  -> poly+0x02
+//   op 35 0x45821e  -> poly+0x5c/+0x60
+//   op 46 0x45853a  the poly handle table (0x5b21f8/0x618b88/0x5e5680/0x6183b8)
+//   op 47 0x4586d5  -> poly+0x70
+//   op 48 0x4587a1  -> poly+0x5c/+0x60
+//   op 49 0x458607  -> poly+0x02
+std::optional<std::size_t> VmExecutor::h_world_poly(VmState& state, const VmInsn& insn) {
+    const std::vector<SbtValue>& args = insn.args;
+    const bool source = (insn.op >= 0x20 && insn.op <= 0x23);
+    const bool handle = (insn.op >= 0x2e && insn.op <= 0x31);
+    const bool scroll = (insn.op == 0x11 || insn.op == 0x23 || insn.op == 0x30);
+
+    // Operand layout: (sector, object, poly, value[, value]) |
+    // (value[, value]) | (handle, value[, value]).
+    const std::size_t wanted = source ? (scroll ? 4 : 1) : (handle ? (scroll ? 5 : 2) : (scroll ? 7 : 4));
+    if (args.size() < wanted) {
+        event(state, insn);
+        note(insn.name + " at " + hexs(insn.pc) + ": truncated operands");
+        return std::nullopt;
+    }
+
+    // Where the value operands start.
+    const std::size_t value_at = source ? 0 : (handle ? 1 : 3);
+
+    std::vector<std::array<int, 3>> targets;
+    if (handle) {
+        for (const VmPolyHandle& row : state.polys_of_handle(arg_i32(args[0]))) {
+            targets.push_back({row.sector, row.object, row.poly});
+        }
+    } else if (source) {
+        targets.push_back({state.source_sector, state.source_object, state.source_poly});
+    } else {
+        targets.push_back({arg_i32(args[0]), arg_i32(args[1]), arg_i32(args[2])});
+    }
+
+    for (const auto& target : targets) {
+        VmWorldPoly* record = state.world_poly(target[0], target[1], target[2]);
+        if (record == nullptr) {
+            // 0x457ab1 / 0x4581dd / 0x4585a9 print "Script run error: unable to
+            // obtain poly %ld %ld %ld." and write nothing.
+            note("Script run error: unable to obtain poly " + std::to_string(target[0]) +
+                 " " + std::to_string(target[1]) + " " + std::to_string(target[2]) + ".");
+            continue;
+        }
+        switch (insn.op) {
+        case 0x0f: // SET_POLY_TEXTURE
+        case 0x20: // SET_SOURCEPOLY_TEXTURE
+        case 0x2e: // SET_HANDLEPOLY_TEXTURE
+            record->texture = static_cast<std::int16_t>(arg_i32(args[value_at]) & 0xffff);
+            break;
+        case 0x10: // SET_POLY_BRIGHTNESS
+        case 0x21: // SET_SOURCEPOLY_BRIGHTNESS
+        case 0x2f: // SET_HANDLEPOLY_BRIGHTNESS
+            record->brightness = static_cast<std::uint8_t>(arg_i32(args[value_at]) & 0xff);
+            break;
+        case 0x22: // SET_SOURCEPOLY_MATERIAL
+        case 0x31: // SET_HANDLEPOLY_MATERIAL
+            record->material = static_cast<std::uint16_t>(arg_i32(args[value_at]) & 0xffff);
+            break;
+        case 0x11: // SET_POLY_SCROLL
+        case 0x23: // SET_SOURCEPOLY_SCROLL
+        case 0x30: // SET_HANDLEPOLY_SCROLL
+            record->scroll_u = static_cast<std::int16_t>(arg_i32(args[value_at]) & 0xffff);
+            record->scroll_v = static_cast<std::int16_t>(arg_i32(args[value_at + 1]) & 0xffff);
+            break;
+        default:
+            break;
+        }
     }
 
     event(state, insn);

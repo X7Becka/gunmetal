@@ -73,6 +73,16 @@ then-ветки**, а не разделителем после неё (прим�
 | `sleep_carry` | «сколько тиков уже прошло» — второй аргумент `0x457390`, который вычитается из операнда `SLEEP` | `0x457356`, `0x45c4b8` |
 | `clock`, `rng`, `occ`, `steps`, `trace` | виртуальное время, ГПСЧ, счётчик повторных исполнений точки, бюджет, трасса | — |
 
+В C++-исполнителе (`engine/src/res/vm_exec.h`, `docs/VM_CPP.md`) к этой
+таблице добавлены три представления мира, которых нет в Python-оракуле:
+`world_sectors` (записи секторов мира `0x5670d8`: `kind` = тип×6, `light`),
+`world_polys` (записи полигонов мира `0x80`: `texture`, `material`,
+`scroll_u`, `scroll_v`, `brightness`; адрес — тройка
+`(сектор, объект, полигон)`) и `poly_handles` (строки `POLY_HANDLE`).
+Заполняются из разобранного `.sbw` (`vm_load_world`) и из текстовых строк
+`POLY_HANDLE: <h> <сектор> <объект> <полигон>` (`vm_load_poly_handles`);
+подробности и адреса — §3.2.
+
 Ограничения (все настраиваются): `max_steps` (по умолчанию 200 000),
 `max_time` (5 с на прогон), `max_paths` (64), глубина стека `MAX_DEPTH = 32`.
 Цикл `GENERATE` самого себя ловится по `active` (`recursion`), переполнение
@@ -110,6 +120,12 @@ then-ветки**, а не разделителем после неё (прим�
 * **attached** — создаёт объект, позиция берётся у рантайм-источника
   (фиксируется факт и аргументы, мировой позиции нет);
 * **state** — меняет состояние модели (реализовано);
+* **state: SECTOR_STUFF** — пишет игровую таблицу секторов `0x800b60`
+  (256 × `0x58`): движение, урон, звук, события, флаги;
+* **state: world sector** — пишет запись сектора мира `0x5670d8` (шаг
+  `0x18`): свет `+0x16`, тип `+0x14` (§3.2);
+* **state: world poly** — пишет запись полигона мира (`0x80` Б): текстура
+  `+0x00`, материал `+0x02`, скролл `+0x5c`/`+0x60`, свет `+0x70` (§3.2);
 * **event** — звук/экран/камера/фильм/мутация мира: фиксируется, на модель
   не применяется (см. ограничения в §7);
 * **unsupported** — таких в поставке не осталось; тест на неизвестный
@@ -124,16 +140,16 @@ then-ветки**, а не разделителем после неё (прим�
 | 5 | `ENABLE` | `E` | state | 0x457c67 |
 | 6 | `DISABLE` | `E` | state | 0x457c30 |
 | 7 | `SLEEP` | `P` | flow | 0x457729 (тикер 0x457230) |
-| 8 | `SET_SECTOR_MOVEMENT` | `LLLLAAA` | event | 0x457815 |
-| 9 | `SET_SECTOR_BRIGHTNESS` | `LL` | event | 0x4578d6 |
-| 10 | `SET_SECTOR_TYPE` | `LL` | event | 0x457a1c |
-| 11 | `SET_SECTOR_DAMAGE` | `LL` | event | 0x457961 |
-| 12 | `SET_SECTOR_SOUND` | `LVND` | event | 0x4579ee |
-| 13 | `SET_SECTOR_EVENTS` | `LEE` | event | 0x4579ab |
-| 14 | `SET_SECTOR_FLAGS` | `LL` | event | 0x457929 |
-| 15 | `SET_POLY_TEXTURE` | `LLLT` | event | 0x457a40 |
-| 16 | `SET_POLY_BRIGHTNESS` | `LLLL` | event | 0x457a79 |
-| 17 | `SET_POLY_SCROLL` | `LLLLLLL` | event | 0x457e7e |
+| 8 | `SET_SECTOR_MOVEMENT` | `LLLLAAA` | state: SECTOR_STUFF | 0x457815 |
+| 9 | `SET_SECTOR_BRIGHTNESS` | `LL` | state: world sector | 0x4578d6 |
+| 10 | `SET_SECTOR_TYPE` | `LL` | state: world sector | 0x457a1c |
+| 11 | `SET_SECTOR_DAMAGE` | `LL` | state: SECTOR_STUFF | 0x457961 |
+| 12 | `SET_SECTOR_SOUND` | `LVND` | state: SECTOR_STUFF | 0x4579ee |
+| 13 | `SET_SECTOR_EVENTS` | `LEE` | state: SECTOR_STUFF | 0x4579ab |
+| 14 | `SET_SECTOR_FLAGS` | `LL` | state: SECTOR_STUFF | 0x457929 |
+| 15 | `SET_POLY_TEXTURE` | `LLLT` | state: world poly | 0x457a40 |
+| 16 | `SET_POLY_BRIGHTNESS` | `LLLL` | state: world poly | 0x457a79 |
+| 17 | `SET_POLY_SCROLL` | `LLLLLLL` | state: world poly | 0x457e7e |
 | 18 | `LOG_MESSAGE` | `S` | event | 0x457ae3 |
 | 19 | `EXIT_PROGRAM` | `` | flow | 0x457585 |
 | 20 | `PLAY_SAMPLE` | `NVLLL` | event | 0x457d3e |
@@ -143,29 +159,29 @@ then-ветки**, а не разделителем после неё (прим�
 | 24 | `SET_SOURCEWORLDOBJECT_HIT_OFF` | `` | event | 0x457f77 |
 | 25 | `SET_SOURCEWORLDOBJECT_HIT_ON` | `` | event | 0x457f89 |
 | 26 | `SET_SOURCEWORLDOBJECT_TEXTURES` | `T` | event | 0x457f9b |
-| 27 | `SET_SOURCESECTOR_MOVEMENT` | `LLLAAA` | SECTOR_STUFF (h_sector; source/handle index) | 0x457fc6 |
-| 28 | `SET_SOURCESECTOR_BRIGHTNESS` | `L` | SECTOR_STUFF (h_sector; source/handle index) | 0x458063 |
-| 29 | `SET_SOURCESECTOR_FLAGS` | `L` | SECTOR_STUFF (h_sector; source/handle index) | 0x458111 |
-| 30 | `SET_SOURCESECTOR_TYPE` | `L` | SECTOR_STUFF (h_sector; source/handle index) | 0x4580a9 |
-| 31 | `SET_SOURCESECTOR_DAMAGE` | `L` | SECTOR_STUFF (h_sector; source/handle index) | 0x4580cf |
-| 32 | `SET_SOURCEPOLY_TEXTURE` | `T` | event | 0x458178 |
-| 33 | `SET_SOURCEPOLY_BRIGHTNESS` | `L` | event | 0x4581ab |
-| 34 | `SET_SOURCEPOLY_MATERIAL` | `M` | event | 0x458140 |
-| 35 | `SET_SOURCEPOLY_SCROLL` | `LLLL` | event | 0x45821e |
+| 27 | `SET_SOURCESECTOR_MOVEMENT` | `LLLAAA` | state: SECTOR_STUFF | 0x457fc6 |
+| 28 | `SET_SOURCESECTOR_BRIGHTNESS` | `L` | state: world sector | 0x458063 |
+| 29 | `SET_SOURCESECTOR_FLAGS` | `L` | state: SECTOR_STUFF | 0x458111 |
+| 30 | `SET_SOURCESECTOR_TYPE` | `L` | state: world sector | 0x4580a9 |
+| 31 | `SET_SOURCESECTOR_DAMAGE` | `L` | state: SECTOR_STUFF | 0x4580cf |
+| 32 | `SET_SOURCEPOLY_TEXTURE` | `T` | state: world poly | 0x458178 |
+| 33 | `SET_SOURCEPOLY_BRIGHTNESS` | `L` | state: world poly | 0x4581ab |
+| 34 | `SET_SOURCEPOLY_MATERIAL` | `M` | state: world poly | 0x458140 |
+| 35 | `SET_SOURCEPOLY_SCROLL` | `LLLL` | state: world poly | 0x45821e |
 | 36 | `SET_SOURCEPOLY_SWITCH_EVENT` | `E` | event | 0x4581fb |
 | 37 | `PLAY_SAMPLE_AT_SOURCE` | `NVLL` | event | 0x457dbb |
 | 38 | `PLAY_FRAME_LOOP_SAMPLE_AT_SOURCE` | `LENVL` | event | 0x457df4 |
 | 39 | `REMOVE_SOURCE_ITEM` | `` | event | 0x457bc0 |
-| 40 | `SET_HANDLESECTOR_MOVEMENT` | `ELLLAAA` | SECTOR_STUFF (h_sector; source/handle index) | 0x45829b |
-| 41 | `SET_HANDLESECTOR_BRIGHTNESS` | `EL` | SECTOR_STUFF (h_sector; source/handle index) | 0x4583a6 |
-| 42 | `SET_HANDLESECTOR_TYPE` | `EL` | SECTOR_STUFF (h_sector; source/handle index) | 0x458429 |
-| 43 | `SET_HANDLESECTOR_DAMAGE` | `EL` | SECTOR_STUFF (h_sector; source/handle index) | 0x458486 |
-| 44 | `SET_HANDLESECTOR_FLAGS` | `EL` | SECTOR_STUFF (h_sector; source/handle index) | 0x4584e7 |
-| 45 | `SET_HANDLESECTOR_SOUND` | `ENVD` | SECTOR_STUFF (h_sector; source/handle index) | 0x45833a |
-| 46 | `SET_HANDLEPOLY_TEXTURE` | `LT` | event | 0x45853a |
-| 47 | `SET_HANDLEPOLY_BRIGHTNESS` | `LL` | event | 0x4586d5 |
-| 48 | `SET_HANDLEPOLY_SCROLL` | `LLLLL` | event | 0x4587a1 |
-| 49 | `SET_HANDLEPOLY_MATERIAL` | `LM` | event | 0x458607 |
+| 40 | `SET_HANDLESECTOR_MOVEMENT` | `ELLLAAA` | state: SECTOR_STUFF | 0x45829b |
+| 41 | `SET_HANDLESECTOR_BRIGHTNESS` | `EL` | state: world sector | 0x4583a6 |
+| 42 | `SET_HANDLESECTOR_TYPE` | `EL` | state: world sector | 0x458429 |
+| 43 | `SET_HANDLESECTOR_DAMAGE` | `EL` | state: SECTOR_STUFF | 0x458486 |
+| 44 | `SET_HANDLESECTOR_FLAGS` | `EL` | state: SECTOR_STUFF | 0x4584e7 |
+| 45 | `SET_HANDLESECTOR_SOUND` | `ENVD` | state: SECTOR_STUFF | 0x45833a |
+| 46 | `SET_HANDLEPOLY_TEXTURE` | `LT` | state: world poly | 0x45853a |
+| 47 | `SET_HANDLEPOLY_BRIGHTNESS` | `LL` | state: world poly | 0x4586d5 |
+| 48 | `SET_HANDLEPOLY_SCROLL` | `LLLLL` | state: world poly | 0x4587a1 |
+| 49 | `SET_HANDLEPOLY_MATERIAL` | `LM` | state: world poly | 0x458607 |
 | 50 | `ADD_SCREEN_TEXT` | `LS` | event | 0x457b54 |
 | 51 | `ADD_SOURCESCREEN_TEXT` | `LS` | event | 0x457b82 |
 | 52 | `ADD_ITEM_AT_SOURCE` | `OPPEELP` | attached | 0x4599c5 |
@@ -359,19 +375,96 @@ then-ветки**, а не разделителем после неё (прим�
 | `SET_SECTOR_SOUND` | `LVND` | `sound`, `sound_count`, `sound_param` | `0x4579ee` → `0x46b740` (`+0x48`, `+0x4c`, `+0x30`) |
 | `SET_SECTOR_EVENTS` | `LEE` | `event_a`, `event_b` | `0x4579ab` (`+0x38`, `+0x3c`) |
 | `SET_SECTOR_FLAGS` | `LL` | `flags` | `0x457929` (`+0x50`, слот 0 = `0x800bb0`) |
-| `SET_SECTOR_BRIGHTNESS` | `LL` | **не** модельный массив: пишет байт `sector+0x16` записи `.sbw` (`0x42d8a5`) | `0x4578d6`, store `0x4578f8` |
-| `SET_SECTOR_TYPE` | `LL` | **не** модельный массив: `0x42d9d5` пишет `u16 sector+0x14 = value*6` | `0x457a1c` |
+| `SET_SECTOR_BRIGHTNESS` | `LL` | `world_sectors[i].light` = **низкий байт** операнда (`mov cl,byte ptr [code+pc]`, `0x4578f5`) | `0x4578d6`, геттер `0x42d8a5`, store `0x4578f8` |
+| `SET_SECTOR_TYPE` | `LL` | `world_sectors[i].kind` = `value*6` (u16, `0x42d9ff`) | `0x457a1c`, сеттер `0x42d9d5` |
 
-Индекс сектора у всех пяти «массивных» команд проверяется на `0..255`: вне
-диапазона слот не пишется (в оригинале `MOVEMENT`/`SOUND` печатают ошибку,
-`DAMAGE`/`EVENTS`/`FLAGS` молча пропускают операнды). Родственные
+Индекс сектора у всех пяти «массивных» команд `SECTOR_STUFF` проверяется на
+`0..255`: вне диапазона слот не пишется (в оригинале `MOVEMENT`/`SOUND`
+печатают ошибку, `DAMAGE`/`EVENTS`/`FLAGS` молча пропускают операнды). Родственные
 `SET_SOURCESECTOR_*` (27–31) и `SET_HANDLESECTOR_*` (40–45) пишут тот же
-массив, но берут индекс из источника/таблицы сущностей — в executors пока
-только события (TODO в `docs/RECORDS.md` §2.5).
+массив `SECTOR_STUFF`, но берут индекс из источника/таблицы хэндлов.
+**Свет и тип сюда не относятся** — это поля записи сектора мира
+(`0x5670d8`), см. §3.2.
 
 `ADD_THING*` — не команды, а **условия** (см. §4): при `EVAL`/`IF` они
 создают вещь через `0x46d000`, тип — операнд `G`, абсолютные координаты
 только у `ADD_THING` (`GLLLAAA`) и `ADD_THING_EX` (`LLLGLLLAAAL`).
+
+### 3.2. Семейства свойств сектора и полигона
+
+Три **разных** массива рантайма — их нельзя смешивать:
+
+| массив | адрес | шаг / размер | кто пишет |
+|---|---|---|---|
+| `SECTOR_STUFF` (геймплей) | `0x800b60` | `0x58`, 256 записей | `SET_SECTOR_{MOVEMENT,DAMAGE,SOUND,EVENTS,FLAGS}` и их source/handle-варианты |
+| секторы мира (геометрия) | `0x5670d8` (счётчик `0x5670dc`) | `0x18` | `SET_SECTOR_{BRIGHTNESS,TYPE}` и их source/handle-варианты |
+| полигоны мира | внутри объекта: `object+0x6c[i]` | `0x80` | `SET_POLY_*`, `SET_SOURCEPOLY_*`, `SET_HANDLEPOLY_*` |
+
+Карта полей: `docs/WORLD_FIELDS.md` §2.1 (сектор), §2.4 (полигон), §2.6
+(`SECTOR_STUFF`).
+
+| команда | статус | куда пишет | адрес записи | границы / отказ |
+|---|---|---|---|---|
+| `SET_SECTOR_BRIGHTNESS` | state: world sector | `sector+0x16` (`u8`, свет) | `0x4578f8` | геттер `0x42d8a5`: `index < 0` или `>= 0x5670dc` → `NULL`, печать `Script run error: bad set_sector_%ld.` (`0x4b85cc`), записи нет |
+| `SET_SECTOR_TYPE` | state: world sector | `sector+0x14` (`u16` = `тип*6`) | `0x42d9ff` | сеттер `0x42d9d5`: вне диапазона возвращает `-1`, **без** сообщения |
+| `SET_SOURCESECTOR_BRIGHTNESS` | state: world sector | `sector+0x16` сектора источника (`edi`) | `0x45807c` | как `SET_SECTOR_BRIGHTNESS` (`0x45808d` — сообщение) |
+| `SET_SOURCESECTOR_TYPE` | state: world sector | `sector+0x14` сектора источника | `0x42d9ff` | `0x4580a9` отбрасывает `edi < 0` и `edi >= 0x100` (прыжок `0x45c36a`, без сообщения), дальше — как `SET_SECTOR_TYPE` |
+| `SET_HANDLESECTOR_BRIGHTNESS` | state: world sector | `sector+0x16` **каждого** сектора хэндла | `0x4583f1` | геттер `0x42d8a5` на каждый сектор; при `NULL` — сообщение (`0x4583fe`) |
+| `SET_HANDLESECTOR_TYPE` | state: world sector | `sector+0x14` **каждого** сектора хэндла | `0x42d9ff` | сеттер `0x42d9d5` на каждый сектор, без сообщения |
+| `SET_POLY_TEXTURE` | state: world poly | `poly+0x00` (`i16`, текстура) | `0x457a68` | геттер `0x434463`: нет полигона → `Script run error: unable to obtain poly %ld %ld %ld.` (`0x4b8594`) |
+| `SET_POLY_BRIGHTNESS` | state: world poly | `poly+0x70` (`u8`) | `0x457aa0` | тот же геттер |
+| `SET_POLY_SCROLL` | state: world poly | `poly+0x5c`, `poly+0x60` (`i16`) | `0x457ebd`, `0x457ecf` | тот же геттер; перед записью зовётся `0x42e69a` (сдвиг UV) |
+| `SET_SOURCEPOLY_TEXTURE` | state: world poly | `poly+0x00` | `0x45819a` | геттер `0x434463` по полигону **источника** |
+| `SET_SOURCEPOLY_BRIGHTNESS` | state: world poly | `poly+0x70` | `0x4581cc` | то же |
+| `SET_SOURCEPOLY_MATERIAL` | state: world poly | `poly+0x02` (`u16`, материал) | `0x458166` | то же |
+| `SET_SOURCEPOLY_SCROLL` | state: world poly | `poly+0x5c`, `poly+0x60` | `0x458256`, `0x458268` | то же |
+| `SET_HANDLEPOLY_TEXTURE` | state: world poly | `poly+0x00` **каждого** полигона хэндла | `0x4585a4` | геттер `0x434463` на каждый полигон; при `NULL` — сообщение (`0x4585bf`) |
+| `SET_HANDLEPOLY_BRIGHTNESS` | state: world poly | `poly+0x70` | `0x45873e` | то же |
+| `SET_HANDLEPOLY_SCROLL` | state: world poly | `poly+0x5c`, `poly+0x60` | `0x458825`, `0x458837` | то же |
+| `SET_HANDLEPOLY_MATERIAL` | state: world poly | `poly+0x02` | `0x458671` | то же |
+
+Ключевые детали, доказанные дизасмом:
+
+* **Три разных адреса.** Свет (`+0x16`) и тип (`+0x14`) — в записи сектора
+  мира `0x5670d8`; `SECTOR_STUFF` (`0x800b60`) — отдельная таблица на 256
+  слотов по `0x58`; полигон — запись `0x80` внутри объекта.
+* **Тип хранится умноженным на 6** (`0x42d9f1`: `imul ecx,ecx,6`, запись
+  `u16`); геттер `0x42d99f` делит обратно. Поэтому `SET_SECTOR_TYPE 3` →
+  `kind = 18`.
+* **Свет — байт.** Операнд `L` (4 байта) читается как `mov cl,byte ptr
+  [code+pc]` (`0x4578f5`, `0x458079`, `0x457a9c`, `0x4581c9`, `0x45873b`):
+  в запись попадает только младший байт.
+* **Полигон адресуется тройкой** `(сектор, объект, полигон)` — геттер
+  `0x434463` проверяет `0 <= sector < 0x5670dc`, `0 <= object < n_objects`,
+  `0 <= poly < n_polys` и возвращает `NULL` иначе.
+* **Полигон источника** — это `(edi, [ebp+0x14], [ebp+0x18])`: третий,
+  четвёртый и пятый аргументы `0x457390` (сектор, объект, полигон).
+* **Хэндлы пишут во все совпадения.** Таблица секторов (`0x5b1df8` →
+  `0x617fb8`, счётчик `0x5e3de0`, максимум `0x100`) и таблица полигонов
+  (`0x5b21f8` → `0x618b88`/`0x5e5680`/`0x6183b8`, счётчик `0x5e4678`,
+  максимум `0x1f4`) обходятся **до конца**: цикл не содержит `break`
+  (`0x4583c2…0x45841c`, `0x458445…0x458479`, `0x458566…0x4585f6`,
+  `0x458633…0x4586c4`, `0x458701…0x458790`, `0x4587cd…0x45888a`). Поэтому
+  сектор/полигон, записанный в таблицу дважды, меняется **оба раза**.
+* **Таблицы хэндлов не строятся из уровня.** `SECTOR_HANDLE` (`0x4b9888`)
+  и `POLY_HANDLE` (`0x4b9640`, `0x4b96ac`) читаются из текстового источника
+  (`0x463820`, `0x463290`); в поставочных уровнях их нет, поэтому
+  `SET_HANDLESECTOR_*`/`SET_HANDLEPOLY_*` в поставке — no-op.
+* **Не смоделировано:** вызов `0x42e69a` (сдвиг UV полигона по
+  `scroll_u`/`scroll_v` от глобального счётчика `0x5a46e4`) — нужен
+  игровой таймер, а не состояние ВМ.
+
+События **без состояния** из этих семейств (остаются в списке `event`):
+
+* `SET_SOURCEPOLY_SWITCH_EVENT` (`0x4581fb` → `0x44e680`): регистрация
+  переключателя на полигоне, отдельная таблица `0x5a4afc` (не запись
+  полигона);
+* `SET_SECTOR_LINK` (`0x45889b`): ищет хэндл в таблице полигонов `0x5b21f8`
+  и **только проверяет его наличие** — при отсутствии печатает
+  `Script run error:  unable to find first poly of poly handle for sector
+  link.` (`0x4b84ac`), а сам связывания не делает: операнд просто съедается
+  (`0x45c36a`). Второе сообщение (`0x4b84fc`, «unable to find second poly»)
+  в этой ветке недостижимо.
 
 ## 4. Условия (вторая ВМ, `0x45d120`)
 
@@ -588,13 +681,19 @@ EVAL ADD_THING_RELATIVE … } }` — статически 9 вещей, испо
 * **Нет стека операндов и арифметических опкодов.** «Арифметика» — это
   отдельные обработчики условий; таблица §4 показывает, какие из них
   посчитаны, а какие честно `open`.
-* **`event`-команды (117 из 199 опкодов) не моделируются.** Это звук,
-  камера, UI, фильмы, мутации секторов/полигонов и часть `SOURCEPLAYER_*`
-  (`INVINCIBLE`, `SELL_ALL`, `DELETE`, `FREEZE` и т.п.). Для сцены и PC они
-  безопасны, но условие, читающее изменённое ими поле, может быть
-  посчитано по устаревшему состоянию; такие условия либо `open`, либо
-  опираются на реализованные `KILL`/`HEAL`. Такие условия либо в `open`, либо (для `LIFE_*`) зависят от
-  `SOURCEPLAYER_KILL`/`HEAL`, которые реализованы.
+* **`event`-команды (88 из 199 опкодов) не моделируются.** Это звук,
+  камера, UI, фильмы и часть `SOURCEPLAYER_*` (`INVINCIBLE`, `SELL_ALL`,
+  `DELETE`, `FREEZE` и т.п.). Для сцены и PC они безопасны, но условие,
+  читающее изменённое ими поле, может быть посчитано по устаревшему
+  состоянию; такие условия либо `open`, либо опираются на реализованные
+  `KILL`/`HEAL`.
+* **Мутации секторов/полигонов — не «события без состояния»:** свет, тип,
+  текстура, материал и скролл пишут реальные поля (§3.2). В Python-оракуле
+  они остаются событиями (у него нет модели мира), в C++ — состояние
+  `world_sectors`/`world_polys`; числа сцены и PC от этого не меняются.
+* **Не смоделирован сдвиг UV полигона** (`0x42e69a`) при
+  `SET_*POLY_SCROLL`: нужен глобальный счётчик кадров `0x5a46e4`, а не
+  состояние ВМ.
 * **Контекст источника огрублён.** `SOURCE_SWAP` (`0x45d1b3`) меняет
   половины одного дескриптора; в модели это обмен `source_entity` и
   `source_alt`, а `SOURCE_IS_PLAYER`/`SOURCEPLAYER_*` читают
