@@ -151,6 +151,11 @@
   `level1`/`level2` больше не дают ложных падений (`core`/`camera_rig`/
   `sbtvm`/`vm` зелёные). `--check` фиксирует аномалию, `--write` обновляет
   таблицу детерминированно.
+- **DOS-сборка `gun.exe`.** `tools/re/lexe.py` — LE/LX-парсер (stdlib):
+  7 объектов, 670 страниц, 33 055 fixup на 200 страницах, импортов 0,
+  EIP `obj 2 + 0x8f614` → файл 0xD9E14 (`eb 76`, баннер WATCOM), 670 страниц
+  покрывают объекты без пересечений; `--selftest` 23/23, 10 порч → ValueError.
+  Осталось: iterated pages объекта 7, неопознанные поля заголовка (`docs/LEXE.md` §8).
 - **Аудит установки.** `tools/re/install_audit.py`: 2161 игровой файл,
   2154 ok, 6 renamed (3 пары `.sbc`/`.sbt`/`.sbw`), 0 missing/modified/extra,
   `GUNMETAL.CFG` volatile; 4,3 с на 8 потоках, `--strict` → rc=2.

@@ -73,6 +73,8 @@ tools/fuzz_formats.py фазз-матрица парсеров (пустые/б�
                       --save/--replay/--seed — воспроизводимый корпус)
 tools/qa/fuzz_corpus.py  инспектор корпуса (digest, sha256, --replay/--json)
 tools/re/install_audit.py аудит установки по манифесту (swaps, --strict/--json)
+tools/re/lexe.py     LE/LX-парсер DOS-сборки gun.exe (объекты, страницы, fixup;
+                      --info/--segments/--fixups/--strings/--dump/--selftest)
 tools/parity_sou2.py  Python↔C++ паритет SOU2 (--fast/--quick/полный архив)
 tools/gen_sou2_table.py  извлечение gain-таблицы 0x852340 из sou2.cpp
 tools/re/render_sou2.py  SOU2 → WAV через настоящий 0x8534c0 (32000 Гц)

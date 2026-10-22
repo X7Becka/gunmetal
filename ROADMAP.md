@@ -322,7 +322,9 @@ v1.0 и выполняется **последней, после `M12`** (реш�
       установки — `tools/re/install_audit.py` (2161 файл, 4,3 с; находит
       все 6 переставленных `level1`↔`level2` и `GUNMETAL.CFG` как volatile);
       фазз-корпус — `fuzz_formats.py --save/--replay/--seed`
-      (`docs/FUZZ_CORPUS.md`).
+      (`docs/FUZZ_CORPUS.md`); DOS-сборка `gun.exe` разбирается LE-парсером
+      `tools/re/lexe.py` (7 объектов, 670 страниц, 33 055 fixup, EIP 0xAF614
+      сверен с данными; `docs/LEXE.md`).
       Практики — `docs/REGRESSION.md`.
 
 ### Выход
