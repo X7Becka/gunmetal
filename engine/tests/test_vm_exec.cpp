@@ -15,6 +15,7 @@
 #include "res/save.h"
 #include "res/sbw.h"
 #include "res/sbt.h"
+#include "game/equipment.h"
 #include "res/vm_exec.h"
 
 #include "core/bytes.h"
@@ -2043,6 +2044,132 @@ void test_sleep_table() {
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Equipment (docs/EQUIPMENT.md, M6.2.4)
+// ---------------------------------------------------------------------------
+
+gm::SbtValue uint_value(std::uint32_t value) { return gm::SbtValue::from_uint(value); }
+
+void test_equipment() {
+    // Synthetic table: two records, accessors by field index.
+    auto make_record = [](const char* name, std::vector<std::uint32_t> values) {
+        gm::SbtTableRecord record;
+        record.strings = {name};
+        for (std::uint32_t v : values) {
+            record.values.push_back(uint_value(v));
+        }
+        return record;
+    };
+    const auto noev = static_cast<std::uint32_t>(-1);
+    const std::vector<std::uint32_t> head = {0x03, noev, noev, noev, noev, 0,
+                                             noev, 10, 10, 500, 2, 7};
+    std::vector<gm::SbtTableRecord> records;
+    records.push_back(make_record("HEADLIGHTS", head));
+    records.push_back(make_record("POWER CELLS", {0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}));
+    std::string error;
+    auto table = gm::EquipmentTable::from_records(records, &error);
+    CHECK(table.has_value());
+    if (table) {
+        CHECK_EQ(table->size(), std::size_t{2});
+        const gm::EquipmentDef* def = table->find(0);
+        CHECK(def != nullptr);
+        if (def != nullptr) {
+            CHECK_EQ(def->name, std::string("HEADLIGHTS"));
+            CHECK_EQ(def->flags(), 3);
+            CHECK_EQ(def->ammo_per_tick(), 10);
+            CHECK_EQ(def->ammo_type(), 10);
+            CHECK_EQ(def->price(), 500);
+            CHECK_EQ(def->weight(), 2);
+            CHECK_EQ(def->object_id(), 7);
+        }
+        CHECK(table->find(2) == nullptr);
+        CHECK(table->find(-1) == nullptr);
+    }
+
+    // The store takes at most 31 records (0x450e65).
+    std::vector<gm::SbtTableRecord> too_many(32, records.front());
+    CHECK(!gm::EquipmentTable::from_records(too_many, &error));
+    CHECK(!error.empty());
+    // A record without the 12 dwords is rejected.
+    std::vector<gm::SbtTableRecord> short_row = {make_record("BROKEN", {1, 2, 3})};
+    error.clear();
+    CHECK(!gm::EquipmentTable::from_records(short_row, &error));
+    CHECK(!error.empty());
+
+    // Tick 0x4463a9: active records spend ammo_per_tick * ticks; the record
+    // whose pool reaches zero is reported, and the active bit stays on.
+    if (table) {
+        gm::EquipmentState state;
+        gm::AmmoPool ammo{};
+        ammo[10] = 25;
+        state.set_active(0, true);
+        state.set_active(1, true); // per_tick 0: never spends
+        CHECK(state.is_active(0));
+        CHECK(!state.is_active(2));
+        auto drained = gm::equipment_tick(*table, state, ammo, 1);
+        CHECK(drained.empty());
+        CHECK_EQ(ammo[10], 15);
+        drained = gm::equipment_tick(*table, state, ammo, 2);
+        CHECK_EQ(drained.size(), std::size_t{1});
+        if (!drained.empty()) {
+            CHECK_EQ(drained[0], 0);
+        }
+        CHECK_EQ(ammo[10], 0);
+        CHECK(state.is_active(0)); // the script decides, not the tick
+        // Already empty: no second transition.
+        drained = gm::equipment_tick(*table, state, ammo, 1);
+        CHECK(drained.empty());
+        // Inactive records never spend.
+        state.set_active(0, false);
+        ammo[10] = 50;
+        CHECK(gm::equipment_tick(*table, state, ammo, 3).empty());
+        CHECK_EQ(ammo[10], 50);
+    }
+
+    // Real data: the level script defines 12 records (13 in level0, which also
+    // carries BALLAST), and every value pair resolves (docs/EQUIPMENT.md §3).
+    struct Expected {
+        const char* level;
+        std::size_t records;
+        const char* last;
+    };
+    for (const Expected& want : {Expected{"level0.sbt", 13, "BALLAST"},
+                                 Expected{"dm1.sbt", 12, nullptr}}) {
+        const fs::path path = resolved_level(want.level);
+        gm::SbtLevel level;
+        if (!load_level(path, level)) {
+            continue;
+        }
+        const BlockRun run = run_blocks(level, false, false);
+        const gm::SbtTableRecord* none = nullptr;
+        (void)none;
+        std::size_t found = 0;
+        for (const auto& result : run.results) {
+            const auto it = result.state.table_defs.find("DEFINE_EQUIPMENT");
+            if (it == result.state.table_defs.end()) {
+                continue;
+            }
+            found = std::max(found, it->second.size());
+            auto parsed = gm::EquipmentTable::from_records(it->second, &error);
+            CHECK(parsed.has_value());
+            if (!parsed) {
+                continue;
+            }
+            CHECK_EQ(parsed->size(), it->second.size());
+            if (want.last != nullptr && !parsed->empty()) {
+                CHECK_EQ(parsed->defs.back().name, std::string(want.last));
+            }
+            for (const gm::EquipmentDef& def : parsed->defs) {
+                CHECK(def.ammo_type() < 16);
+                CHECK(def.ammo_per_tick() >= 0);
+            }
+        }
+        CHECK_EQ(found, want.records);
+        std::printf("vm: equipment %s: %zu records\n", want.level, found);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -2059,6 +2186,7 @@ int main(int argc, char** argv) {
     test_world_sector_and_poly();
     test_entity_rows();
     test_sleep_table();
+    test_equipment();
 
     std::error_code ec;
     if (!fs::is_directory(kGameDir, ec)) {

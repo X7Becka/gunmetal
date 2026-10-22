@@ -43,6 +43,7 @@ add_library(gm_engine STATIC
     src/game/trigger.cpp
     src/game/projectile.cpp
     src/game/runtime.cpp
+    src/game/equipment.cpp
     src/res/scene.cpp
     src/res/sou.cpp
     src/res/sou1.cpp
