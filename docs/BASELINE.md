@@ -146,6 +146,7 @@ html/jpg/png, архивы) — они видны в `gm.py manifest --all`. Л�
 
 * `python3 regress.py` — **113/113** за **78,8 с** (установка на `/mnt/d`);
 * `python3 regress.py --mirror` — **113/113** за **45,7 с** (зеркало на `/dev/sdd`);
+* `python3 regress.py --full --mirror` — **121/121** за **175,7 с**;
 * `python3 tools/re/gmcache.py selftest` — 98 сэмплов строк, 0 расхождений с
   сырым листингом (283 626 строк).
 

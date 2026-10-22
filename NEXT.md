@@ -136,7 +136,8 @@
 - **Контекст/токены.** `tools/ctx.py` (`doc`/`addr`/`find`/`outline`/`task`,
   бюджет 40 строк), `docs/INDEX.md`, правила в `AGENTS.md`, методика —
   `docs/RE_METHOD.md`.
-- **Проверено:** `regress.py` 113/113 на установке и на зеркале,
+- **Проверено:** `regress.py` 113/113 на установке и на зеркале, `--full`
+  121/121 за 175,7 с (зеркало),
   `player_fields --self-test`, `names`/`table_layout`/`xref`,
   `gmcache selftest`, `ctx.py index`.
 - **Следующий шаг:** очередь без изменений — пункт 1 (ввод игрока в цикле и
