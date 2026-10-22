@@ -20,16 +20,16 @@
 | `docs/COLLIDE.md` | 25 | 10 | Gunmetal — примитивы коллизий `.sbw` |
 | `docs/CONFIG.md` | 28 | 241 | `GUNMETAL.CFG` / `CONTROLS.CFG` — карта полей |
 | `docs/CONTROLS_CPP.md` | 13 | 19 | `input/controls.h` — `.key` profiles and controller config |
-| `docs/DOORS_CPP.md` | 54 | 136 | Gunmetal — C++-модель дверей, переключателей и лифтов |
+| `docs/DOORS_CPP.md` | 55 | 137 | Gunmetal — C++-модель дверей, переключателей и лифтов |
 | `docs/DOOR_FIELDS.md` | 56 | 566 | Поля дверей, переключателей и лифтов (M2.3.4) |
 | `docs/ENTITY_FIELDS.md` | 37 | 262 | Скриптовая таблица сущностей (`0x5b0df0`, `0x5e4680`, `0x616658`): карта (M2.3.6) |
-| `docs/EVENTS.md` | 24 | 91 | Event queue and `GENERATE` events |
+| `docs/EVENTS.md` | 24 | 92 | Event queue and `GENERATE` events |
 | `docs/FILM.md` | 27 | 107 | HUD-фильмы `.sof` / `.fdx` — формат, привязка, паритет |
 | `docs/FORMATS.md` | 202 | 947 | Gunmetal — спецификация форматов данных |
 | `docs/FUZZ_CORPUS.md` | 11 | 1 | Фазз-корпус: сохранение и повтор (save / replay) |
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
-| `docs/GHIDRA.md` | 11 | 21 | Ghidra: выбор, установка и рабочий процесс |
+| `docs/GHIDRA.md` | 16 | 24 | Ghidra: выбор, установка и рабочий процесс |
 | `docs/HUD_BIND.md` | 17 | 29 | HUD binding: `.sml`/`.sme` экраны → семейства `.sof`/`.fdx` и позиции `<I>` |
 | `docs/HUD_COMPOSE.md` | 17 | 9 | HUD composition: `.sml` + `.sof/.fdx` + `blit_indexed` за один вызов |
 | `docs/HUD_CPP.md` | 8 | 2 | C++ HUD-слой: блит кадров `.sof` |
@@ -40,7 +40,7 @@
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
 | `docs/MAINLOOP.md` | 7 | 209 | Главный цикл и машина состояний (M2.2.2) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
-| `docs/NESTED_THINGS.md` | 16 | 6 | Вложенные things: статический рекурсивный обход и исполнение |
+| `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
 | `docs/ORACLE.md` | 3 | 0 | Эталонный оракул (M4.4.2) |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
 | `docs/PLAYER_CONTROLLER.md` | 27 | 46 | Gunmetal — контроллер игрока (капсула, 91 Гц) |
@@ -50,6 +50,7 @@
 | `docs/RECORDS.md` | 33 | 246 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
 | `docs/REGRESSION.md` | 11 | 1 | Регрессия: ворота, бюджет времени и практики |
 | `docs/RENDER.md` | 5 | 0 | Рендерер C++: конвейер и паритет с `gm/render.py` |
+| `docs/RE_AUDIT.md` | 10 | 4 | Аудит процесса реверса (2026-10-22) |
 | `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
 | `docs/RNG.md` | 7 | 41 | RNG: `rand()` оригинала, сид и потребители |
 | `docs/RUNTIME_CPP.md` | 42 | 8 | Gunmetal — C++-каркас фиксированного тика (`GameRuntime`) |
@@ -80,14 +81,14 @@
 | `docs/SPRITE.md` | 11 | 0 | Спрайтовый блиттер: индексированные `.sbm` в RGB-кадр |
 | `docs/SUB.md` | 18 | 102 | `.sub` — таблицы подстановок спрайтов/текстур |
 | `docs/TEXT_LAYOUT.md` | 23 | 91 | SML: раскладка текста, шрифтовые атласы и пагинация |
-| `docs/THINGS_CPP.md` | 26 | 20 | Gunmetal — C++-runtime вещей (`Thing`) |
-| `docs/THING_FIELDS.md` | 53 | 454 | Thing type (`0x776d60`) и thing instance (`0x7ac080`): карта полей (M2.3.3) |
+| `docs/THINGS_CPP.md` | 32 | 35 | Gunmetal — C++-runtime вещей (`Thing`) |
+| `docs/THING_FIELDS.md` | 54 | 458 | Thing type (`0x776d60`) и thing instance (`0x7ac080`): карта полей (M2.3.3) |
 | `docs/TOOLCHAIN.md` | 2 | 1 | Инструменты и версии |
 | `docs/TOOLING.md` | 9 | 2 | Инструменты помимо Ghidra: что брать и зачем |
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |
 | `docs/VM_CPP.md` | 20 | 39 | C++-исполнение SCRIPT-VM (`vm_exec.h` / `vm_exec.cpp`) |
 | `docs/VM_EXEC.md` | 54 | 530 | Исполнение SCRIPT-VM (`.sbt`, запись 11) — прототип |
-| `docs/WEAPONS_CPP.md` | 61 | 313 | `game/weapons.*` — runtime оружия |
+| `docs/WEAPONS_CPP.md` | 62 | 320 | `game/weapons.*` — runtime оружия |
 | `docs/WEAPON_FIELDS.md` | 26 | 278 | Карта записей «оружие / боеприпасы / оборудование / шасси» (M2.3.5) |
 | `docs/WORLD_FIELDS.md` | 42 | 331 | Мир / сектор / объект / полигон: карта рантайма (M2.3.2) |
 | `docs/WORLD_MATERIALS.md` | 34 | 240 | Материалы, оверлеи и флаги мира: потребители полей (M2.3.2) |
