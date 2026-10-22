@@ -76,6 +76,28 @@ def crop(img, box) -> tuple[int, int, bytes]:
     return w, h, b"".join(rows)
 
 
+def auto_crop_box(img, black: int = 8):
+    """Bounding box of non-black pixels (dgVoodoo fullscreen pillars)."""
+    w, h, px = img
+    minx, miny, maxx, maxy = w, h, -1, -1
+    for y in range(h):
+        base = 3 * (y * w)
+        for x in range(w):
+            o = base + 3 * x
+            if px[o] > black or px[o + 1] > black or px[o + 2] > black:
+                if x < minx:
+                    minx = x
+                if x > maxx:
+                    maxx = x
+                if y < miny:
+                    miny = y
+                if y > maxy:
+                    maxy = y
+    if maxx < 0:
+        return (0, 0, w, h)
+    return (minx, miny, maxx - minx + 1, maxy - miny + 1)
+
+
 def resize_area(img, tw: int, th: int) -> tuple[int, int, bytes]:
     """Area-average resample (exact 2x reduction for 640x400 -> 320x200)."""
     sw, sh, px = img
@@ -256,6 +278,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--oracle", help="captured original-game frame (PNG)")
     ap.add_argument("--ours", help="our rendered frame (PNG)")
     ap.add_argument("--crop", help="oracle crop x,y,w,h (window borders)")
+    ap.add_argument("--auto-crop", dest="auto_crop", action="store_true",
+                    help="crop the oracle to the non-black picture rectangle")
+    ap.add_argument("--black", type=int, default=8,
+                    help="auto-crop threshold 0..255 (default 8)")
     ap.add_argument("--size", default="320x200", help="compare on WxH (default)")
     ap.add_argument("--hud", type=float, default=0.7,
                     help="share of height that is world (default 0.7)")
@@ -272,13 +298,21 @@ def main(argv: list[str]) -> int:
 
     tw, th = (int(v) for v in opts.size.lower().split("x"))
     oracle = load_rgb(opts.oracle)
+    crop_box = None
     if opts.crop:
-        oracle = crop(oracle, tuple(int(v) for v in opts.crop.split(",")))
+        crop_box = tuple(int(v) for v in opts.crop.split(","))
+    elif opts.auto_crop:
+        crop_box = auto_crop_box(oracle, opts.black)
+        print(f"auto-crop: {crop_box[0]},{crop_box[1]},"
+              f"{crop_box[2]},{crop_box[3]}", file=sys.stderr)
+    if crop_box:
+        oracle = crop(oracle, crop_box)
     ours = load_rgb(opts.ours)
     oracle = resize_area(oracle, tw, th)
     ours = resize_area(ours, tw, th)
     result = {"oracle": opts.oracle, "ours": opts.ours,
-              "size": [tw, th], "world_share": opts.hud,
+              "crop": crop_box, "size": [tw, th],
+              "world_share": opts.hud,
               "metrics": metrics(oracle, ours, opts.hud)}
     world = result["metrics"]["world"]
     passed = (world["corr"] >= opts.min_corr and

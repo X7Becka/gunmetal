@@ -25,6 +25,8 @@ level0_x200_z724_yaw90_20261022T2130.json
   "camera": {"pos": [0.0, 0.0, 0.0], "yaw": 90.0, "pitch": 0.0},
   "render": {"width": 320, "height": 200, "api": "dgVoodoo 2.7.3",
              "output_api": "d3d11", "scale": 1},
+  "capture": {"mode": "fullscreen", "screen": [1920, 1080],
+              "rect": [96, 0, 1728, 1080]},
   "frames_after_start": 180,
   "notes": "без ввода, HUD выключен/включён"
 }
