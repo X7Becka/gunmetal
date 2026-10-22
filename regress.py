@@ -104,11 +104,22 @@ def gp(G: str, *parts: str) -> str:
     return cur
 
 
+CHECK_TIMEOUT = float(os.environ.get("GM_CHECK_TIMEOUT", "900"))
+
+
 def run_raw(args: list[str]) -> tuple[int, str]:
-    p = subprocess.run(
-        [sys.executable, GM, *args],
-        capture_output=True, text=True, cwd=HERE,
-    )
+    """Run one gm.py check with a wall-clock guard.
+
+    A hung parser used to hang the whole suite (and CI) with no diagnostic;
+    the timeout turns it into an ordinary failure that names the check.
+    """
+    try:
+        p = subprocess.run(
+            [sys.executable, GM, *args],
+            capture_output=True, text=True, cwd=HERE, timeout=CHECK_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "timeout after %.0fs (GM_CHECK_TIMEOUT)" % CHECK_TIMEOUT
     return p.returncode, (p.stdout + p.stderr)
 
 
