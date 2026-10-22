@@ -2167,6 +2167,77 @@ void test_player_types() {
 }
 
 // ---------------------------------------------------------------------------
+// Camera haze (`SET_CAMERA_HAZE`, docs/SCREEN_FX.md)
+// ---------------------------------------------------------------------------
+
+void test_camera_haze() {
+    const auto real = [](double v) { return gm::SbtValue::from_real(v); };
+
+    // Op 80: arg1 -> haze (no clamp), arg2 > 0 -> rate = arg2 * 0.91.
+    Bytes code;
+    cmd(code, "SET_CAMERA_HAZE", {real(1.0), real(0.005)});
+    code.push_back(0xFF);
+    auto results = run_bytes(code);
+    CHECK(!results.empty());
+    if (!results.empty()) {
+        CHECK_EQ(results[0].state.haze, 1.0);
+        CHECK(std::abs(results[0].state.haze_rate - 0.00455) < 1e-12);
+    }
+
+    // The frame clock caps dt at 45 ms (0x44d518): one 1 s step spends 45 ms.
+    gm::VmState state;
+    state.haze = 1.0;
+    state.haze_rate = 0.01;
+    gm::vm_tick_haze(state, 1000.0);
+    CHECK(std::abs(state.haze - (1.0 - 45.0 * 0.01)) < 1e-12);
+
+    // 1.0 at 0.00455 per ms is 219.8 ms of fade.  The 45 ms cap makes it five
+    // frames: 0.79525, 0.5905, 0.38575, 0.181, 0.
+    state.haze = 1.0;
+    state.haze_rate = 0.00455;
+    const double step = 45.0 * 0.00455;
+    for (int frame = 1; frame <= 4; ++frame) {
+        gm::vm_tick_haze(state, 45.0);
+        CHECK(std::abs(state.haze - (1.0 - frame * step)) < 1e-12);
+    }
+    CHECK(state.haze > 0.0);
+    gm::vm_tick_haze(state, 45.0);
+    CHECK_EQ(state.haze, 0.0);
+    gm::vm_tick_haze(state, 45.0);
+    CHECK_EQ(state.haze, 0.0);
+
+    // arg2 <= 0 means "no decay"; negative dt is ignored.
+    Bytes steady;
+    cmd(steady, "SET_CAMERA_HAZE", {real(0.5), real(0.0)});
+    steady.push_back(0xFF);
+    results = run_bytes(steady);
+    CHECK(!results.empty());
+    if (!results.empty()) {
+        CHECK_EQ(results[0].state.haze, 0.5);
+        CHECK_EQ(results[0].state.haze_rate, 0.0);
+        gm::VmState copy = results[0].state;
+        gm::vm_tick_haze(copy, 1e6);
+        CHECK_EQ(copy.haze, 0.5);
+    }
+    state.haze = 0.7;
+    state.haze_rate = 0.01;
+    gm::vm_tick_haze(state, -5.0);
+    CHECK_EQ(state.haze, 0.7);
+
+    // Real data: level0 fires the command (docs/SCREEN_FX.md: 247 calls).
+    gm::SbtLevel level;
+    if (load_level(resolved_level("level0.sbt"), level)) {
+        const BlockRun run = run_blocks(level, false, true);
+        const auto it = run.commands.find(80);
+        CHECK(it != run.commands.end());
+        if (it != run.commands.end()) {
+            std::printf("vm: SET_CAMERA_HAZE in level0: %d\n", it->second);
+            CHECK(it->second > 0);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Determinism (M5.2.6): same bytes + same options -> same trace.
 // ---------------------------------------------------------------------------
 
@@ -2464,6 +2535,7 @@ int main(int argc, char** argv) {
     test_equipment();
     test_player_types();
     test_determinism();
+    test_camera_haze();
 
     std::error_code ec;
     if (!fs::is_directory(kGameDir, ec)) {

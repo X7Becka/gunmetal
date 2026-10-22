@@ -1211,6 +1211,14 @@ std::vector<VmWake> vm_tick_sleepers(VmState& state, int ticks) {
     return out;
 }
 
+void vm_tick_haze(VmState& state, double dt_ms) {
+    if (dt_ms <= 0.0 || state.haze_rate <= 0.0) {
+        return;
+    }
+    const double dt = std::min(dt_ms, 45.0); // 0x44d518 caps the frame delta
+    state.haze = std::max(0.0, state.haze - dt * state.haze_rate);
+}
+
 std::size_t vm_stop_sleeping(VmState& state, std::uint32_t handle) {
     std::size_t freed = 0;
     // 0x45b93e: `if (offset >= 0 && (source & 0xffff) == handle) offset = -1`.
@@ -1536,6 +1544,7 @@ void VmExecutor::install_handlers() {
     set("ADD_SWITCH", &VmExecutor::h_switch);
     set("SET_PLAYER_START", &VmExecutor::h_spawn);
     set("SET_DEATHMATCH_START", &VmExecutor::h_spawn);
+    set("SET_CAMERA_HAZE", &VmExecutor::h_camera_haze);
     set("SET_LEVEL_NAME", &VmExecutor::h_level);
     set("SET_LEVEL_GRAVITY", &VmExecutor::h_level);
     set("SET_LEVEL_FOG_COLOUR", &VmExecutor::h_level);
@@ -2819,6 +2828,18 @@ std::optional<std::size_t> VmExecutor::h_world_poly(VmState& state, const VmInsn
 }
 
 // -- state ----------------------------------------------------------------
+
+std::optional<std::size_t> VmExecutor::h_camera_haze(VmState& state,
+                                                    const VmInsn& insn) {
+    // 0x45b3bf: arg1 -> f64 0x80f9a8 (no clamp), arg2 > 0 -> 0x5e3dd8 =
+    // arg2 * 0.91 (0x45b3fa, constant 0x4a2578), otherwise the rate is 0.
+    const auto start = insn.args.size() > 0 ? arg_f64(insn.args[0]) : 0.0;
+    const auto rate = insn.args.size() > 1 ? arg_f64(insn.args[1]) : 0.0;
+    state.haze = start;
+    state.haze_rate = rate > 0.0 ? rate * 0.91 : 0.0;
+    event(state, insn);
+    return std::nullopt;
+}
 
 std::optional<std::size_t> VmExecutor::h_level(VmState& state, const VmInsn& insn) {
     state.level[insn.name] = insn.args;

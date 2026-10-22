@@ -448,6 +448,14 @@ struct VmState {
     std::optional<int> source_entity;
     std::optional<int> source_alt;
 
+    /// Camera haze (`0x80f9a8`) and its decay per millisecond (`0x5e3dd8`):
+    /// `SET_CAMERA_HAZE` sets both, `0x457230` subtracts `dt * rate` each
+    /// frame (dt capped at 45 ms, 0x44d518) and clamps at 0.  The frame pass
+    /// copies it to `ctx+0xe8` (`0x446764`) and the white quad `0x4188b2`
+    /// draws it with `alpha = ftol(255 * haze)` (docs/SCREEN_FX.md).
+    double haze = 0.0;
+    double haze_rate = 0.0;
+
     int game_mode = 0; // 0 campaign, 1 dm-normal, 2 dm-classic, 5 scavenger
     int mp_flags = 0;  // bit0 team, bit1 CTF
     int player_count = 1;
@@ -634,6 +642,12 @@ void vm_load_sleeping_scripts(VmState& state, std::span<const std::uint8_t> tabl
 /// passes as ``0x457390``'s second argument.
 std::vector<VmWake> vm_tick_sleepers(VmState& state, int ticks);
 
+/// Haze tick `0x457230`: `haze -= min(dt_ms, 45) * haze_rate`, clamped at 0
+/// (the frame clock caps `dt` at 45 ms, `0x44d518`; the rate is per
+/// millisecond, so `SET_CAMERA_HAZE 1.0 0.005` fades in 219.8 ms —
+/// docs/SCREEN_FX.md).  Negative values are refused.
+void vm_tick_haze(VmState& state, double dt_ms);
+
 /// ``STOP_SOURCEPLAYER_SLEEPING_SCRIPTS`` (cid 198, 0x45b93e): free every slot
 /// whose saved source handle (low 16 bits) equals *handle*; returns the count.
 std::size_t vm_stop_sleeping(VmState& state, std::uint32_t handle);
@@ -779,6 +793,7 @@ private:
     std::optional<std::size_t> h_world_poly(VmState&, const VmInsn&);
     // state
     std::optional<std::size_t> h_level(VmState&, const VmInsn&);
+    std::optional<std::size_t> h_camera_haze(VmState&, const VmInsn&);
     std::optional<std::size_t> h_add_ammo(VmState&, const VmInsn&);
     std::optional<std::size_t> h_cash(VmState&, const VmInsn&);
     std::optional<std::size_t> h_heal(VmState&, const VmInsn&);
