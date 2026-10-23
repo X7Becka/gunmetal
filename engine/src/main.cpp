@@ -1989,6 +1989,20 @@ int main(int argc, char** argv) {
     if (options->verbose) {
         gm::set_log_level(gm::LogLevel::Debug);
     }
+    // M12.5: say *which* directory is missing instead of a bare ".sbw not
+    // found": every data command joins names under `--game`.
+    {
+        std::error_code ec;
+        if (!fs::is_directory(options->game, ec)) {
+            std::fprintf(stderr,
+                         "[error] game: directory not found: %s\n"
+                         "hint: pass -g/--game DIR or set GUNMETAL_DIR; the "
+                         "directory must be the Gunmetal 3dfx install "
+                         "(gundx.exe and the data files)\n",
+                         options->game.string().c_str());
+            return 2;
+        }
+    }
     if (!options->music.empty()) {
         return play_music(*options);
     }

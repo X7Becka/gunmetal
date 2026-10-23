@@ -78,6 +78,13 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt")
     gm_label(cli_scene quick)
 endif()
 
+# M12.5: a wrong --game must name the directory and the hint, not ".sbw not
+# found".  Needs no installation.
+add_test(NAME cli_no_game COMMAND gunmetal -g /nope --level level0 --info)
+set_tests_properties(cli_no_game PROPERTIES PASS_REGULAR_EXPRESSION
+    "game: directory not found: /nope")
+gm_label(cli_no_game quick)
+
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     # M11.1: text -> bytecode -> bytes on every shipped block.
     add_test(NAME sbtasm_roundtrip
