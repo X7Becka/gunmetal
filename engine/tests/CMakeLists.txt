@@ -357,6 +357,13 @@ add_test(NAME effect_anim COMMAND gm_effect_anim_tests)
 gm_label(effect_anim quick)
 
 # SOUND_SAMPLE_TABLE (record 12): 300 counts + 300 nine-byte names.
+# M7.6: sample-name lookup - the table names must resolve to SOU.IDX entries,
+# a miss is a quiet nullopt (the original plays silence).
+add_executable(gm_sound_catalog_tests test_sound_catalog.cpp)
+target_link_libraries(gm_sound_catalog_tests PRIVATE gm_engine)
+add_test(NAME sound_catalog COMMAND gm_sound_catalog_tests)
+gm_label(sound_catalog quick)
+
 add_executable(gm_sample_table_tests test_sample_table.cpp)
 target_link_libraries(gm_sample_table_tests PRIVATE gm_engine)
 add_test(NAME sample_table COMMAND gm_sample_table_tests)
