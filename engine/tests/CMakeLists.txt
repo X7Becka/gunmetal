@@ -833,6 +833,21 @@ target_link_libraries(gm_save_writer_tests PRIVATE gm_engine)
 add_test(NAME save_writer COMMAND gm_save_writer_tests)
 gm_label(save_writer quick)
 
+# Engine save writer (M8.7/M9.4, docs/SAVE_WRITE_CPP.md): `write_save()` over
+# the same model.  Shipped saved0/saved1 parse -> write -> bytes byte for byte
+# (size/SHA-256/FNV printed by the test), the opaque header bytes 0x10..0x50
+# survive from the original, title/vitals edits touch only their own bytes, and
+# an empty model, an out-of-range offset/size, a duplicate id, a missing player
+# or an unrepresentable field are refused with a text and a code.
+# `--emit DIR` writes the C++ bytes for the documented cmp against
+# tools/re/save_rebuild.py.
+add_executable(gm_save_write_tests test_save_write.cpp)
+target_link_libraries(gm_save_write_tests PRIVATE gm_engine)
+add_test(NAME save_write COMMAND gm_save_write_tests)
+set_tests_properties(save_write PROPERTIES PASS_REGULAR_EXPRESSION
+    "save_write: [0-9]+ checks, ok")
+gm_label(save_write quick)
+
 # Typed save blocks (docs/SAVE_BLOCKS.md): switches 1, doors 2, things 3,
 # sprites 6 and sound sources 7 of saved0/saved1, field edits and negatives.
 add_executable(gm_save_blocks_tests test_save_blocks.cpp
