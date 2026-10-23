@@ -240,6 +240,41 @@ def hud_text(state: dict | None = None, top: int = PANEL_TOP) -> list:
     return out
 
 
+#: Icon slots of ``0x4926a0``: weapon at ``(0x17, 0xaa)``, equipment at
+#: ``(0xc9, 0xaa)`` in buffer rows, i.e. ``(23, 162)`` / ``(201, 162)`` on
+#: screen after the same ``-8`` that the text uses.  ``WICON1`` is copied
+#: upright, ``EQUIP0`` with its rows reversed (``EQUIP12`` is the same bitmap
+#: already flipped, docs/HUD_ICONS.md section 3).
+HUD_ICON_SLOTS = (
+    ("weapon_icon", 23, 162),
+    ("equipment_icon", 201, 162),
+)
+
+#: ``win2``/``win3`` icons: ``MACHINE GUN`` and ``HEADLIGHTS`` (slot 0).
+HUD_ICONS = {"weapon_icon": "WICON1", "equipment_icon": "EQUIP12"}
+
+
+def load_icon(game_dir: str, name: str):
+    """One 24x24 HUD icon from ``FRONTEND/BMP.IDX`` (read-only)."""
+    panel = load_panel(game_dir, name)
+    if (panel.width, panel.height) != (24, 24):
+        raise ValueError(f"{name}: {panel.width}x{panel.height}, "
+                         "expected 24x24")
+    return panel
+
+
+def hud_icons(state: dict | None = None) -> list:
+    """``(icon name, x, cell top)`` for the two icon slots."""
+    st = dict(HUD_ICONS)
+    st.update({k: v for k, v in (state or {}).items() if v})
+    out = []
+    for key, x, row in HUD_ICON_SLOTS:
+        name = st.get(key)
+        if name:
+            out.append((str(name), x, row))
+    return out
+
+
 def palette_bytes(game_dir: str, mode: str = "game") -> bytes:
     """256 RGBA quads for the panel: engine ``GAMEPAL`` (``"game"``).
 
@@ -258,7 +293,8 @@ def palette_bytes(game_dir: str, mode: str = "game") -> bytes:
 def compose(frame: bytes, width: int, height: int, panel: Panel,
             palette: bytes, top: int = PANEL_TOP,
             lut: bytes | None = None,
-            text: tuple = (), fonts: dict | None = None) -> bytes:
+            text: tuple = (), fonts: dict | None = None,
+            icons: tuple = (), icon_pixels: dict | None = None) -> bytes:
     """Blit ``panel`` onto a packed RGB frame; index 0 stays transparent.
 
     ``lut`` is the engine's 256-byte fade table for one level: the blit maps
@@ -306,7 +342,33 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
                 continue
             _draw_text_rgb(out, width, height, palette, font, tx, ty,
                            string)
+    if icons and icon_pixels:
+        for name, ix, iy in icons:
+            image = icon_pixels.get(name)
+            if image is None:
+                continue
+            _blit_index_rgb(out, width, height, palette, image, ix, iy)
     return bytes(out)
+
+
+def _blit_index_rgb(out: bytearray, width: int, height: int, palette: bytes,
+                    image, x: int, top: int) -> None:
+    """Blit a 24x24 index bitmap with no key and no fade (engine copy loop)."""
+    for r in range(image.height):
+        y = top + r
+        if not (0 <= y < height):
+            continue
+        for c in range(image.width):
+            index = image.indices[r * image.width + c]
+            if not index:
+                continue
+            px = x + c
+            if 0 <= px < width:
+                po = index * 4
+                do = (y * width + px) * 3
+                out[do] = palette[po]
+                out[do + 1] = palette[po + 1]
+                out[do + 2] = palette[po + 2]
 
 
 def _draw_text_rgb(out: bytearray, width: int, height: int, palette: bytes,
@@ -365,7 +427,9 @@ def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
                        lut: bytes, top: int, scale: float,
                        xphase: float = 2.0,
                        text: tuple = (), fonts: dict | None = None,
-                       text_base: float | None = None) -> dict:
+                       text_base: float | None = None,
+                       icons: tuple = (), icon_pixels: dict | None = None
+                       ) -> dict:
     """Fraction of band pixels whose screen index equals ``lut[panel]``.
 
     This compares *indices* against a raw screen dump (``gm_screen.bin``), so
@@ -385,6 +449,20 @@ def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
             if font is not None:
                 draw_text(expected, font, tx, int(round(ty - base)), string,
                           width=panel.width, height=panel.height)
+        for name, ix, iy in icons or ():
+            image = (icon_pixels or {}).get(name)
+            if image is None:
+                continue
+            irow = int(round(iy - base))
+            for r in range(image.height):
+                y = irow + r
+                if not (0 <= y < panel.height):
+                    continue
+                for c in range(image.width):
+                    index = image.indices[r * image.width + c]
+                    px = ix + c
+                    if index and 0 <= px < panel.width:
+                        expected[y * panel.width + px] = index
     hit = total = 0
     for py in range(panel.height):
         sy = top + int(py * scale)
@@ -595,6 +673,9 @@ def selftest() -> int:
     expect("kill digit at 72", items.get("11:0"), (72, 177))
     expect("damage digit at 156", items.get("9:0"), (156, 181))
     expect("equipment digit at 246", items.get("10:0"), (246, 173))
+    icons = hud_icons({"weapon_icon": "WICON1", "equipment_icon": "EQUIP12"})
+    expect("weapon icon slot", icons[0], ("WICON1", 23, 162))
+    expect("equipment icon slot", icons[1], ("EQUIP12", 201, 162))
 
     # installed game, if present
     game = os.environ.get("GUNMETAL_GAME", "/mnt/d/games/Gunmetal 3dfx")
@@ -619,6 +700,13 @@ def selftest() -> int:
             check("'MACHINE GUN' width", label.measure("MACHINE GUN"), 77)
             digits = load_font(game, 10)
             check("digit advance is 9", digits.glyph("1").advance, 9)
+            icon = load_icon(game, "WICON1")
+            check("WICON1 is 24x24", (icon.width, icon.height) == (24, 24))
+            equip0 = load_icon(game, "EQUIP0")
+            equip12 = load_icon(game, "EQUIP12")
+            flipped = b"".join(equip0.indices[r * 24:(r + 1) * 24]
+                               for r in range(23, -1, -1))
+            expect("EQUIP12 is EQUIP0 flipped", equip12.indices, flipped)
         except (FileNotFoundError, KeyError, ValueError) as exc:
             check("PANEL loads", False, str(exc))
     else:
@@ -660,7 +748,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="vertical scale of the band in --check-screen "
                          "(default 3.0 for 800x600)")
     ap.add_argument("--text", action="store_true",
-                    help="draw the HUD text layer (labels + digits)")
+                    help="draw the HUD text layer (labels + digits) and icons")
+    ap.add_argument("--no-icons", action="store_true",
+                    help="with --text: skip the 24x24 icons")
     ap.add_argument("--state", default="", metavar="JSON",
                     help="HUD state overrides for --text, e.g. "
                          '{"ammo": 1999}')
@@ -696,7 +786,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"rows={res['rows'][0]}..{res['rows'][1]} "
                   f"samples={res['samples']} scale={res['scale']}")
     fonts = {}
+    icon_pixels = {}
     text = ()
+    icons = ()
     if opts.text:
         import json
         for number in sorted({item[0] for item in hud_text()}):
@@ -708,10 +800,20 @@ def main(argv: list[str] | None = None) -> int:
         text = tuple(hud_text(state))
         print("text   " + ", ".join(f"font {n} at ({x},{y}) {t!r}"
                                     for n, x, y, t in text))
+        if not opts.no_icons:
+            icons = tuple(hud_icons(state))
+            for name, ix, iy in icons:
+                try:
+                    icon_pixels[name] = load_icon(opts.game, name)
+                except (KeyError, ValueError, FileNotFoundError) as exc:
+                    raise SystemExit(f"--text: {exc}")
+            print("icons  " + ", ".join(f"{n} at ({x},{y})"
+                                        for n, x, y in icons))
     if opts.preview and text:
         data = compose(bytes(320 * 200 * 3), 320, 200, panel,
                        palette_bytes(opts.game), top=opts.top, lut=lut,
-                       text=text, fonts=fonts)
+                       text=text, fonts=fonts, icons=icons,
+                       icon_pixels=icon_pixels)
         with open(opts.preview.rsplit(".", 1)[0] + "_text.png", "wb") as fh:
             fh.write(png.rgb(320, 200, data))
         print(f"wrote {opts.preview.rsplit('.', 1)[0]}_text.png")
@@ -723,7 +825,8 @@ def main(argv: list[str] | None = None) -> int:
         if lut is None:
             raise SystemExit("--check-screen needs --lut")
         res = screen_index_match(data, w, h, panel, lut, opts.top, opts.scale,
-                                 text=text, fonts=fonts)
+                                 text=text, fonts=fonts, icons=icons,
+                                 icon_pixels=icon_pixels)
         print(f"{opts.check_screen}: index match {100*res['match']:.1f}% "
               f"({res['pixels']} px, top={res['top']}, scale={res['scale']})")
     return 0

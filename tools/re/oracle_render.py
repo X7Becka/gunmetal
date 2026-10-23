@@ -458,16 +458,22 @@ def main(argv: list[str]) -> int:
         panel = hudmod.engine_order(hudmod.load_panel(opts.game))
         lut = hudmod.load_lut(opts.hud_lut, opts.hud_level)
         fonts = {}
+        icon_pixels = {}
         text = ()
+        icons = ()
         if opts.hud_text:
             state = json.loads(opts.hud_state) if opts.hud_state else {}
             text = tuple(hudmod.hud_text(state))
             for number in sorted({item[0] for item in text}):
                 fonts[number] = hudmod.load_font(opts.game, number)
+            icons = tuple(hudmod.hud_icons(state))
+            for name, _, _ in icons:
+                icon_pixels[name] = hudmod.load_icon(opts.game, name)
         rgb = hudmod.compose(image.pixels, image.width, image.height, panel,
                              hudmod.palette_bytes(opts.game),
                              top=opts.hud_top, lut=lut,
-                             text=text, fonts=fonts)
+                             text=text, fonts=fonts, icons=icons,
+                             icon_pixels=icon_pixels)
         data = pngmod.rgb(image.width, image.height, rgb)
 
     out_dir = os.path.dirname(os.path.abspath(opts.out))
