@@ -1019,18 +1019,22 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       проверяет парсеры без Python в runtime.
       > `tools/re/export_parity.py` → `build/parity/fixtures.txt`,
       > `engine/tests/test_parity.cpp` (CTest `parity_fixtures` +
-      > `parity`, фикстуры через `FIXTURES_SETUP/REQUIRED`). **248 проверок,
-      > 1149 значений, 0 расхождений**: 36 `.sbw` (tex/effects/sectors/objects/
+      > `parity`, фикстуры через `FIXTURES_SETUP/REQUIRED`). **288 проверок,
+      > 1309 значений, 0 расхождений**: 36 `.sbw` (tex/effects/sectors/objects/
       > verts/polys), 36 `.sbt` (records, счётчики по типам, непустые имена
       > таблицы сэмплов), 36 `.sbc` (magic/records/FNV пикселей), 40 текстур
       > из `PICS/SBM.IDX` (w/h/levels/flags/FNV мипа 0), 60 `SOBS/*.sob`
-      > (verts/faces), **40 `SML/*.sml|*.sme`** (chars/tags/FNV текста).
+      > (verts/faces), **40 `SML/*.sml|*.sme`** (chars/tags/FNV текста),
+      > **40 `sounds/SOU.IDX`** (magic/rate/flags/объявленная длина).
       > Расхождение ловится: подмена `polys` в фикстуре даёт
       > `MISMATCH sbw dm1.sbw polys: expected 1, got 5786`. На SML фикстуры
       > сразу нашли реальную разницу: `sml.decode_auto` — вход **`.sme`**
       > (позиционный сдвиг), а для plain `.sml` он даёт `<C>` вместо `<D>`
       > при том же числе тегов; экспортёр теперь читает `.sml` как есть.
-      > Нет фикстур для `sbv`/`soe`/`sou`/`sog`/`soa` (там уже есть
+      > SOU: сравнивается объявленная длина из заголовка, а не чётная
+      > обрезка кодека (у 25 записей длина нечётная — `len(payload)` был бы
+      > на 1 меньше и дал бы ложное расхождение).
+      > Нет фикстур для `sbv`/`soe`/`sog`/`soa` (там уже есть
       > C++-голдены в `core_full`/`re_*`).
 
 ### M3.3. Паритет данных

@@ -38,7 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from gm import bigfile, sbc, sbm, sbt, sbw, sml, sob  # noqa: E402
+from gm import bigfile, sbc, sbm, sbt, sbw, sml, sob, sou  # noqa: E402
 
 FORMAT = "gm parity fixtures v1"
 DEFAULT_GAME = "/mnt/d/games/Gunmetal 3dfx"
@@ -119,6 +119,29 @@ def _sml(game: Path, name: str) -> dict:
             "pix": "%016x" % fnv1a64(raw)}
 
 
+def _sou_entries(game: Path, limit: int) -> list:
+    """Header parity of the shipped SOU0/1/2 entries (no codec decode)."""
+    index = "sounds/SOU.IDX"
+    if not (game / index).is_file():
+        return []
+    archive = bigfile.BigFile(str(game / index))
+    data = Path(archive.dat_path).read_bytes()
+    checks = []
+    for number, entry in enumerate(archive.entries[:limit]):
+        try:
+            parsed = sou.parse(entry.data(data))
+        except ValueError:
+            continue
+        checks.append(("sou", "%s#%d" % (index, number),
+                       {"magic": parsed.magic, "rate": parsed.sample_rate,
+                        "flags": parsed.flags,
+                        # The declared header field, not the even-trimmed
+                        # payload: an odd SOU1 length keeps its +1 in the
+                        # container (the codec drops the tail halfword).
+                        "len": parsed.length_field}))
+    return checks
+
+
 def _sob(game: Path, name: str) -> dict:
     model = sob.parse(str(game / name))
     return {"verts": len(model.vertices), "faces": len(model.faces)}
@@ -152,7 +175,7 @@ def _sbm_entries(game: Path, limit: int) -> list:
 
 
 def build(game: Path, sob_limit: int | None = None, sbm_limit: int = 40,
-          sml_limit: int = 40) -> list:
+          sml_limit: int = 40, sou_limit: int = 40) -> list:
     lines = ["# " + FORMAT]
     checks = []
     for kind, (exporter, root, limit) in EXPORTERS.items():
@@ -171,6 +194,8 @@ def build(game: Path, sob_limit: int | None = None, sbm_limit: int = 40,
             checks.append((kind, name, exporter(game, name)))
     if sbm_limit and (game / SBM_INDEX).is_file():
         checks.extend(_sbm_entries(game, sbm_limit))
+    if sou_limit:
+        checks.extend(_sou_entries(game, sou_limit))
     sml_root = game / "SML"
     if sml_limit and sml_root.is_dir():
         paths = sorted(p for p in sml_root.rglob("*")

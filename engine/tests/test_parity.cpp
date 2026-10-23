@@ -28,6 +28,7 @@
 #include "res/sbw.h"
 #include "res/sml.h"
 #include "res/sob.h"
+#include "res/sou.h"
 
 namespace fs = std::filesystem;
 
@@ -175,6 +176,34 @@ void check_sbc(const fs::path& game, const std::string& name,
             {"pix", hex64(gm::fnv1a64(pixels))}});
 }
 
+void check_sou(const fs::path& game, const std::string& name,
+               const std::map<std::string, std::string>& expected) {
+    const auto hash = name.rfind('#');
+    if (hash == std::string::npos) {
+        report_mismatch("sou", name, "name", "path#index", "no index");
+        return;
+    }
+    const std::string index_path = name.substr(0, hash);
+    const long index = std::strtol(name.c_str() + hash + 1, nullptr, 10);
+    std::string error;
+    const auto& blobs = archive_blobs(game, index_path, error);
+    if (static_cast<long>(blobs.size()) <= index) {
+        report_mismatch("sou", name, "entry", "<present>",
+                        error.empty() ? "index out of range" : error);
+        return;
+    }
+    const auto sound = gm::parse_sou(blobs[static_cast<std::size_t>(index)], error);
+    if (!sound) {
+        report_mismatch("sou", name, "parse", "ok", error);
+        return;
+    }
+    verify("sou", name, expected,
+           {{"magic", sound->magic},
+            {"rate", std::to_string(sound->rate)},
+            {"flags", std::to_string(sound->flags)},
+            {"len", std::to_string(sound->payload.size())}});
+}
+
 void check_sml(const fs::path& game, const std::string& name,
                const std::map<std::string, std::string>& expected) {
     const auto bytes = read_file(game / name);
@@ -304,6 +333,8 @@ int main(int argc, char** argv) {
             check_sbc(game, name, expected);
         } else if (kind == "sbm") {
             check_sbm(game, name, expected);
+        } else if (kind == "sou") {
+            check_sou(game, name, expected);
         } else if (kind == "sml") {
             check_sml(game, name, expected);
         } else if (kind == "sob") {
