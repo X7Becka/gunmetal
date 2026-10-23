@@ -58,11 +58,43 @@
 // the pure `game/regen.h` one (the original's two `DEFINE_REGENERATION_MARKER`
 // doubles have no reader, see `docs/REGEN.md` §3).
 //
+// Platform carry slice (`M6.4.1`, slice 5, docs/PLATFORM_CARRY.md): the
+// optional `set_platform_carry(true)` rule makes a moving panel really carry a
+// player who stands on it.  It is **off by default**, so every old plan and
+// test keeps the slice-1 tick bit for bit.
+//
+// The rule is one extra step per tick and it adds no physics of its own:
+//
+//   1. before the controller step, if the previous tick remembered a panel
+//      (`platform_`), look the same triangle up in
+//      `CollisionWorld::dynamic_triangles()` (the dynamic set `set_dynamic`
+//      publishes, docs/DOOR_COLLISION.md) and take `delta = centroid_now -
+//      centroid_then`.  A triangle that is gone, swapped or turned (a swing
+//      leaf) is forgotten: only a pure translation is carried.  The player is
+//      moved by `delta` **before** `gm::step`, so the controller starts the
+//      tick on the panel's current pose and its own ground contact keeps the
+//      capsule resting there.  If the moved capsule overlaps *static* geometry
+//      (a cabin driven into a wall/ceiling) the transfer is cancelled and the
+//      player keeps the old position -- the documented rule of the original is
+//      unknown, this is the safe one;
+//   2. after the step, the ground probe of the controller (a downward sphere
+//      sweep, `player/controller.cpp::ground_contact`) is repeated here with
+//      the hit kept: `SphereHit::dynamic` names the panel, its triangle gives
+//      the identity `(sector, object, source_poly)` and the pose `centroid`
+//      for the next tick.  No dynamic hit under the feet -> no panel, the next
+//      tick carries nothing.
+//
+// Limits (docs/PLATFORM_CARRY.md §4): translation only (no rotating cabins, no
+// swing leaves), a stand-on (floor-like) contact only (a leaf pushing the
+// capsule sideways is not modelled), one panel at a time, no shaking or
+// multiple stacked panels.
+//
 // Scope: one player, feet point from the caller, no death animation/corpse/
 // sound, no keyboard/mouse input, no rendering.  See `docs/SIM_PLAYER.md`
 // (§1) for the slice-1 walk-through, `docs/SIM_PROJECTILE.md` for the
-// projectile API, `docs/SIM_DAMAGE.md` for damage/death/respawn and
-// `docs/REGEN.md` for the regeneration rule, its numbers and its limits.
+// projectile API, `docs/SIM_DAMAGE.md` for damage/death/respawn,
+// `docs/REGEN.md` for the regeneration rule and `docs/PLATFORM_CARRY.md` for
+// the moving-panel rule, their numbers and their limits.
 
 #include <cstdint>
 #include <optional>
@@ -270,6 +302,28 @@ public:
     /// `0x453b50` writes into `+0x3244..+0x3260`.
     const Vitals& vitals() const { return vitals_; }
 
+    // --- moving panel carry (slice 5, M6.4.1, docs/PLATFORM_CARRY.md) --------
+
+    /// Turn the carry rule on/off.  **Off by default**: a player that never
+    /// calls this behaves exactly like slice 4 (the lift cabin passes through
+    /// the standing player, `dz = -39.3` in `test_lift_collision`), so old
+    /// plans and goldens are untouched.  The flag is configuration like
+    /// `set_regen()`: it survives `init()`/`respawn()`; only the remembered
+    /// panel is per-life.
+    void set_platform_carry(bool enabled);
+    /// True while the carry rule is on.
+    bool platform_carry() const { return platform_carry_; }
+    /// True when the *last successful tick* found a dynamic floor triangle
+    /// under the feet and remembered it.  Always false while the rule is off
+    /// (no probe is made then).  A jump, a step off the panel or a panel that
+    /// disappeared clears it on the tick that notices.
+    bool on_platform() const { return platform_.has_value(); }
+    /// Displacement the player was moved by on the last tick (`0,0,0` when
+    /// nothing was carried, when the rule is off or when the transfer was
+    /// cancelled by a static overlap).  This is the panel's own `delta` of that
+    /// tick, so `platform_delta()` summed over the run equals the panel travel.
+    Vec3d platform_delta() const { return platform_delta_; }
+
     /// Current player state (feet point, velocity, yaw, capsule height).
     const PlayerState& state() const { return state_; }
     /// Current yaw in radians; equals `state().yaw`.
@@ -317,6 +371,25 @@ private:
     /// Apply the blasts of the current `last_projectile_results()` generation
     /// once, count them and write the result back into `Things`.
     void apply_blasts(GameRuntime& runtime);
+    /// Move `state` by the delta of the remembered panel (before the
+    /// controller step).  A missing/swapped/turned panel forgets it; a move
+    /// that would overlap static geometry is cancelled.  Updates `platform_`
+    /// to the pose just observed and `platform_delta_`.
+    void carry_platform(const CollisionWorld& world, PlayerState& state);
+    /// Ground probe after the step: remember the dynamic triangle under the
+    /// feet, or forget the previous panel.
+    void detect_platform(const CollisionWorld& world);
+
+    /// The panel the player stood on at the end of the last tick.
+    struct PlatformRef {
+        std::uint32_t index = 0;       ///< into `dynamic_triangles()`
+        std::uint32_t sector = 0;
+        std::uint32_t object = 0;
+        std::uint32_t source_poly = 0; ///< polygon inside its object
+        Vec3d centroid{};              ///< pose of the triangle last tick
+        Vec3d normal{};                ///< unit face normal last tick
+        Vec3d data_normal{};           ///< authored normal last tick
+    };
 
     ControllerConfig config_{};
     PlayerState state_{};
@@ -349,6 +422,13 @@ private:
     // is reset by both.
     std::optional<RegenRule> regen_rule_{};
     RegenState regen_state_{};
+
+    // Moving panel carry (slice 5, `M6.4.1`, docs/PLATFORM_CARRY.md).  The flag
+    // is configuration (survives init/respawn); the remembered panel and the
+    // last delta belong to the current life.
+    bool platform_carry_ = false;
+    std::optional<PlatformRef> platform_{};
+    Vec3d platform_delta_{};
 
     // Projectile mode (slice 2).  `projectile_runtime_` is nulled by
     // `set_projectile()`/`clear_projectile()`/`init()`, so the template reaches
