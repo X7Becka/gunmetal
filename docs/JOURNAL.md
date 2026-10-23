@@ -1207,3 +1207,16 @@
   Нет: интеграции в рантайм (в работе отдельным срезом), кабины лифта,
   объект-объект, broad-phase.
 - **Гейты:** `ctest` **154/154** (quick 140/140).
+
+## Ход 2026-10-23 (партия 28: runtime-пагинация SML)
+
+- **`M8.1` → 🟡 (пагер).** `engine/src/ui/sml_pager.*` +
+  `docs/SML_PAGER.md` (CTest `sml_pager`): курсор над страницами
+  `text_layout` 267×167; `<p>` — не разрыв страницы (`+line_height/2` и
+  перевод строки). 6 документов / 18 страниц / 230 строк: `help.sme` 3/42,
+  `CREDITS.SML` 5/64, `brief/level22.sme` 5/74; границы без изменения
+  состояния; поймана регрессия кэша атласов (шрифт 3 после шрифта 1).
+- **CLI `--pager`:** `--page N`, `--pager-keys next,prev,first,last,line,up`,
+  `--all`; `help.sme` → `page 1/3 pages=3 lines=42` с текстом и координатами
+  строк (CTest `cli_pager`, `cli_pager_keys`, `cli_pager_bad`).
+- **Гейты:** `ctest` **158/158** (quick 144/144).
