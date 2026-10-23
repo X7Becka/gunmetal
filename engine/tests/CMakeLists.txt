@@ -361,6 +361,18 @@ target_link_libraries(gm_moving_collider_tests PRIVATE gm_engine)
 add_test(NAME moving_collider COMMAND gm_moving_collider_tests)
 gm_label(moving_collider quick)
 
+# M6.4.1 slice 3: swing doors rotate (`0x44dfc0` lerp + `0x434887` basis,
+# `world/moving_collider.h`).  Real level0 `sec=48 obj=6` (120 deg about -x)
+# and dm1 `sec=17 obj=55` (-90 deg about -z): the closed pose is the rest pose
+# bit for bit, half-open halves the angle and keeps edge lengths/planes, open
+# clears the ray/sphere, the player is held by the closed leaf and walks through
+# the open one, the runtime publishes the pair (`rotating`, suppressed static,
+# posed dynamic), and zero angle / non-unit axis / NaN fraction are refused.
+add_executable(gm_swing_door_tests test_swing_door.cpp)
+target_link_libraries(gm_swing_door_tests PRIVATE gm_engine)
+add_test(NAME swing_door COMMAND gm_swing_door_tests)
+gm_label(swing_door quick)
+
 # M6.4.1 slice 2: moving doors really hold the player (docs/DOOR_COLLISION.md).
 # `CollisionWorld::set_dynamic` + static suppression (NaN/inf refusal, empty-set
 # parity), the runtime building one panel per moving sliding door on real

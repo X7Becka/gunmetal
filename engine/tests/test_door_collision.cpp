@@ -390,7 +390,9 @@ void test_runtime_level0(const Fixture& fixture) {
     CHECK(stats.panels == stats.doors);
     CHECK(stats.triangles == world.dynamic_triangle_count());
     CHECK(stats.static_triangles == world.triangle_count());
-    CHECK(stats.skipped_rotating > 0); // level0 has swing doors (docs/DOORS_CPP.md)
+    // Swing doors are kinematic colliders too now (`test_swing_door`); nothing
+    // is skipped for the rotating axis any more.
+    CHECK(stats.skipped_rotating == 0);
     CHECK(stats.rebuilds == 1);        // the build happens once
     CHECK(world.is_suppressed(4, 1));
 
@@ -507,9 +509,12 @@ void test_runtime_level0(const Fixture& fixture) {
         const bool suppressed =
             world.is_suppressed(static_cast<std::uint32_t>(swinging->sector),
                                 static_cast<std::uint32_t>(swinging->object));
-        std::printf("  rotating door sec=%d obj=%d: suppressed=%d (kept static)\n",
+        std::printf("  rotating door sec=%d obj=%d: suppressed=%d (kinematic)\n",
                     swinging->sector, swinging->object, suppressed ? 1 : 0);
-        CHECK(!suppressed);
+        // The swing leaf owns its (sector, object) pair now, so the static copy
+        // is suppressed and the rebuilt pose is the only one queried
+        // (`docs/DOOR_COLLISION.md` §2.1).
+        CHECK(suppressed);
     }
 
     // A door rebound to an object that does not exist is counted, and neither

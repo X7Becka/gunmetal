@@ -17,9 +17,12 @@
 //
 // The synthetic part covers diagonal travel (level0 sector 23 object 1,
 // travel (63, 0, 40)), floor/ceiling/filter selection, NaN/inf refusal,
-// negative lift offsets and the empty-set negatives.  The parity block checks
-// `MovingCollider` against `CollisionWorld` on the same triangles (rays and
-// spheres), so the duplicated sweep in `moving_collider.cpp` cannot drift.
+// negative lift offsets and the empty-set negatives.  The swing block poses
+// the real level0 `sec=48 obj=6` leaf: closed it is the rest pose, fully open
+// every vertex moved, and a zero swing angle is refused.  The parity block
+// checks `MovingCollider` against `CollisionWorld` on the same triangles (rays
+// and spheres), so the duplicated sweep in `moving_collider.cpp` cannot drift.
+// The detailed swing-door numbers live in `test_swing_door.cpp`.
 #include "world/moving_collider.h"
 
 #include "res/sbt.h"
@@ -445,7 +448,8 @@ void test_level0(bool have_level0) {
     std::printf("  empty panels: ready=false raycast=miss error=\"%s\"\n",
                 empty.error().c_str());
 
-    // --- swing doors are refused instead of being moved as if they slid.
+    // --- swing doors are modelled since slice 3: the panel turns about the
+    // folded closed corner (`door_swing`), the closed pose is the rest pose.
     const gm::Door* rotating = nullptr;
     for (const gm::Door& candidate : state.doors()) {
         if (gm::door_axis(candidate) == gm::DoorAxis::Rotating) {
@@ -459,13 +463,52 @@ void test_level0(bool have_level0) {
         CHECK(panel_from_world(world, static_cast<std::uint32_t>(rotating->sector),
                                static_cast<std::uint32_t>(rotating->object),
                                gm::door_travel(*rotating), &swing));
+        const gm::DoorSwing spec = gm::door_swing(*rotating);
         gm::MovingCollider swing_collider;
-        swing_collider.set_panels({swing}, gm::door_axis(*rotating));
-        CHECK(!swing_collider.ready());
-        CHECK(!swing_collider.last_update_ok());
-        CHECK(!swing_collider.raycast(origin, direction).has_value());
-        std::printf("  rotating door (sec=%d obj=%d): refused (%s)\n", rotating->sector,
-                    rotating->object, swing_collider.error().c_str());
+        swing_collider.set_panels({swing}, gm::door_axis(*rotating), spec);
+        CHECK(swing_collider.ready());
+        CHECK(swing_collider.last_update_ok());
+        CHECK(swing_collider.axis() == gm::DoorAxis::Rotating);
+        CHECK(swing_collider.swing().max_angle == spec.max_angle);
+        // Closed: bit-identical to the rest pose (identity transform).
+        CHECK(swing_collider.triangle_count() == swing.rest.size());
+        bool same = swing_collider.triangle_count() == swing.rest.size();
+        for (std::size_t i = 0; same && i < swing.rest.size(); ++i) {
+            const gm::Triangle& a = swing_collider.triangles()[i];
+            const gm::Triangle& b = swing.rest[i];
+            same = a.a.x == b.a.x && a.a.y == b.a.y && a.a.z == b.a.z &&
+                   a.b.x == b.b.x && a.b.y == b.b.y && a.b.z == b.b.z &&
+                   a.c.x == b.c.x && a.c.y == b.c.y && a.c.z == b.c.z &&
+                   a.normal.x == b.normal.x && a.normal.y == b.normal.y &&
+                   a.normal.z == b.normal.z && a.data_normal.x == b.data_normal.x &&
+                   a.data_normal.y == b.data_normal.y && a.data_normal.z == b.data_normal.z;
+        }
+        CHECK(same);
+        const gm::Aabb closed_swing = swing_collider.bounds();
+        swing_collider.update(1.0);
+        CHECK(swing_collider.last_update_ok());
+        const gm::Aabb open_swing = swing_collider.bounds();
+        bool moved = false;
+        for (std::size_t i = 0; i < swing.rest.size(); ++i) {
+            moved = moved || swing_collider.triangles()[i].a.x != swing.rest[i].a.x ||
+                    swing_collider.triangles()[i].a.y != swing.rest[i].a.y ||
+                    swing_collider.triangles()[i].a.z != swing.rest[i].a.z;
+        }
+        std::printf("  rotating door (sec=%d obj=%d): angle=%.6f rad axis=(%.0f, %.0f, %.0f) "
+                    "tris=%zu closed bounds z=%.3f..%.3f open z=%.3f..%.3f moved=%d\n",
+                    rotating->sector, rotating->object, spec.max_angle, spec.axis.x,
+                    spec.axis.y, spec.axis.z, swing.rest.size(), closed_swing.lo.z,
+                    closed_swing.hi.z, open_swing.lo.z, open_swing.hi.z, moved ? 1 : 0);
+        CHECK(moved);
+        // A zero swing angle is refused instead of posing a still leaf.
+        gm::DoorSwing zero = spec;
+        zero.max_angle = 0.0;
+        gm::MovingCollider no_turn;
+        no_turn.set_panels({swing}, gm::DoorAxis::Rotating, zero);
+        CHECK(!no_turn.ready());
+        CHECK(!no_turn.last_update_ok());
+        std::printf("  rotating door with zero angle: refused (%s)\n",
+                    no_turn.error().c_str());
     }
 
     // --- diagonal travel: 105 shipped sliding doors move on more than one
