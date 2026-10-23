@@ -107,6 +107,13 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     set_tests_properties(sbtwrite_replace PROPERTIES PASS_REGULAR_EXPRESSION
         "others identical: yes, block==asm: yes")
     gm_label(sbtwrite_replace quick)
+    # M11.6: every shipped BIGFILE pair repacked byte for byte.
+    add_test(NAME bigpack_roundtrip
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/bigpack.py
+                     --roundtrip --tmp-dir ${CMAKE_BINARY_DIR}/bigpack-tmp)
+    set_tests_properties(bigpack_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
+        "all identical=True")
+    gm_label(bigpack_roundtrip quick)
 endif()
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX")
@@ -607,6 +614,12 @@ if(GM_PYTHON3)
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/perf.py
                      --self-test)
     gm_label(perf_selftest quick)
+
+    # M11.6: BIGFILE packing/replacement (tools/editor/bigpack.py).
+    add_test(NAME bigpack_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/bigpack.py
+                     --self-test)
+    gm_label(bigpack_selftest quick)
 
     # M11.1/M11.5: the container writer (tools/editor/sbtwrite.py).
     add_test(NAME sbtwrite_selftest

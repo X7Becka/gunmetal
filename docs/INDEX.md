@@ -15,8 +15,9 @@
 | `docs/AUDIO_3D.md` | 36 | 311 | 3D-позиционный звук (M7.3): очередь, слушатель, формулы |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |
-| `docs/AUDIT_NUMBERS.md` | 19 | 64 | AUDIT_NUMBERS — независимая сверка чисел в свежих RE-доках |
+| `docs/AUDIT_NUMBERS.md` | 20 | 64 | AUDIT_NUMBERS — независимая сверка чисел в свежих RE-доках |
 | `docs/BASELINE.md` | 12 | 0 | Baseline: установка, инвентарь и регрессия |
+| `docs/BIGFILE_WRITE.md` | 17 | 46 | BIGFILE_WRITE — запись архивов `.IDX`/`.DAT` (`M11.6`) |
 | `docs/BUILD.md` | 4 | 0 | Сборка движка (M3) |
 | `docs/CAMERA.md` | 31 | 209 | Gunmetal — камера первого лица: оси, матрица, проекция |
 | `docs/CAMERA_CPP.md` | 25 | 74 | `camera/camera.h` — камера первого/третьего лица |
@@ -50,7 +51,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 68 | 228 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 71 | 237 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -86,7 +87,7 @@
 | `docs/SAVE_WRITER.md` | 12 | 22 | C++-писатель сейвов Gunmetal |
 | `docs/SBT_ASM.md` | 24 | 13 | Ассемблер скриптов `.sbt` (текст → байткод `SCRIPT`) |
 | `docs/SBT_RECORDS.md` | 20 | 140 | Все типы записей `.sbt`: раскладка, писатели, побайтовая проверка |
-| `docs/SBT_WRITE.md` | 23 | 21 | Писатель контейнера `.sbt` (`M11.4`, часть 1) |
+| `docs/SBT_WRITE.md` | 24 | 24 | Писатель контейнера `.sbt` (`M11.4`, часть 1) |
 | `docs/SBV.md` | 21 | 17 | `.sbv` — видео/анимации Gunmetal |
 | `docs/SBV_PARITY.md` | 9 | 3 | Паритет C++ ↔ Python для `.sbv` на всём корпусе |
 | `docs/SCREEN_CPP.md` | 15 | 5 | SML-экран в C++: один рантайм от `.sme` до RGB |
