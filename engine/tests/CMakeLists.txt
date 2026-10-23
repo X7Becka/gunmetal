@@ -683,6 +683,16 @@ target_link_libraries(gm_sim_player_tests PRIVATE gm_engine)
 add_test(NAME sim_player COMMAND gm_sim_player_tests)
 gm_label(sim_player quick)
 
+# M6.5.1 slice 2: player -> projectile -> hit -> blast (docs/SIM_PROJECTILE.md).
+# Real dm1 + level0 ROCKET + a movement-type 6 template; the weakest damageable
+# thing with a firing line is found from the level itself, then `fire` must
+# spawn a round, expire it on the wall, blast and kill the thing; replay and the
+# no-template / non-projectile-template negatives.
+add_executable(gm_sim_projectile_tests test_sim_projectile.cpp)
+target_link_libraries(gm_sim_projectile_tests PRIVATE gm_engine)
+add_test(NAME sim_projectile COMMAND gm_sim_projectile_tests)
+gm_label(sim_projectile quick)
+
 # The original's CRT `rand()` (docs/RNG.md): MSVC LCG `state*214013+2531011`,
 # output `(state >> 16) & 0x7FFF`, seeded from `time(nullptr)` at init
 # (`0x44A491`).  Goldens are the documented `srand(1)` sequence.
