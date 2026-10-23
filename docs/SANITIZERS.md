@@ -72,3 +72,26 @@ ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build/asan -j 4
 `gunmetal -g /nope` (rc=2) и полный холодный рендер `--render` под ASan —
 чисто; новые C++-тесты (`engine_3d`, `damage_model`) входят в набор без
 исключений.
+
+## Предупреждения компилятора (2026-10-23)
+
+Отдельная конфигурация `build/warn` (`-Wall -Wextra -Wpedantic`,
+`GM_WITH_SDL3=OFF`):
+
+```sh
+cmake -S . -B build/warn -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_C_COMPILER=$HOME/tools/bin/zigcc \
+      -DCMAKE_CXX_COMPILER=$HOME/tools/bin/zigcxx -DGM_WITH_SDL3=OFF \
+      -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wpedantic"
+cmake --build build/warn --clean-first -j 8 2>&1 | grep -c 'warning:'
+```
+
+* `gm_engine` — **0 предупреждений** (было 2: неиспользуемый `title` при
+  выключенном SDL3, мёртвая `arg()` в `res/scene.cpp`);
+* весь проект вместе с тестами — 49: 34 `-Wmissing-field-initializers`
+  (агрегаты в тестах) и 15 «unused/sign-compare» в тестовых хелперах;
+  статического анализатора в среде нет (`clang-tidy`/`cppcheck` не
+  установлены).
+* Побочно: `test_weapons.cpp::test_blast_and_thing_damage` был определён,
+  но **не вызывался** — теперь вызывается (проходит); `test_parity`
+  печатает число строк с неизвестным `kind`.

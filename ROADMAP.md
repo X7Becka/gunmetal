@@ -2241,9 +2241,14 @@ save/load восстанавливает мир, игрока, двери, па�
       > — **101/101**, 416 с; гейт `sanitizer_selfcheck` (`WILL_FAIL`) и
       > проверка инструментации (`__asan_report`, `libasan`). Найдено и
       > исправлено: `test_ai` (`stack-use-after-return` через
-      > `Ai::attach`/перемещённый `Things`). **Нет:** статического анализа
-      > (clang-tidy/cppcheck) и фаззинга с покрытием на всех 9 контейнерах —
-      > только быстрая матрица.
+      > `Ai::attach`/перемещённый `Things`). **Предупреждения:**
+      > `build/warn` (`-Wall -Wextra -Wpedantic`) — `gm_engine` **0**,
+      > весь проект 49 (34 `-Wmissing-field-initializers` в тестах + 15
+      > unused/sign-compare в тестовых хелперах); статического анализатора
+      > в среде нет (clang-tidy/cppcheck не установлены). Побочно найден
+      > невызывавшийся `test_blast_and_thing_damage` — теперь в `main()`.
+      > **Нет:** фаззинга с покрытием на всех 9 контейнерах — только
+      > матрица `fuzz_formats`.
 - 🟡 `M12.2` 64-bit, Windows, Linux; CI-матрица.
       > **64-bit Linux уже работает:** сборка Zig по умолчанию даёт
       > `ELF 64-bit LSB executable, x86-64` (`file build/sandbox/engine/
