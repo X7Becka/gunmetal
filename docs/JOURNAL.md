@@ -780,3 +780,42 @@
   `ctest` 98/98, `regress --full --mirror` **124/124**.
 - **ASan/UBSan.** `cmake --preset asan`: `engine_3d`, `vm_screens`, `parity`,
   `sound_catalog`, `postfx` — чисто (5 `__asan_report`, libasan линкуется).
+
+## Ход 2026-10-23 (партия 10: ассемблер скриптов, цели/секреты, ASan, парность SML)
+
+- **Ассемблер `.sbt` (`M11.1` → 🟡).** `tools/editor/sbtasm.py` +
+  `docs/SBT_ASM.md`: обратный путь к `gm.sbtvm.decode` по сигнатурам
+  `COMMANDS`/`CONDITIONS`/`TABLE_SIGS`; round-trip по 36 уровням —
+  **15 061/15 061 блока побайтово** (3 542 023 байта), 147 777 инструкций,
+  171 опкод, 43 условия; `--self-test` 11/11; CTest `sbtasm_selftest`,
+  `sbtasm_roundtrip`. `render_exact` фиксирует места, где эталонный
+  `render` теряет данные (`%g` у 2 478 блоков, 17 `ADD_LIFT`, 42 блока с
+  вложенным `else`-кодом).
+- **Цели/секреты (`M6.4.5` → 🟡).** `docs/OBJECTIVES.md` +
+  `tools/re/objectives.py` (120/120, 43 якоря): 103 → `0x80d7ec`+`0x80d800`,
+  104 — единственный писатель маски `0x80f9d0` (`0x45be4e`), условие 7,
+  сброс `0x456f50`; tally секретов `player+0x33cc` (`0x4536b0`, сброс
+  `0x45280f`); корпус — 25 уровней/35 объявлений, 51 первичная строка
+  (всех 67, разных 58), 19 уровней ставят биты, 101 секрет / 105
+  инкрементов, 38 сайтов экрана конца уровня. Поправки в `CAMPAIGN_FLOW`
+  §4 и `LEVEL_LOAD` §4.
+- **ASan/UBSan по всему набору (`M12.1` → 🟡).** `build/asan`:
+  **101/101** за 416 с; найден и исправлен `stack-use-after-return` в
+  `test_ai` (`Ai::attach` + перемещённый `Things`). Подробности —
+  `docs/SANITIZERS.md`.
+- **C++-урон сверен с доком.** CTest `damage_model`: 45/12/3 удара до
+  смерти, перелив плиты в броню, `flags` 1/2/4, `mult_plate`/`mult_hull`,
+  спад взрыва — всё совпало с `damage.py --calc`.
+- **Парность SML.** `export_parity.py` + `test_parity.cpp`: 40 файлов
+  `SML/*.sml|*.sme` (chars/tags/FNV текста), итог **248 проверок, 1149
+  значений, 0 расхождений**. Фикстуры сразу поймали разницу: `decode_auto`
+  — вход `.sme`, для plain `.sml` он даёт сдвинутый текст при том же числе
+  тегов.
+- **Аудит расширен** (`doc_numbers.py`): +`GAME_OVER` (38 сайтов опкода 91,
+  0 строк `GAME OVER`) и +`SBT_ASM` (блоки/байты/инструкции/опкоды) —
+  **41/41**, 9 доков; `AUDIT_NUMBERS.md` отмечает исправленные 35
+  переходов и 651 `.sog`.
+- **Снимки обновлены:** `CURRENT_STATE.md` (943 коммита, CTest 103/103,
+  regress 124/124, этапы 62 %) и `docs/RE_AUDIT.md`.
+- **В работе:** `feat/chassis` (`M6.1.4`/`M6.5.3`), `feat/water` (`M7.7`),
+  `feat/sbtwrite` (`M11.4`, писатель контейнера `.sbt`).

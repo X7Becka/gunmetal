@@ -34,9 +34,14 @@
    `screens` (CTest `vm_screens`), `controls` и `install_audit` считают
    `KEYCFG/*.KEY` пользовательскими данными (полный `ctest` 98/98,
    `regress --full --mirror` 124/124), ASan/UBSan на новых тестах чист.
-2. **В работе:** `feat/chassis` (`M6.1.4`/`M6.5.3`), `feat/scriptasm`
-   (`M11.1`, round-trip `.sbt`), `feat/objectives` (`M6.4.5`, цели/секреты/
-   триггеры). После вливания — self-test, CTest, README, ROADMAP.
+2. **Влито после партии 9:** `feat/scriptasm` (`M11.1`: round-trip
+   15 061/15 061, `sbtasm_selftest`/`sbtasm_roundtrip`), `feat/objectives`
+   (`M6.4.5`: `docs/OBJECTIVES.md`, `objectives.py` 120/120), `feat/audit`
+   расширен до 41/41 по 9 докам, парность SML — 248 проверок/1149 значений,
+   CTest `damage_model` (45/12/3 удара), ASan 101/101 (`M12.1` 🟡).
+   **В работе:** `feat/chassis` (`M6.1.4`/`M6.5.3`), `feat/water` (`M7.7`),
+   `feat/sbtwrite` (`M11.4`, писатель контейнера). После вливания —
+   self-test, CTest, README, ROADMAP.
 3. **Дальше по остаткам:** `M7.7` (подводный/эффектовый фильтр — искать
    писателей битов `0x2/0x4` сектора), `M11.2`/`M11.3` (редактор),
    `M12.1` (фаззинг + ASan по всем парсерам), `M7.4` (рантайм-кэш сэмплов),
