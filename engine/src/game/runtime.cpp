@@ -156,15 +156,14 @@ bool GameRuntime::build_door_panels(const WorldState& world, CollisionWorld& col
             continue;
         }
         const DoorAxis axis = door_axis(door);
-        if (axis == DoorAxis::Rotating) {
-            // A swing leaf rotates around `center`; a translation is not its
-            // motion, so it stays static (docs/DOOR_COLLISION.md §6).
-            ++out.stats.skipped_rotating;
-            continue;
-        }
+        const bool rotating = axis == DoorAxis::Rotating;
+        // A swing leaf turns even when its two corners coincide (113 of the
+        // 357 shipped swing doors move); only a non-rotating door with
+        // `open == closed` stands still at its rest pose.
         MovingPanel panel;
         panel.travel = door_travel(door);
-        if (panel.travel.x == 0.0 && panel.travel.y == 0.0 && panel.travel.z == 0.0) {
+        if (!rotating && panel.travel.x == 0.0 && panel.travel.y == 0.0 &&
+            panel.travel.z == 0.0) {
             ++out.stats.skipped_static; // open == closed: the rest pose is final
             continue;
         }
@@ -178,14 +177,15 @@ bool GameRuntime::build_door_panels(const WorldState& world, CollisionWorld& col
             continue;
         }
         MovingCollider collider;
-        collider.set_panels({panel}, axis);
+        const DoorSwing swing = rotating ? door_swing(door) : DoorSwing{};
+        collider.set_panels({panel}, axis, swing);
         if (!collider.ready()) {
             ++out.stats.skipped_refused;
             continue;
         }
         // `lift_offset` is 0: the model has no lift -> level-object binding
         // (`Lift::sob` is a SOB model index, docs/MOVING_COLLIDERS.md §2.2), so
-        // no cabin panel can be built yet.  A door leaf only slides.
+        // no cabin panel can be built yet.  A leaf slides and/or swings.
         collider.update(door.motion_fraction(), 0.0);
         if (!collider.last_update_ok()) {
             ++out.stats.skipped_refused;
@@ -197,6 +197,9 @@ bool GameRuntime::build_door_panels(const WorldState& world, CollisionWorld& col
         out.door_index.push_back(index);
         ++out.stats.doors;
         ++out.stats.panels;
+        if (rotating) {
+            ++out.stats.rotating;
+        }
     }
     return publish_door_dynamic(collision, out, error);
 }

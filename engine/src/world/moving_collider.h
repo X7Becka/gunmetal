@@ -21,26 +21,34 @@
 //   * `Door::open - Door::closed` is therefore the full travel of a sliding
 //     door (`door_travel`); 105 of the 1421 moving sliding doors have a
 //     diagonal travel, hence the `DoorAxis::Travel` mode;
-//   * 357 doors carry a rotation operand.  A swing leaf rotates, and a pure
-//     translation is not its motion; `door_axis` reports `DoorAxis::Rotating`
-//     and `set_panels` refuses that mode instead of pretending.
+//   * 357 doors carry a rotation operand (`+0x48`, `A1..A3`).  `0x44dfc0`
+//     picks the axis by the priority z > x > y, uses the unit vector
+//     -x / +y / -z and the angle `(A_i / 65535) * phase` (the record keeps
+//     the operand already divided by 65535); `0x434887`
+//     builds the basis as a rotation by `-angle` about that axis.  Combining
+//     that with `origin = center - basis^T * size` maps a rest world point
+//     `p` to `center + R(angle) * (p - closed)`.  This module rotates every
+//     vertex and both normals by `R(fraction * max_angle)` about `axis`
+//     through `pivot == Door::closed` (`door_swing`), and slides the pivot by
+//     `(open - closed) * fraction`; `f = 0` is exactly the rest pose.
 //
 // Conventions are the same as `render/collide.h`:
 //   * double precision, world units, `world = origin + basis * local`;
-//   * `normal` is recomputed from the moved winding, `data_normal` is carried
-//     over (a translation does not rotate it) and re-normalised,
-//     `plane_offset = dot(normal, a)`, `centroid` and `bounds` follow the
-//     moved vertices.  `surface_of`/`surface_normal` see the same two normals
-//     as they do on a `CollisionWorld` triangle;
+//   * a translation recomputes `normal` from the moved winding and carries
+//     `data_normal` over; a rotation turns both by the same `R(angle)` and
+//     keeps their origin (the winding normal is not recomputed).  Both are
+//     re-normalised, `plane_offset = dot(normal, a)`, `centroid` and `bounds`
+//     follow the moved vertices.  `surface_of`/`surface_normal` see the same
+//     two normals as they do on a `CollisionWorld` triangle;
 //   * `raycast`/`sphere_cast` are two-sided by default and report the normal
 //     against the incoming query, exactly like `CollisionWorld`;
 //   * the query filters (`floors`/`ceilings`/`walls`/`backfaces`/sectors) are
 //     the same `CollideFilter`, applied by `surface_of(data_normal)`;
 //   * queries allocate nothing and return pointers into `triangles()`.
 //
-// Limitations (docs/MOVING_COLLIDERS.md §6): no rotation, no object-vs-object
-// collision, no penetration resolve/push-out, and no integration into
-// `CollisionWorld` or the runtime yet.
+// Limitations (docs/MOVING_COLLIDERS.md §6): no object-vs-object collision, no
+// penetration resolve/push-out, and no integration into `CollisionWorld` from
+// this module itself (the runtime does it, docs/DOOR_COLLISION.md).
 
 #include <cstddef>
 #include <cstdint>
@@ -58,7 +66,9 @@ namespace gm {
 /// `X`/`Y`/`Z`: the door was authored along one world axis; the component of
 /// `MovingPanel::travel` on that axis is used.  `Travel`: diagonally authored
 /// door, the whole `travel` vector is used (105 shipped sliding doors).
-/// `Rotating`: a swing door; not modelled, `set_panels` refuses it.
+/// `Rotating`: a swing door; the panel turns about `DoorSwing::pivot` by
+/// `fraction * DoorSwing::max_angle` and its pivot slides by
+/// `MovingPanel::travel * fraction` (357 shipped doors, 113 of them moving).
 enum class DoorAxis : std::uint8_t {
     X = 0,
     Y = 1,
@@ -88,25 +98,61 @@ struct MovingPanel {
     /// Triangles of the door object as built by `CollisionWorld` (same fan,
     /// winding, `data_normal`, sector/object/texture fields).
     std::vector<Triangle> rest;
-    /// `open - closed`, world units.  Zero for a pure lift panel that is moved
-    /// only by `update(..., lift_offset)`.
+    /// `open - closed`, world units.  For a swing leaf this is the slide of
+    /// the rotation pivot (`center(f) = pivot + travel * f`), not the vertex
+    /// displacement.  Zero for a pure lift panel that is moved only by
+    /// `update(..., lift_offset)`.
     Vec3d travel{};
 };
+
+/// The rotation of a swing leaf, derived from the `DOOR` record
+/// (docs/DOOR_FIELDS.md §1.2, `0x44dfc0` + `0x434887`).
+///
+/// * `pivot` is `Door::closed` (record `+0x00`, already folded with the size
+///   vector `+0x30`), the point `0x44dfc0` interpolates into `center` and
+///   `0x434887` rotates about.
+/// * `axis` is the unit vector the engine picks from `A1..A3` (`+0x48`):
+///   `z != 0` -> `(0, 0, -1)`, else `x != 0` -> `(-1, 0, 0)`, else
+///   `y != 0` -> `(0, 1, 0)`.
+/// * `max_angle` is the rotation at `open_fraction == 1`, in radians:
+///   `A_i * 65535` (`door.axis[i]` is the record value already divided by
+///   65535, and the geometry phase spans `0..0xffff`).
+struct DoorSwing {
+    Vec3d pivot{};
+    Vec3d axis{};
+    double max_angle = 0.0;
+};
+
+/// Swing data of `door`: `DoorAxis::Rotating` doors get the pivot, unit axis
+/// and full angle; a sliding door yields a zero struct (pivot still
+/// `Door::closed`, `max_angle == 0`).
+DoorSwing door_swing(const Door& door);
 
 /// A re-posed set of panels plus ray/sphere queries over the current pose.
 class MovingCollider {
 public:
     /// Replace the panels and the movement axis.  Re-poses everything at
-    /// `open_fraction = 0`, `lift_offset = 0`.  An empty set, an empty panel,
-    /// a non-finite travel/vertex or `DoorAxis::Rotating` leaves the collider
-    /// not ready (`ready() == false`, `error()` explains why).
-    void set_panels(std::vector<MovingPanel> panels, DoorAxis axis);
+    /// `open_fraction = 0`, `lift_offset = 0`.  `swing` is required (and
+    /// validated) for `DoorAxis::Rotating`; sliding modes ignore it.  An empty
+    /// set, an empty panel, a non-finite travel/vertex, a non-unit swing axis,
+    /// a zero swing angle or a non-finite pivot/angle leaves the collider not
+    /// ready (`ready() == false`, `error()` explains why).
+    void set_panels(std::vector<MovingPanel> panels, DoorAxis axis,
+                    const DoorSwing& swing = {});
 
     /// Re-pose the panels.  A sliding door moves by
     /// `travel_along_axis * open_fraction`, a `Travel` panel by
-    /// `travel * open_fraction`, and every panel additionally by `lift_offset`
-    /// along +Z.  `open_fraction` is clamped to `[0, 1]` like the engine phase
-    /// (`0x44f335..0x44f349`); `lift_offset` is signed, a cabin can go down.
+    /// `travel * open_fraction`.  A `Rotating` panel moves its pivot by
+    /// `travel * open_fraction` and turns every vertex and normal by
+    /// `open_fraction * max_angle` about the swing axis through the pivot
+    /// (the engine's `0x44dfc0` lerp + `0x434887` basis).  Every panel is
+    /// additionally moved by `lift_offset` along +Z.  `open_fraction` is
+    /// clamped to `[0, 1]` like the engine phase (`0x44f335..0x44f349`);
+    /// `lift_offset` is signed, a cabin can go down.
+    ///
+    /// At `open_fraction == 0` with no lift the pose is the rest pose
+    /// bit-for-bit (the engine transform is the identity there), so a caller
+    /// can publish it without perturbing the static triangles.
     ///
     /// A NaN/inf argument is refused: the previous pose and `triangles()` stay
     /// untouched, `last_update_ok()` becomes false and `error()` says which
@@ -119,6 +165,8 @@ public:
     const std::string& error() const { return error_; }
 
     DoorAxis axis() const { return axis_; }
+    /// Swing pivot/axis/angle; zero (and `max_angle == 0`) for a sliding door.
+    const DoorSwing& swing() const { return swing_; }
     std::size_t panel_count() const { return panels_.size(); }
     /// Current pose, flattened panel by panel, in build order.
     const std::vector<Triangle>& triangles() const { return triangles_; }
@@ -154,6 +202,7 @@ private:
     std::vector<std::uint32_t> panel_of_;
     Aabb bounds_;
     DoorAxis axis_ = DoorAxis::Travel;
+    DoorSwing swing_;
     double open_fraction_ = 0.0;
     double lift_offset_ = 0.0;
     bool valid_ = false;

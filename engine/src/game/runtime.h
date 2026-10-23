@@ -165,19 +165,24 @@ struct GameRuntimeStats {
 /// State of the moving door panels the runtime hands to `CollisionWorld`
 /// (`set_dynamic`, docs/DOOR_COLLISION.md).
 ///
-/// One panel is built per moving sliding door of the level: the door's
+/// One panel is built per moving door of the level: the door's
 /// `(sector, object)` triangles at the rest pose plus `Door::open - Door::closed`
-/// (`world/moving_collider.h`).  The static triangles of those pairs are
-/// suppressed in `collision()`, so a closed leaf holds the player, a projected
-/// ray and the AI, while an open one is really gone from the world.
+/// (`world/moving_collider.h`) and, for a swing door, the rotation of
+/// `door_swing(door)` about the folded closed corner.  The static triangles of
+/// those pairs are suppressed in `collision()`, so a closed leaf holds the
+/// player, a projected ray and the AI, while an open one is really gone from
+/// the world.
 struct DoorCollisionStats {
-    std::size_t doors = 0;      ///< moving sliding doors with a usable panel
+    std::size_t doors = 0;      ///< moving doors (sliding + swing) with a panel
     std::size_t panels = 0;     ///< panels inside the colliders (one per door)
+    std::size_t rotating = 0;   ///< of `doors`, swing leaves (`DoorAxis::Rotating`)
     std::size_t triangles = 0;  ///< dynamic triangles of the current pose
     std::size_t suppressed = 0; ///< `(sector, object)` pairs carved out
     std::size_t static_triangles = 0; ///< `collision().triangle_count()`
-    std::size_t skipped_rotating = 0; ///< swing doors, kept static (§6)
-    std::size_t skipped_static = 0;   ///< `open == closed`, nothing moves
+    /// Always 0 since slice 3 models swing leaves; kept so the field name in
+    /// existing callers/tests still compiles (docs/DOOR_COLLISION.md §6).
+    std::size_t skipped_rotating = 0;
+    std::size_t skipped_static = 0;   ///< non-swing `open == closed`, nothing moves
     std::size_t skipped_duplicate = 0; ///< second door on the same object
     std::size_t skipped_unbound = 0;  ///< no triangles for `(sector, object)`
     std::size_t skipped_refused = 0;  ///< `MovingCollider` refused the panel

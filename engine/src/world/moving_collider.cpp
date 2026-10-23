@@ -93,6 +93,49 @@ Triangle moved_triangle(const Triangle& rest, Vec3d delta) {
     return triangle;
 }
 
+/// `R(angle)` about the unit vector `axis` (Rodrigues).  `0x434887` builds the
+/// basis rows as the *transpose* of this matrix (`basis = R(-angle)`), and
+/// `world = origin + basis^T * local` turns into `center + R(angle) * (p -
+/// closed)` once `origin = center - basis^T * size` is folded in (see
+/// docs/DOOR_FIELDS.md §1.2).  `axis` is validated to be unit in
+/// `set_panels`, so no normalisation happens per query.
+Vec3d rotate_about(Vec3d v, Vec3d axis, double angle) {
+    const double c = std::cos(angle);
+    const double s = std::sin(angle);
+    return v * c + cross(axis, v) * s + axis * (dot(axis, v) * (1.0 - c));
+}
+
+Vec3d normalized_or(Vec3d v, Vec3d fallback) {
+    const double len = length(v);
+    return len > 0.0 ? v * (1.0 / len) : fallback;
+}
+
+/// One rest triangle turned by `R(angle)` about `axis` through `pivot`, with
+/// the pivot slid by `center_delta` and the whole leaf lifted by `lift` along
+/// +Z.  Both normals are rotated by the same matrix and re-normalised (their
+/// origin is kept: the winding normal is not recomputed from the moved
+/// vertices), then the plane/centroid/bounds follow the vertices.
+Triangle swung_triangle(const Triangle& rest, Vec3d pivot, Vec3d center_delta, Vec3d axis,
+                        double angle, double lift) {
+    Triangle triangle = rest;
+    const Vec3d offset{center_delta.x, center_delta.y, center_delta.z + lift};
+    triangle.a = pivot + offset + rotate_about(rest.a - pivot, axis, angle);
+    triangle.b = pivot + offset + rotate_about(rest.b - pivot, axis, angle);
+    triangle.c = pivot + offset + rotate_about(rest.c - pivot, axis, angle);
+
+    triangle.normal = normalized_or(rotate_about(rest.normal, axis, angle), rest.normal);
+    triangle.data_normal =
+        normalized_or(rotate_about(rest.data_normal, axis, angle), rest.data_normal);
+
+    triangle.plane_offset = dot(triangle.normal, triangle.a);
+    triangle.centroid = (triangle.a + triangle.b + triangle.c) * (1.0 / 3.0);
+    triangle.bounds = Aabb{};
+    triangle.bounds.expand(triangle.a);
+    triangle.bounds.expand(triangle.b);
+    triangle.bounds.expand(triangle.c);
+    return triangle;
+}
+
 struct SphereContact {
     double t = 0.0;
     Vec3d point;
@@ -266,7 +309,7 @@ Vec3d door_travel(const Door& door) {
 
 DoorAxis door_axis(const Door& door) {
     // 0x44dfc0 tests delta[2], then delta[0], then delta[1]; any non-zero
-    // operand makes the leaf rotate, which this module does not model.
+    // operand makes the leaf rotate about that axis.
     if (door.axis[0] != 0.0 || door.axis[1] != 0.0 || door.axis[2] != 0.0) {
         return DoorAxis::Rotating;
     }
@@ -282,16 +325,34 @@ DoorAxis door_axis(const Door& door) {
     return DoorAxis::Travel;
 }
 
+DoorSwing door_swing(const Door& door) {
+    DoorSwing swing;
+    swing.pivot = {door.closed[0], door.closed[1], door.closed[2]};
+    const int axis = door_rotation_axis(door);
+    if (axis < 0) {
+        return swing;
+    }
+    // 0x44dfc0: the unit vector is -x, +y or -z (docs/DOOR_FIELDS.md §1.2).
+    swing.axis = axis == 0 ? Vec3d{-1.0, 0.0, 0.0}
+                           : (axis == 1 ? Vec3d{0.0, 1.0, 0.0} : Vec3d{0.0, 0.0, -1.0});
+    // angle at phase p is A_i / 65535 * p; f = p / 65535.
+    swing.max_angle =
+        door.axis[static_cast<std::size_t>(axis)] * static_cast<double>(kDoorPhaseMax);
+    return swing;
+}
+
 void MovingCollider::clear_pose() {
     triangles_.clear();
     panel_of_.clear();
     bounds_ = Aabb{};
 }
 
-void MovingCollider::set_panels(std::vector<MovingPanel> panels, DoorAxis axis) {
+void MovingCollider::set_panels(std::vector<MovingPanel> panels, DoorAxis axis,
+                                const DoorSwing& swing) {
     clear_pose();
     panels_ = std::move(panels);
     axis_ = axis;
+    swing_ = swing;
     open_fraction_ = 0.0;
     lift_offset_ = 0.0;
     valid_ = false;
@@ -299,10 +360,36 @@ void MovingCollider::set_panels(std::vector<MovingPanel> panels, DoorAxis axis) 
     error_.clear();
 
     if (axis_ == DoorAxis::Rotating) {
-        error_ = "rotating (swing) doors are not modelled: the leaf turns about its center, "
-                 "not a translation";
-        panels_.clear();
-        return;
+        // The engine reads the operands blindly (`0x44dfc0`); the model refuses
+        // data that would poison the basis or silently not move.
+        if (!finite(swing_.pivot) || !coordinate_ok(swing_.pivot)) {
+            error_ = "swing pivot is non-finite/out of range";
+            panels_.clear();
+            return;
+        }
+        if (!finite(swing_.axis)) {
+            error_ = "swing axis is not finite";
+            panels_.clear();
+            return;
+        }
+        if (!(std::fabs(length(swing_.axis) - 1.0) <= 1e-9)) {
+            error_ = "swing axis is not a unit vector";
+            panels_.clear();
+            return;
+        }
+        if (!std::isfinite(swing_.max_angle)) {
+            error_ = "swing angle is not finite";
+            panels_.clear();
+            return;
+        }
+        if (swing_.max_angle == 0.0) {
+            // A Rotating panel with a zero angle would stand still; the caller
+            // should have used a sliding mode (or `door_axis` would not have
+            // reported Rotating for a real door).
+            error_ = "swing angle is zero: nothing rotates";
+            panels_.clear();
+            return;
+        }
     }
     if (panels_.empty()) {
         error_ = "no panels";
@@ -369,8 +456,30 @@ void MovingCollider::pose(double fraction, double lift_offset) {
     triangles_.reserve(total);
     panel_of_.reserve(total);
 
+    const bool rotating = axis_ == DoorAxis::Rotating;
+    const double angle = rotating ? swing_.max_angle * fraction : 0.0;
+    // `f = 0, lift = 0` is the identity transform of `0x44dfc0`/`0x434887`
+    // (`center == closed`, basis identity): copy the rest triangles so the
+    // closed pose is bit-identical to the static `.sbw` geometry.
+    const bool identity = rotating && fraction == 0.0 && lift_offset == 0.0;
     for (std::size_t i = 0; i < panels_.size(); ++i) {
         const MovingPanel& panel = panels_[i];
+        if (rotating) {
+            // center(f) = closed + (open - closed) * f; the rotation is about
+            // that point (the `size`-folded closed corner) along the engine's
+            // unit axis.
+            const Vec3d center_delta = panel.travel * fraction;
+            for (const Triangle& rest : panel.rest) {
+                if (identity) {
+                    triangles_.push_back(rest);
+                } else {
+                    triangles_.push_back(swung_triangle(rest, swing_.pivot, center_delta,
+                                                        swing_.axis, angle, lift_offset));
+                }
+                panel_of_.push_back(static_cast<std::uint32_t>(i));
+            }
+            continue;
+        }
         Vec3d slide;
         if (axis_ == DoorAxis::Travel) {
             slide = panel.travel * fraction;

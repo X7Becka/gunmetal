@@ -1,12 +1,17 @@
 # Gunmetal — двери и лифты в коллизии рантайма
 
-Пункт roadmap: **M6.4.1, срез 2** (интеграция). Срез 1 — кинематические панели
-(`docs/MOVING_COLLIDERS.md`, `world/moving_collider.*`); этот срез подключает их к
-`CollisionWorld` и к тику `GameRuntime`, чтобы закрытая дверь **держала** игрока,
-ИИ, лучи и снаряды, а открытая — пропускала.
+Пункт roadmap: **M6.4.1, срезы 2–3** (интеграция + распашные двери). Срез 1 —
+кинематические панели (`docs/MOVING_COLLIDERS.md`, `world/moving_collider.*`);
+этот срез подключает их к `CollisionWorld` и к тику `GameRuntime`, чтобы
+закрытая дверь **держала** игрока, ИИ, лучи и снаряды, а открытая —
+пропускала. Распашные двери с среза 3 тоже кинематические: створка
+поворачивается вокруг `Door::closed` на `A_i * phase` (`0x44dfc0` →
+`0x434887`).
 
-Тест: `engine/tests/test_door_collision.cpp`, CTest `door_collision`, label
-`quick`. Сборка: `build/sandbox`, `zig`-тулчейн, Debug.
+Тесты: `engine/tests/test_door_collision.cpp`, CTest `door_collision`, label
+`quick` (скользящие двери) и `engine/tests/test_swing_door.cpp`, CTest
+`swing_door`, label `quick` (распашные). Сборка: `build/sandbox`, `zig`-тулчейн,
+Debug.
 
 ---
 
@@ -17,9 +22,9 @@
 | статический набор | `CollisionWorld::triangles()` — как был: `.sbw` в закрытой позе, `triangle_count()`/`stats()` не меняются |
 | динамический набор | `CollisionWorld::set_dynamic(triangles, suppressed)` |
 | исключение статики | список `(sector, object)`; запросы пропускают статические треугольники этих пар, сами треугольники остаются в `triangles()` |
-| источник динамики | `MovingCollider` на каждую движущуюся скользящую дверь: rest-треугольники её `(sector, object)` + `Door::open - Door::closed` |
+| источник динамики | `MovingCollider` на каждую движущуюся дверь: rest-треугольники её `(sector, object)` + `Door::open - Door::closed`, для распашной ещё `door_swing(door)` |
 | пересборка | только когда `motion_fraction()` какой-то двери изменился; в тике — фаза 4a (`sync_door_colliders`) |
-| распашные двери | остаются статикой (`DoorAxis::Rotating`), §6 |
+| распашные двери | динамика: поворот вокруг `Door::closed` на `A_i * phase`; счётчик `stats.rotating` |
 | лифт | `lift_offset = 0`: привязки «лифт → объект `.sbw`» в модели нет, §6 |
 | фильтры/нормали | те же, что у статики: `CollideFilter`, `surface_of(data_normal)`, двусторонне, нормаль против запроса |
 | broad-phase динамики | общий AABB набора + блоки по 32 треугольника (`kDynamicChunk`), подавление — байтовая маска по статическим треугольникам |
@@ -73,9 +78,8 @@ const DoorCollisionStats& door_collision() const;
 
 * `build_world()` собирает панели **до** подмены `world_`/`collision_`
   (временные объекты), поэтому отклонённый уровень не оставляет
-  полупостроенный динамический набор. Одна панель = одна движущаяся
-  скользящая дверь (один `MovingCollider` на панель; панели объединяются в
-  один `set_dynamic`).
+  полупостроенный динамический набор. Одна панель = одна движущаяся дверь
+  (один `MovingCollider` на панель; панели объединяются в один `set_dynamic`).
 * Порядок треугольника в динамике — порядок панелей (порядок `doors()`), внутри
   панели — порядок `CollisionWorld::triangles()`; количество совпадает с числом
   статических треугольников этой пары.
@@ -83,25 +87,28 @@ const DoorCollisionStats& door_collision() const;
   фаза 5 (события). Т.е. в пределах тика двери двигаются раньше, чем
   публикуется новая поза; игрок/ИИ/снаряды, шагающие в следующем тике или
   после него, видят уже новую позу.
-* `DoorCollisionStats`: `doors`, `panels`, `triangles`, `suppressed`,
-  `static_triangles`, `skipped_rotating`, `skipped_static`,
-  `skipped_duplicate`, `skipped_unbound`, `skipped_refused`, `rebuilds`
-  (`set_dynamic` за всё время, включая сборку — их ровно 1), `failed_rebuilds`,
-  `sync_ticks`.
+* `DoorCollisionStats`: `doors`, `panels`, `rotating` (из них распашных),
+  `triangles`, `suppressed`, `static_triangles`, `skipped_rotating`
+  (устаревшее имя: с среза 3 всегда 0, поле оставлено для совместимости
+  вызывающих), `skipped_static`, `skipped_duplicate`, `skipped_unbound`,
+  `skipped_refused`, `rebuilds` (`set_dynamic` за всё время, включая сборку —
+  их ровно 1), `failed_rebuilds`, `sync_ticks`.
 
 ### 1.3. Какие двери становятся динамикой
 
-Панель строится, если `Door::active()` (`kind` 1..3), `sector`/`object` >= 0,
-`door_axis(door) != Rotating`, `open != closed`, и у пары есть треугольники в
-`CollisionWorld`. Остальные считаются в `skipped_*`:
+Панель строится, если `Door::active()` (`kind` 1..3), `sector`/`object` >= 0
+и у пары есть треугольники в `CollisionWorld`. Для скользящей требуется
+`open != closed`; распашная (`door_axis(door) == Rotating`) публикуется всегда,
+даже при `open == closed`, потому что её движение — поворот. Остальные
+считаются в `skipped_*`:
 
 | случай | счётчик |
 |---|---|
-| распашная (`A1..A3` != 0) | `skipped_rotating` (остаётся статикой) |
-| `open == closed` | `skipped_static` (rest-поза и есть конечная) |
+| распашная (`A1..A3` != 0) | не пропускается: `rotating`, панель с `door_swing` |
+| скользящая `open == closed` | `skipped_static` (rest-поза и есть конечная) |
 | вторая дверь на ту же пару | `skipped_duplicate` (панелью владеет первая) |
 | пара без треугольников / `object < 0` | `skipped_unbound` |
-| `MovingCollider` отказал (NaN и т.п.) | `skipped_refused` |
+| `MovingCollider` отказал (NaN, нулевой угол и т.п.) | `skipped_refused` |
 
 ---
 
@@ -168,12 +175,12 @@ const DoorCollisionStats& door_collision() const;
 | `set_dynamic({}, {})` | статический мир, побитово прежние попадания |
 | `set_dynamic({}, {pair})` | дыра на месте пары (см. §2); рантайм так не делает |
 | дверь без геометрии | `skipped_unbound`, панели нет, тик не ломается |
-| распашная дверь | `skipped_rotating`, остаётся статикой, тик не ломается |
+| распашная дверь | публикуется как динамика (`rotating`); нулевой угол/не-единичная ось — `skipped_refused`, тик не ломается |
 | `sync_door_colliders()` без мира/панелей | `false`, счётчики не растут (кроме `sync_ticks`) |
 
 Тест проверяет: NaN-вершину, вершину `1e12`, «голый» треугольник, пустой набор,
 подавление без панели, дверь, перепривязанную на несуществующий объект
-(`sector = 9999` → `skipped_unbound`, `dynamic` 422 → 416, тик `ok`).
+(`sector = 9999` → `skipped_unbound`, `dynamic` 446 → 440, тик `ok`).
 
 ---
 
@@ -189,7 +196,7 @@ door_collision: single-object world: 12 static triangles, baseline ray t=40.0000
   open leaf (+Z 176): ray miss
   static-only again: t=40 index=6 == baseline (bit-identical)
   suppression without a panel: hole (documented)
-door_collision: level0 static=3162 dynamic=422 suppressed=24 doors=24 panels=24 rebuilds=1 skipped(rotating=1 static=0 duplicate=0 unbound=0 refused=0)
+door_collision: level0 static=3162 dynamic=446 suppressed=25 doors=25 panels=25 rebuilds=1 skipped(rotating=0 static=0 duplicate=0 unbound=0 refused=0)
   door sec=4 obj=1: static=12 dynamic=12 dynamic bounds (660.000, 856.000, -144.000)..(668.000, 1000.000, 136.000)
   closed ray: t=2.000000 point=(660.000, 928.000, 0.000) dynamic=1 sec=4 obj=1
   closed sphere r=1: t=1.000000 centre.x=659.000 dynamic=1
@@ -197,12 +204,12 @@ door_collision: level0 static=3162 dynamic=422 suppressed=24 doors=24 panels=24 
   open dynamic bounds z=32.000..312.000 (dz=176.000), triangles=12
   open ray: t=14.000000 point.x=672.000 dynamic=0 sec=3 obj=0
   two resting ticks: rebuilds=2 sync_ticks=3 (no rebuild)
-  rotating door sec=48 obj=6: suppressed=0 (kept static)
-  unbound door (sec=9999): skipped_unbound=1, dynamic 422 -> 416, tick ok
+  rotating door sec=48 obj=6: suppressed=1 (posed by the swing collider)
+  unbound door (sec=9999): skipped_unbound=1, dynamic 446 -> 440, tick ok
 door_collision: level0 leaf (12 triangles, travel +Z 176), player gravity=0 from (620.000, 928.000, 0.000):
   closed: pos=(656.999999, 928.000000, 0.000000) wall_ticks=26 (leaf faces x=660/668)
   open:   pos=(700.750000, 928.000000, 0.000000) wall_ticks=0 (passed both faces)
-door_collision: dm1 static=11781 dynamic=764 suppressed=38 doors=38 panels=38 rebuilds=1
+door_collision: dm1 static=11781 dynamic=1038 suppressed=61 doors=61 panels=61 rebuilds=1
   dm1 door sec=17 obj=37: travel=(0.000, 130.000, 0.000) axis=y
   dynamic leaf: 8 triangles, y=1648.000..1787.000 z=132.000..225.000
   closed ray: t=43.000000 x=8007.000 dynamic=1 sec=17 obj=37
@@ -230,11 +237,19 @@ door_collision: ok
    луч и сфера больше её не встречают (`miss`), в слоте двери пусто; тот же
    прогон игрока проходит обе плоскости: `pos.x = 700.750000 > 668`,
    `wall_ticks = 0`.
-4. **Рантайм собирает и обновляет.** `level0`: 24 панели / 422 динамических
-   треугольника, 24 подавленные пары, распашная дверь `sec=48 obj=6` осталась
-   статикой. `dm1`: 38 панелей / 764 треугольника. Открытие двери
+4. **Рантайм собирает и обновляет.** `level0`: 25 панелей / 446 динамических
+   треугольников, 25 подавленных пар; распашная дверь `sec=48 obj=6` теперь
+   тоже панель (`rotating=1`, 24 треугольника). `dm1`: 61 панель /
+   1038 треугольников, из них `rotating=23`. Открытие двери
    (`phase = 65535`) даёт ровно одну пересборку (`rebuilds 1 -> 2`), затем два
    тика покоя — `rebuilds` не меняется (`sync_ticks` растёт).
+   > Замечание для интегратора: `test_door_collision.cpp` всё ещё содержит две
+   > проверки старого поведения — `stats.skipped_rotating > 0` (строка ~393) и
+   > «swing-пара не подавлена» (строка ~512). С среза 3 они неверны
+   > (`skipped_rotating == 0`, пара подавлена и позже обновляется); распашные
+   > числа закреплены отдельным тестом `swing_door` (§5.6). Файл
+   > `test_door_collision.cpp` в список разрешённых этому срезу не входил и не
+   > правился.
 5. **Настоящий проём `dm1`.** Дверь `sec=17 obj=37` (ход +Y 130) стоит в
    проёме `sec=17 obj=0` (пол `z = 132`). Закрытая: луч `t = 43` в `x = 8007`
    (`dynamic`, `sec=17 obj=37`), `SimPlayer` (LIGHT, 150 тиков вперёд)
@@ -244,16 +259,36 @@ door_collision: ok
    (`x = 8002`, `dynamic = 0`), игрок пересекает всю толщину створки
    (8007..8002) и останавливается в `x = 8005.000001` = стена + радиус.
 
+### 5.6. Распашные двери (`gm_swing_door_tests`, CTest `swing_door`)
+
+Изолированный мир из одного объекта (реальная створка + `set_dynamic` с
+подавлением статики), числа полностью — `docs/MOVING_COLLIDERS.md` §5.5:
+
+| величина | `level0` `sec=48 obj=6` | `dm1` `sec=17 obj=55` |
+|---|---|---|
+| ось / угол | `-x`, `+120°` | `-z`, `-90°` |
+| `pivot` / `travel` | `(-400, -295, -7)` / 0 | `(7034, 240, 182)` / 0 |
+| `f = 0` | 24 треугольника = `rest` побитово, луч `t = 17.2`, сфера `t = 12.2` | 10 треугольников = `rest` побитово, луч `t = 22`, сфера `t = 17` |
+| `f = 1` | луч/сфера — промах, сдвиг вершины до `127.585` | промах, сдвиг до `246.333` |
+| игрок | закрыто `wall_ticks = 150` (`x = -435.000001`), открыто `0` (`x = -181.25`) | закрыто `wall_ticks = 96` (`x = 7030.999999`), открыто `0` (`x = 7193.75`) |
+| рантайм | `rotating = 1`, dynamic `446`, suppressed `25` | `rotating = 23`, dynamic `1038`, suppressed `61` |
+
 ---
 
 ## 6. Ограничения (и почему)
 
-1. **Распашные двери статичны.** `DoorAxis::Rotating` (357 поставочных дверей,
-   из них 113 движутся) не описывается переносом: створка поворачивается
-   вокруг `center` (`0x434887`). `MovingCollider` такие панели не принимает,
-   рантайм считает их в `skipped_rotating` и оставляет статику как есть — т.е.
-   распашная дверь всегда стоит в закрытой позе, но **не исчезает** и не
-   «телепортируется». Это записано и в `docs/MOVING_COLLIDERS.md` §6.
+1. **Распашные двери теперь кинематические (срез 3).** `DoorAxis::Rotating`
+   (357 поставочных дверей, из них 113 движутся) публикуется как панель,
+   которая поворачивается вокруг `Door::closed` на `A_i * phase`: вершины и обе
+   нормали умножаются на `R(angle)` из `0x434887`, `pivot` едет на
+   `(open - closed) * fraction`. `moving_collider` проверяет ось/угол, рантайм
+   считает такие панели в `stats.rotating`. Числа и проверки — §5.6 и
+   `docs/MOVING_COLLIDERS.md` §5.5. Что осталось из геометрии:
+   * `skipped_rotating` — устаревшее поле, всегда 0;
+   * непрерывной коллизии между тиками нет (§6.7): поза публикуется на тике;
+   * поворот считается вокруг одной оси (`z > x > y`), как в `0x44dfc0`;
+     комбинации нескольких ненулевых `A` игнорируют остальные компоненты —
+     так же, как оригинал.
 2. **Лифт без привязки.** `lift_offset` панели всегда `0`. В модели нет
    отображения «лифт → объект `.sbw`»: `Lift::sob` — индекс SOB-модели, а не
    объект уровня (docs/MOVING_COLLIDERS.md §2.2). `MovingCollider::update`
@@ -328,11 +363,15 @@ door_collision: ok
 export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
 cmake --build build/sandbox -j
 ctest --test-dir build/sandbox -R door_collision --output-on-failure
+ctest --test-dir build/sandbox -R swing_door --output-on-failure
 ./build/sandbox/engine/tests/gm_door_collision_tests        # числа §5
+./build/sandbox/engine/tests/gm_swing_door_tests            # числа §5.6
 ctest --test-dir build/sandbox -j 4                         # всё дерево
 python3 regress.py --mirror --json                          # оракул
 ```
 
 Паритет «пустая динамика = старый мир» проверяется не только тестом §5.1, но и
 тем, что `collide`, `player_controller`, `moving_collider`, `sim_player` и
-`thing_motion` проходят без изменения своих пиннингов.
+`thing_motion` проходят без изменения своих пиннингов. `door_collision` в
+срезе 3 сохранён как тест скользящих дверей; две его swing-проверки описывают
+поведение до среза 3 и требуют правки владельцем файла (см. §5, п. 4).
