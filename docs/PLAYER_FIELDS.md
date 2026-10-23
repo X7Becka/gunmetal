@@ -245,7 +245,7 @@ m   = +0x2fe0            // делитель ускорения от массы
 | `+0x322c/0x3230` | i32 | `damage_flash_a/b` | неизвестно | `0x44702e/0x447039` |
 | `+0x3234` | u32 | `render_param_a` | гипотеза | `0x453b29`; 96 в saved0 |
 | `+0x3238` | u32 | `render_param_b` | гипотеза | `0x40` при сбросе, `0x428421` (`0x4538d0`) |
-| `+0x323c` | i32 | `model_id` | доказано | первый аргумент `event_post` (`0x44462e`, `0x453b50`) |
+| `+0x323c` | i32 | `sector` | доказано | смещение слота сектора: `0x451160` считает `0x800b60 + sector*0x58`; `0x444fcc`/`0x444f6b` сравнивают его тип (`0x42d99f`) с 1 и ставят/снимают бит `0x8` в `+0x3200` (`docs/UNDERWATER.md` §1). **Не** `model_id` |
 | `+0x3240` | i32 | `model_id2` | гипотеза | читается как WORD в `0x465817` |
 
 ### Биты `+0x3200` (`flags`)
@@ -662,7 +662,7 @@ python3 tools/ghidra/mcp.py disasm 0x444118 --count 12 --bytes   # yaw -> cos/si
 | `+0x3230` | 9 | `0x447039` `0x44704d` `0x447068` | damage_flash_b | unknown |
 | `+0x3234` | 2 | `0x452409` `0x453b29` | render_param_a | hypothesis |
 | `+0x3238` | 3 | `0x452762` `0x453b0c` `0x45a47b` | render_param_b | hypothesis |
-| `+0x323c` | 73 | `0x443cfc` `0x443d4a` `0x443d98` | model_id | proven |
+| `+0x323c` | 73 | `0x443cfc` `0x443d4a` `0x443d98` `0x451160` | sector | proven |
 | `+0x3240` | 2 | `0x465817` `0x4671e6` | model_id2 | hypothesis |
 | `+0x3244` | 16 | `0x444084` `0x452dd8` `0x453e3a` | armor_max | proven |
 | `+0x3248` | 20 | `0x44408a` `0x452dde` `0x453718` | armor | proven |

@@ -524,9 +524,9 @@ then-ветки**, а не разделителем после неё (прим�
 | 44 | `SOURCEPLAYER_THING_TYPE` | `S` | 0x45e3d9 | open |
 | 45 | `SOURCEPLAYER_WARP` | `P` | 0x45eece | action |
 | 46 | `SOURCEPLAYER_WEAPON_POWER_UP` | `D` | 0x45e60f | action |
-| 47 | `SOURCEPLAYER_UNDERWATER` | `` | 0x45e8dc | open |
-| 48 | `SOURCE_UNDERWATER` | `` | 0x45e91c | open |
-| 49 | `SOURCEPLAYER_SECTOR_FLAGS` | `L` | 0x45ebe8 | open |
+| 47 | `SOURCEPLAYER_UNDERWATER` | `` | 0x45e8dc | value: `player+0x3200 & 8`, индекс `arg9 & 0xffff` × `0x3510` + `0x81c240` (`docs/UNDERWATER.md` §1) |
+| 48 | `SOURCE_UNDERWATER` | `` | 0x45e91c | value: тип сектора источника `0x42d99f(sector) == 1` (вода = `kind 6` в `.sbw`) |
+| 49 | `SOURCEPLAYER_SECTOR_FLAGS` | `L` | 0x45ebe8 | value: `SECTOR_STUFF[player+0x323c].flags` (`+0x50`), маска — операнд |
 | 50 | `SOURCEPOLY_HANDLE` | `E` | 0x45ec63 | open |
 | 51 | `SOURCESECTOR_FLAGS` | `L` | 0x45ecd1 | open |
 | 52 | `CUSTOM_COMMAND_0` | `` | 0x45efde | action |

@@ -68,7 +68,7 @@
 | `docs/PICKUP.md` | 29 | 305 | Предметы: подбор, маркеры регенерации, вирус и щиты (`M6.2.6`) |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
 | `docs/PLAYER_CONTROLLER.md` | 27 | 46 | Gunmetal — контроллер игрока (капсула, 91 Гц) |
-| `docs/PLAYER_FIELDS.md` | 53 | 1499 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
+| `docs/PLAYER_FIELDS.md` | 53 | 1504 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
 | `docs/RECORDS.md` | 35 | 260 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
@@ -122,8 +122,9 @@
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |
 | `docs/UI_SCREENS.md` | 30 | 368 | Экраны фронтенда: карта, переходы, load/save, options |
 | `docs/UI_SOUNDS.md` | 29 | 313 | Звуки интерфейса и музыка фронтенда (`M8.6`) |
+| `docs/UNDERWATER.md` | 35 | 242 | Подводное состояние, экранный эффект и звук (`M7.7`) |
 | `docs/VM_CPP.md` | 22 | 49 | C++-исполнение SCRIPT-VM (`vm_exec.h` / `vm_exec.cpp`) |
-| `docs/VM_EXEC.md` | 55 | 530 | Исполнение SCRIPT-VM (`.sbt`, запись 11) — прототип |
+| `docs/VM_EXEC.md` | 55 | 536 | Исполнение SCRIPT-VM (`.sbt`, запись 11) — прототип |
 | `docs/VM_SCENE.md` | 25 | 111 | Сцена, созданная ВМ, против сцены из файла (`M5.2`) |
 | `docs/VM_TRACE.md` | 5 | 15 | Трасса ВМ: C++ против Python (`M5.3.2`) — закрыто |
 | `docs/WEAPONS_CPP.md` | 62 | 320 | `game/weapons.*` — runtime оружия |
