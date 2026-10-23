@@ -512,6 +512,19 @@ target_link_libraries(gm_door_collision_tests PRIVATE gm_engine)
 add_test(NAME door_collision COMMAND gm_door_collision_tests)
 gm_label(door_collision quick)
 
+# M6.4.1 slice 5: a moving panel carries the player standing on it
+# (docs/PLATFORM_CARRY.md).  The opt-in `SimPlayer::set_platform_carry()` rule
+# moves the capsule by the panel's own delta before the controller step (real
+# level14 KELLIFT stand-in `sec=35 obj=1`, raise 260 over 30 ticks -> the player
+# rises by 260, lower -> back down), forgets the panel on a step off (the fall
+# takes over), cancels the transfer when the moved capsule would overlap a
+# static wall, and leaves the slice-4 numbers verbatim when the rule is off
+# (`dz = -39.306847`).
+add_executable(gm_platform_carry_tests test_platform_carry.cpp)
+target_link_libraries(gm_platform_carry_tests PRIVATE gm_engine)
+add_test(NAME platform_carry COMMAND gm_platform_carry_tests)
+gm_label(platform_carry quick)
+
 add_executable(gm_player_controller_tests test_player_controller.cpp)
 target_link_libraries(gm_player_controller_tests PRIVATE gm_engine)
 # Deterministic 91 Hz player controller (docs/PLAYER_CONTROLLER.md): synthetic

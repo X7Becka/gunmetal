@@ -21,12 +21,16 @@
 // `0x453b50`/`0x4536e0` -- and `respawn()` restores the starting pose/gauges.
 #include "game/sim_player.h"
 
+#include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <limits>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace gm {
 namespace {
@@ -224,6 +228,75 @@ bool parse_segment(std::string_view raw, int index, DriveSegment* segment,
     return true;
 }
 
+// --- moving panel carry helpers (slice 5, docs/PLATFORM_CARRY.md) -----------
+
+/// The ground probe of the controller (`ground_contact`, player/controller.cpp)
+/// with the hit kept: a downward sphere sweep of the feet sphere, floors only.
+/// `SphereHit::dynamic` then names a moving panel and `triangle` addresses
+/// `dynamic_triangles()`.
+constexpr double kPlatformProbe = 0.05;
+
+/// Two poses of the same panel are compared with these tolerances: a pure
+/// translation keeps both normals exactly, and a rest pose repeats its centroid
+/// exactly, so both only need a guard against noise.
+constexpr double kPlatformTurnEps = 1e-9;
+constexpr double kPlatformDeltaEps = 1e-9;
+
+/// Slack of the "still on the panel" test and of the static overlap test: the
+/// controller rests the capsule `contact_skin` (1e-6) above a floor, so a gap of
+/// that size is contact, not an overlap.
+constexpr double kPlatformSkin = 1e-6;
+
+std::optional<SphereHit> platform_probe(const CollisionWorld& world, Vec3d feet,
+                                        double radius) {
+    CollideFilter filter;
+    filter.walls = false;
+    filter.ceilings = false;
+    filter.floors = true;
+    filter.min_normal_z = 0.8;
+    const Vec3d centre = feet + Vec3d{0.0, 0.0, radius};
+    return world.sphere_cast(centre, Vec3d{0.0, 0.0, -1.0}, radius, kPlatformProbe, filter);
+}
+
+/// Sphere centres of the three-sphere capsule, in the controller's fixed order.
+std::array<double, 3> capsule_offsets(double height, double radius) {
+    return {radius, height * 0.5, height - radius};
+}
+
+/// True when a capsule at `feet` really penetrates *static* level geometry.
+///
+/// This is the detection half of the controller's `depenetrate()` and the post
+/// move test of the carry: the dynamic set is not consulted (the panel the
+/// player stands on must never block its own transfer) and a contact that only
+/// keeps the `contact_skin` gap (the resting pose of every grounded player)
+/// does not count as an overlap.
+bool overlaps_static(const CollisionWorld& world, Vec3d feet, double height,
+                     double radius) {
+    Aabb box;
+    box.expand(feet + Vec3d{-radius, -radius, 0.0});
+    box.expand(feet + Vec3d{radius, radius, height});
+    std::vector<std::uint32_t> triangles;
+    world.overlap_aabb(box, triangles);
+    if (triangles.empty()) {
+        return false;
+    }
+    const std::array<double, 3> offsets = capsule_offsets(height, radius);
+    const double limit = radius - kPlatformSkin;
+    for (int sphere = 0; sphere < 3; ++sphere) {
+        const Vec3d centre = feet + Vec3d{0.0, 0.0, offsets[static_cast<std::size_t>(sphere)]};
+        for (const std::uint32_t index : triangles) {
+            if (index >= world.triangles().size()) {
+                continue; // defensive: impossible for a world we own
+            }
+            const Vec3d closest = closest_point_on_triangle(centre, world.triangles()[index]);
+            if (length(centre - closest) < limit) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 std::optional<std::vector<DriveSegment>> parse_drive(std::string_view script,
@@ -264,6 +337,11 @@ bool SimPlayer::init(const Vec3d& feet, double yaw, const ChassisSpec& chassis,
     last_step_ = StepResult{};
     vitals_runtime_ = nullptr;
     vitals_dirty_ = true;
+
+    // Carry (slice 5) is configuration and survives re-init, but the panel of
+    // the previous life is not ours: forget it together with the delta.
+    platform_.reset();
+    platform_delta_ = Vec3d{};
 
     // Projectile mode survives re-init (the template is configuration), but
     // its per-life counters belong to the previous player: start clean.
@@ -345,6 +423,8 @@ bool SimPlayer::respawn(std::string* error) {
     alive_ = vitals_.armor > 0;
     vitals_dirty_ = true;
     reset_regen(regen_state_);
+    platform_.reset(); // a new life starts on whatever is under the spawn
+    platform_delta_ = Vec3d{};
     ++deaths_;
     last_step_ = StepResult{};
     last_weapon_ = PlayerWeaponTick{};
@@ -390,6 +470,17 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
 
     PlayerState from = state_;
     from.yaw = next_yaw;
+    // Platform carry (slice 5, docs/PLATFORM_CARRY.md): move the capsule by the
+    // delta the remembered panel made since the last tick *before* the
+    // controller step, so the step starts on the panel's current pose and its
+    // own ground contact keeps the player resting there.  The move lands in
+    // `from`, so a rejected step still leaves `state()` untouched.
+    if (platform_carry_) {
+        if (runtime_ != &runtime) {
+            platform_.reset(); // another world: the remembered panel is not here
+        }
+        carry_platform(runtime.collision(), from);
+    }
     const StepResult result = step(from, input, runtime.collision(), config_);
     last_step_ = result;
     if (!result.ok) {
@@ -416,6 +507,17 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
     state_ = next;
     runtime_ = &runtime;
     ++ticks_done_;
+
+    // Platform carry (slice 5): re-detect the panel under the feet for the next
+    // tick.  A jump always drops it, even when the panel is still within the
+    // probe range on the take-off tick.
+    if (platform_carry_) {
+        if (result.jumped) {
+            platform_.reset();
+        } else {
+            detect_platform(runtime.collision());
+        }
+    }
 
     if (segment.fire) {
         PlayerWeaponInput weapon;
@@ -535,6 +637,150 @@ bool SimPlayer::install_vitals(GameRuntime& runtime, std::string* error) {
     vitals_runtime_ = &runtime;
     vitals_dirty_ = false;
     return true;
+}
+
+void SimPlayer::set_platform_carry(bool enabled) {
+    platform_carry_ = enabled;
+    if (!enabled) {
+        // No probe runs while the rule is off, so a stale panel must not
+        // survive a later re-enable with a pose from minutes ago.
+        platform_.reset();
+        platform_delta_ = Vec3d{};
+    }
+}
+
+void SimPlayer::carry_platform(const CollisionWorld& world, PlayerState& state) {
+    platform_delta_ = Vec3d{};
+    if (!platform_) {
+        return;
+    }
+    const std::vector<Triangle>& triangles = world.dynamic_triangles();
+    if (triangles.empty()) {
+        platform_.reset();
+        return;
+    }
+
+    // Find the same triangle again.  The dynamic set keeps its order, so the
+    // stored index is tried first and verified by the identity key; a panel
+    // list rebuilt in another order falls back to the key.  A fan of one
+    // polygon shares `source_poly`, so the nearest centroid breaks the tie.
+    const PlatformRef ref = *platform_;
+    std::size_t found = triangles.size();
+    if (ref.index < triangles.size()) {
+        const Triangle& candidate = triangles[ref.index];
+        if (candidate.sector == ref.sector && candidate.object == ref.object &&
+            candidate.source_poly == ref.source_poly) {
+            found = ref.index;
+        }
+    }
+    if (found == triangles.size()) {
+        double best = std::numeric_limits<double>::infinity();
+        for (std::size_t i = 0; i < triangles.size(); ++i) {
+            const Triangle& candidate = triangles[i];
+            if (candidate.sector != ref.sector || candidate.object != ref.object ||
+                candidate.source_poly != ref.source_poly) {
+                continue;
+            }
+            const double distance = length(candidate.centroid - ref.centroid);
+            if (distance < best) {
+                best = distance;
+                found = i;
+            }
+        }
+    }
+    if (found == triangles.size()) {
+        platform_.reset(); // the panel disappeared from the dynamic set
+        return;
+    }
+    const Triangle& now = triangles[found];
+
+    // Only a pure translation is carried.  A swing leaf turns its normals, and
+    // a chord of the arc would put the player somewhere the panel never was, so
+    // the panel is forgotten instead (docs/PLATFORM_CARRY.md §4).
+    const double turn = std::max(length(now.normal - ref.normal),
+                                 length(now.data_normal - ref.data_normal));
+    if (!(turn <= kPlatformTurnEps)) {
+        platform_.reset();
+        return;
+    }
+    const Vec3d delta = now.centroid - ref.centroid;
+    if (!finite(delta)) {
+        platform_.reset();
+        return;
+    }
+    // Remember the pose observed now, carried or not: a cancelled transfer must
+    // not accumulate into a jump on a later tick.
+    PlatformRef observed;
+    observed.index = static_cast<std::uint32_t>(found);
+    observed.sector = now.sector;
+    observed.object = now.object;
+    observed.source_poly = now.source_poly;
+    observed.centroid = now.centroid;
+    observed.normal = now.normal;
+    observed.data_normal = now.data_normal;
+    platform_ = observed;
+    if (length(delta) <= kPlatformDeltaEps) {
+        return; // the panel is at rest
+    }
+
+    // Still on the panel: the feet stay within one capsule radius of the plane
+    // the player was standing on last tick (the lift cabin raises the plane by
+    // more than that per tick, the *remembered* plane is what counts).
+    const double plane_distance = std::fabs(dot(state.pos - ref.centroid, ref.normal));
+    if (!(plane_distance <= config_.radius + kPlatformSkin)) {
+        platform_.reset();
+        return;
+    }
+
+    // The transfer is a plain translation of the capsule.  A panel driven into
+    // a wall or a ceiling would push the capsule inside static geometry; the
+    // move is cancelled then and the player keeps the old position (the safe
+    // rule; the original's exact contact order is not reversed yet).  A fast
+    // panel is sampled along the way in half-radius steps, the same guard the
+    // controller uses for its own substeps, so the capsule cannot tunnel
+    // through a thin wall between two ticks.
+    const Vec3d target = state.pos + delta;
+    const double distance = length(delta);
+    int samples = 1;
+    const double sample_step = config_.radius * 0.5;
+    if (sample_step > 0.0 && distance > sample_step) {
+        samples = static_cast<int>(std::ceil(distance / sample_step));
+    }
+    bool blocked = false;
+    for (int sample = 1; sample <= samples && !blocked; ++sample) {
+        const Vec3d point =
+            sample == samples
+                ? target
+                : state.pos + delta * (static_cast<double>(sample) /
+                                       static_cast<double>(samples));
+        blocked = overlaps_static(world, point, state.height, config_.radius);
+    }
+    if (blocked) {
+        return;
+    }
+    state.pos = target;
+    platform_delta_ = delta;
+}
+
+void SimPlayer::detect_platform(const CollisionWorld& world) {
+    platform_.reset();
+    if (world.dynamic_triangle_count() == 0) {
+        return;
+    }
+    const auto hit = platform_probe(world, state_.pos, config_.radius);
+    if (!hit || !hit->dynamic || hit->triangle == nullptr) {
+        return; // static floor, nothing under the feet, or out of probe range
+    }
+    const Triangle& triangle = *hit->triangle;
+    PlatformRef ref;
+    ref.index = hit->triangle_index;
+    ref.sector = triangle.sector;
+    ref.object = triangle.object;
+    ref.source_poly = triangle.source_poly;
+    ref.centroid = triangle.centroid;
+    ref.normal = triangle.normal;
+    ref.data_normal = triangle.data_normal;
+    platform_ = ref;
 }
 
 void SimPlayer::apply_blasts(GameRuntime& runtime) {
