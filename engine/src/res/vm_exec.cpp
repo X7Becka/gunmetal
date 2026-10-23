@@ -1566,6 +1566,15 @@ void VmExecutor::install_handlers() {
     }
     set("ADD_SCREEN_TEXT", &VmExecutor::h_screen_text);
     set("ADD_SOURCESCREEN_TEXT", &VmExecutor::h_screen_text);
+    // Screen requests keep the event and record which screen the script asked
+    // for; the frontend is what actually switches (M8.2/M9.5).
+    for (const char* name : {"SHOW_LEVEL_END_SCREEN", "REFRESH_SCREEN",
+                             "SHOW_AMMO_BUY_SCREEN", "SHOW_ITEM_BUY_SCREEN",
+                             "SHOW_TANK_BUY_SCREEN", "SHOW_TANK_SAVE_SCREEN",
+                             "SHOW_WEAPON_BUY_SCREEN", "SHOW_BRIEFING_SCREEN",
+                             "SHOW_HELP_SCREEN"}) {
+        set(name, &VmExecutor::h_screen);
+    }
     set("ADD_SOURCEPLAYER_AMMO", &VmExecutor::h_add_ammo);
     set("ADD_SOURCEPLAYER_CASH", &VmExecutor::h_cash);
     set("HEAL_SOURCEPLAYER", &VmExecutor::h_heal);
@@ -2911,6 +2920,15 @@ std::optional<std::size_t> VmExecutor::h_screen_text(VmState& state,
         }
     }
     state.screen_text.emplace_back(slot, text);
+    event(state, insn);
+    return std::nullopt;
+}
+
+std::optional<std::size_t> VmExecutor::h_screen(VmState& state, const VmInsn& insn) {
+    int& occ = state.occ[insn.pc];
+    state.screens.push_back(VmState::ScreenRequest{
+        insn.name, insn.args, static_cast<std::uint32_t>(insn.pc), occ});
+    ++occ;
     event(state, insn);
     return std::nullopt;
 }

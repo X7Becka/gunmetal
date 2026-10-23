@@ -44,6 +44,12 @@ target_link_libraries(gm_vm_campaign_tests PRIVATE gm_engine)
 add_test(NAME vm_campaign COMMAND gm_vm_campaign_tests)
 gm_label(vm_campaign quick)
 
+# M8.2/M9.5: full-screen requests recorded from the script (synthetic).
+add_executable(gm_vm_screens_tests test_vm_screens.cpp)
+target_link_libraries(gm_vm_screens_tests PRIVATE gm_engine)
+add_test(NAME vm_screens COMMAND gm_vm_screens_tests)
+gm_label(vm_screens quick)
+
 add_test(NAME core COMMAND gm_tests)
 gm_label(core quick)
 

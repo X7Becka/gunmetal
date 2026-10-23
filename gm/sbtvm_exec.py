@@ -651,6 +651,8 @@ class State:
     music_playing: bool = False
     #: ADD_SCREEN_TEXT / ADD_SOURCESCREEN_TEXT: (slot, text) in script order.
     screen_text: list = field(default_factory=list)
+    #: Full-screen requests in script order: (name, args, pc).
+    screen_requests: list = field(default_factory=list)
     objectives: list = field(default_factory=list)     # names (DEFINE_*)
     objectives_bits: int = 0
     defs: dict = field(default_factory=dict)           # DEFINE_* record lists
@@ -1163,6 +1165,15 @@ class Executor:
                 _op("PLAY_MEMORIZED_MUSIC_BANK"): self._h_music,
                 _op("ADD_SCREEN_TEXT"): self._h_screen_text,
                 _op("ADD_SOURCESCREEN_TEXT"): self._h_screen_text,
+                _op("SHOW_LEVEL_END_SCREEN"): self._h_screen,
+                _op("REFRESH_SCREEN"): self._h_screen,
+                _op("SHOW_AMMO_BUY_SCREEN"): self._h_screen,
+                _op("SHOW_ITEM_BUY_SCREEN"): self._h_screen,
+                _op("SHOW_TANK_BUY_SCREEN"): self._h_screen,
+                _op("SHOW_TANK_SAVE_SCREEN"): self._h_screen,
+                _op("SHOW_WEAPON_BUY_SCREEN"): self._h_screen,
+                _op("SHOW_BRIEFING_SCREEN"): self._h_screen,
+                _op("SHOW_HELP_SCREEN"): self._h_screen,
                 _op("DEFINE_SHIELDS"): self._h_def,
                 _op("DEFINE_VIRUS"): self._h_def,
                 _op("DEFINE_REGENERATION_MARKER"): self._h_def,
@@ -1204,6 +1215,11 @@ class Executor:
     def _h_sleep(self, st, ins):
         st.clock += s32(ins.args[0])
         self._event(st, ins, note="sleep %d" % s32(ins.args[0]))
+        return None
+
+    def _h_screen(self, st, ins):
+        st.screen_requests.append((ins.name, list(ins.args), ins.pc))
+        self._event(st, ins)
         return None
 
     def _h_music(self, st, ins):

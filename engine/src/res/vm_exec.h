@@ -484,6 +484,18 @@ struct VmState {
     /// `ADD_SCREEN_TEXT` (50) / `ADD_SOURCESCREEN_TEXT` (51): 2D overlay
     /// lines, `(slot id, text)` in script order.
     std::vector<std::pair<int, std::string>> screen_text;
+
+    /// Full-screen requests in script order: `SHOW_LEVEL_END_SCREEN` (91),
+    /// `REFRESH_SCREEN` (167), the shop screens (189..193), briefing (194)
+    /// and help (195).  The script only asks; the frontend decides
+    /// (docs/UI_SCREENS.md).
+    struct ScreenRequest {
+        std::string name;
+        std::vector<SbtValue> args;
+        std::uint32_t site = 0;
+        int occ = 0;
+    };
+    std::vector<ScreenRequest> screens;
     std::vector<std::string> objectives;
     std::uint32_t objectives_bits = 0;
     std::map<std::string, std::vector<SbtValue>> defs;             // DEFINE_* args
@@ -814,6 +826,7 @@ private:
     std::optional<std::size_t> h_level(VmState&, const VmInsn&);
     std::optional<std::size_t> h_music(VmState&, const VmInsn&);
     std::optional<std::size_t> h_screen_text(VmState&, const VmInsn&);
+    std::optional<std::size_t> h_screen(VmState&, const VmInsn&);
     std::optional<std::size_t> h_camera_haze(VmState&, const VmInsn&);
     std::optional<std::size_t> h_add_ammo(VmState&, const VmInsn&);
     std::optional<std::size_t> h_cash(VmState&, const VmInsn&);
