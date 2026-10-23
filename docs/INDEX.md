@@ -53,7 +53,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 12 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 89 | 274 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 91 | 274 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -97,6 +97,7 @@
 | `docs/SBV.md` | 21 | 17 | `.sbv` — видео/анимации Gunmetal |
 | `docs/SBV_PARITY.md` | 9 | 3 | Паритет C++ ↔ Python для `.sbv` на всём корпусе |
 | `docs/SBW_EDIT.md` | 23 | 31 | Редактор геометрии `.sbw` (`M11.2`, срез 1) |
+| `docs/SBW_OBJECTS.md` | 34 | 58 | Объекты `.sbw`: редактор (`M11.2`, срез 3) |
 | `docs/SCENE_EDIT.md` | 42 | 131 | Редактор записей сцены `.sbt` (`M11.3`, срез 1) |
 | `docs/SCREEN_CPP.md` | 15 | 5 | SML-экран в C++: один рантайм от `.sme` до RGB |
 | `docs/SCREEN_FX.md` | 29 | 350 | Экранные эффекты: фейд-«дымка» (HAZE), вспышка урона, палитра (M4.2.8) |

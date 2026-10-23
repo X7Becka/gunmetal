@@ -62,6 +62,7 @@ DOC_FILES = {
     "SBW_EDIT": "docs/SBW_EDIT.md",
     "SCRIPT_DEBUG": "docs/SCRIPT_DEBUG.md",
     "LIGHTMAP_EDIT": "docs/LIGHTMAP_EDIT.md",
+    "SBW_OBJECTS": "docs/SBW_OBJECTS.md",
 }
 
 
@@ -1327,6 +1328,26 @@ def c_sbc_corpus(env):
     ok = (len(paths), records, texels, total) == (51, 67200, 23944872, 24214080)
     return "%d / %d / %d / %d" % (len(paths), records, texels, total), ok, \
         "все .sbc в корне и SOBS/"
+
+
+
+@check("SBW_OBJECTS", "36 миров / 28192 объекта / 357818 вершин",
+       "36 / 28192 / 357818")
+def c_sbw_objects(env):
+    from gm.sbw import parse
+
+    paths = sorted(glob.glob(os.path.join(env.game, "*.sbw")))
+    objects = vertices = 0
+    for path in paths:
+        with open(path, "rb") as fh:
+            level = parse(fh.read())
+        for sector in level.sectors:
+            for obj in sector.objects:
+                objects += 1
+                vertices += len(obj.vertices)
+    ok = (len(paths), objects, vertices) == (36, 28192, 357818)
+    return "%d / %d / %d" % (len(paths), objects, vertices), ok, \
+        "объекты и локальные вершины 36 миров"
 
 
 def main(argv=None) -> int:

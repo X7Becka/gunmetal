@@ -197,6 +197,25 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     set_tests_properties(sbwedit_audit PROPERTIES PASS_REGULAR_EXPRESSION
         "result: OK")
     gm_label(sbwedit_audit quick)
+    # M11.2: objects of the world (.sbw) - origin/basis/radius/bounds/flags.
+    add_test(NAME sbwobj_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwobj.py
+                     --self-test)
+    set_tests_properties(sbwobj_selftest PROPERTIES PASS_REGULAR_EXPRESSION
+        "82/82 passed")
+    gm_label(sbwobj_selftest quick)
+    add_test(NAME sbwobj_roundtrip
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwobj.py
+                     --roundtrip)
+    set_tests_properties(sbwobj_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
+        "round-trip: 36/36 identical")
+    gm_label(sbwobj_roundtrip quick)
+    add_test(NAME sbwobj_audit
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwobj.py
+                     --audit)
+    set_tests_properties(sbwobj_audit PROPERTIES PASS_REGULAR_EXPRESSION
+        "result: OK")
+    gm_label(sbwobj_audit quick)
 endif()
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX")
