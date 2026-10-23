@@ -157,6 +157,11 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     gm_label(sim_corpus full)
     # M6.5.1: the scripted player moves and fires through the proven
     # controller and weapon seams (`docs/SIM_PLAYER.md`).
+    add_test(NAME cli_sim_projectile
+             COMMAND gunmetal --sim dm1 --sim-drive "fire:300" --sim-projectile)
+    set_tests_properties(cli_sim_projectile PROPERTIES PASS_REGULAR_EXPRESSION
+        "projectile=synthetic spawned=[1-9][0-9]* blasts=[1-9][0-9]*")
+    gm_label(cli_sim_projectile quick)
     add_test(NAME cli_sim_drive
              COMMAND gunmetal --sim dm1 --sim-drive "fire:300")
     set_tests_properties(cli_sim_drive PROPERTIES PASS_REGULAR_EXPRESSION

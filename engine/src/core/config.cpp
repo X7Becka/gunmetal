@@ -419,6 +419,8 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.sim_drive = std::string(*v);
+        } else if (arg == "--sim-projectile") {
+            options.sim_projectile = true;
         } else if (arg == "--god") {
             options.sim_god = true;
         } else if (arg == "--spawn-camera") {
@@ -654,6 +656,7 @@ std::string usage() {
        << "      --sim-difficulty N  VM difficulty for --sim\n"
        << "      --god         run --sim with the GOD_MODE branch (57 CHEVY)\n"
        << "      --sim-drive PLAN  drive the --sim player: forward=1:900;turn=0.5:300;fire:200\n"
+       << "      --sim-projectile  the driven player fires rounds (blast damage), not hitscan\n"
        << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"

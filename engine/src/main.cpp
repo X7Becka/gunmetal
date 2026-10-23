@@ -1108,6 +1108,7 @@ int simulate(const gm::Options& options) {
         if (auto table = gm::Weapons::load(level_path, &weapons_error)) {
             gm::Arsenal arsenal = table->initial();
             arsenal.mask = 0;
+            int projectile_slot = -1;
             for (int slot = 0; slot < static_cast<int>(table->size()); ++slot) {
                 const gm::Weapon* weapon = table->at(slot);
                 if (weapon == nullptr) {
@@ -1115,11 +1116,77 @@ int simulate(const gm::Options& options) {
                 }
                 arsenal.mask |= 1u << slot;
                 arsenal.ammo[slot] = table->ammo_max_for(weapon->ammo_type);
+                // Prefer an automatic projectile weapon: the charge modes
+                // (2..6) fire on release, and the drive plan has no explicit
+                // release verb, so a charged slot would never shoot.
+                // Rank the projectile weapons: automatic (mode 1) with blast
+                // data first, then automatic, then any non-hitscan.  The
+                // charge modes (2..6) fire on release, and the drive plan has
+                // no explicit release verb.
+                if (weapon->name == "ROCKET") {
+                    // The documented projectile weapon of the shipped data
+                    // (`docs/SIM_PROJECTILE.md`: slot 7, round TT31).
+                    projectile_slot = slot;
+                } else if (weapon->hitscan == false && projectile_slot >= 0 &&
+                           table->at(projectile_slot)->name == "ROCKET") {
+                    // ROCKET stays the choice.
+                } else if (weapon->hitscan == false) {
+                    auto rank = [table](int candidate) {
+                        if (candidate < 0) {
+                            return 0;
+                        }
+                        const gm::Weapon* other = table->at(candidate);
+                        if (other == nullptr || other->hitscan) {
+                            return 0;
+                        }
+                        const bool blasts = !other->impact_blasts.empty() ||
+                                            !other->expire_blasts.empty();
+                        return 1 + (other->fire_mode == 1 ? 2 : 0) + (blasts ? 4 : 0);
+                    };
+                    const int rank_now = 1 + (weapon->fire_mode == 1 ? 2 : 0) +
+                        ((!weapon->impact_blasts.empty() ||
+                          !weapon->expire_blasts.empty()) ? 4 : 0);
+                    if (rank_now > rank(projectile_slot)) {
+                        projectile_slot = slot;
+                    }
+                }
             }
             arsenal.current = 0;
+            if (options.sim_projectile) {
+                if (projectile_slot < 0) {
+                    gm::logf(gm::LogLevel::Error, "sim",
+                             "no projectile weapon in " + level_path.string());
+                    return 2;
+                }
+                // A hitscan weapon never spawns a round, so the driven player
+                // must hold a projectile weapon.
+                arsenal.current = projectile_slot;
+            }
             runtime.set_player_weapons(std::move(*table), arsenal);
         } else {
             gm::logf(gm::LogLevel::Info, "sim", "no player weapons: ", weapons_error);
+        }
+        // `--sim-projectile`: a round template instead of hitscan.  Prefer a
+        // shipped thing with the projectile movement type; the shipped levels
+        // carry none at start, so fall back to the synthetic round of
+        // `engine/tests/test_sim_projectile.cpp` (constants cited in
+        // `docs/SIM.md`).
+        if (options.sim_projectile) {
+            // The shipped levels start without a round in flight, so the
+            // template is the synthetic one of `test_sim_projectile.cpp`
+            // (movement type 6, see `docs/SIM_PROJECTILE.md`).
+            gm::Thing projectile;
+            projectile.id = -1;
+            projectile.type = 31; // TT31, the ROCKET round
+            projectile.movement_type = 6;
+            projectile.gravity = 1.0;
+            projectile.damping = 0.8;
+            projectile.collision_shape = 1;
+            projectile.radius = 10.0;
+            projectile.hits_left = 1;
+            projectile.expire_ticks = 364;
+            projectile.create_event = 901;
+            player.set_projectile(projectile, 0);
         }
         for (const gm::DriveSegment& segment : drive_plan) {
             for (int index = 0; index < segment.ticks; ++index) {
@@ -1128,7 +1195,12 @@ int simulate(const gm::Options& options) {
                              "tick " + std::to_string(player.tick_index()) + ": " + error);
                     return 2;
                 }
-                runtime.tick(1);
+                // In projectile mode the player already ticked the runtime
+                // (the round and its blast are stepped there); a second tick
+                // would advance the world twice per fixed tick.
+                if (!player.has_projectile()) {
+                    runtime.tick(1);
+                }
                 if (player.last_step().hit_wall) {
                     ++drive_walls;
                 }
@@ -1144,6 +1216,11 @@ int simulate(const gm::Options& options) {
                     state.on_ground ? 1 : 0, drive_walls, player.shots_fired(), slot,
                     player.ammo(slot),
                     static_cast<unsigned long long>(runtime.player_arsenal().shot_index));
+        if (options.sim_projectile) {
+            std::printf("sim: drive projectile=synthetic spawned=%d blasts=%d "
+                        "things_damaged=%d\n", player.projectiles_spawned(),
+                        player.blast_hits(), player.things_damaged());
+        }
     }
 
     const std::size_t things_before = runtime.things().things().size();
@@ -1207,6 +1284,9 @@ int simulate(const gm::Options& options) {
         mix_real(player.yaw());
         mix(static_cast<std::uint64_t>(player.shots_fired()));
         mix(static_cast<std::uint64_t>(player.tick_index()));
+        mix(static_cast<std::uint64_t>(player.projectiles_spawned()));
+        mix(static_cast<std::uint64_t>(player.blast_hits()));
+        mix(static_cast<std::uint64_t>(player.things_damaged()));
     }
 
     const std::uint64_t printed_ticks =

@@ -23,7 +23,7 @@
 | `docs/CAMERA_CPP.md` | 25 | 74 | `camera/camera.h` — камера первого/третьего лица |
 | `docs/CAMPAIGN_FLOW.md` | 35 | 302 | Поток кампании: счётчик миссий, штаб, цели, секреты, время, финал (`M9.1`) |
 | `docs/CHASSIS.md` | 22 | 236 | Шасси: выбор, 57 CHEVY, модели/звуки, HUD (`M6.1.4`, `M6.5.3`) |
-| `docs/COLLIDE.md` | 25 | 10 | Gunmetal — примитивы коллизий `.sbw` |
+| `docs/COLLIDE.md` | 32 | 9 | Gunmetal — примитивы коллизий `.sbw` |
 | `docs/CONFIG.md` | 28 | 241 | `GUNMETAL.CFG` / `CONTROLS.CFG` — карта полей |
 | `docs/CONTROLS_CPP.md` | 13 | 19 | `input/controls.h` — `.key` profiles and controller config |
 | `docs/DAMAGE.md` | 31 | 255 | Урон, броня и щиты (`M6.5.2`) |
@@ -72,7 +72,7 @@
 | `docs/PERFORMANCE.md` | 3 | 0 | PERFORMANCE — измеренные времена (`M12.3`) |
 | `docs/PICKUP.md` | 29 | 305 | Предметы: подбор, маркеры регенерации, вирус и щиты (`M6.2.6`) |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
-| `docs/PLAYER_CONTROLLER.md` | 27 | 46 | Gunmetal — контроллер игрока (капсула, 91 Гц) |
+| `docs/PLAYER_CONTROLLER.md` | 28 | 46 | Gunmetal — контроллер игрока (капсула, 91 Гц) |
 | `docs/PLAYER_FIELDS.md` | 54 | 1527 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
 | `docs/PLAYER_GUIDE.md` | 12 | 0 | PLAYER_GUIDE — как играть в переиздание |
@@ -106,8 +106,9 @@
 | `docs/SECTOR_STUFF.md` | 33 | 272 | `SECTOR_STUFF`: какой слот адресует команда (27–31, 40–45) |
 | `docs/SECURITY.md` | 12 | 1 | Границы доверия и устойчивость к битым файлам |
 | `docs/SHAKE.md` | 30 | 467 | Gunmetal — тряска камеры, view-pitch и отдача |
-| `docs/SIM.md` | 6 | 0 | Безголовый прогон уровня (`--sim`, `M6.5.1`) |
+| `docs/SIM.md` | 7 | 0 | Безголовый прогон уровня (`--sim`, `M6.5.1`) |
 | `docs/SIM_PLAYER.md` | 19 | 5 | Игровой тик одного игрока (`game/sim_player.*`, `M6.5.1`, срез 1) |
+| `docs/SIM_PROJECTILE.md` | 17 | 6 | Игрок стреляет снарядом: попадание и урон (`game/sim_player.*`, `M6.5.1`, срез 2) |
 | `docs/SKY.md` | 20 | 100 | Фон кадра и «небо»: что рисует движок за геометрией (M4.1.6) |
 | `docs/SML_CPP.md` | 12 | 6 | SML/SME в C++: читатель разметки UI |
 | `docs/SOA.md` | 28 | 172 | `.soa` — анимации спрайтовых текстур |
