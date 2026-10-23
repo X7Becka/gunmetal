@@ -59,6 +59,7 @@ DOC_FILES = {
     "BIGFILE_WRITE": "docs/BIGFILE_WRITE.md",
     "SBT_WRITE": "docs/SBT_WRITE.md",
     "SCENE_EDIT": "docs/SCENE_EDIT.md",
+    "SBW_EDIT": "docs/SBW_EDIT.md",
 }
 
 
@@ -1262,6 +1263,25 @@ def c_scene_records(env):
                      if record.type not in (11, 255))
     ok = scene == 241
     return "%d" % scene, ok, "типы записей != 11/255 по 36 уровням"
+
+
+
+@check("SBW_EDIT", "36 миров / 28192 объекта / 235069 полигонов / 40037031 Б",
+       "36 / 28192 / 235069 / 40037031")
+def c_sbw_corpus(env):
+    from gm.sbw import parse
+
+    paths = sorted(glob.glob(os.path.join(env.game, "*.sbw")))
+    objects = polygons = total = 0
+    for path in paths:
+        with open(path, "rb") as fh:
+            level = parse(fh.read())
+        objects += level.n_objects
+        polygons += level.n_polys
+        total += os.path.getsize(path)
+    ok = (len(paths), objects, polygons, total) == (36, 28192, 235069, 40037031)
+    return "%d / %d / %d / %d" % (len(paths), objects, polygons, total), ok, \
+        "все .sbw в корне установки"
 
 
 def main(argv=None) -> int:
