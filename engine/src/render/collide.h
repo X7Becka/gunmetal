@@ -6,12 +6,20 @@
 //
 // Conventions (see docs/COLLIDE.md for the numbers and the proof):
 //   * double precision throughout; results are in engine world units;
-//   * every triangle is two-sided for queries by default (`CollideFilter::
-//     backfaces`), but the reported normal always faces the incoming query so
-//     a caller can slide along a surface without knowing its winding;
-//   * surfaces are classified by the geometric normal: floor when
-//     `n.z >= min_normal_z`, ceiling when `n.z <= -min_normal_z`, wall
-//     otherwise (the 0.8 threshold used by tools/re/spawn.py);
+//   * every triangle carries two normals: `normal` from the vertex winding
+//     (used by the renderer and by callers that care about the triangle soup)
+//     and `data_normal`, the normal stored in the `.sbw` polygon.  In the
+//     shipped levels the two disagree for most horizontal faces: the index
+//     order is opposite to the stored normal, so the winding alone classifies
+//     floors as ceilings and vice versa;
+//   * surfaces are classified by `data_normal` when it is non-zero and by the
+//     winding `normal` otherwise: floor when `n.z >= min_normal_z`, ceiling
+//     when `n.z <= -min_normal_z`, wall otherwise (the 0.8 threshold used by
+//     tools/re/spawn.py);
+//   * collision is two-sided regardless of the winding: a ray or a sphere
+//     reaches a surface from either side, so walls hold from the inside and
+//     from the outside.  The reported normal always faces the incoming query
+//     so a caller can slide along a surface without knowing its winding;
 //   * `raycast` returns the nearest hit with `t >= 1e-9`, so a ray leaving a
 //     surface it starts on does not hit that surface again;
 //   * queries do not allocate: results are values/pointers into the world,
@@ -137,7 +145,14 @@ struct Triangle {
     Vec3d a;
     Vec3d b;
     Vec3d c;
-    Vec3d normal;   ///< unit geometric normal from the CCW winding: cross(b-a, c-a)
+    /// Unit geometric normal from the CCW winding: cross(b-a, c-a).  Used by
+    /// the renderer; the shipped `.sbw` winding is often opposite to the
+    /// stored polygon normal (docs/COLLIDE.md §1.2).
+    Vec3d normal;
+    /// Unit normal stored in the source polygon (`SbwPoly::normal`), zero when
+    /// the stored value is absent or degenerate.  This is the authoring
+    /// normal and the one `surface_of` classifies by.
+    Vec3d data_normal;
     Vec3d centroid;
     Aabb bounds;
     double plane_offset = 0.0; ///< dot(normal, a)
@@ -151,7 +166,12 @@ struct Triangle {
 
 enum class Surface : std::uint8_t { floor, wall, ceiling };
 
-/// Classify by the geometric normal (`min_normal_z` = 0.8 by default).
+/// Normal used for surface classification and for the back-face test: the
+/// stored `.sbw` polygon normal (`data_normal`) when it is non-zero, otherwise
+/// the winding normal.  Never zero for a built triangle.
+Vec3d surface_normal(const Triangle& triangle);
+
+/// Classify by `surface_normal()` (`min_normal_z` = 0.8 by default).
 Surface surface_of(const Triangle& triangle, double min_normal_z = 0.8);
 
 inline const char* surface_name(Surface surface) {
@@ -172,8 +192,12 @@ struct CollideFilter {
     bool floors = true;
     bool ceilings = true;
     bool walls = true;
-    /// Accept hits on the back side of a triangle.  The .sbw shell is not
-    /// consistently wound for physics, so this is on by default.
+    /// Accept hits on the back side of a triangle.  The back side is defined
+    /// by `surface_normal()` (the stored polygon normal when present), *not*
+    /// by the winding, and the default `true` makes every query two-sided:
+    /// winding direction never decides whether geometry collides.  Set to
+    /// `false` only when a caller deliberately wants one-sided clipping
+    /// against the authored normal.
     bool backfaces = true;
     double min_normal_z = 0.8;
     std::span<const std::uint32_t> sectors{};
@@ -188,7 +212,7 @@ struct RayHit {
     const Triangle* triangle = nullptr; ///< valid while the world is alive
     std::uint32_t triangle_index = 0;
     std::uint32_t sector = 0;
-    bool front_face = false; ///< the ray hit the winding side
+    bool front_face = false; ///< the ray arrived on the front side of `surface_normal()`
 };
 
 struct SphereHit {

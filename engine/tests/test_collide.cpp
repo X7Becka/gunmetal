@@ -12,9 +12,11 @@
 // level spans the object origins — the old `origin32 + 1.875 * local` model was
 // the high dword of the doubles read as f32.
 //
-// Pinned values below were cross-checked against tools/re/spawn.py
-// `TriGrid.floor` (0.0 at the level0 spawn) and against a direct all-triangles
-// sweep with the reference formulation.
+// Pinned values below were cross-checked against a direct all-triangles sweep
+// with the reference formulation.  Surfaces are classified by the stored
+// `.sbw` polygon normal (`Triangle::data_normal`), not by the winding: the
+// shipped levels wind horizontal faces opposite to the authored normal, so the
+// winding alone calls every floor a ceiling (docs/COLLIDE.md §1.2).
 #include "render/collide.h"
 
 #include "res/sbw.h"
@@ -68,6 +70,9 @@ struct TriSpec {
     std::uint32_t sector = 0;
     std::uint16_t texture = 0;
     std::uint16_t material = 0;
+    /// Stored polygon normal (`SbwPoly::normal`); zero keeps the old
+    /// winding-only behaviour of the synthetic worlds.
+    gm::Vec3f normal{};
 };
 
 void put_f64(std::uint8_t* p, double value) {
@@ -112,6 +117,7 @@ gm::SbwLevel make_level(const std::vector<TriSpec>& specs) {
         gm::SbwPoly poly;
         poly.texture = spec.texture;
         poly.material = spec.material;
+        poly.normal = spec.normal;
         poly.indices = {0, 1, 2};
         geometry.polys.push_back(poly);
         geometry.n_polys = 1;
@@ -315,6 +321,79 @@ void test_floor_filters() {
     slanted.normal = gm::normalized(gm::cross(slanted.b - slanted.a, slanted.c - slanted.a));
     CHECK(gm::surface_of(slanted) == gm::Surface::wall);
     CHECK(gm::surface_of(slanted, 0.5) == gm::Surface::floor);
+}
+
+void test_stored_normal() {
+    // Down-wound triangle (`normal.z = -1`) whose stored polygon normal is
+    // `+z`: the shipped level bug in miniature.  Classification and the
+    // back-face test must follow the stored normal, collision stays
+    // two-sided.
+    std::vector<TriSpec> specs;
+    specs.push_back({{-10, -10, 0}, {-10, 10, 0}, {10, 10, 0}, 0, 0, 0, {0, 0, 1}});
+    gm::CollisionWorld world;
+    std::string error;
+    CHECK(world.build(make_level(specs), &error));
+    CHECK(world.triangle_count() == 1);
+    const gm::Triangle& triangle = world.triangles()[0];
+    CHECK_NEAR(triangle.normal.z, -1.0, 1e-12);
+    CHECK_NEAR(triangle.data_normal.z, 1.0, 1e-12);
+    CHECK_NEAR(gm::surface_normal(triangle).z, 1.0, 1e-12);
+    CHECK(gm::surface_of(triangle) == gm::Surface::floor);
+
+    // From above: hit, authored front side, normal towards the ray.
+    const auto down = world.raycast({0, 0, 5}, {0, 0, -1});
+    CHECK(down.has_value());
+    if (down) {
+        CHECK_NEAR(down->t, 5.0, 1e-12);
+        CHECK_NEAR(down->normal.z, 1.0, 1e-12);
+        CHECK(down->front_face);
+    }
+    // From below: still a hit (two-sided even though the winding is away
+    // from this side), reported against the ray, not a front face.
+    const auto up = world.raycast({0, 0, -5}, {0, 0, 1});
+    CHECK(up.has_value());
+    if (up) {
+        CHECK_NEAR(up->t, 5.0, 1e-12);
+        CHECK_NEAR(up->normal.z, -1.0, 1e-12);
+        CHECK(!up->front_face); // `dot(data_normal, +z) > 0`
+    }
+
+    // The filter classes follow `surface_of` from either side.
+    gm::CollideFilter floors;
+    floors.walls = false;
+    floors.ceilings = false;
+    CHECK(world.raycast({0, 0, 5}, {0, 0, -1}, gm::kCollideInfinity, floors).has_value());
+    gm::CollideFilter ceilings;
+    ceilings.floors = false;
+    ceilings.walls = false;
+    CHECK(!world.raycast({0, 0, 5}, {0, 0, -1}, gm::kCollideInfinity, ceilings).has_value());
+
+    // `backfaces = false` is the opt-in one-sided mode: the authored side
+    // passes, the other does not.
+    gm::CollideFilter front_only;
+    front_only.backfaces = false;
+    CHECK(world.raycast({0, 0, 5}, {0, 0, -1}, gm::kCollideInfinity, front_only).has_value());
+    CHECK(!world.raycast({0, 0, -5}, {0, 0, 1}, gm::kCollideInfinity, front_only).has_value());
+
+    // No stored normal: the winding remains the source (up-wound floor).
+    {
+        gm::CollisionWorld plain;
+        std::string plain_error;
+        CHECK(plain.build(make_level(floor_specs(0.0)), &plain_error));
+        const gm::Triangle& up_triangle = plain.triangles()[0];
+        CHECK_NEAR(gm::length(up_triangle.data_normal), 0.0, 0.0);
+        CHECK(gm::surface_of(up_triangle) == gm::Surface::floor);
+        CHECK(plain.floor_at(0, 0, 5).has_value());
+    }
+    // ... and a down-wound synthetic floor is still a ceiling, exactly as
+    // before the stored-normal change.
+    {
+        gm::CollisionWorld plain;
+        std::string plain_error;
+        CHECK(plain.build(make_level(floor_specs(0.0, 0, false)), &plain_error));
+        CHECK(gm::surface_of(plain.triangles()[0]) == gm::Surface::ceiling);
+        CHECK(!plain.floor_at(0, 0, 5).has_value());
+    }
 }
 
 void test_robustness() {
@@ -574,8 +653,11 @@ void test_level0() {
     CHECK(world.stats().degenerate == 2); // two collinear polygons in sector 5
     CHECK(world.triangle_count() == 3162);
 
-    // Surface split by the 0.8 normal threshold (Python: 522 / 2084 / 558,
-    // the two degenerate triangles fall out as zero-area).
+    // Surface split by the 0.8 threshold on the stored polygon normal
+    // (`surface_normal()`); the winding normal gives the horizontal faces the
+    // opposite class (522 / 2082 / 558), which is the bug this pins.
+    // The eight triangles stored at exactly `n.z = -0.8` are `-0.79999999`
+    // after the f32 round trip, hence the 1e-6 tolerance for data normals.
     std::size_t floors = 0;
     std::size_t walls = 0;
     std::size_t ceilings = 0;
@@ -592,9 +674,9 @@ void test_level0() {
             break;
         }
     }
-    CHECK(floors == 522);
+    CHECK(floors == 558);
     CHECK(walls == 2082);
-    CHECK(ceilings == 558);
+    CHECK(ceilings == 522);
 
     // World AABB and sector 10 AABB, produced by the Python oracle
     // (`tools/re/collide_goldens.py`, an independent parse + triangulation).
@@ -617,15 +699,16 @@ void test_level0() {
     CHECK_NEAR(sector10.hi.y, 988.0, 1e-9);
     CHECK_NEAR(sector10.hi.z, 176.0, 1e-9);
 
-    // Spawn eye (24, -208, 58): the highest floor below is the room's ground
-    // plane at z = 0, 58 units under the eye.
+    // Spawn eye (24, -208, 58): the alcove floor at z = 16 is the highest
+    // authored floor below (stored `n.z = +1`, winding `-1`).  The larger room
+    // plane at z = 0 is stored with `n.z = -1`, i.e. it is an authored ceiling
+    // (`surface_of`), so `floor_at` stops at 16.
     CHECK(world.floor_at(24, -208, 58).has_value());
     if (const auto z = world.floor_at(24, -208, 58)) {
-        CHECK_NEAR(*z, 0.0, 1e-9); // TriGrid.floor agrees
+        CHECK_NEAR(*z, 16.0, 1e-9);
     }
     {
-        // Straight down the first surface is the alcove ceiling at z = 16
-        // (wound downwards, so the reported normal is flipped towards the ray).
+        // Straight down the first surface is the alcove floor at z = 16.
         const auto hit = world.raycast({24, -208, 58}, {0, 0, -1});
         CHECK(hit.has_value());
         if (hit) {
@@ -635,8 +718,10 @@ void test_level0() {
             CHECK(hit->sector == 56);
             CHECK(hit->triangle->object == 1);
             CHECK(hit->triangle->texture == 3);
-            CHECK(!hit->front_face);
-            CHECK(gm::surface_of(*hit->triangle) == gm::Surface::ceiling);
+            CHECK(hit->front_face); // the ray arrives on the authored +z side
+            CHECK(gm::surface_of(*hit->triangle) == gm::Surface::floor);
+            CHECK_NEAR(hit->triangle->normal.z, -1.0, 1e-12); // winding is opposite
+            CHECK_NEAR(hit->triangle->data_normal.z, 1.0, 1e-12);
         }
     }
 
@@ -687,31 +772,35 @@ void test_level0() {
 
     // Filtered sweeps change where the first hit lands (same Python oracle).
     {
-        // Ceilings only: the same downwards ceiling as above.
+        // Ceilings only: past the floor, the room plane at z = 0 is an
+        // authored ceiling (stored n.z = -1), hit by the same downwards ray.
         gm::CollideFilter ceilings;
         ceilings.floors = false;
         ceilings.walls = false;
         const auto hit = world.raycast({24, -208, 58}, {0, 0, -1}, gm::kCollideInfinity, ceilings);
         CHECK(hit.has_value());
         if (hit) {
-            CHECK_NEAR(hit->t, 42.0, 1e-9);
+            CHECK_NEAR(hit->t, 58.0, 1e-9);
+            CHECK_NEAR(hit->point.z, 0.0, 1e-9);
             CHECK(hit->sector == 56);
-            CHECK(hit->triangle->texture == 3);
+            CHECK(hit->triangle->texture == 0);
+            CHECK(!hit->front_face); // authored `-z` side faces the incoming ray
+            CHECK(gm::surface_of(*hit->triangle) == gm::Surface::ceiling);
         }
     }
     {
-        // Floors only, straight down: the ground plane at z = 0.
+        // Floors only, straight down: the alcove floor at z = 16.
         gm::CollideFilter floors;
         floors.walls = false;
         floors.ceilings = false;
         const auto hit = world.raycast({24, -208, 58}, {0, 0, -1}, gm::kCollideInfinity, floors);
         CHECK(hit.has_value());
         if (hit) {
-            CHECK_NEAR(hit->t, 58.0, 1e-9);
-            CHECK_NEAR(hit->point.z, 0.0, 1e-9);
+            CHECK_NEAR(hit->t, 42.0, 1e-9);
+            CHECK_NEAR(hit->point.z, 16.0, 1e-9);
             CHECK_NEAR(hit->normal.z, 1.0, 1e-12);
             CHECK(hit->sector == 56);
-            CHECK(hit->triangle->texture == 0);
+            CHECK(hit->triangle->texture == 3);
         }
     }
     {
@@ -763,6 +852,7 @@ void test_level0() {
 int main() {
     test_cube();
     test_floor_filters();
+    test_stored_normal();
     test_robustness();
     test_sphere();
     test_aabb();

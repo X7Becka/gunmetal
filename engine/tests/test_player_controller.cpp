@@ -839,10 +839,10 @@ void test_level0() {
     gm::ControllerConfig config;
     // Proven spawn point SET_PLAYER_START[0] = (24, -208, 48), yaw 0
     // (docs/PLAYER.md §8).  In the proven world frame (`origin + basis*local`)
-    // the spawn hovers 32 units above the alcove floor at z = 16; that polygon
-    // is wound downwards (docs/COLLIDE.md: the shell's interior faces are not
-    // consistently wound), so the floor-only ground probe rejects it while the
-    // capsule sweep still lands on it.  Settle over 400 ticks first.
+    // the spawn hovers 32 units above the alcove floor at z = 16.  That
+    // polygon is wound opposite to its stored `n.z = +1`, and the ground probe
+    // classifies by the stored normal (docs/COLLIDE.md §1.2), so the capsule
+    // lands on it and stays grounded.  Settle over 400 ticks first.
     gm::PlayerState state = gm::make_state({24.0, -208.0, 48.0}, 0.0, config);
     for (int i = 0; i < 400; ++i) {
         const gm::StepResult result = gm::step(state, gm::Input{}, world, config);
@@ -852,7 +852,7 @@ void test_level0() {
     CHECK_NEAR(state.pos.z, 16.0 + config.contact_skin, 1e-4);
     CHECK_NEAR(state.pos.x, 24.0, 1e-6);
     CHECK_NEAR(state.pos.y, -208.0, 1e-6);
-    CHECK(!state.on_ground); // "ceiling" winding: rejected by the floor probe
+    CHECK(state.on_ground); // the stored normal makes it a floor
 
     // 100 ticks straight into the +X wall, yaw = +90 degrees.
     state.yaw = kPi / 2.0;
@@ -867,14 +867,14 @@ void test_level0() {
     }
     // Golden after settle + 100 ticks of forward at yaw +90 deg, 91 Hz
     // (implementation-pinned, full precision):
-    //   pos = (76.999999388169869, -208, 16.000001)
-    //   on_ground = 0
+    //   pos = (76.999999088928945, -208, 16.000001)
+    //   on_ground = 1
     // x is the room wall at x = 80 (docs/COLLIDE.md, +x ray t = 56 from the
-    // spawn eye) - radius 3 - skin.
+    // spawn eye) - radius 3 - skin.  The player walks on the z = 16 floor.
     std::printf("player_controller: level0 spawn -> (%.17g, %.17g, %.17g) on_ground=%d\n",
                 state.pos.x, state.pos.y, state.pos.z, state.on_ground ? 1 : 0);
     CHECK(wall);
-    CHECK(!state.on_ground);
+    CHECK(state.on_ground);
     CHECK_NEAR(state.pos.x, 76.999999388169869, 1e-6);
     CHECK_NEAR(state.pos.y, -208.0, 1e-6);
     CHECK_NEAR(state.pos.z, 16.0 + config.contact_skin, 1e-6);
