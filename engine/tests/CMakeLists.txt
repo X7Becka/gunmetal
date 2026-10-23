@@ -386,6 +386,18 @@ target_link_libraries(gm_swing_door_tests PRIVATE gm_engine)
 add_test(NAME swing_door COMMAND gm_swing_door_tests)
 gm_label(swing_door quick)
 
+# M6.4.1 slice 4: lift cabins (docs/LIFT_COLLISION.md).  The shipped data has
+# no cabin -> `.sbw` binding (45/45 lifts unbound, probe in the doc), so the
+# test pins the `lift_offset` seam on the real level13 sec=20 obj=29 plate, a
+# caller-supplied `Lift::cabin_sector/cabin_object` binding (rest pose bit for
+# bit, re-posed by `pos_delta * height/65535`, published only on a height
+# change, static pair suppressed), and the negative: an unbound level ticks
+# without touching the dynamic set (`lifts_unbound`).
+add_executable(gm_lift_collision_tests test_lift_collision.cpp)
+target_link_libraries(gm_lift_collision_tests PRIVATE gm_engine)
+add_test(NAME lift_collision COMMAND gm_lift_collision_tests)
+gm_label(lift_collision quick)
+
 # M6.4.1 slice 2: moving doors really hold the player (docs/DOOR_COLLISION.md).
 # `CollisionWorld::set_dynamic` + static suppression (NaN/inf refusal, empty-set
 # parity), the runtime building one panel per moving sliding door on real

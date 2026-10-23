@@ -171,7 +171,9 @@ struct GameRuntimeStats {
 /// `door_swing(door)` about the folded closed corner.  The static triangles of
 /// those pairs are suppressed in `collision()`, so a closed leaf holds the
 /// player, a projected ray and the AI, while an open one is really gone from
-/// the world.
+/// the world.  A lift cabin gets the same treatment only when a caller bound
+/// it (`Lift::cabin_sector`/`cabin_object`); the shipped data has no such
+/// binding (docs/LIFT_COLLISION.md).
 struct DoorCollisionStats {
     std::size_t doors = 0;      ///< moving doors (sliding + swing) with a panel
     std::size_t panels = 0;     ///< panels inside the colliders (one per door)
@@ -189,6 +191,18 @@ struct DoorCollisionStats {
     std::size_t rebuilds = 0;   ///< `CollisionWorld::set_dynamic` calls
     std::size_t failed_rebuilds = 0; ///< refused dynamic sets (pose kept)
     std::size_t sync_ticks = 0; ///< `sync_door_colliders()` calls
+    // --- lift cabins (M6.4.1 slice 4, docs/LIFT_COLLISION.md) ----------------
+    /// Bound lift cabins with a live panel (the cabin->`.sbw` binding is
+    /// caller-supplied: no shipped lift has one).
+    std::size_t lifts = 0;
+    std::size_t lift_panels = 0;   ///< panels built from lift cabins
+    /// Lifts without a usable `.sbw` cabin: `Lift::cabin_bound()` is false or
+    /// the pair has no triangles.  The shipped corpus is 45/45 unbound.
+    std::size_t lifts_unbound = 0;
+    std::size_t lifts_skipped_static = 0;    ///< no travel and no rotation
+    std::size_t lifts_skipped_rotating = 0;  ///< cabin basis turns, not modelled
+    std::size_t lifts_skipped_duplicate = 0; ///< pair already owned by a door
+    std::size_t lifts_skipped_refused = 0;   ///< `MovingCollider` refused it
 };
 
 /// One `apply_projectile_blasts()` call.  `damage` merges the applied blasts in
@@ -685,6 +699,12 @@ private:
         std::vector<MovingCollider> colliders; ///< one single-panel collider per door
         std::vector<std::size_t> door_index;   ///< index into `WorldState::doors()`
         std::vector<double> applied;           ///< last fraction handed to `update`
+        /// Bound lift cabins: one single-panel collider per lift, the lift
+        /// index into `WorldState::lifts()` and the height it was posed at
+        /// (`sync_door_colliders` re-poses only when `Lift::height` changed).
+        std::vector<MovingCollider> lift_colliders;
+        std::vector<std::size_t> lift_index;
+        std::vector<int> applied_lift_height;
         std::vector<std::pair<std::uint32_t, std::uint32_t>> suppressed;
         DoorCollisionStats stats;
     };
