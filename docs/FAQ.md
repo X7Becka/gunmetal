@@ -218,8 +218,10 @@ sample nosuchname: not found (the original plays silence)
 `ROADMAP.md` ⬜. Пока это ручной шаг, и только он доказывает, что мод
 играется (`docs/MODDING.md` §1, §6).
 
-Упаковка BIGFILE как отдельный пункт (`M11.6`) тоже ⬜, хотя замена одной
-записи уже делается `gm.py set` (`docs/MODDING.md` §7).
+Упаковка BIGFILE закрыта: `tools/editor/bigpack.py`
+(`docs/BIGFILE_WRITE.md`) — round-trip всех 5 архивов побайтово и замена
+одной записи с пересчётом `.IDX`/`.DAT`; быстрая замена — `gm.py set`
+(`docs/MODDING.md` §7).
 
 ---
 

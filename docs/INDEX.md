@@ -34,6 +34,7 @@
 | `docs/ENTITY_FIELDS.md` | 37 | 262 | Скриптовая таблица сущностей (`0x5b0df0`, `0x5e4680`, `0x616658`): карта (M2.3.6) |
 | `docs/EQUIPMENT.md` | 30 | 318 | EQUIPMENT — модель экипировки (`DEFINE_EQUIPMENT`, состояние, эффекты) |
 | `docs/EVENTS.md` | 24 | 92 | Event queue and `GENERATE` events |
+| `docs/FAQ.md` | 14 | 0 | FAQ — частые вопросы |
 | `docs/FILM.md` | 27 | 107 | HUD-фильмы `.sof` / `.fdx` — формат, привязка, паритет |
 | `docs/FOG.md` | 22 | 220 | Туман по глубине: формула, таблица `lighttable`, Glide (M4.1.6) |
 | `docs/FORMATS.md` | 203 | 950 | Gunmetal — спецификация форматов данных |
@@ -51,7 +52,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 71 | 237 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 72 | 241 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -60,6 +61,7 @@
 | `docs/MAINLOOP.md` | 7 | 209 | Главный цикл и машина состояний (M2.2.2) |
 | `docs/MATERIAL_BLEND.md` | 29 | 159 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
+| `docs/MODDING.md` | 21 | 15 | MODDING — практическое руководство моддера |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
 | `docs/OBJECTIVES.md` | 24 | 265 | Цели, секреты и триггеры конца уровня (`M6.4.5`) |
 | `docs/ORACLE.md` | 35 | 12 | Эталонный оракул (M4.4.2) |
@@ -71,6 +73,7 @@
 | `docs/PLAYER_CONTROLLER.md` | 27 | 46 | Gunmetal — контроллер игрока (капсула, 91 Гц) |
 | `docs/PLAYER_FIELDS.md` | 53 | 1504 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
+| `docs/PLAYER_GUIDE.md` | 12 | 0 | PLAYER_GUIDE — как играть в переиздание |
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
 | `docs/RECORDS.md` | 35 | 260 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
 | `docs/REGRESSION.md` | 11 | 1 | Регрессия: ворота, бюджет времени и практики |
