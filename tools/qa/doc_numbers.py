@@ -56,6 +56,7 @@ DOC_FILES = {
     "GAME_OVER": "docs/GAME_OVER.md",
     "SBT_ASM": "docs/SBT_ASM.md",
     "OBJECTIVES": "docs/OBJECTIVES.md",
+    "BIGFILE_WRITE": "docs/BIGFILE_WRITE.md",
 }
 
 
@@ -1205,6 +1206,34 @@ def c_obj_secrets(env):
     ok = (len(declared_levels), declared_total, increments) == (25, 101, 105)
     return "%d / %d / %d" % (len(declared_levels), declared_total, increments), ok, \
         "op 94 (сумма операнда) и op 95"
+
+
+
+# --------------------------------------------------------------------------
+# BIGFILE_WRITE (M11.6): the archive corpus and its totals
+# --------------------------------------------------------------------------
+
+@check("BIGFILE_WRITE", "5 архивов / 6061 запись / 151737971 Б",
+       "5 / 6061 / 151737971")
+def c_big_totals(env):
+    from gm.bigfile import BigFile
+
+    archives = entries = total = 0
+    for path in sorted(glob.glob(os.path.join(env.game, "**", "*.[Ii][Dd][Xx]"),
+                                 recursive=True)):
+        base = os.path.splitext(path)[0]
+        if not any(os.path.isfile(base + ext) for ext in (".DAT", ".dat")):
+            continue                    # Film/ammo.idx is not a BIGFILE pair
+        try:
+            archive = BigFile(path)
+        except (ValueError, OSError):
+            continue
+        archives += 1
+        entries += len(archive.entries)
+        total += sum(entry.size for entry in archive.entries)
+    ok = (archives, entries, total) == (5, 6061, 151737971)
+    return "%d / %d / %d" % (archives, entries, total), ok, \
+        "пары .IDX+.DAT по всему установленному дереву"
 
 
 def main(argv=None) -> int:
