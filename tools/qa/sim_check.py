@@ -127,6 +127,10 @@ def main(argv=None) -> int:
     one = parse(first.stdout)
     two = parse(second.stdout)
     problems = []
+    # The floor fix (2026-10-23): a driven player that walked forward must be
+    # standing on the ground, not sinking through a reversed polygon.
+    if args.drive and "forward=1" in args.drive and one.get("on_ground") == 0:
+        problems.append("a forward plan ends with on_ground=0 (floor not found)")
     if not one.get("ok") or not two.get("ok"):
         problems.append("the run did not print `sim: ok`")
     if "digest" not in one or "digest" not in two:
