@@ -4,7 +4,7 @@
 что автоматизировано и что делать дальше. Факты об игре — в `FORMATS.md` /
 `NOTES.md` / `docs/*_FIELDS.md`; план — в `ROADMAP.md`; очередь — в `NEXT.md`.
 
-**Снимок:** HEAD `3c2427a`, 755 коммитов, 2026-10-22. Пересчёт —
+**Снимок:** HEAD `95d0dec`, 943 коммита, 2026-10-23. Пересчёт —
 `python3 tools/qa/state.py` (0,1 с); `--check` сообщает, если срез отстал.
 
 Основано на: `git log` (число коммитов — в снимке выше), `ROADMAP.md`, `NEXT.md`,
@@ -44,12 +44,12 @@ python3 tools/ghidra/mcp.py symbols "weapon_target"
 | Что | Факт | Чем проверено |
 |---|---|---|
 | Цель | C++-переиздание Gunmetal v1.36 3dfx (`gundx.exe`, SHA `929ffa72…`) | `docs/RE_METHOD.md` §2, манифест установки |
-| Данные | все форматы прочитаны, round-trip на полном корпусе | `regress.py` 113/113; `--full --mirror` 122/123 (единственное падение — внешний `install_audit`: изменены `KEYCFG/*.key`, `docs/BASELINE.md`) |
-| C++ | 43,8k строк (`engine/src`), паритет рендера с `gm/render.py` | CTest 60/61 (`build/sandbox`); падает только `controls` из-за тех же `KEYCFG/*.key` |
-| Roadmap | 83 ✅ / 74 🟡 / 74 ⬜ / 1 ⛔ (по item-строкам) | `python3 tools/qa/state.py` |
-| Готовые зоны | `M1` 48 ✅, `M2` 6 ✅ / 16 🟡, `M4` 2 ✅ / 17 🟡 | `ROADMAP.md` |
-| Нулевые зоны | `M5` (ВМ — код есть, roadmap не размечен), `M6`, `M9`, `M11`, `M12` | `ROADMAP.md`, нужна сверка |
-| Инструменты | 73 скрипта в `tools/re`, 97 документов в `docs` | `ls`, `docs/INDEX.md` |
+| Данные | все форматы прочитаны, round-trip на полном корпусе | `regress.py --mirror` 114/114 (61,7 с); `--full --mirror` **124/124** (107,3 с), включая `install_audit` |
+| C++ | 45,1k строк (`engine/src`, 65 `.cpp` + 68 `.h`), паритет рендера с `gm/render.py` | CTest **103/103** (`build/sandbox`), ASan-набор 101/101 (`build/asan`) |
+| Roadmap | 92 ✅ / 94 🟡 / 47 ⬜ / 1 ⛔ (item-строки); этапы `M0…M12` — 90/93/37/1 | `python3 tools/qa/state.py` |
+| Готовые зоны | `M1` 48 ✅, `M5` 13 ✅ / 5 🟡, `M3` 8 ✅ / 6 🟡, `M2` 7 ✅ / 17 🟡 | `ROADMAP.md` |
+| Нулевые зоны | только `M10` (сеть, после v1.0); у `M11`/`M12` по одному 🟡 (`M11.1`, `M12.1`) | `ROADMAP.md` |
+| Инструменты | 93 скрипта в `tools/re`, 118 документов в `docs`, `tools/editor/sbtasm.py` (round-trip 15 061/15 061) | `ls`, `docs/INDEX.md` |
 | Ghidra | 1506 функций, 196 943 инструкции; проект `re/ghidra`, 119 имён | `metadata`, `state.py --ghidra`, `names.csv` |
 | Рендер | палитра и 1-based индексы исправлены; кривая света доказана; текстурная проекция движка и пропуск полигонов без текстуры реализованы с байтовым паритетом Python↔C++ | `docs/PALETTE.md`, `docs/LOOK16.md`, `docs/TEXUV.md`, CTest `core` (FNV-пин) |
 
