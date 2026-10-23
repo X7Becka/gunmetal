@@ -378,3 +378,31 @@ python3 tools/editor/sbtwrite.py --check "/mnt/d/games/Gunmetal 3dfx/dm1.sbt"
 `M11.4`: выбор блока по сущности/id (а не по смещению), пакетная правка
 нескольких блоков за один проход и проверка результата в оригинальной игре —
 это отдельные пункты, здесь их нет.
+
+## 10. Сквозная проверка движком (не только оракулом)
+
+Проверено 2026-10-23: правка реального блока и загрузка результата **C++-движком**
+(оракул `gm.sbt` — не единственная сторона).
+
+```sh
+cp '/mnt/d/games/Gunmetal 3dfx/level0.sbt' '/mnt/d/games/Gunmetal 3dfx/level0.sbw' /tmp/opencode/sbtmod/
+python3 tools/editor/sbtasm.py disasm level0 --block 0x6f92 --exact --out /tmp/opencode/sbtmod/block.txt
+sed -i 's/SET_CAMERA_HAZE                    1.0 0.005/SET_CAMERA_HAZE                    0.5 0.005/' \
+    /tmp/opencode/sbtmod/block.txt
+python3 tools/editor/sbtwrite.py --script /tmp/opencode/sbtmod/level0.sbt --block 0x6f92 \
+    --asm /tmp/opencode/sbtmod/block.txt --out /tmp/opencode/sbtmod/level0_mod.sbt
+# wrote … (127338 bytes, sha256 64e2b15c51172f40)
+#   block 0x6f92: 1871 -> 1871 bytes (+0), shifted 0 sub-script offset(s)
+#   other records byte-identical: yes; target block == assembled: yes; check: ok
+python3 tools/editor/sbtwrite.py --check /tmp/opencode/sbtmod/level0_mod.sbt
+# check: … ok (8 records, 350 sub-scripts, code 62497 bytes, 127338 bytes)
+cp /tmp/opencode/sbtmod/level0_mod.sbt /tmp/opencode/sbtmod/level0.sbt
+./build/sandbox/engine/gunmetal -g /tmp/opencode/sbtmod -l level0 --info
+# level: level0
+# world: textures=381 effects=37 sectors=58 objects=192 vertices=2173 polygons=1449 bytes=254439
+# entities: records=8 poly=104 object=0 sector=26 sobs=67 script=350/62497
+```
+
+Оракул видит в записанном файле три `SET_CAMERA_HAZE 0.5` (правка попала в
+байты), движок загружает файл с той же структурой (8 записей, 350
+подскриптов, 62 497 байт кода) и тем же размером контейнера, что и оригинал.
