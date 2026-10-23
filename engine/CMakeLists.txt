@@ -7,6 +7,7 @@ add_library(gm_engine STATIC
     src/core/time.cpp
     src/audio/sou1.cpp
     src/audio/mixer.cpp
+    src/audio/music.cpp
     src/audio/sample_cache.cpp
     src/platform/window.cpp
     src/platform/audio.cpp
