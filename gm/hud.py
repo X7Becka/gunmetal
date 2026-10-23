@@ -275,6 +275,47 @@ def hud_icons(state: dict | None = None) -> list:
     return out
 
 
+#: Charge bars around the damage hexagon (``0x4926a0``, the ``0x492f..``
+#: block): four runs of at most 17 px, colour by length — ``0xf3`` below 6,
+#: ``0x2b`` from 6 to 11, ``0xff`` from 12 (``DAT_0081c290/294/298/29c`` over
+#: ``DAT_0081c28c``).  ``(key, x, screen row, dx, dy)``; the row is already
+#: ``code_row - 8`` like the text, and the vertical bars grow *up*.
+HUD_GAUGE_SLOTS = (
+    ("bar_top", 148, 151, 1, 0),
+    ("bar_bottom", 148, 177, 1, 0),
+    ("bar_left", 142, 172, 0, -1),
+    ("bar_right", 170, 172, 0, -1),
+)
+
+#: Longest run of one bar (``cmp ...,0x11`` in the code).
+GAUGE_MAX = 17
+
+#: ``win2``/``win3``: all four charge bars are full (the live dump
+#: ``gm_screen.bin`` was taken with the verticals at 13 of 17).
+HUD_GAUGES = {"bar_top": 17, "bar_bottom": 17, "bar_left": 17, "bar_right": 17}
+
+
+def gauge_colour(length: int) -> int:
+    """Palette index of a charge bar of ``length`` pixels."""
+    if length < 6:
+        return 0xF3
+    if length < 12:
+        return 0x2B
+    return 0xFF
+
+
+def hud_gauges(state: dict | None = None) -> list:
+    """``(x, row, dx, dy, length, palette index)`` for the four charge bars."""
+    st = dict(HUD_GAUGES)
+    st.update({k: v for k, v in (state or {}).items() if v is not None})
+    out = []
+    for key, x, row, dx, dy in HUD_GAUGE_SLOTS:
+        length = max(0, min(GAUGE_MAX, int(st.get(key) or 0)))
+        if length:
+            out.append((x, row, dx, dy, length, gauge_colour(length)))
+    return out
+
+
 def palette_bytes(game_dir: str, mode: str = "game") -> bytes:
     """256 RGBA quads for the panel: engine ``GAMEPAL`` (``"game"``).
 
@@ -294,7 +335,8 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
             palette: bytes, top: int = PANEL_TOP,
             lut: bytes | None = None,
             text: tuple = (), fonts: dict | None = None,
-            icons: tuple = (), icon_pixels: dict | None = None) -> bytes:
+            icons: tuple = (), icon_pixels: dict | None = None,
+            gauges: tuple = ()) -> bytes:
     """Blit ``panel`` onto a packed RGB frame; index 0 stays transparent.
 
     ``lut`` is the engine's 256-byte fade table for one level: the blit maps
@@ -348,6 +390,16 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
             if image is None:
                 continue
             _blit_index_rgb(out, width, height, palette, image, ix, iy)
+    for gx, gy, dx, dy, length, index in gauges:
+        po = index * 4
+        for i in range(length):
+            x = gx + dx * i
+            y = gy + dy * i
+            if 0 <= x < width and 0 <= y < height:
+                do = (y * width + x) * 3
+                out[do] = palette[po]
+                out[do + 1] = palette[po + 1]
+                out[do + 2] = palette[po + 2]
     return bytes(out)
 
 
@@ -428,8 +480,8 @@ def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
                        xphase: float = 2.0,
                        text: tuple = (), fonts: dict | None = None,
                        text_base: float | None = None,
-                       icons: tuple = (), icon_pixels: dict | None = None
-                       ) -> dict:
+                       icons: tuple = (), icon_pixels: dict | None = None,
+                       gauges: tuple = ()) -> dict:
     """Fraction of band pixels whose screen index equals ``lut[panel]``.
 
     This compares *indices* against a raw screen dump (``gm_screen.bin``), so
@@ -463,6 +515,12 @@ def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
                     px = ix + c
                     if index and 0 <= px < panel.width:
                         expected[y * panel.width + px] = index
+        for gx, gy, dx, dy, length, index in gauges or ():
+            for i in range(length):
+                px = gx + dx * i
+                y = gy - int(round(base)) + dy * i
+                if 0 <= px < panel.width and 0 <= y < panel.height:
+                    expected[y * panel.width + px] = index
     hit = total = 0
     for py in range(panel.height):
         sy = top + int(py * scale)
@@ -677,6 +735,23 @@ def selftest() -> int:
     expect("weapon icon slot", icons[0], ("WICON1", 23, 162))
     expect("equipment icon slot", icons[1], ("EQUIP12", 201, 162))
 
+    # charge bars: colour by length, length clamped to 17
+    expect("bar colour below 6", gauge_colour(5), 0xF3)
+    expect("bar colour at 6", gauge_colour(6), 0x2B)
+    expect("bar colour at 11", gauge_colour(11), 0x2B)
+    expect("bar colour at 12", gauge_colour(12), 0xFF)
+    expect("bar clamps to 17", hud_gauges({"bar_top": 99})[0][4], 17)
+    expect("zero bar is dropped", len(hud_gauges({"bar_top": 0})), 3)
+    bars = hud_gauges({"bar_top": 2, "bar_bottom": 0, "bar_left": 0,
+                       "bar_right": 0})
+    expect("one bar only", bars, [(148, 151, 1, 0, 2, 0xF3)])
+    out_bar = compose(_rgb(320, 200, 0), 320, 200, Panel("T", 1, 1, b"\0", pal),
+                      pal, top=130, gauges=bars)
+    expect("bar drawn left to right", [out_bar[(151 * 320 + x) * 3]
+                                       for x in (148, 149)],
+           [0xF3, 0xF3])
+    expect("bar stops after its length", out_bar[(151 * 320 + 150) * 3], 0)
+
     # installed game, if present
     game = os.environ.get("GUNMETAL_GAME", "/mnt/d/games/Gunmetal 3dfx")
     if os.path.isdir(os.path.join(game, "FRONTEND")):
@@ -789,6 +864,7 @@ def main(argv: list[str] | None = None) -> int:
     icon_pixels = {}
     text = ()
     icons = ()
+    gauges = ()
     if opts.text:
         import json
         for number in sorted({item[0] for item in hud_text()}):
@@ -801,6 +877,7 @@ def main(argv: list[str] | None = None) -> int:
         print("text   " + ", ".join(f"font {n} at ({x},{y}) {t!r}"
                                     for n, x, y, t in text))
         if not opts.no_icons:
+            gauges = tuple(hud_gauges(state))
             icons = tuple(hud_icons(state))
             for name, ix, iy in icons:
                 try:
@@ -813,7 +890,7 @@ def main(argv: list[str] | None = None) -> int:
         data = compose(bytes(320 * 200 * 3), 320, 200, panel,
                        palette_bytes(opts.game), top=opts.top, lut=lut,
                        text=text, fonts=fonts, icons=icons,
-                       icon_pixels=icon_pixels)
+                       icon_pixels=icon_pixels, gauges=gauges)
         with open(opts.preview.rsplit(".", 1)[0] + "_text.png", "wb") as fh:
             fh.write(png.rgb(320, 200, data))
         print(f"wrote {opts.preview.rsplit('.', 1)[0]}_text.png")
@@ -826,7 +903,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("--check-screen needs --lut")
         res = screen_index_match(data, w, h, panel, lut, opts.top, opts.scale,
                                  text=text, fonts=fonts, icons=icons,
-                                 icon_pixels=icon_pixels)
+                                 icon_pixels=icon_pixels, gauges=gauges)
         print(f"{opts.check_screen}: index match {100*res['match']:.1f}% "
               f"({res['pixels']} px, top={res['top']}, scale={res['scale']})")
     return 0
