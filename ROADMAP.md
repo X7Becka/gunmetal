@@ -1912,10 +1912,16 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > Палитра есть: `gm/palette.py` (`installed`/`load_from_bmp`, GAMEPAL),
       > C++ `render/hud*` принимает RGBA-палитру и проверяет её размер;
       > 320×200 — базовое разрешение рендера; целочисленный апскейл
-      > (`layer.scale` 1..8) реализован для HUD-слоёв. Нет: fade/переходы —
-      > полноэкранная белая заливка `0x4188b2` с `alpha = 255·ctx[0xe8]`
-      > (`docs/SKY.md` §1.3), источник `0x83d288` (`0x446764`) не разобран,
-      > в обычном кадре альфа = 0.
+      > (`layer.scale` 1..8) реализован для HUD-слоёв.
+      > **Fade сделан в обоих рендерах**: `SET_CAMERA_HAZE` (80, `0x446764`
+      > → `0x83d288`, `docs/SCREEN_FX.md`), C++ `render/postfx.*` +
+      > `RenderOptions::haze` + CLI `--haze 0..1` (CTest `postfx`), Python
+      > `gm/render.py::fade_rgb` + `oracle_render --fade`; `vm_tick_haze`
+      > гасит `haze` по `haze_rate` (dt ≤ 45 мс). Проверено на `level0`:
+      > `--haze 1` → все 255, `0.5` → минимум 127, среднее 169.02.
+      > Нет: последовательности переходов между уровнями (кто ставит/снимает
+      > haze в игровом цикле и в каком порядке идёт HUD), потому что
+      > игрового цикла с рендером ещё нет.
 - 🟡 `M8.6` Звук UI (VBACK/VFRONT/VLEFT/SELECT/UPDOWN), музыка.
       > `docs/UI_SOUNDS.md` + `tools/re/ui_sounds.py` (self-test 207).
       > Сэмплы: `UPDOWN` idx 581, `SELECT` 510, `SELECTM` 511, `MENUON` 425,
