@@ -873,6 +873,18 @@ target_link_libraries(gm_sim_damage_tests PRIVATE gm_engine)
 add_test(NAME sim_damage COMMAND gm_sim_damage_tests)
 gm_label(sim_damage quick)
 
+# M6.1.3: shield/armor regeneration in the tick (docs/REGEN.md).  The shipped
+# opcode 174 writes two doubles that 1.36 never reads, so the rule is a model:
+# the test pins the `(19, 3000.0, 50.0)` data fact, the pure delay/rate/carry/
+# cap arithmetic and the negatives, then on real dm1 + level0 ROCKET proves the
+# delay window after a hit, the per-tick shield growth, the restart after a
+# second hit, `damage_taken()` monotonicity, the default-off parity with
+# `test_sim_damage` (120 idle ticks keep the gauges frozen) and the replay.
+add_executable(gm_regen_tests test_regen.cpp)
+target_link_libraries(gm_regen_tests PRIVATE gm_engine)
+add_test(NAME regen COMMAND gm_regen_tests)
+gm_label(regen quick)
+
 # The original's CRT `rand()` (docs/RNG.md): MSVC LCG `state*214013+2531011`,
 # output `(state >> 16) & 0x7FFF`, seeded from `time(nullptr)` at init
 # (`0x44A491`).  Goldens are the documented `srand(1)` sequence.

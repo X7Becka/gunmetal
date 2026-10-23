@@ -305,8 +305,23 @@ bool SimPlayer::init(const Vec3d& feet, double yaw, const ChassisSpec& chassis,
     death_tick_ = -1;
     deaths_ = 0;
     damage_taken_ = 0;
+    reset_regen(regen_state_);
     initialized_ = true;
     return true;
+}
+
+bool SimPlayer::set_regen(const RegenRule& rule, std::string* error) {
+    if (const char* why = regen_rule_error(rule); why != nullptr) {
+        return fail(error, why);
+    }
+    regen_rule_ = rule;
+    reset_regen(regen_state_);
+    return true;
+}
+
+void SimPlayer::clear_regen() {
+    regen_rule_.reset();
+    reset_regen(regen_state_);
 }
 
 bool SimPlayer::set_vitals(const Vitals& vitals, std::string* error) {
@@ -317,6 +332,7 @@ bool SimPlayer::set_vitals(const Vitals& vitals, std::string* error) {
     vitals_ = vitals;
     alive_ = vitals.armor > 0;
     vitals_dirty_ = true; // installed on the runtime by the next tick()
+    reset_regen(regen_state_);
     return true;
 }
 
@@ -328,6 +344,7 @@ bool SimPlayer::respawn(std::string* error) {
     vitals_ = start_vitals_;
     alive_ = vitals_.armor > 0;
     vitals_dirty_ = true;
+    reset_regen(regen_state_);
     ++deaths_;
     last_step_ = StepResult{};
     last_weapon_ = PlayerWeaponTick{};
@@ -423,6 +440,7 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
     // round of an earlier shot) is stepped by `Projectiles::tick_results` and
     // its impact/expiry is blasted in this same tick.  The slice-1 tick does
     // not do this; without `set_projectile()` nothing below runs.
+    bool damaged_this_tick = false;
     if (has_projectile()) {
         runtime.tick(1);
         const Vitals before = vitals_;
@@ -438,8 +456,12 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
         const auto lost = [](std::int32_t was, std::int32_t now) {
             return was > now ? was - now : 0;
         };
+        damaged_this_tick = lost(before.armor, vitals_.armor) > 0;
         damage_taken_ += lost(before.armor, vitals_.armor);
         for (std::size_t i = 0; i < vitals_.shields.size(); ++i) {
+            if (lost(before.shields[i], vitals_.shields[i]) > 0) {
+                damaged_this_tick = true;
+            }
             damage_taken_ += lost(before.shields[i], vitals_.shields[i]);
         }
         // Death rule of the original `0x453b50` -> `0x4536e0` (docs/DAMAGE.md
@@ -449,6 +471,21 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
         if (alive_ && vitals_.armor <= 0) {
             alive_ = false;
             death_tick_ = ticks_done_;
+        }
+    }
+
+    // Regeneration (slice 4, `M6.1.3`): after the gauges are read back and the
+    // damage has been accounted, one pure `apply_regen()` step may restore
+    // shields/armor.  It runs after `damage_taken_` was updated, so
+    // regeneration can never lower that counter; a death (or a dead player)
+    // restores nothing.  The rule is off unless `set_regen()` installed one.
+    if (regen_rule_ && alive_) {
+        const Vitals before = vitals_;
+        apply_regen(vitals_, regen_state_, *regen_rule_, damaged_this_tick);
+        if (vitals_.armor != before.armor || vitals_.shields != before.shields) {
+            // The runtime still holds the pre-regeneration copy: re-install it
+            // on the next tick so the next blast sees the restored gauges.
+            vitals_dirty_ = true;
         }
     }
     return true;
