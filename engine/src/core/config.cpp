@@ -212,6 +212,14 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.sample = std::string(*v);
+        } else if (arg == "--sample-play") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.sample_play = std::string(*v);
+        } else if (arg == "--twice") {
+            options.twice = true;
         } else if (arg == "--song") {
             const auto v = value(arg);
             if (!v) {
@@ -734,6 +742,8 @@ std::string usage() {
        << "      --play NAME   play Vid/NAME.sbv (--frames limits the frame count)\n"
        << "      --song NAME   list the MUSIC/NAME.sog playlist and its SOU.DAT entries\n"
        << "      --sample NAME resolve a sample name like the engine (sounds, then music)\n"
+       << "      --sample-play NAME  decode a level sample through SampleCache and play it\n"
+       << "      --twice       with --sample-play: acquire the same name twice (cache hit)\n"
        << "      --music NAME  play MUSIC/NAME.sog through the SOG playlist\n"
        << "      --scene NAME  print the level script scene (lights/doors/items...)\n"
        << "      --sim NAME    headless fixed-tick run of a level (no window)\n"

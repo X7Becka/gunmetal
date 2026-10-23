@@ -30,6 +30,7 @@
 #include "camera/camera.h"
 #include "game/runtime.h"
 #include "audio/music.h"
+#include "audio/sample_cache.h"
 #include "ui/frontend_menu.h"
 #include "ui/save_slots.h"
 #include "ui/sml_pager.h"
@@ -49,11 +50,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -128,6 +131,113 @@ int show_sample(const gm::Options& options) {
     std::printf("sample %s: archive=%s name=%s offset=%u size=%u\n",
                 options.sample.c_str(), hit->archive.c_str(), hit->name.c_str(),
                 hit->offset, hit->size);
+    return 0;
+}
+
+/// `--sample-play NAME` (M7.4, slice 2): the runtime path, not just a lookup.
+///
+/// Resolves `NAME` in the level's `SOUND_SAMPLE_TABLE` (record 12 of
+/// `<level>.sbt`, `--level`, default `level0`), takes it through `SampleCache`
+/// (decode SOU0/SOU1/SOU2 + refcount + LRU) and plays the decoded PCM once
+/// through `AudioDevice`.  `--headless` never opens the device: it prints the
+/// cache's numbers instead.  `--twice` acquires the same name a second time —
+/// that acquire must be a cache hit (`hits` grows, `misses` does not).
+///
+/// Only `<level>.sbt`, `sounds/SOU.IDX` and the archive it points at are read:
+/// no window, no `.sbw`/`.sbc`, no mixer.
+int play_sample(const gm::Options& options) {
+    const std::string level_name = options.level.empty() ? "level0" : options.level;
+    std::string error;
+    const auto path = gm::resolve_ci(options.game, level_name + ".sbt");
+    if (!path) {
+        gm::logf(gm::LogLevel::Error, "sample-play",
+                 "level '" + level_name + "': " + level_name + ".sbt not found under " +
+                     options.game.string());
+        return 2;
+    }
+    const auto bytes = read_file(*path, error);
+    if (!bytes) {
+        gm::logf(gm::LogLevel::Error, "sample-play", error);
+        return 2;
+    }
+    const auto level = gm::parse_sbt(*bytes, error);
+    if (!level) {
+        gm::logf(gm::LogLevel::Error, "sample-play", path->filename().string() + ": " + error);
+        return 2;
+    }
+    if (!level->sound_samples) {
+        gm::logf(gm::LogLevel::Error, "sample-play",
+                 path->filename().string() + " has no SOUND_SAMPLE_TABLE (record 12)");
+        return 2;
+    }
+
+    auto cache = gm::audio::SampleCache::open(options.game, *level->sound_samples, error);
+    if (!cache) {
+        gm::logf(gm::LogLevel::Error, "sample-play", error);
+        return 2;
+    }
+
+    const int plays = options.twice ? 2 : 1;
+    std::vector<gm::audio::SampleCache::Handle> handles;
+    std::optional<gm::AudioDevice> device;
+    for (int i = 0; i < plays; ++i) {
+        std::string acquire_error;
+        const auto handle = cache->acquire(options.sample_play, &acquire_error);
+        if (!handle) {
+            gm::logf(gm::LogLevel::Error, "sample-play", acquire_error);
+            return 2;
+        }
+        handles.push_back(*handle);
+
+        const gm::audio::Sound* sound = cache->sound(*handle);
+        if (sound == nullptr || sound->sample_rate == 0 || sound->channels == 0 ||
+            sound->frames() == 0) {
+            gm::logf(gm::LogLevel::Error, "sample-play",
+                     "sample \"" + options.sample_play + "\" decoded to an empty clip");
+            return 2;
+        }
+        const auto info = cache->find(options.sample_play);
+        if (!info) {
+            gm::logf(gm::LogLevel::Error, "sample-play",
+                     "sample \"" + options.sample_play + "\" is not resident after acquire");
+            return 2;
+        }
+        std::printf("sample: name=%s frames=%u rate=%u channels=%u bytes=%zu\n",
+                    info->name.c_str(), sound->frames(), sound->sample_rate,
+                    static_cast<unsigned>(sound->channels), info->bytes);
+
+        if (options.headless) {
+            continue;
+        }
+        if (!device) {
+            auto opened = gm::AudioDevice::open(static_cast<int>(sound->sample_rate),
+                                                static_cast<int>(sound->channels), false,
+                                                error);
+            if (!opened) {
+                gm::logf(gm::LogLevel::Error, "sample-play", error);
+                return 1;
+            }
+            device = std::move(*opened);
+        }
+        device->queue(sound->samples.data(), sound->frames());
+        const double seconds = static_cast<double>(sound->frames()) /
+                               static_cast<double>(sound->sample_rate);
+        std::this_thread::sleep_for(std::chrono::duration<double>(seconds + 0.2));
+    }
+
+    for (const auto& handle : handles) {
+        std::string release_error;
+        if (!cache->release(handle, &release_error)) {
+            gm::logf(gm::LogLevel::Error, "sample-play", release_error);
+            return 2;
+        }
+    }
+
+    const auto stats = cache->stats();
+    std::printf("stats: hits=%llu misses=%llu evictions=%llu peak=%zu\n",
+                static_cast<unsigned long long>(stats.hits),
+                static_cast<unsigned long long>(stats.misses),
+                static_cast<unsigned long long>(stats.evictions), stats.peak_bytes);
     return 0;
 }
 
@@ -2773,6 +2883,9 @@ int main(int argc, char** argv) {
     }
     if (!options->sou2.empty()) {
         return export_sou2(*options);
+    }
+    if (!options->sample_play.empty()) {
+        return play_sample(*options);
     }
     if (!options->sample.empty()) {
         return show_sample(*options);
