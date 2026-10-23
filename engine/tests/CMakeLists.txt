@@ -78,6 +78,16 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt")
     gm_label(cli_scene quick)
 endif()
 
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
+    # M11.1: text -> bytecode -> bytes on every shipped block.
+    add_test(NAME sbtasm_roundtrip
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtasm.py
+                     --roundtrip)
+    set_tests_properties(sbtasm_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
+        "15061/15061 byte-identical")
+    gm_label(sbtasm_roundtrip quick)
+endif()
+
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX")
     # M7.6: the engine's own name lookup in the real binary.
     add_test(NAME cli_sample COMMAND gunmetal --sample alarmk)
@@ -570,6 +580,11 @@ if(GM_PYTHON3)
                          --self-test)
         gm_label(re_${tool} quick)
     endforeach()
+    # M11.1: text <-> bytecode for the SBT scripts (tools/editor/sbtasm.py).
+    add_test(NAME sbtasm_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtasm.py
+                     --self-test)
+    gm_label(sbtasm_selftest quick)
     # Independent re-derivation of the numbers in the merged RE docs
     # (docs/AUDIT_NUMBERS.md); no game files needed for the self-test.
     add_test(NAME doc_numbers
