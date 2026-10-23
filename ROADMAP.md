@@ -1015,8 +1015,19 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > `--dump` печатает counts для BIGFILE/SBW/SBM/SBT/SBC/SOU/SOB/SOG/SML;
       > `--level NAME --info` — world/entities/lightmaps, `--scene NAME` — сцена
       > скрипта; FNV-хэши и 36/36-паритет — в CTest.
-- ⬜ `M3.2.7` Тестовые векторы: Python экспортирует бинарные фикстуры, C++
+- 🟡 `M3.2.7` Тестовые векторы: Python экспортирует бинарные фикстуры, C++
       проверяет парсеры без Python в runtime.
+      > `tools/re/export_parity.py` → `build/parity/fixtures.txt`,
+      > `engine/tests/test_parity.cpp` (CTest `parity_fixtures` +
+      > `parity`, фикстуры через `FIXTURES_SETUP/REQUIRED`). 208 проверок,
+      > 1029 значений, 0 расхождений: 36 `.sbw` (tex/effects/sectors/objects/
+      > verts/polys), 36 `.sbt` (records, счётчики по типам, непустые имена
+      > таблицы сэмплов), 36 `.sbc` (magic/records/FNV пикселей), 40 текстур
+      > из `PICS/SBM.IDX` (w/h/levels/flags/FNV мипа 0), 60 `SOBS/*.sob`
+      > (verts/faces). Расхождение ловится: подмена `polys` в фикстуре даёт
+      > `MISMATCH sbw dm1.sbw polys: expected 1, got 5786`. Нет фикстур для
+      > `sbv`/`sml`/`soe`/`sou`/`sog`/`soa` (там уже есть C++-голдены в
+      > `core_full`/`re_*`).
 
 ### M3.3. Паритет данных
 

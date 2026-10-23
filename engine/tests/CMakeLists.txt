@@ -491,7 +491,7 @@ if(GM_PYTHON3)
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_exec.py
                      --selftest)
     gm_label(re_vm_exec quick)
-    foreach(tool nested_things records)
+    foreach(tool export_parity nested_things records)
         add_test(NAME re_${tool}
                  COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/${tool}.py
                          --self-test)
@@ -499,6 +499,22 @@ if(GM_PYTHON3)
     endforeach()
 endif()
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
+    # M3.2.7: Python exports the expected parsed values for the shipped corpus
+    # (tools/re/export_parity.py), then the C++ readers verify them with no
+    # Python in the loop.  The fixture file is the contract, so a parser that
+    # drifts on either side fails with a concrete key=value mismatch.
+    add_executable(gm_parity_tests test_parity.cpp)
+    target_link_libraries(gm_parity_tests PRIVATE gm_engine)
+    add_test(NAME parity_fixtures
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/export_parity.py
+                     --out ${CMAKE_BINARY_DIR}/parity/fixtures.txt)
+    set_tests_properties(parity_fixtures PROPERTIES FIXTURES_SETUP parity)
+    gm_label(parity_fixtures full)
+    add_test(NAME parity
+             COMMAND gm_parity_tests ${CMAKE_BINARY_DIR}/parity/fixtures.txt)
+    set_tests_properties(parity PROPERTIES FIXTURES_REQUIRED parity)
+    gm_label(parity full)
+
     # Tools that read the installation: same idea, one test each.
     foreach(tool campaign_flow dm_rules economy effects equipment
                 hud_compose_ref hud_icons oracle_fit oracle_render screen_fx
