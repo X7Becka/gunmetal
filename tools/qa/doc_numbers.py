@@ -57,6 +57,8 @@ DOC_FILES = {
     "SBT_ASM": "docs/SBT_ASM.md",
     "OBJECTIVES": "docs/OBJECTIVES.md",
     "BIGFILE_WRITE": "docs/BIGFILE_WRITE.md",
+    "SBT_WRITE": "docs/SBT_WRITE.md",
+    "SCENE_EDIT": "docs/SCENE_EDIT.md",
 }
 
 
@@ -1234,6 +1236,32 @@ def c_big_totals(env):
     ok = (archives, entries, total) == (5, 6061, 151737971)
     return "%d / %d / %d" % (archives, entries, total), ok, \
         "пары .IDX+.DAT по всему установленному дереву"
+
+
+
+# --------------------------------------------------------------------------
+# SBT_WRITE / SCENE_EDIT (M11.3/M11.5): the container corpus and its records
+# --------------------------------------------------------------------------
+
+@check("SBT_WRITE", "36 файлов / 6793572 байта", "36 / 6793572")
+def c_sbt_corpus(env):
+    paths = sorted(glob.glob(os.path.join(env.game, "*.sbt")))
+    total = sum(os.path.getsize(path) for path in paths)
+    ok = (len(paths), total) == (36, 6793572)
+    return "%d / %d" % (len(paths), total), ok, "все .sbt в корне установки"
+
+
+@check("SCENE_EDIT", "241 запись сцены (всё, кроме SCRIPT 11 и END 255)", "241")
+def c_scene_records(env):
+    from gm.sbt import parse_file
+
+    scene = 0
+    for path in sorted(glob.glob(os.path.join(env.game, "*.sbt"))):
+        parsed = parse_file(path)
+        scene += sum(1 for record in parsed.records
+                     if record.type not in (11, 255))
+    ok = scene == 241
+    return "%d" % scene, ok, "типы записей != 11/255 по 36 уровням"
 
 
 def main(argv=None) -> int:
