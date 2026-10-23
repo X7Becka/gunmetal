@@ -141,6 +141,13 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     set_tests_properties(sim_check PROPERTIES PASS_REGULAR_EXPRESSION
         "sim_check: ok")
     gm_label(sim_check quick)
+    # The whole shipped corpus once: no level may crash the headless tick.
+    add_test(NAME sim_corpus
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/sim_check.py
+                     --all --ticks 100)
+    set_tests_properties(sim_corpus PROPERTIES PASS_REGULAR_EXPRESSION
+        "36 levels, 100 ticks, 0 failed")
+    gm_label(sim_corpus full)
     # M11.6: every shipped BIGFILE pair repacked byte for byte.
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/bigpack-tmp")
     add_test(NAME bigpack_roundtrip
