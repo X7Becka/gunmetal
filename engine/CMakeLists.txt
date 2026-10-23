@@ -29,6 +29,7 @@ add_library(gm_engine STATIC
     src/render/hud_bind.cpp
     src/render/hud_compose.cpp
     src/ui/screen.cpp
+    src/ui/frontend_menu.cpp
     src/res/bigfile.cpp
     src/res/bmp.cpp
     src/res/png.cpp

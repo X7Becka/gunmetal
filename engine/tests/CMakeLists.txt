@@ -538,6 +538,15 @@ target_link_libraries(gm_screen_tests PRIVATE gm_engine)
 add_test(NAME screen COMMAND gm_screen_tests)
 gm_label(screen quick)
 
+# M8 slice 1: the headless front-end menu automaton (docs/FRONTEND.md): 34 §2
+# screens, the 35-row §4 transition table with a comment/site per row, BFS
+# reachability, Escape/back(), the QUIT path, determinism and the negatives.
+# Pure state machine: no game installation is read, so it always runs.
+add_executable(gm_frontend_menu_tests test_frontend_menu.cpp)
+target_link_libraries(gm_frontend_menu_tests PRIVATE gm_engine)
+add_test(NAME frontend_menu COMMAND gm_frontend_menu_tests)
+gm_label(frontend_menu quick)
+
 add_executable(gm_sbtvm_tests test_sbtvm.cpp)
 target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
@@ -914,7 +923,7 @@ endif()
 # Fast targets for the inner loop: build the binaries, then run CTest.
 #   cmake --build build/dev --target check-quick
 #   cmake --build build/test --target check
-set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_vm_tests gm_fuzz_tests gm_save_tests gm_doors_tests gunmetal)
+set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_vm_tests gm_fuzz_tests gm_save_tests gm_doors_tests gm_frontend_menu_tests gunmetal)
 add_custom_target(check-quick
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -L quick -j 8
             --output-on-failure
