@@ -11,6 +11,9 @@
 --                   FRONTEND/<name>.  This is what the engine really blits.
 --   gm_band.bin     the engine's own band, 234 rows x 800 px (8bpp) from
 --                   screen+366*800 -- no dgVoodoo scaling, the raw surface.
+--   gm_screen.bin   the whole screen surface (800x600, 8bpp).
+--   gm_hud75.bin    the HUD intermediate 0x6c3160 (320x75) and
+--   gm_hud16.bin    0x6c3ca0 (320x16), where the layer composes before scaling.
 --
 -- Everything is read-only.
 
@@ -46,6 +49,10 @@ end
 
 dump(home .. "\\gm_lut.bin", LUT_ADDR, LUT_SIZE)
 dump(home .. "\\gm_panel.bin", PANEL_ADDR, PANEL_SIZE)
+-- HUD intermediates: the layer composes 320x75 here (0x49cb70 clears 75 rows)
+-- and blits 9 + 16 rows from the second one (0x6c3ca0) to the screen.
+dump(home .. "\\gm_hud75.bin", 0x6C3160, 320 * 75)
+dump(home .. "\\gm_hud16.bin", 0x6C3CA0, 320 * 16)
 
 local screen = readInteger(SCREEN_PTR)
 local width  = readInteger(WIDTH_PTR)
@@ -53,6 +60,7 @@ local height = readInteger(HEIGHT_PTR)
 if screen and width and height and screen ~= 0 and width ~= 0 then
   local top = math.floor(height * BAND_TOP_200 / 200)
   dump(home .. "\\gm_band.bin", screen + top * width, (height - top) * width)
+  dump(home .. "\\gm_screen.bin", screen, width * height)
   print(string.format("screen=0x%X %dx%d, band rows %d..%d",
                       screen, width, height, top, height - 1))
 else
