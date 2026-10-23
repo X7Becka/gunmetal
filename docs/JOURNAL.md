@@ -708,12 +708,12 @@
 - **Фикстуры паритета (`M3.2.7`).** `tools/re/export_parity.py` пишет
   ожидаемые значения Python-парсеров, `engine/tests/test_parity.cpp`
   проверяет их C++-парсерами без Python: 208 проверок, 1029 значений,
-  0 расхождений (`sbw`/`sbt`/`sbc`/`sbm` из `PBM.IDX`/`sob`).
+  0 расхождений (`sbw`/`sbt`/`sbc`/`sbm` из `SBM.IDX`/`sob`).
 - **Рендер.** `render/postfx.*` — белый фейд `SET_CAMERA_HAZE`
   (`alpha = ftol(255·haze)`), `RenderOptions::haze`, CLI `--haze 0..1`
   (CTest `postfx`; на `level0` 160×120: `--haze 1` → все 255, `0.5` →
   минимум 127, среднее 169.02). `M4.2.4` → 🟡: LUT-математика доказана, но
-  в 3dfy-сборке её не читает никто (один Glide-стейт), `--no-materials`
+  в 3dfx-сборке её не читает никто (один Glide-стейт), `--no-materials`
   не меняет метрику `win2`/`win3`.
 - **ВМ.** `VmState` держит музыкальные банки (`LOAD/PLAY/STOP_UNLOAD`,
   memorize/replay) и тексты оверлея (`ADD_[SOURCE]SCREEN_TEXT`), событие в
