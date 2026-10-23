@@ -919,3 +919,18 @@
 - **Аудит:** `doc_numbers.py` + `BIGFILE_WRITE` (5 архивов/6061
   запись/151 737 971 Б) — **45/45 по 11 докам**.
 - **Гейты:** `ctest` **114/114**, `regress --mirror` 114/114.
+
+## Ход 2026-10-23 (партия 15: редактор записей сцены)
+
+- **`M11.3` → 🟡.** `tools/editor/sceneedit.py` + `docs/SCENE_EDIT.md`:
+  записи сцены `.sbt` (всё, кроме `SCRIPT`) — `--list`, `--get`,
+  `--set NAME[INDEX]=VALUE`, `--replace-record`, `--check`/`--against`,
+  `--fields` с provenance (док + VA). Round-trip **36/36** (6 793 572 Б,
+  241 запись сцены), self-test 38/38. Реальная правка:
+  `THING_TYPES.speed[25]` 50 → 55 в `level0.sbt` — остальные записи
+  побайтово те же, оракул читает 55, **движок грузит** с той же структурой;
+  замена записи с ростом +20 Б (таблицы смещений нет) тоже грузится.
+  CTest `sceneedit_selftest`, `sceneedit_roundtrip`.
+- **DoD/уровень:** неверное имя уровня теперь говорит, что нет и `.sbw`,
+  и `.sbt` (`wrong level name?`), CTest `cli_missing_level`.
+- **Гейты:** `ctest` **118/118**, `regress --full` **124/124**.
