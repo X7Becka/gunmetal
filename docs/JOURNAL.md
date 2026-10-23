@@ -1086,3 +1086,24 @@
   ~40 с) и на 2 000 тиках (≈22 с игры, 0 падений, 1 310 с); CTest
   `sim_corpus` (full) — 36 уровней, 0 failed.
 - **Гейты:** `ctest` **128/128**, `regress --full --mirror` **125/125**.
+
+## Ход 2026-10-23 (партия 21: игрок под управлением, лайтмапы)
+
+- **`M6.5.1` → 🟡 (игрок).** `engine/src/game/sim_player.*` (CTest
+  `sim_player`) + CLI `--sim-drive PLAN` (`docs/SIM_PLAYER.md`,
+  CTest `cli_sim_drive`, `sim_drive_check`): `PlayerState`/`step` и шов
+  оружия, без новой физики. `dm1`: `forward=1:900` — 1508.75 юнита,
+  `fire:300` — 18 выстрелов MACHINE GUN (патроны 5000 → 4982), повтор
+  бит-в-бит; дайджест включает игрока.
+  **Найдено:** пол под спавном на реальных уровнях вывернут
+  (`front_face == false`) → `on_ground = 0` при посадке капсулы;
+  расхождение с `docs/PLAYER_CONTROLLER.md` §5.2 записано в `docs/SIM.md`.
+- **`M11.2` (лайтмапы).** `tools/editor/lightmapedit.py` +
+  `docs/LIGHTMAP_EDIT.md`: `--list/--export/--import/--fill/--scale/--check`,
+  round-trip **51/51** (67 200 записей, 24 214 080 Б); `--fill` записи 0 у
+  `level0` — 128 байт, оракул видит 128, движок грузит те же
+  405 записей/51 792 текселя, рендер отличается на 88 пикселей из 64 000.
+  Попутно `docs/FORMATS.md` §4: `.sbc` — **36 в корне + 15 в `SOBS/`**
+  (было «34 + 17»).
+- **Аудит:** + `SCRIPT_DEBUG`, `LIGHTMAP_EDIT` — **50/50 по 16 докам**.
+- **Гейты:** `ctest` **133/133**, `regress --full --mirror` **125/125**.
