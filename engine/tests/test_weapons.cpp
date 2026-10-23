@@ -4024,6 +4024,7 @@ int main() {
     test_damage_and_armor();
     test_damage_gauge();
     test_negatives_synthetic();
+    test_blast_and_thing_damage();
     test_projectile_core();
     test_projectile_rgm_homing();
     test_projectile_shot_bridge();

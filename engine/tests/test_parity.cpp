@@ -346,6 +346,9 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (unknown != 0) {
+        std::printf("parity: %ld line(s) with an unknown kind\n", unknown);
+    }
     std::printf("parity: %ld checks, %ld values, %d failed\n", g_checks, g_values,
                 g_failures);
     return g_failures == 0 ? 0 : 1;

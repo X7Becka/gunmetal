@@ -53,7 +53,8 @@ bool ensure_sdl(std::string& error) {
 
 } // namespace
 
-std::optional<Window> Window::open(std::string_view title, int width, int height, bool headless,
+std::optional<Window> Window::open([[maybe_unused]] std::string_view title,
+                                   int width, int height, bool headless,
                                    std::string& error) {
     auto* impl = new Impl();
     impl->headless = headless;

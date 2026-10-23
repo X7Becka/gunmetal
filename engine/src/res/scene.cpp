@@ -34,10 +34,6 @@ int channel(const SbtValue& value) {
     return static_cast<int>(as_i32(value) & 0xFF);
 }
 
-const SbtValue* arg(const SbtInsn& insn, std::size_t index) {
-    return index < insn.args.size() ? &insn.args[index] : nullptr;
-}
-
 void walk(const std::vector<SbtInsn>& insns, Scene& scene) {
     for (const auto& insn : insns) {
         if (insn.name == "ADD_SKY_LIGHT_SOURCE" && insn.args.size() >= 7) {
