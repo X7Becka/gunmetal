@@ -120,6 +120,21 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
     return bytes(out)
 
 
+def engine_order(panel: Panel) -> Panel:
+    """The same panel in the engine's row order.
+
+    ``bmp.parse`` normalises rows top-down, but the engine's loader
+    (``0x47efe0``) copies the BMP rows in *file* order into ``0x678188`` and
+    the blit keeps that order, so the buffer is the vertical mirror of the
+    parsed image (verified: ``flipV(asset)`` equals the dumped buffer on
+    100% of the bytes).  Use this when reproducing the screen.
+    """
+    rows = [panel.indices[y * panel.width:(y + 1) * panel.width]
+            for y in range(panel.height)]
+    return Panel(panel.name + "/engine", panel.width, panel.height,
+                 b"".join(reversed(rows)), panel.palette)
+
+
 def load_lut(path: str, level: int) -> bytes:
     """One 256-byte fade table out of the engine's 16-table block."""
     data = open(path, "rb").read()
@@ -278,6 +293,11 @@ def selftest() -> int:
     expect("index 9 -> palette[9]", px(0, 2), (9, 18, 27))
     expect("last panel pixel transparent", px(1, 2), (77, 77, 77))
 
+    # engine row order: rows reversed, columns kept
+    flipped = engine_order(panel)
+    expect("engine order reverses rows", flipped.indices, bytes([9, 0, 0, 5]))
+    expect("engine order keeps width", (flipped.width, flipped.height), (2, 2))
+
     # fade LUT: identity changes nothing, a zero table maps every index to 0
     ident = bytes(range(256))
     out_lut = compose(frame, w, h, panel, pal, top=1, lut=ident)
@@ -356,6 +376,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--check-screen", metavar="FILE",
                     help="raw 8bpp screen dump (gm_screen.bin) for an "
                          "index-match check")
+    ap.add_argument("--engine-order", action="store_true",
+                    help="flip the panel rows into the engine's order "
+                         "(see engine_order()); needed for --check-screen")
     ap.add_argument("--panel-buffer", metavar="FILE",
                     help="dumped engine panel buffer (gm_panel.bin, 320x78 "
                          "indices) instead of the raw FRONTEND asset")
@@ -382,6 +405,8 @@ def main(argv: list[str] | None = None) -> int:
         with open(opts.preview, "wb") as fh:
             fh.write(png.rgb(panel.width, panel.height, data))
         print(f"wrote {opts.preview} ({panel.width}x{panel.height})")
+    if opts.engine_order:
+        panel = engine_order(panel)
     lut = load_lut(opts.lut, opts.level) if opts.lut else None
     if opts.check_frame:
         frame = load_rgb(opts.check_frame)
