@@ -1158,7 +1158,7 @@
   типа `radius`).
 - **Найдено:** `n_idx` доходит до **26** (`level22.sbw` @0x3d18b), док
   обещал 12 — `docs/FORMATS.md` §10.1 исправлен; `gm/sbc.py` docstring —
-  «36 + 5» вместо «34 + 17».
+  «36 + 15» вместо «34 + 17».
 - CTest `schema_check_selftest`, `schema_check`.
 - **ASan** на новых модулях (`sample_cache`, `sim_damage`, `sim_projectile`,
   `sim_player`): 6/6; корпусный `--sim` — 36 уровней, 0 падений.
