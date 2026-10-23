@@ -28,6 +28,13 @@ endfunction()
 # M5.2.5: music banks + overlay text kept as VM state (synthetic byte code).
 add_executable(gm_vm_music_tests test_vm_music.cpp)
 target_link_libraries(gm_vm_music_tests PRIVATE gm_engine)
+# M7.3: engine 3D audio maths (distance, gain, pan, channel gains) against the
+# vectors from tools/re/audio_3d.py.
+add_executable(gm_engine_3d_tests test_engine_3d.cpp)
+target_link_libraries(gm_engine_3d_tests PRIVATE gm_engine)
+add_test(NAME engine_3d COMMAND gm_engine_3d_tests)
+gm_label(engine_3d quick)
+
 add_test(NAME vm_music COMMAND gm_vm_music_tests)
 gm_label(vm_music quick)
 

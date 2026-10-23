@@ -36,6 +36,7 @@ add_library(gm_engine STATIC
     src/res/sbc.cpp
     src/res/sob.cpp
     src/res/sbt.cpp
+    src/audio/engine_3d.cpp
     src/res/sound_catalog.cpp
     src/res/sbtvm.cpp
     src/res/vm_exec.cpp
