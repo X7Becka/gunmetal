@@ -438,6 +438,26 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             }
             options.menu = true;
             options.menu_screen = std::string(*v);
+        } else if (arg == "--fade-in" || arg == "--fade-out") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                const double seconds = std::stod(std::string(*v));
+                if (!(seconds >= 0.0) || !std::isfinite(seconds)) {
+                    error = std::string(arg) + " wants a non-negative number of seconds";
+                    return std::nullopt;
+                }
+                if (arg == "--fade-in") {
+                    options.music_fade_in = seconds;
+                } else {
+                    options.music_fade_out = seconds;
+                }
+            } catch (const std::exception&) {
+                error = std::string(arg) + " wants a number of seconds";
+                return std::nullopt;
+            }
         } else if (arg == "--pager") {
             const auto v = value(arg);
             if (!v) {
@@ -728,6 +748,8 @@ std::string usage() {
        << "      --menu-keys up,down,enter,esc,text:0x1b  feed these keys and print each screen\n"
        << "      --menu-screen ID  start on that UI_SCREENS §2 screen id\n"
        << "      --menu-json   machine-readable dump\n"
+       << "      --fade-in SEC  music: linear fade in (docs/MUSIC.md)\n"
+       << "      --fade-out SEC music: linear fade out at the end\n"
        << "      --pager FILE  headless SML pager: status, lines, pages (M8.1)\n"
        << "      --pager-keys next,next,prev,first,last  feed the pager\n"
        << "      --page N      show page N (1-based)\n"

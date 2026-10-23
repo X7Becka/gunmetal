@@ -1240,3 +1240,17 @@
   привязки; объект-объект; `overlap_aabb` только статика.
 - **Гейты:** `ctest` **159/159**, `regress --full --mirror` **125/125**,
   `build/warn` — 0 предупреждений.
+
+## Ход 2026-10-23 (партия 30: музыкальные огибающие)
+
+- **`M7.5` → 🟡 (модель).** `engine/src/audio/music.*` + `docs/MUSIC.md`
+  (CTest `music`): линейные `fade_in/fade_out` (`N = round(sec*rate)`,
+  `gain(k)=k/N`), кроссфейд `(1-t)·old + t·new` без клиппинга
+  (пик 0.9977, `old²+new² ≤ 1`), `finished()`, `mix_into` во float.
+  Доказано из данных: входная громкость `0x84a68c` 0…32; музыкальный путь
+  всегда 32 000 Гц.
+- **CLI:** `--fade-in/--fade-out SEC` → огибающая применяется к PCM офлайн
+  (CTest `cli_music_fade`): `Dm1A` — 8 треков, 22.583 с, gain
+  first=0.032000, mid=1.000000, last=0.000000. Некорректное значение —
+  `[error]`/`gunmetal: --fade-in wants ...` и код 2.
+- **Гейты:** `ctest` **162/162**, `regress --full --mirror` **125/125**.

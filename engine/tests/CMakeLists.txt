@@ -83,6 +83,19 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/SML/help.sme")
     gm_label(cli_pager_bad quick)
 endif()
 
+# M7.5: the music envelope is applied to the decoded PCM (`docs/MUSIC.md`).
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/MUSIC/Dm1A.sog")
+    add_test(NAME cli_music_fade
+             COMMAND gunmetal --music Dm1A --headless --fade-in 1.0 --fade-out 1.0)
+    set_tests_properties(cli_music_fade PROPERTIES PASS_REGULAR_EXPRESSION
+        "fade-in=1.000 fade-out=1.000 gain first=0.032000 mid=1.000000")
+    gm_label(cli_music_fade quick)
+    add_test(NAME cli_music_fade_bad COMMAND gunmetal --music Dm1A --fade-in -1)
+    set_tests_properties(cli_music_fade_bad PROPERTIES PASS_REGULAR_EXPRESSION
+        "--fade-in wants a non-negative number of seconds")
+    gm_label(cli_music_fade_bad quick)
+endif()
+
 add_test(NAME cli_menu COMMAND gunmetal --menu)
 set_tests_properties(cli_menu PROPERTIES PASS_REGULAR_EXPRESSION
     "MAIN MENU \\(id 1\\)")

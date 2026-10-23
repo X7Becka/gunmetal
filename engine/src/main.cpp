@@ -29,6 +29,7 @@
 #include "res/sml.h"
 #include "camera/camera.h"
 #include "game/runtime.h"
+#include "audio/music.h"
 #include "ui/frontend_menu.h"
 #include "ui/sml_pager.h"
 #include "game/sim_player.h"
@@ -1932,8 +1933,72 @@ int play_music(const gm::Options& options) {
                                : 0.0;
     gm::logf(gm::LogLevel::Info, "music", sog_path->filename().string(), " tracks=",
              clips.size(), " ", rate, " Hz ", channels, " ch ", seconds, "s");
+
+    // `--fade-in/--fade-out`: the envelope of `audio/music.*` is applied to the
+    // decoded PCM offline (the model is linear, `docs/MUSIC.md` §3).
+    const double fade_in = options.music_fade_in;
+    const double fade_out = options.music_fade_out;
+    std::vector<std::int16_t> rendered;
+    double gain_first = 1.0;
+    double gain_mid = 1.0;
+    double gain_last = 1.0;
+    if (fade_in > 0.0 || fade_out > 0.0) {
+        const int channels_safe = std::max(1, channels);
+        bool first_clip = true;
+        for (const gm::PcmClip& clip : clips) {
+            gm::audio::MusicTrack track;
+            std::string track_error;
+            if (!track.load_at(clip, clip.sample_rate, rate, &track_error)) {
+                gm::logf(gm::LogLevel::Error, "music", track_error);
+                return 2;
+            }
+            track.play();
+            if (fade_in > 0.0 && first_clip) {
+                track.fade_in(fade_in);
+            }
+            const int frames = static_cast<int>(clip.samples.size() / channels_safe);
+            std::vector<float> buffer(1024 * channels_safe);
+            int done = 0;
+            while (done < frames) {
+                const int chunk = std::min(1024, frames - done);
+                if (fade_out > 0.0) {
+                    const double left = static_cast<double>(frames - done) / rate;
+                    if (left <= fade_out) {
+                        track.fade_out(left);
+                    }
+                }
+                const int got = track.mix_into(
+                    std::span<float>(buffer.data(),
+                                     static_cast<std::size_t>(chunk) * channels_safe),
+                    channels_safe);
+                if (got <= 0) {
+                    break;
+                }
+                for (int i = 0; i < got * channels_safe; ++i) {
+                    const double value = std::clamp<double>(buffer[i], -1.0, 1.0) * 32767.0;
+                    rendered.push_back(static_cast<std::int16_t>(std::lround(value)));
+                }
+                if (first_clip && done == 0) {
+                    gain_first = track.gain();
+                }
+                if (first_clip && done <= frames / 2 && done + got > frames / 2) {
+                    gain_mid = track.gain();
+                }
+                gain_last = track.gain();
+                // `mix_into()` already advanced the clock (`docs/MUSIC.md` §4).
+                done += got;
+            }
+            first_clip = false;
+        }
+    }
+
     if (options.headless) {
         std::printf("music: %zu tracks, %.3f s\n", clips.size(), seconds);
+        if (!rendered.empty()) {
+            std::printf("music: fade-in=%.3f fade-out=%.3f gain first=%.6f mid=%.6f "
+                        "last=%.6f frames=%zu\n", fade_in, fade_out, gain_first,
+                        gain_mid, gain_last, rendered.size() / std::max(1, channels));
+        }
         return 0;
     }
     auto device = gm::AudioDevice::open(rate, channels, false, error);
@@ -1946,8 +2011,13 @@ int play_music(const gm::Options& options) {
         gm::logf(gm::LogLevel::Error, "music", error);
         return 1;
     }
-    for (const auto& clip : clips) {
-        device->queue(clip.samples.data(), clip.samples.size() / std::max(1, clip.channels));
+    if (!rendered.empty()) {
+        device->queue(rendered.data(), rendered.size() / std::max(1, channels));
+    } else {
+        for (const auto& clip : clips) {
+            device->queue(clip.samples.data(),
+                          clip.samples.size() / std::max(1, clip.channels));
+        }
     }
     gm::FrameClock clock;
     int frame = 0;

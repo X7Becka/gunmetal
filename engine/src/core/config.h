@@ -31,6 +31,8 @@ struct Options {
     std::string menu_keys;    // --menu-keys up,down,enter: feed the menu
     std::string menu_screen;  // --menu-screen ID: start on that §2 screen
     bool menu_json = false;   // --menu-json: machine-readable screen dump
+    double music_fade_in = 0.0;  // --fade-in SEC: music fades in (M7.5)
+    double music_fade_out = 0.0; // --fade-out SEC: music fades out at the end
     std::string pager;        // --pager FILE: headless SML pager (M8.1)
     std::string pager_keys;   // --pager-keys next,next,prev,first,last
     int pager_page = 0;       // --page N: 1-based page to show
