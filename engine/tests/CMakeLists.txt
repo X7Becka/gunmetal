@@ -85,6 +85,13 @@ set_tests_properties(cli_no_game PROPERTIES PASS_REGULAR_EXPRESSION
     "game: directory not found: /nope")
 gm_label(cli_no_game quick)
 
+# M12.8/DoD: a missing resource is an `[error]` with rc=2, never a silent 0.
+# `PASS_REGULAR_EXPRESSION` makes CTest accept the non-zero exit code.
+add_test(NAME cli_missing_dump COMMAND gunmetal --dump /nope/x.sbt)
+set_tests_properties(cli_missing_dump PROPERTIES PASS_REGULAR_EXPRESSION
+    "no such file: /nope/x.sbt")
+gm_label(cli_missing_dump quick)
+
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     # M11.1: text -> bytecode -> bytes on every shipped block.
     add_test(NAME sbtasm_roundtrip
