@@ -39,14 +39,21 @@
      поставочным файлам, правки проверены движком/рендером;
    - **шасси:** `docs/CHASSIS.md`, `tools/re/chassis.py`,
      `game/chassis_loadout.*` (девять полей, цена магазина).
-2. **В работе:** `feat/playerdmg` (урон игроку, смерть по флагу `0x20`,
-   респавн; `docs/SIM_DAMAGE.md`) и `feat/sampcache` (кэш сэмплов `M7.4`:
-   refcount/LRU/бюджет; `docs/SAMPLE_CACHE.md`).
+2. **Влито 2026-10-23:** `M6.5.1` срез 3 (урон/смерть/респавн,
+   `docs/SIM_DAMAGE.md`, CLI `--sim-vitals`/`--sim-respawn`) и `M7.4`
+   (кэш сэмплов `audio/sample_cache.*`, `docs/SAMPLE_CACHE.md`).
+   **В работе:** `feat/schema` (`M3.2.1`, `tools/qa/schema_check.py`) и
+   `feat/fixt` (`M3.2.7`, `tools/qa/fixtures.py`).
+   **Факт:** `FRONTEND/` — только BMP-атласы (`BMP.IDX`/`BMP.DAT`) и
+   шрифты, скриптов меню там нет; логика меню — в `gundx.exe`
+   (`docs/UI_SCREENS.md`), поэтому «фронтенд из `FRONTEND/*.sbt`» не
+   сделать — нужен свой state machine по `UI_SCREENS`.
 3. **Очередь следующих партий** (после вливания двух текущих):
    - `M6.5.1` срез 4: CLI `--sim-respawn`, цикл «смерть → пауза → респавн»,
      счётчик смертей в дайджесте;
-   - `M8` срез 1: безголовый фронтенд — исполнение `FRONTEND/*.sbt` и
-     печать экранов/переходов (`docs/UI_SCREENS.md`), без окна;
+   - `M8` срез 1: безголовый фронтенд — свой state machine по
+     `docs/UI_SCREENS.md` + атласы `FRONTEND/BMP.IDX`, печать
+     экранов/переходов, без окна;
    - `M7.5`/`M7.4`: музыкальные переходы и связка кэша с микшером;
    - `M3.2.1`: схема форматов как единый источник (C++ структуры ↔ Python
      парсеры ↔ `docs/FORMATS.md`), с проверкой в CTest;
