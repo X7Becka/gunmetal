@@ -50,12 +50,19 @@
 // the starting feet/yaw; the death and respawn rules are in
 // `docs/SIM_DAMAGE.md`.
 //
+// Regeneration slice (`M6.1.3`): the optional `set_regen()` rule runs one
+// `apply_regen()` step after the gauges are read back from the runtime, so
+// shields/armor can recover in the tick.  It is **off by default** (no rule =
+// every old test and plan keeps the damage-only behaviour), `damage_taken()`
+// is never reduced by it, death stays `armor <= 0`, and the rule/tick model is
+// the pure `game/regen.h` one (the original's two `DEFINE_REGENERATION_MARKER`
+// doubles have no reader, see `docs/REGEN.md` §3).
+//
 // Scope: one player, feet point from the caller, no death animation/corpse/
 // sound, no keyboard/mouse input, no rendering.  See `docs/SIM_PLAYER.md`
 // (§1) for the slice-1 walk-through, `docs/SIM_PROJECTILE.md` for the
-// projectile API and `docs/SIM_DAMAGE.md` for damage/death/respawn, the
-// numbers of the test and the list of what is still missing for the CLI
-// (`--sim-respawn`).
+// projectile API, `docs/SIM_DAMAGE.md` for damage/death/respawn and
+// `docs/REGEN.md` for the regeneration rule, its numbers and its limits.
 
 #include <cstdint>
 #include <optional>
@@ -64,6 +71,7 @@
 #include <vector>
 
 #include "game/chassis_loadout.h" // ChassisSpec
+#include "game/regen.h"           // RegenRule, RegenState
 #include "game/runtime.h"         // GameRuntime, ProjectileBlastBatch
 #include "game/trigger.h"         // PlayerWeaponInput, PlayerWeaponTick
 #include "game/weapons.h"         // Vitals
@@ -206,6 +214,31 @@ public:
     /// so mixing gauges between runtimes is impossible.
     bool set_vitals(const Vitals& vitals, std::string* error = nullptr);
 
+    /// Install (or replace) the optional regeneration rule of this player
+    /// (`game/regen.h`, `docs/REGEN.md`).  Regeneration is **off** until this
+    /// is called, so a plan that never touches it keeps the slice-3 behaviour
+    /// exactly.
+    ///
+    /// The rule is configuration: it survives `init()` and `respawn()`, while
+    /// the per-life clock (`RegenState`) is reset by both.  Validation is
+    /// `regen_rule_error()`: a negative/oversized `delay_ticks`, a
+    /// negative/non-finite/oversized `rate_per_tick` or a rule with neither
+    /// pool enabled returns `false` with a one-line text and leaves the
+    /// previous rule untouched.
+    bool set_regen(const RegenRule& rule, std::string* error = nullptr);
+    /// Drop the rule (back to the default: no regeneration) and reset the
+    /// clock.
+    void clear_regen();
+    /// True once `set_regen()` installed a rule.
+    bool has_regen() const { return regen_rule_.has_value(); }
+    /// The installed rule, or nullptr when regeneration is off.
+    const RegenRule* regen_rule() const {
+        return regen_rule_ ? &*regen_rule_ : nullptr;
+    }
+    /// Clock/carry of the installed rule (zero-initialised before the first
+    /// tick and after `set_vitals()`/`respawn()`).
+    const RegenState& regen_state() const { return regen_state_; }
+
     /// Restore the state of `init()`: feet, yaw and the **starting** gauges
     /// (`set_vitals()` or `kLightPlayerVitals`), `alive()` from
     /// `armor > 0` (true for the default gauges), one more `deaths()`.  The
@@ -310,6 +343,12 @@ private:
     int death_tick_ = -1;
     int deaths_ = 0;
     int damage_taken_ = 0;
+
+    // Regeneration (slice 4, `M6.1.3`).  `regen_rule_` is configuration and
+    // survives re-init/respawn; `regen_state_` is the current life's clock and
+    // is reset by both.
+    std::optional<RegenRule> regen_rule_{};
+    RegenState regen_state_{};
 
     // Projectile mode (slice 2).  `projectile_runtime_` is nulled by
     // `set_projectile()`/`clear_projectile()`/`init()`, so the template reaches
