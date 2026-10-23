@@ -1433,8 +1433,12 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > `oracle_render.py --hud` (`--hud-lut/--hud-level/--hud-top`):
       > `frame_metric` `win2` frame 0.183→**0.228**, hud 0.000→**0.187**;
       > `win3` frame 0.139→**0.286**, hud 0.078→**0.318**; полоса `world`
-      > не меняется (0.246→0.245). Композитор `gm/hud.py` (`--self-test`
-      > 20/20, `--check-frame`, `--check-screen`, `--engine-order`).
+      > не меняется (0.246→0.245). **Текстовый слой** `0x4926a0` разобран
+      > (`docs/HUD_AUDIT.md` §2.9): шрифт 6 `FONTS3`, цифры `NUMFONTS`
+      > 9/10/11, текст идёт после LUT сырыми индексами — 965/965 пикселей
+      > совпали, полоса 77.5→**81.8 %**, `win2` hud **0.409** (frame 0.304),
+      > `win3` hud **0.501** (frame 0.354). Композитор `gm/hud.py`
+      > (`--self-test` 40/40, `--text`, `--engine-order`, `--check-screen`).
 - ✅ `M4.4.6` Метрика кадра, устойчивая к шуму и сдвигу.
       > `docs/FRAME_METRIC.md` + `tools/re/frame_metric.py` (12/12): Sobel-F1
       > с допуском 1–3 px и порогом по P90, блочная χ²-колормапа (худшая

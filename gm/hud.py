@@ -7,8 +7,11 @@ drawn at ``(0, 122)`` with palette index 0 as the transparent key
 the oracle frames miss the whole bottom band and every ``hud`` metric is
 meaningless; this module adds the panel without touching the renderer.
 
-Only the panel is covered here.  Text, icons and gauges are separate steps of
-``docs/HUD_AUDIT.md`` section 6 and are not implemented yet.
+The panel art is drawn through the engine fade LUT; the **text layer**
+(labels and digits, ``0x4926a0``) is drawn *after* the blit with raw palette
+indices, because the engine writes it straight to the screen
+(``FUN_004926a0(puVar8, ...)`` at ``0x491a70+0x133``).  Icons and the gauge
+fills are separate steps of ``docs/HUD_AUDIT.md`` section 6.
 
 Palette: the engine draws HUD art through ``GAMEPAL`` (``gm/palette.py``,
 ``docs/PALETTE.md``); the BMP carries its own palette too, and the two differ
@@ -64,6 +67,179 @@ def load_panel(game_dir: str, name: str = "PANEL") -> Panel:
     raise KeyError(f"{name} not in {idx} ({len(archive.entries)} entries)")
 
 
+#: Font table records of ``0x65ddd0`` (``docs/TEXT_LAYOUT.md`` 2.3):
+#: ``(atlas, cell_w, cell_h, first, count, columns, col_pitch, row_pitch,
+#: origin_x, origin_y, space, extra_before, extra_after, trim)``.  Origins are
+#: *buffer* coordinates, i.e. ``image_row = height - 1 - y``.
+FONT_SPECS = {
+    6: ("FONTS3", 8, 8, 32, 64, 32, 16, 16, 8, 0, 4, 0, 1, True),
+    9: ("NUMFONTS", 8, 10, 48, 10, 10, 16, 16, 8, 6, 8, 0, 1, False),
+    10: ("NUMFONTS", 8, 10, 48, 10, 10, 16, 16, 0, 22, 8, 0, 1, False),
+    11: ("NUMFONTS", 8, 8, 48, 10, 10, 16, 8, 8, 32, 8, 0, 1, False),
+    12: ("NUMFONTS", 8, 8, 48, 10, 10, 16, 8, 0, 40, 8, 0, 1, False),
+}
+
+
+class Glyph:
+    """One trimmed glyph: row 0 is the **top** cell row (engine draw order)."""
+
+    __slots__ = ("advance", "width", "pixels", "cell_h")
+
+    def __init__(self, advance: int, width: int, pixels: bytes,
+                 cell_h: int) -> None:
+        self.advance = advance
+        self.width = width
+        self.pixels = pixels
+        self.cell_h = cell_h
+
+
+class Font:
+    """Glyphs of one font table slot, extracted from a ``FRONTEND`` atlas."""
+
+    __slots__ = ("number", "width", "height", "pixels", "by_code")
+
+    def __init__(self, number: int, image) -> None:
+        spec = FONT_SPECS[number]
+        (_, cell_w, cell_h, first, count, columns, col_pitch, row_pitch,
+         origin_x, origin_y, space, extra_before, extra_after, trim) = spec
+        self.number = number
+        self.width = image.width
+        self.height = image.height
+        self.pixels = image.pixels
+        self.by_code = {}
+        for i in range(count):
+            gx = origin_x + (i % columns) * col_pitch
+            gy = origin_y + (i // columns) * row_pitch
+            self.by_code[first + i] = self._extract(
+                gx, gy, cell_w, cell_h, space, extra_before, extra_after,
+                trim, first + i)
+
+    # -- extraction -----------------------------------------------------
+    def _pixel(self, x: int, y: int) -> int:
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return 0
+        return self.pixels[(self.height - 1 - y) * self.width + x]
+
+    def _extract(self, gx, gy, cw, ch, space, before, after, trim, code):
+        if trim and code == 32:
+            return Glyph(space + before + after, 0, b"", ch)
+        if trim:
+            used = [c for c in range(cw)
+                    if any(self._pixel(gx + c, gy + r) for r in range(ch))]
+            low, high = (used[0], used[-1]) if used else (0, -1)
+            width = max(0, high - low + 1)
+        else:
+            low, width = 0, cw
+        pixels = bytearray()
+        for r in range(ch):
+            for c in range(width):
+                pixels.append(self._pixel(gx + low + c, gy + r))
+        advance = width if trim else (space if code == 32 else width)
+        return Glyph(advance + before + after, width, bytes(pixels), ch)
+
+    def glyph(self, ch: str):
+        return self.by_code.get(ord(ch))
+
+    def measure(self, text: str) -> int:
+        return sum(g.advance for g in (self.glyph(c) for c in text) if g)
+
+
+def load_font(game_dir: str, number: int) -> Font:
+    """Extract one font slot of the engine table (``0x65ddd0``)."""
+    from . import bigfile, bmp
+
+    if number not in FONT_SPECS:
+        raise KeyError(f"font {number} is not initialised by the engine")
+    atlas = FONT_SPECS[number][0]
+    idx = os.path.join(game_dir, "FRONTEND", "BMP.IDX")
+    archive = bigfile.BigFile(idx)
+    want = atlas.upper()
+    for entry in archive.entries:
+        if entry.name.upper() == want:
+            return Font(number, bmp.parse(archive.read(entry)))
+    raise KeyError(f"{atlas} not in {idx}")
+
+
+def draw_text(canvas: bytearray, font: Font, x: int, top: int, text: str,
+              width: int = 320, height: int = 200, value=None) -> int:
+    """Draw ``text`` into an index canvas, top-left cell row ``top``.
+
+    ``0x47faf0`` writes glyph row 0 at the destination row and keeps going
+    *down*, so the cell occupies ``top .. top+cell_h-1``; index 0 is
+    transparent.  ``value`` maps a glyph index to what is stored (identity by
+    default) — used to apply the fade LUT to the panel but not to the text.
+    """
+    pen = x
+    for ch in text:
+        glyph = font.glyph(ch)
+        if glyph is None:
+            continue
+        for r in range(glyph.cell_h):
+            y = top + r
+            if not (0 <= y < height):
+                continue
+            row = r * glyph.width
+            for c in range(glyph.width):
+                index = glyph.pixels[row + c]
+                if not index:
+                    continue
+                px = pen + c
+                if 0 <= px < width:
+                    canvas[y * width + px] = (
+                        index if value is None else value[index])
+        pen += glyph.advance
+    return pen
+
+
+#: Static labels of ``0x4926a0`` (font, x, cell top) in 320x200 screen rows.
+#: The ``y`` argument of ``0x47faf0`` is the row *below* the cell, so
+#: ``cell top = y - 8``; every position below matches ``gm_screen.bin`` on
+#: 100% of its glyph pixels (docs/HUD_AUDIT.md 2.9).
+HUD_LABELS = (
+    ("weapon_name", 6, 23, 154, "MACHINE GUN"),
+    ("kill_label", 6, 52, 178, "KILL"),
+    ("damage_label", 6, 141, 142, "DAMAGE"),
+    ("throttle_label", 6, 205, 151, "THROTTLE"),
+    ("equipment_name", 6, 227, 161, "HEADLIGHTS"),
+)
+
+#: ``win2``/``win3`` HUD state (``1999`` rounds); the live dump
+#: ``gm_screen.bin`` was taken at ``1985``.
+HUD_STATE = {
+    "weapon_name": "MACHINE GUN",
+    "ammo": 1999,
+    "kills": 0,
+    "damage": 0,
+    "equipment_name": "HEADLIGHTS",
+    "equipment_value": 0,
+}
+
+
+def hud_text(state: dict | None = None, top: int = PANEL_TOP) -> list:
+    """``(font number, x, cell top, text)`` for a HUD state.
+
+    The digit columns are the code constants of ``0x4926a0``: the ammo row is
+    right-aligned to ``x = 72`` in 8 px steps, the damage value to ``156``, the
+    equipment value to ``246``; the kill counter sits at a fixed ``x = 72``.
+    """
+    st = dict(HUD_STATE)
+    st.update({k: v for k, v in (state or {}).items() if v is not None})
+    out = []
+    for key, font, x, row, default in HUD_LABELS:
+        text = str(st.get(key) or default)
+        if text:
+            out.append((font, x, row, text))
+    ammo = str(max(0, int(st["ammo"])))
+    out.append((10, 72 - 8 * (len(ammo) - 1), 163, ammo))
+    out.append((11, 72, 177, str(max(0, int(st["kills"])))))
+    damage = str(max(0, min(100, int(st["damage"]))))
+    out.append((9 if int(st["damage"]) < 70 else 10,
+                156 - 8 * (len(damage) - 1), 181, damage))
+    equip = str(max(0, int(st["equipment_value"])))
+    out.append((10, 246 - 8 * (len(equip) - 1), 173, equip))
+    return out
+
+
 def palette_bytes(game_dir: str, mode: str = "game") -> bytes:
     """256 RGBA quads for the panel: engine ``GAMEPAL`` (``"game"``).
 
@@ -81,13 +257,19 @@ def palette_bytes(game_dir: str, mode: str = "game") -> bytes:
 
 def compose(frame: bytes, width: int, height: int, panel: Panel,
             palette: bytes, top: int = PANEL_TOP,
-            lut: bytes | None = None) -> bytes:
+            lut: bytes | None = None,
+            text: tuple = (), fonts: dict | None = None) -> bytes:
     """Blit ``panel`` onto a packed RGB frame; index 0 stays transparent.
 
     ``lut`` is the engine's 256-byte fade table for one level: the blit maps
     every panel index through it before the palette lookup (``0x491f2d``,
     ``FUN_00a1b510(..., &DAT_00682f90 + k*0x100)``).  Without it the raw panel
     comes out unshaded, which is what made the earlier comparison fail.
+
+    ``text`` items are ``(font number, x, cell top, string)`` in 320x200
+    *screen* rows (``hud_text()`` produces them, so they do not move with
+    ``top``) and are drawn **after** the blit with raw palette indices: ``0x4926a0`` runs after ``0x491a70`` and
+    writes straight to the screen, so the text is not faded by ``lut``.
 
     Returns a new buffer.  Rows outside the frame are clipped; a panel wider
     than the frame is clipped on the right (both are trust-boundary guards,
@@ -117,7 +299,41 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
             out[do] = palette[po]
             out[do + 1] = palette[po + 1]
             out[do + 2] = palette[po + 2]
+    if text and fonts:
+        for number, tx, ty, string in text:
+            font = fonts.get(number)
+            if font is None:
+                continue
+            _draw_text_rgb(out, width, height, palette, font, tx, ty,
+                           string)
     return bytes(out)
+
+
+def _draw_text_rgb(out: bytearray, width: int, height: int, palette: bytes,
+                   font: Font, x: int, top: int, text: str) -> None:
+    """``draw_text`` straight into a packed RGB buffer (no fade)."""
+    pen = x
+    for ch in text:
+        glyph = font.glyph(ch)
+        if glyph is None:
+            continue
+        for r in range(glyph.cell_h):
+            y = top + r
+            if not (0 <= y < height):
+                continue
+            row = r * glyph.width
+            for c in range(glyph.width):
+                index = glyph.pixels[row + c]
+                if not index:
+                    continue
+                px = pen + c
+                if 0 <= px < width:
+                    po = index * 4
+                    do = (y * width + px) * 3
+                    out[do] = palette[po]
+                    out[do + 1] = palette[po + 1]
+                    out[do + 2] = palette[po + 2]
+        pen += glyph.advance
 
 
 def engine_order(panel: Panel) -> Panel:
@@ -147,7 +363,9 @@ def load_lut(path: str, level: int) -> bytes:
 
 def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
                        lut: bytes, top: int, scale: float,
-                       xphase: float = 2.0) -> dict:
+                       xphase: float = 2.0,
+                       text: tuple = (), fonts: dict | None = None,
+                       text_base: float | None = None) -> dict:
     """Fraction of band pixels whose screen index equals ``lut[panel]``.
 
     This compares *indices* against a raw screen dump (``gm_screen.bin``), so
@@ -158,6 +376,15 @@ def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
         raise ValueError(f"screen is {len(screen)} bytes, expected {sw * sh}")
     if len(lut) < 256:
         raise ValueError("lut must be 256 bytes")
+    expected = None
+    if text and fonts:
+        expected = bytearray(lut[i] for i in panel.indices)
+        base = top / scale if text_base is None else text_base
+        for number, tx, ty, string in text:
+            font = fonts.get(number)
+            if font is not None:
+                draw_text(expected, font, tx, int(round(ty - base)), string,
+                          width=panel.width, height=panel.height)
     hit = total = 0
     for py in range(panel.height):
         sy = top + int(py * scale)
@@ -169,7 +396,9 @@ def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
             sx = int(px * sw / panel.width + xphase)
             if sx >= sw:
                 continue
-            if screen[base + sx] == lut[panel.indices[pbase + px]]:
+            want = (expected[pbase + px] if expected is not None
+                    else lut[panel.indices[pbase + px]])
+            if screen[base + sx] == want:
                 hit += 1
             total += 1
     return {"match": round(hit / total, 4) if total else 0.0,
@@ -335,6 +564,38 @@ def selftest() -> int:
     except ValueError:
         check("bad palette rejected", True)
 
+    # text drawing: glyph rows go down from the cell top, index 0 is clear
+    class _Stub:
+        def __init__(self, glyphs):
+            self._g = glyphs
+
+        def glyph(self, ch):
+            return self._g.get(ch)
+
+    stub = _Stub({"A": Glyph(3, 2, bytes([1, 2, 0, 3, 4, 0]), 3)})
+    canvas = bytearray(8 * 5)
+    end = draw_text(canvas, stub, 1, 1, "A", width=8, height=5)
+    expect("glyph advance returned", end, 4)
+    expect("glyph pixel (1,1)", canvas[1 * 8 + 1], 1)
+    expect("glyph pixel (2,1)", canvas[1 * 8 + 2], 2)
+    expect("transparent glyph index stays clear", canvas[2 * 8 + 1], 0)
+    expect("glyph pixel (2,2)", canvas[2 * 8 + 2], 3)
+    expect("glyph pixel (1,3)", canvas[3 * 8 + 1], 4)
+    expect("glyph drawn top-down", canvas[3 * 8 + 2], 0)
+    mapped = bytearray(8 * 5)
+    draw_text(mapped, stub, 0, 0, "A", width=8, height=5,
+              value=bytes([7] * 256))
+    expect("value map applied", mapped[0], 7)
+
+    # layout constants (guard against silent drift)
+    items = {f"{item[0]}:{item[3]}": (item[1], item[2])
+             for item in hud_text({"ammo": 1985, "damage": 0})}
+    expect("KILL label at (52,178)", items.get("6:KILL"), (52, 178))
+    expect("ammo right-aligned", items.get("10:1985"), (48, 163))
+    expect("kill digit at 72", items.get("11:0"), (72, 177))
+    expect("damage digit at 156", items.get("9:0"), (156, 181))
+    expect("equipment digit at 246", items.get("10:0"), (246, 173))
+
     # installed game, if present
     game = os.environ.get("GUNMETAL_GAME", "/mnt/d/games/Gunmetal 3dfx")
     if os.path.isdir(os.path.join(game, "FRONTEND")):
@@ -345,6 +606,19 @@ def selftest() -> int:
             check("PANEL has art", len(set(real.indices)) > 16,
                   f"{len(set(real.indices))} indices")
             check("PANEL palette is 1024", len(real.palette) == 1024)
+            for number in (6, 9, 10, 11):
+                try:
+                    font = load_font(game, number)
+                    check(f"font {number} loads", len(font.by_code) > 0,
+                          f"{len(font.by_code)} glyphs")
+                except (KeyError, FileNotFoundError, ValueError) as exc:
+                    check(f"font {number} loads", False, str(exc))
+            label = load_font(game, 6)
+            check("label font advance is 7 at 'M'",
+                  label.glyph("M").advance, 7)
+            check("'MACHINE GUN' width", label.measure("MACHINE GUN"), 77)
+            digits = load_font(game, 10)
+            check("digit advance is 9", digits.glyph("1").advance, 9)
         except (FileNotFoundError, KeyError, ValueError) as exc:
             check("PANEL loads", False, str(exc))
     else:
@@ -385,6 +659,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--scale", type=float, default=3.0,
                     help="vertical scale of the band in --check-screen "
                          "(default 3.0 for 800x600)")
+    ap.add_argument("--text", action="store_true",
+                    help="draw the HUD text layer (labels + digits)")
+    ap.add_argument("--state", default="", metavar="JSON",
+                    help="HUD state overrides for --text, e.g. "
+                         '{"ammo": 1999}')
     opts = ap.parse_args(argv)
     if opts.self_test:
         return selftest()
@@ -416,6 +695,26 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{opts.check_frame}: {tag} ncc={res['ncc']:+.3f} "
                   f"rows={res['rows'][0]}..{res['rows'][1]} "
                   f"samples={res['samples']} scale={res['scale']}")
+    fonts = {}
+    text = ()
+    if opts.text:
+        import json
+        for number in sorted({item[0] for item in hud_text()}):
+            try:
+                fonts[number] = load_font(opts.game, number)
+            except (KeyError, FileNotFoundError) as exc:
+                raise SystemExit(f"--text: {exc}")
+        state = json.loads(opts.state) if opts.state else {}
+        text = tuple(hud_text(state))
+        print("text   " + ", ".join(f"font {n} at ({x},{y}) {t!r}"
+                                    for n, x, y, t in text))
+    if opts.preview and text:
+        data = compose(bytes(320 * 200 * 3), 320, 200, panel,
+                       palette_bytes(opts.game), top=opts.top, lut=lut,
+                       text=text, fonts=fonts)
+        with open(opts.preview.rsplit(".", 1)[0] + "_text.png", "wb") as fh:
+            fh.write(png.rgb(320, 200, data))
+        print(f"wrote {opts.preview.rsplit('.', 1)[0]}_text.png")
     if opts.check_screen:
         data = open(opts.check_screen, "rb").read()
         w, h = 800, len(data) // 800
@@ -423,7 +722,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{opts.check_screen}: not a 800x600 8bpp dump")
         if lut is None:
             raise SystemExit("--check-screen needs --lut")
-        res = screen_index_match(data, w, h, panel, lut, opts.top, opts.scale)
+        res = screen_index_match(data, w, h, panel, lut, opts.top, opts.scale,
+                                 text=text, fonts=fonts)
         print(f"{opts.check_screen}: index match {100*res['match']:.1f}% "
               f"({res['pixels']} px, top={res['top']}, scale={res['scale']})")
     return 0

@@ -416,6 +416,13 @@ def main(argv: list[str]) -> int:
                          "win2 capture matches 10)")
     ap.add_argument("--hud-top", type=int, default=130,
                     help="band top row in the 320x200 frame (default 130)")
+    ap.add_argument("--hud-text", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="draw the HUD text layer (labels + digits) on "
+                         "top of the band (default: on with --hud)")
+    ap.add_argument("--hud-state", default="", metavar="JSON",
+                    help="HUD state for --hud-text, e.g. "
+                         "'{\"ammo\": 1999, \"damage\": 0}'")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--self-test", dest="selftest", action="store_true")
     opts = ap.parse_args(argv)
@@ -450,9 +457,17 @@ def main(argv: list[str]) -> int:
                 "with tools/win/dump_lut.lua (Cheat Engine, gm_lut.bin)")
         panel = hudmod.engine_order(hudmod.load_panel(opts.game))
         lut = hudmod.load_lut(opts.hud_lut, opts.hud_level)
+        fonts = {}
+        text = ()
+        if opts.hud_text:
+            state = json.loads(opts.hud_state) if opts.hud_state else {}
+            text = tuple(hudmod.hud_text(state))
+            for number in sorted({item[0] for item in text}):
+                fonts[number] = hudmod.load_font(opts.game, number)
         rgb = hudmod.compose(image.pixels, image.width, image.height, panel,
                              hudmod.palette_bytes(opts.game),
-                             top=opts.hud_top, lut=lut)
+                             top=opts.hud_top, lut=lut,
+                             text=text, fonts=fonts)
         data = pngmod.rgb(image.width, image.height, rgb)
 
     out_dir = os.path.dirname(os.path.abspath(opts.out))
@@ -475,7 +490,9 @@ def main(argv: list[str]) -> int:
         "materials": opts.materials,
         "chromakey": opts.chromakey,
         "uv": opts.uv,
-        "hud": {"on": opts.hud, "top": opts.hud_top, "level": opts.hud_level} if opts.hud else False,
+        "hud": ({"on": opts.hud, "top": opts.hud_top,
+                 "level": opts.hud_level, "text": opts.hud_text}
+                if opts.hud else False),
         "pitch_offset_deg": opts.pitch_offset,
         "skip_untextured": opts.skip_untextured,
         "ambient": opts.ambient,
