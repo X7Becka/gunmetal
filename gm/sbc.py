@@ -1,7 +1,7 @@
 """Gunmetal ".sbc" blobs — per-level block of small grayscale maps.
 
-Verified layout (fits byte-exactly for all 51 shipped ``*.sbc``, both the 34
-files in the game root and the 17 object sets in ``SOBS/``):
+Verified layout (fits byte-exactly for all 51 shipped ``*.sbc``, both the 36
+files in the game root and the 15 object sets in ``SOBS/``):
 
     struct Sbc {
         char magic[4];        // "SBC0" or "SBC1"

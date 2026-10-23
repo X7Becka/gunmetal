@@ -38,7 +38,7 @@
 | `docs/FAQ.md` | 14 | 0 | FAQ — частые вопросы |
 | `docs/FILM.md` | 27 | 107 | HUD-фильмы `.sof` / `.fdx` — формат, привязка, паритет |
 | `docs/FOG.md` | 22 | 220 | Туман по глубине: формула, таблица `lighttable`, Glide (M4.1.6) |
-| `docs/FORMATS.md` | 203 | 950 | Gunmetal — спецификация форматов данных |
+| `docs/FORMATS.md` | 203 | 951 | Gunmetal — спецификация форматов данных |
 | `docs/FRAME_METRIC.md` | 23 | 0 | Метрика сравнения кадров (M4.4.3) |
 | `docs/FUZZ_CORPUS.md` | 11 | 1 | Фазз-корпус: сохранение и повтор (save / replay) |
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
@@ -53,7 +53,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 12 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 93 | 274 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 94 | 278 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -100,6 +100,7 @@
 | `docs/SBW_EDIT.md` | 23 | 31 | Редактор геометрии `.sbw` (`M11.2`, срез 1) |
 | `docs/SBW_OBJECTS.md` | 34 | 58 | Объекты `.sbw`: редактор (`M11.2`, срез 3) |
 | `docs/SCENE_EDIT.md` | 42 | 131 | Редактор записей сцены `.sbt` (`M11.3`, срез 1) |
+| `docs/SCHEMA.md` | 10 | 7 | Схема форматов: единый источник истины (M3.2.1) |
 | `docs/SCREEN_CPP.md` | 15 | 5 | SML-экран в C++: один рантайм от `.sme` до RGB |
 | `docs/SCREEN_FX.md` | 29 | 350 | Экранные эффекты: фейд-«дымка» (HAZE), вспышка урона, палитра (M4.2.8) |
 | `docs/SCRIPT_DEBUG.md` | 32 | 78 | Отладчик и граф скриптов `.sbt` (`M11.4`, срез 1) |

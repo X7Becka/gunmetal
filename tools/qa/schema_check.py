@@ -175,7 +175,7 @@ SCHEMA = {
             ("overlay", "u16", 2, "0x78"),
             ("f7a", "u16", 2, "0x7a"),
             ("brightness", "u8", 1, "0x70"),
-            ("n_idx", "u8", 1, "0x71, 3..12"),
+            ("n_idx", "u8", 1, "0x71, 3..26 (12 typical)"),
             ("indices", "u16[n_idx]", "2*n_idx", "vertex indices"),
             ("tail", "u8[112]", 112, "remaining engine fields 0x08..0x7c"),
         ],
@@ -429,6 +429,30 @@ class DataError(ValueError):
     pass
 
 
+def documented_poly_max() -> int:
+    """The `n_idx` upper bound as written in `docs/FORMATS.md` §10.1.
+
+    The bound is not a constant of the format: the shipped corpus proves 26
+    (`level22.sbw`), and the doc is the declaration the checker compares
+    against, so it is read from the doc instead of being duplicated here.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    try:
+        with open(os.path.join(root, "docs", "FORMATS.md"), encoding="utf-8") as fh:
+            for line in fh:
+                if "n_idx" in line and ".." in line:
+                    match = re.search(r"\.\.(\d+)", line)
+                    if match:
+                        return int(match.group(1))
+    except OSError:
+        pass
+    return CONST["sbw_poly_doc_max"]
+
+
+POLY_DOC_MAX = documented_poly_max()
+
+
 def read_sbw(data: bytes) -> dict:
     """Walk a .sbw stream exactly as declared by the SbwObject layout."""
     n = len(data)
@@ -530,7 +554,7 @@ def read_sbw(data: bytes) -> dict:
                     odd += 1
                     if odd_example is None:
                         odd_example = (pstart, n_idx)
-                if n_idx > CONST["sbw_poly_doc_max"]:
+                if n_idx > POLY_DOC_MAX:
                     over_doc.append((pstart, n_idx))
     if off != n:
         raise DataError("хвост %d байт после %d полигонов" % (n - off, polys))
@@ -801,8 +825,9 @@ def check_data(game: str, only_sbw: str | None = None) -> list[dict]:
         rows.append(_row("sbw", "data",
                          "расходится" if bad else "подтверждено", detail))
         if over_doc:
-            detail = ("док §10.1 обещает 3..12, в данных есть n_idx > 12: %s "
+            detail = ("док §10.1 обещает 3..%d, в данных есть n_idx > %d: %s "
                       "(всего %d полигонов)" % (
+                          POLY_DOC_MAX, POLY_DOC_MAX,
                           ", ".join("%d x%d" % (n, c)
                                     for n, c in sorted(over_doc.items())),
                           sum(over_doc.values())))

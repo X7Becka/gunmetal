@@ -821,6 +821,20 @@ if(GM_PYTHON3)
     gm_label(sbtasm_selftest quick)
     # M11.4: trace/breakpoints/watch/CFG over the reference interpreter
     # (docs/SCRIPT_DEBUG.md); the self-test is synthetic, no game needed.
+    # M3.2.1: C++ structs, the Python parsers and the shipped data must agree
+    # with the declared schema (docs/SCHEMA.md).
+    add_test(NAME schema_check_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/schema_check.py
+                     --self-test)
+    set_tests_properties(schema_check_selftest PROPERTIES PASS_REGULAR_EXPRESSION
+        "19/19 checks passed")
+    gm_label(schema_check_selftest quick)
+    add_test(NAME schema_check
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/schema_check.py
+                     --check --strict)
+    set_tests_properties(schema_check PROPERTIES PASS_REGULAR_EXPRESSION
+        "расходится 0")
+    gm_label(schema_check quick)
     add_test(NAME sbtdbg_selftest
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtdbg.py
                      --self-test)
