@@ -330,6 +330,18 @@ target_link_libraries(gm_collide_tests PRIVATE gm_engine)
 add_test(NAME collide COMMAND gm_collide_tests)
 gm_label(collide quick)
 
+# M6.4.1 slice 1: door leaves and lift cabins as kinematic colliders
+# (docs/MOVING_COLLIDERS.md).  Real level0/dm1 door panels: a closed leaf holds
+# a ray/sphere, an open one lets them through, travel comes from the door model
+# (`open - closed`), normals/plane/centroid/bounds follow the moved vertices,
+# filters pick by `surface_of`, NaN/inf are refused, a swing door is refused by
+# `DoorAxis::Rotating`, and the ray/sphere sweeps are checked against
+# `CollisionWorld` on the same triangles.
+add_executable(gm_moving_collider_tests test_moving_collider.cpp)
+target_link_libraries(gm_moving_collider_tests PRIVATE gm_engine)
+add_test(NAME moving_collider COMMAND gm_moving_collider_tests)
+gm_label(moving_collider quick)
+
 add_executable(gm_player_controller_tests test_player_controller.cpp)
 target_link_libraries(gm_player_controller_tests PRIVATE gm_engine)
 # Deterministic 91 Hz player controller (docs/PLAYER_CONTROLLER.md): synthetic
