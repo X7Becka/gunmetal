@@ -44,6 +44,13 @@ target_link_libraries(gm_vm_campaign_tests PRIVATE gm_engine)
 add_test(NAME vm_campaign COMMAND gm_vm_campaign_tests)
 gm_label(vm_campaign quick)
 
+# M6.5.2: the exact 0x453b50 intake against the numbers of docs/DAMAGE.md
+# (45/12/3 hits, spill, flags 1/2/4, blast falloff).
+add_executable(gm_damage_model_tests test_damage_model.cpp)
+target_link_libraries(gm_damage_model_tests PRIVATE gm_engine)
+add_test(NAME damage_model COMMAND gm_damage_model_tests)
+gm_label(damage_model quick)
+
 # M8.2/M9.5: full-screen requests recorded from the script (synthetic).
 add_executable(gm_vm_screens_tests test_vm_screens.cpp)
 target_link_libraries(gm_vm_screens_tests PRIVATE gm_engine)
