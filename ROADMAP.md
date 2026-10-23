@@ -2102,7 +2102,18 @@ save/load восстанавливает мир, игрока, двери, па�
 
 ## M12. Стабилизация и релиз — 4–10 а.д.
 
-- ⬜ `M12.1` Фаззинг всех парсеров; ASan/UBSan; статический анализ.
+- 🟡 `M12.1` Фаззинг всех парсеров; ASan/UBSan; статический анализ.
+      > **Фаззинг:** `tools/fuzz_formats.py --quick` в `regress.py` (матрица
+      > повреждённых входов) + `tools/qa/fuzz_corpus.py`; негативные тесты
+      > парсеров в CTest (`sbt_neg`, `sbc_neg`, `sbm_*`, `sou*_neg`, `sav_*`,
+      > `bigfile_neg`). **ASan/UBSan:** `cmake --preset asan` (Zig, раздельные
+      > флаги), `ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build/asan -j 4`
+      > — **101/101**, 416 с; гейт `sanitizer_selfcheck` (`WILL_FAIL`) и
+      > проверка инструментации (`__asan_report`, `libasan`). Найдено и
+      > исправлено: `test_ai` (`stack-use-after-return` через
+      > `Ai::attach`/перемещённый `Things`). **Нет:** статического анализа
+      > (clang-tidy/cppcheck) и фаззинга с покрытием на всех 9 контейнерах —
+      > только быстрая матрица.
 - ⬜ `M12.2` 64-bit, Windows, Linux; CI-матрица.
 - ⬜ `M12.3` Производительность: 60 FPS, память, время загрузки уровня.
 - ⬜ `M12.4` 10 полных прохождений (ручное/авто), 0 падений.
