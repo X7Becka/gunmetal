@@ -18,7 +18,7 @@
 
 | Источник | Что даёт |
 |---|---|
-| `git log` | 963 коммита, 4 linked worktree, `master` чист |
+| `git log` | 963 коммита, `master` чист (worktree сабагентов не считаются) |
 | `tools/qa/state.py` | 221 пункт этапов `M0…M12`: 92 ✅ / 95 🟡 / 33 ⬜ / 1 ⛔; item-строки (с DoD и стратегией) — 94 ✅ / 96 🟡 / 43 ⬜ / 1 ⛔ |
 | `python3 regress.py --mirror` | **114/114** проверок за 61,7 с |
 | `python3 regress.py --full --mirror` | **124/124** за 107,3 с (0 из кэша) |
