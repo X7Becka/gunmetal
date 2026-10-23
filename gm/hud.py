@@ -80,8 +80,14 @@ def palette_bytes(game_dir: str, mode: str = "game") -> bytes:
 
 
 def compose(frame: bytes, width: int, height: int, panel: Panel,
-            palette: bytes, top: int = PANEL_TOP) -> bytes:
+            palette: bytes, top: int = PANEL_TOP,
+            lut: bytes | None = None) -> bytes:
     """Blit ``panel`` onto a packed RGB frame; index 0 stays transparent.
+
+    ``lut`` is the engine's 256-byte fade table for one level: the blit maps
+    every panel index through it before the palette lookup (``0x491f2d``,
+    ``FUN_00a1b510(..., &DAT_00682f90 + k*0x100)``).  Without it the raw panel
+    comes out unshaded, which is what made the earlier comparison fail.
 
     Returns a new buffer.  Rows outside the frame are clipped; a panel wider
     than the frame is clipped on the right (both are trust-boundary guards,
@@ -92,6 +98,8 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
                          f"{width * height * 3}")
     if len(palette) < 256 * 4:
         raise ValueError(f"palette is {len(palette)} bytes, expected 1024")
+    if lut is not None and len(lut) < 256:
+        raise ValueError(f"lut is {len(lut)} bytes, expected 256")
     out = bytearray(frame)
     rows = min(panel.height, height - top)
     cols = min(panel.width, width)
@@ -102,12 +110,55 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
             index = panel.indices[src + x]
             if index == TRANSPARENT_INDEX:
                 continue
+            if lut is not None:
+                index = lut[index]
             po = index * 4
             do = dst + x * 3
             out[do] = palette[po]
             out[do + 1] = palette[po + 1]
             out[do + 2] = palette[po + 2]
     return bytes(out)
+
+
+def load_lut(path: str, level: int) -> bytes:
+    """One 256-byte fade table out of the engine's 16-table block."""
+    data = open(path, "rb").read()
+    if len(data) < 16 * 256:
+        raise ValueError(f"lut file is {len(data)} bytes, expected 4096")
+    if not 0 <= level < 16:
+        raise ValueError(f"level {level} outside 0..15")
+    return data[level * 256:(level + 1) * 256]
+
+
+def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
+                       lut: bytes, top: int, scale: float,
+                       xphase: float = 2.0) -> dict:
+    """Fraction of band pixels whose screen index equals ``lut[panel]``.
+
+    This compares *indices* against a raw screen dump (``gm_screen.bin``), so
+    neither dgVoodoo scaling nor the palette is involved: the only expected
+    mismatches are the text/icons drawn over the panel afterwards.
+    """
+    if len(screen) != sw * sh:
+        raise ValueError(f"screen is {len(screen)} bytes, expected {sw * sh}")
+    if len(lut) < 256:
+        raise ValueError("lut must be 256 bytes")
+    hit = total = 0
+    for py in range(panel.height):
+        sy = top + int(py * scale)
+        if sy >= sh:
+            break
+        base = sy * sw
+        pbase = py * panel.width
+        for px in range(panel.width):
+            sx = int(px * sw / panel.width + xphase)
+            if sx >= sw:
+                continue
+            if screen[base + sx] == lut[panel.indices[pbase + px]]:
+                hit += 1
+            total += 1
+    return {"match": round(hit / total, 4) if total else 0.0,
+            "pixels": total, "top": top, "scale": scale}
 
 
 def default_top(panel: Panel, height: int) -> int:
@@ -221,10 +272,24 @@ def selftest() -> int:
     expect("len unchanged", len(out), len(frame))
     expect("row above untouched", out[0:4 * 3], frame[0:4 * 3])
     px = lambda x, y: tuple(out[(y * w + x) * 3:(y * w + x) * 3 + 3])
+    px0 = lambda buf, x, y: tuple(buf[(y * w + x) * 3:(y * w + x) * 3 + 3])
     expect("index 0 is transparent", px(0, 1), (77, 77, 77))
     expect("index 5 -> palette[5]", px(1, 1), (5, 10, 15))
     expect("index 9 -> palette[9]", px(0, 2), (9, 18, 27))
     expect("last panel pixel transparent", px(1, 2), (77, 77, 77))
+
+    # fade LUT: identity changes nothing, a zero table maps every index to 0
+    ident = bytes(range(256))
+    out_lut = compose(frame, w, h, panel, pal, top=1, lut=ident)
+    expect("identity lut == no lut", out_lut, out)
+    zero = bytes(256)
+    out_zero = compose(frame, w, h, panel, pal, top=1, lut=zero)
+    expect("zero lut maps to palette[0]", px0(out_zero, 1, 1), (0, 0, 0))
+    try:
+        compose(frame, w, h, panel, pal, top=1, lut=b"\0" * 8)
+        check("short lut rejected", False)
+    except ValueError:
+        check("short lut rejected", True)
 
     # bottom alignment and clipping
     expect("default_top bottom-aligns", default_top(panel, 200), 198)
@@ -284,19 +349,40 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--top", type=int, default=PANEL_TOP,
                     help=f"panel top row in the 320x200 screen "
                          f"(default {PANEL_TOP})")
+    ap.add_argument("--lut", metavar="FILE",
+                    help="engine fade LUT dump (gm_lut.bin, 16x256 bytes)")
+    ap.add_argument("--level", type=int, default=10,
+                    help="fade level 0..15 used with --lut (default 10)")
+    ap.add_argument("--check-screen", metavar="FILE",
+                    help="raw 8bpp screen dump (gm_screen.bin) for an "
+                         "index-match check")
+    ap.add_argument("--panel-buffer", metavar="FILE",
+                    help="dumped engine panel buffer (gm_panel.bin, 320x78 "
+                         "indices) instead of the raw FRONTEND asset")
+    ap.add_argument("--scale", type=float, default=3.0,
+                    help="vertical scale of the band in --check-screen "
+                         "(default 3.0 for 800x600)")
     opts = ap.parse_args(argv)
     if opts.self_test:
         return selftest()
-    if not opts.preview and not opts.check_frame:
-        ap.error("nothing to do: pass --self-test, --preview or --check-frame")
+    if not opts.preview and not opts.check_frame and not opts.check_screen:
+        ap.error("nothing to do: pass --self-test, --preview, --check-frame "
+                 "or --check-screen")
     from . import png
 
     panel = load_panel(opts.game, opts.panel)
+    if opts.panel_buffer:
+        data = open(opts.panel_buffer, "rb").read()
+        if len(data) % 320:
+            raise SystemExit(f"{opts.panel_buffer}: size {len(data)} is not a "
+                             "320-wide buffer")
+        panel = Panel("dumped", 320, len(data) // 320, data, panel.palette)
     if opts.preview:
         data = panel_rgb(panel, panel.palette)
         with open(opts.preview, "wb") as fh:
             fh.write(png.rgb(panel.width, panel.height, data))
         print(f"wrote {opts.preview} ({panel.width}x{panel.height})")
+    lut = load_lut(opts.lut, opts.level) if opts.lut else None
     if opts.check_frame:
         frame = load_rgb(opts.check_frame)
         engine = palette_bytes(opts.game)
@@ -305,6 +391,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{opts.check_frame}: {tag} ncc={res['ncc']:+.3f} "
                   f"rows={res['rows'][0]}..{res['rows'][1]} "
                   f"samples={res['samples']} scale={res['scale']}")
+    if opts.check_screen:
+        data = open(opts.check_screen, "rb").read()
+        w, h = 800, len(data) // 800
+        if len(data) != w * h:
+            raise SystemExit(f"{opts.check_screen}: not a 800x600 8bpp dump")
+        if lut is None:
+            raise SystemExit("--check-screen needs --lut")
+        res = screen_index_match(data, w, h, panel, lut, opts.top, opts.scale)
+        print(f"{opts.check_screen}: index match {100*res['match']:.1f}% "
+              f"({res['pixels']} px, top={res['top']}, scale={res['scale']})")
     return 0
 
 
