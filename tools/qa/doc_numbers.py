@@ -53,6 +53,8 @@ DOC_FILES = {
     "DM_RULES": "docs/DM_RULES.md",
     "CAMPAIGN_FLOW": "docs/CAMPAIGN_FLOW.md",
     "AUDIO_3D": "docs/AUDIO_3D.md",
+    "GAME_OVER": "docs/GAME_OVER.md",
+    "SBT_ASM": "docs/SBT_ASM.md",
 }
 
 
@@ -752,16 +754,16 @@ def c_snd_music(env):
         "call-инструкции в .text"
 
 
-@check("UI_SOUNDS", "598 файлов MUSIC/*.sog", "598")
+@check("UI_SOUNDS", "651 файл MUSIC/*.sog (598 .sog + 53 .SOG)", "651")
 def c_snd_sog(env):
     env.require_game()
     files = glob.glob(os.path.join(env.game, "MUSIC", "*"))
     sog = [os.path.basename(p) for p in files if p.lower().endswith(".sog")]
     lower = [f for f in sog if f.endswith(".sog")]
     upper = [f for f in sog if f.endswith(".SOG")]
-    ok = len(sog) == 598
+    ok = (len(sog), len(lower), len(upper)) == (651, 598, 53)
     return "%d .sog (%d .sog + %d .SOG)" % (len(sog), len(lower), len(upper)), ok, \
-        "glob('*.sog') видит только нижний регистр; в каталоге 651 файл"
+        "поправка 2026-10-23: прежние 598 теряли 53 файла .SOG"
 
 
 # ==========================================================================
@@ -1093,6 +1095,72 @@ def print_table(rows, strict_docs=None):
     _ = docs_order, strict_docs
 
 
+
+# --------------------------------------------------------------------------
+# GAME_OVER (M9.5): the end-of-level screen opcode and the absent game-over
+# --------------------------------------------------------------------------
+
+@check("GAME_OVER", "сайтов SHOW_LEVEL_END_SCREEN (опкод 91), не 96", "38")
+def c_go_opcode91(env):
+    sites = sum(1 for _ in env.corpus.ops(91))
+    gravity = sum(1 for _ in env.corpus.ops(96))
+    ok = sites == 38 and gravity == 13
+    return "op 91: %d, op 96 (SET_LEVEL_GRAVITY): %d" % (sites, gravity), ok, \
+        "экран конца уровня — 91; 96 — гравитация, не экран"
+
+
+@check("GAME_OVER", "строк GAME OVER / GAMEOVER в образе", "0")
+def c_go_strings(env):
+    data = env.exe.data
+    upper = data.count(b"GAME OVER") + data.count(b"GAMEOVER")
+    lower = data.lower().count(b"game over")
+    ok = upper == 0 and lower == 0
+    return "GAME OVER=%d, game over=%d" % (upper, lower), ok, \
+        "нет экрана/строки game over; респавн через 136 тиков"
+
+
+# --------------------------------------------------------------------------
+# SBT_ASM (M11.1): the byte-level round-trip census
+# --------------------------------------------------------------------------
+
+@check("SBT_ASM", "блоков / байт / инструкций / опкодов (36 .sbt)",
+       "15061 / 3542023 / 147777 / 171")
+def c_asm_corpus(env):
+    from gm.scene import entities
+    from gm.sbt import parse_file
+    from gm.sbtvm import decode
+
+    blocks = byte_total = insn_total = 0
+    opcodes = set()
+    for path in sorted(glob.glob(os.path.join(env.game, "*.sbt"))):
+        parsed = parse_file(path)
+        for rec in parsed.records_of(11):
+            code = rec.payload.code
+            offsets = sorted({off for _eid, _flags, off in entities(rec.payload)
+                              if 0 <= off < len(code)})
+            for k, off in enumerate(offsets):
+                end = offsets[k + 1] if k + 1 < len(offsets) else len(code)
+                block, got = decode(code, off, end)
+                blocks += 1
+                byte_total += got - off
+                seen = set()
+                stack = [block]
+                while stack:
+                    for ins in stack.pop():
+                        if ins.off in seen:
+                            continue        # ELSE may re-walk a sibling range
+                        seen.add(ins.off)
+                        opcodes.add(ins.op)
+                        if ins.body:
+                            stack.append(ins.body)
+                insn_total += len(seen)
+    ok = (blocks, byte_total, insn_total, len(opcodes)) == \
+        (15061, 3542023, 147777, 171)
+    return "%d / %d / %d / %d" % (blocks, byte_total, insn_total,
+                                  len(opcodes)), ok, \
+        "по блокам таблицы сущностей, без двойного счёта ELSE"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--self-test", action="store_true")
@@ -1135,11 +1203,12 @@ def main(argv=None) -> int:
     else:
         print_table(rows)
         print("проверок %d: подтверждено %d, расходится %d, "
-              "не проверяемо %d; доков %d/7"
+              "не проверяемо %d; доков %d/%d"
               % (len(rows), summ["подтверждено"], summ["расходится"],
-                 summ["не проверяемо"], len(docs & set(DOC_FILES))))
+                 summ["не проверяемо"], len(docs & set(DOC_FILES)),
+                 len(DOC_FILES)))
 
-    if len(docs & set(DOC_FILES)) != 7:
+    if len(docs & set(DOC_FILES)) != len(DOC_FILES):
         return 2
     if args.strict and (summ["расходится"] or summ["не проверяемо"]):
         return 1
