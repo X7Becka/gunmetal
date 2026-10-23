@@ -77,6 +77,7 @@
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
 | `docs/RECORDS.md` | 35 | 260 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
 | `docs/REGRESSION.md` | 11 | 1 | Регрессия: ворота, бюджет времени и практики |
+| `docs/RELEASE.md` | 4 | 0 | RELEASE — чек-лист релиза (`M12.8`) |
 | `docs/RENDER.md` | 5 | 0 | Рендерер C++: конвейер и паритет с `gm/render.py` |
 | `docs/RE_AUDIT.md` | 22 | 10 | Аудит процесса реверса (2026-10-22) |
 | `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
