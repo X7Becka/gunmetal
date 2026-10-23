@@ -18,27 +18,31 @@
 | `docs/BUILD.md` | 4 | 0 | Сборка движка (M3) |
 | `docs/CAMERA.md` | 31 | 209 | Gunmetal — камера первого лица: оси, матрица, проекция |
 | `docs/CAMERA_CPP.md` | 25 | 74 | `camera/camera.h` — камера первого/третьего лица |
+| `docs/CAMPAIGN_FLOW.md` | 34 | 293 | Поток кампании: счётчик миссий, штаб, цели, секреты, время, финал (`M9.1`) |
 | `docs/COLLIDE.md` | 25 | 10 | Gunmetal — примитивы коллизий `.sbw` |
 | `docs/CONFIG.md` | 28 | 241 | `GUNMETAL.CFG` / `CONTROLS.CFG` — карта полей |
 | `docs/CONTROLS_CPP.md` | 13 | 19 | `input/controls.h` — `.key` profiles and controller config |
+| `docs/DM_RULES.md` | 31 | 394 | Deathmatch: режимы, счёт, respawn, гандикап, команды (`M9.2`) |
 | `docs/DOORS_CPP.md` | 55 | 137 | Gunmetal — C++-модель дверей, переключателей и лифтов |
 | `docs/DOOR_FIELDS.md` | 56 | 566 | Поля дверей, переключателей и лифтов (M2.3.4) |
+| `docs/ECONOMY.md` | 27 | 386 | ECONOMY — деньги, магазины, масса (`M6.2.6`) |
+| `docs/EFFECTS.md` | 37 | 198 | Отрицательные индексы текстур: кадры спрайтов/анимаций в кадровом проходе (M4.2.6) |
 | `docs/ENTITY_FIELDS.md` | 37 | 262 | Скриптовая таблица сущностей (`0x5b0df0`, `0x5e4680`, `0x616658`): карта (M2.3.6) |
-| `docs/EQUIPMENT.md` | 29 | 312 | EQUIPMENT — модель экипировки (`DEFINE_EQUIPMENT`, состояние, эффекты) |
+| `docs/EQUIPMENT.md` | 30 | 318 | EQUIPMENT — модель экипировки (`DEFINE_EQUIPMENT`, состояние, эффекты) |
 | `docs/EVENTS.md` | 24 | 92 | Event queue and `GENERATE` events |
 | `docs/FILM.md` | 27 | 107 | HUD-фильмы `.sof` / `.fdx` — формат, привязка, паритет |
 | `docs/FOG.md` | 22 | 220 | Туман по глубине: формула, таблица `lighttable`, Glide (M4.1.6) |
-| `docs/FORMATS.md` | 203 | 947 | Gunmetal — спецификация форматов данных |
-| `docs/FRAME_METRIC.md` | 20 | 0 | Метрика сравнения кадров (M4.4.3) |
+| `docs/FORMATS.md` | 203 | 950 | Gunmetal — спецификация форматов данных |
+| `docs/FRAME_METRIC.md` | 22 | 0 | Метрика сравнения кадров (M4.4.3) |
 | `docs/FUZZ_CORPUS.md` | 11 | 1 | Фазз-корпус: сохранение и повтор (save / replay) |
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
 | `docs/GHIDRA.md` | 17 | 30 | Ghidra: выбор, установка и рабочий процесс |
-| `docs/HUD_AUDIT.md` | 24 | 86 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
+| `docs/HUD_AUDIT.md` | 24 | 89 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
 | `docs/HUD_BIND.md` | 17 | 29 | HUD binding: `.sml`/`.sme` экраны → семейства `.sof`/`.fdx` и позиции `<I>` |
 | `docs/HUD_COMPOSE.md` | 34 | 43 | HUD composition: `.sml` + `.sof/.fdx` + `blit_indexed` за один вызов |
 | `docs/HUD_CPP.md` | 8 | 2 | C++ HUD-слой: блит кадров `.sof` |
-| `docs/HUD_ICONS.md` | 26 | 197 | HUD: иконки 24×24, компас и источники чисел (M4.4.5, продолжение) |
+| `docs/HUD_ICONS.md` | 27 | 210 | HUD: иконки 24×24, компас и источники чисел (M4.4.5, продолжение) |
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
@@ -55,12 +59,13 @@
 | `docs/ORACLE.md` | 35 | 12 | Эталонный оракул (M4.4.2) |
 | `docs/ORACLE_RENDER.md` | 12 | 1 | Воспроизводимый рендер эталонного кадра (`oracle_render.py`) |
 | `docs/PALETTE.md` | 5 | 15 | Палитра 8-битной графики и индексы текстур `.sbw` |
+| `docs/PICKUP.md` | 29 | 305 | Предметы: подбор, маркеры регенерации, вирус и щиты (`M6.2.6`) |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
 | `docs/PLAYER_CONTROLLER.md` | 27 | 46 | Gunmetal — контроллер игрока (капсула, 91 Гц) |
-| `docs/PLAYER_FIELDS.md` | 53 | 1487 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
+| `docs/PLAYER_FIELDS.md` | 53 | 1499 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
-| `docs/RECORDS.md` | 34 | 252 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
+| `docs/RECORDS.md` | 35 | 260 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
 | `docs/REGRESSION.md` | 11 | 1 | Регрессия: ворота, бюджет времени и практики |
 | `docs/RENDER.md` | 5 | 0 | Рендерер C++: конвейер и паритет с `gm/render.py` |
 | `docs/RE_AUDIT.md` | 22 | 10 | Аудит процесса реверса (2026-10-22) |
@@ -71,12 +76,13 @@
 | `docs/SAVE.md` | 19 | 99 | Сохранения Gunmetal: контейнер, блоки, rebuild |
 | `docs/SAVE_BLOCKS.md` | 15 | 9 | C++: типизированные блоки сейва 1, 2, 3, 6, 7, 8 |
 | `docs/SAVE_CPP.md` | 16 | 45 | C++-читатель сейвов Gunmetal |
-| `docs/SAVE_FIELDS.md` | 35 | 321 | Поля сейва Gunmetal: карта «поле → смещение → смысл → доказательство» |
+| `docs/SAVE_FIELDS.md` | 35 | 324 | Поля сейва Gunmetal: карта «поле → смещение → смысл → доказательство» |
 | `docs/SAVE_WRITER.md` | 12 | 22 | C++-писатель сейвов Gunmetal |
 | `docs/SBT_RECORDS.md` | 19 | 136 | Все типы записей `.sbt`: раскладка, писатели, побайтовая проверка |
 | `docs/SBV.md` | 21 | 17 | `.sbv` — видео/анимации Gunmetal |
 | `docs/SBV_PARITY.md` | 9 | 3 | Паритет C++ ↔ Python для `.sbv` на всём корпусе |
 | `docs/SCREEN_CPP.md` | 15 | 5 | SML-экран в C++: один рантайм от `.sme` до RGB |
+| `docs/SCREEN_FX.md` | 29 | 350 | Экранные эффекты: фейд-«дымка» (HAZE), вспышка урона, палитра (M4.2.8) |
 | `docs/SECTOR_LIGHT.md` | 18 | 36 | Скриптовый свет сектора: `sector+0x16` (M4.2.5) |
 | `docs/SECTOR_STUFF.md` | 33 | 272 | `SECTOR_STUFF`: какой слот адресует команда (27–31, 40–45) |
 | `docs/SECURITY.md` | 12 | 1 | Границы доверия и устойчивость к битым файлам |
@@ -93,18 +99,21 @@
 | `docs/SOU1_CPP.md` | 10 | 14 | `SOU1` в C++: слой `audio/sou1` |
 | `docs/SOU2.md` | 6 | 10 | `SOU2`: музыкальный кодек и правила рендера |
 | `docs/SOUND_FIELDS.md` | 23 | 249 | Звук: записи сэмплов и голоса (M2.3.7) |
+| `docs/SOUND_NAMES.md` | 26 | 205 | Имена сэмплов: `SOUND_SAMPLE_TABLE` → `SOU.IDX`, поведение при промахе (M7.6) |
 | `docs/SOU_CONTAINER.md` | 12 | 19 | Контейнер `.sou`: SOU0 / SOU1 / SOU2 |
 | `docs/SPRITE.md` | 12 | 0 | Спрайтовый блиттер: индексированные `.sbm` в RGB-кадр |
 | `docs/SPRITE_GOLDENS.md` | 6 | 0 | Спрайтовые golden'ы: постоянный Python-эталон |
 | `docs/SUB.md` | 18 | 102 | `.sub` — таблицы подстановок спрайтов/текстур |
 | `docs/TEXTURE_AUDIT.md` | 12 | 3 | Аудит декодирования текстур `level0` (M4) |
 | `docs/TEXT_LAYOUT.md` | 23 | 91 | SML: раскладка текста, шрифтовые атласы и пагинация |
-| `docs/TEXUV.md` | 19 | 85 | Текстурные UV кадрового прохода и полигоны без текстуры (M4.1.8) |
+| `docs/TEXUV.md` | 19 | 86 | Текстурные UV кадрового прохода и полигоны без текстуры (M4.1.8) |
 | `docs/THINGS_CPP.md` | 32 | 35 | Gunmetal — C++-runtime вещей (`Thing`) |
 | `docs/THING_FIELDS.md` | 54 | 458 | Thing type (`0x776d60`) и thing instance (`0x7ac080`): карта полей (M2.3.3) |
 | `docs/TOOLCHAIN.md` | 2 | 1 | Инструменты и версии |
 | `docs/TOOLING.md` | 9 | 2 | Инструменты помимо Ghidra: что брать и зачем |
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |
+| `docs/UI_SCREENS.md` | 30 | 366 | Экраны фронтенда: карта, переходы, load/save, options |
+| `docs/UI_SOUNDS.md` | 28 | 313 | Звуки интерфейса и музыка фронтенда (`M8.6`) |
 | `docs/VM_CPP.md` | 20 | 39 | C++-исполнение SCRIPT-VM (`vm_exec.h` / `vm_exec.cpp`) |
 | `docs/VM_EXEC.md` | 55 | 530 | Исполнение SCRIPT-VM (`.sbt`, запись 11) — прототип |
 | `docs/VM_SCENE.md` | 25 | 111 | Сцена, созданная ВМ, против сцены из файла (`M5.2`) |
