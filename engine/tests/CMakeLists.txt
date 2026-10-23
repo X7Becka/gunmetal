@@ -563,6 +563,12 @@ if(GM_PYTHON3)
                          --self-test)
         gm_label(re_${tool} quick)
     endforeach()
+    # Independent re-derivation of the numbers in the merged RE docs
+    # (docs/AUDIT_NUMBERS.md); no game files needed for the self-test.
+    add_test(NAME doc_numbers
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/doc_numbers.py
+                     --self-test)
+    gm_label(doc_numbers quick)
 endif()
 if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
     # M3.2.7: Python exports the expected parsed values for the shipped corpus

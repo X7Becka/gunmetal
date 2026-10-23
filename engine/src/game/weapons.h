@@ -424,13 +424,14 @@ bool post_weapon_impact(EventQueue& queue, const Weapon& weapon,
 
 /// Smallest projected depth of a target along the aim axis, in world units.
 ///
-/// Proven: the constant `0.32` lives at `0x4a2658` and the original compares
-/// the projected depth with `FCOMP QWORD PTR [0x4a2658]`.  The FPU sets C3 on
-/// equality and the test is `TEST AH,0x41` (C0|C3), so a target is rejected
-/// when `depth <= 0.32` and kept only when `depth > 0.32`:
-/// `0x477f90` player branch `0x4781c1`, THING branch `0x4783cb`, thing shooter
-/// `0x4779f0` at `0x477bc0`.
-constexpr double kHitscanMinDepth = 0.32;
+/// Proven: `0x4781c1` compares the projected depth with `FCOMP QWORD PTR
+/// ds:0x4a2658`, and the eight bytes at `0x4a2658` are `00 00 00 00 00 00 00
+/// 00` — the constant is **0.0**, not 0.32 (the earlier note mis-read the
+/// address; docs/DAMAGE.md §4.1).  The test is `TEST AH,0x41` (C0|C3), so a
+/// target is rejected when `depth <= 0.0` and kept only when `depth > 0.0`:
+/// player branch `0x4781c1`, THING branch `0x4783cb`, thing shooter `0x4779f0`
+/// at `0x477bc0`.
+constexpr double kHitscanMinDepth = 0.0;
 
 /// Result of one hitscan ray against the world geometry.
 ///
@@ -487,7 +488,7 @@ struct HitscanCone {
 /// The target offset is projected on the aim frame; the target is inside the
 /// cone when
 ///
-///   * `depth > min_depth` (0.32 world units, `0x4a2658`), and
+///   * `depth > min_depth` (0.0, `0x4a2658`), and
 ///   * `|lateral_x| < scale_x * depth * spread_x`, and
 ///   * `|lateral_y| < scale_y * depth * spread_y`.
 ///
