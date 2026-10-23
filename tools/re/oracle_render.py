@@ -463,6 +463,7 @@ def main(argv: list[str]) -> int:
         icons = ()
         gauges = ()
         bars = ()
+        damage_icon = None
         if opts.hud_text:
             state = json.loads(opts.hud_state) if opts.hud_state else {}
             text = tuple(hudmod.hud_text(state))
@@ -471,6 +472,9 @@ def main(argv: list[str]) -> int:
             icons = tuple(hudmod.hud_icons(state))
             gauges = tuple(hudmod.hud_gauges(state))
             bars = tuple(hudmod.hud_bars(state))
+            damage_icon = hudmod.load_damage_icon(
+                opts.game, int(state.get("damage_stage",
+                                         hudmod.HUD_DAMAGE_STAGE)))
             for name, _, _ in icons:
                 icon_pixels[name] = hudmod.load_icon(opts.game, name)
         rgb = hudmod.compose(image.pixels, image.width, image.height, panel,
@@ -478,7 +482,7 @@ def main(argv: list[str]) -> int:
                              top=opts.hud_top, lut=lut,
                              text=text, fonts=fonts, icons=icons,
                              icon_pixels=icon_pixels, gauges=gauges,
-                             bars=bars)
+                             bars=bars, damage_icon=damage_icon)
         data = pngmod.rgb(image.width, image.height, rgb)
 
     out_dir = os.path.dirname(os.path.abspath(opts.out))

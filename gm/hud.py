@@ -290,8 +290,7 @@ HUD_GAUGE_SLOTS = (
 #: Longest run of one bar (``cmp ...,0x11`` in the code).
 GAUGE_MAX = 17
 
-#: ``win2``/``win3``: all four charge bars are full (the live dump
-#: ``gm_screen.bin`` was taken with the verticals at 13 of 17).
+#: ``win2``/``win3``/the live dump: all four charge bars are full.
 HUD_GAUGES = {"bar_top": 17, "bar_bottom": 17, "bar_left": 17, "bar_right": 17}
 
 
@@ -325,8 +324,8 @@ HUD_BARS = (
     ("belt_px", 50, 0xB6, 2, 320),
 )
 
-#: ``win2``/``win3``: throttle 0 and no belt gauge visible in the dumps.
-HUD_BAR_STATE = {"throttle_px": 0, "belt_px": 0}
+#: The live dump shows a 26 px throttle bar; ``win2``/``win3`` override it.
+HUD_BAR_STATE = {"throttle_px": 26, "belt_px": 0}
 
 
 def hud_bars(state: dict | None = None) -> list:
@@ -344,6 +343,36 @@ def hud_bars(state: dict | None = None) -> list:
         if length:
             out.append((x, row - 8, rows, length))
     return out
+
+
+#: Damage silhouette of the hexagon (`0x4926a0`, the `uVar1 & 0x40` block):
+#: ``RPVICONS`` 60x29 holds three 20 px variants (intact / damaged / wrecked);
+#: the code copies 19 rows from ``&DAT_006601A4 + stage*0x14`` with a 0x3c
+#: stride and ``'s'`` = 0x73 as the transparency key, starting at row 0xa3
+#: (163 -> screen 155) and x 0x93 (147).  The memory copy is bottom-up, so the
+#: slice is flipped vertically (verified: 135/135 pixels).
+HUD_DAMAGE_ICON = {"x": 147, "row": 163, "cols": 20, "rows": 19,
+                   "slice_row": 5, "key": 0x73}
+#: ``win2``/``win3`` show the intact variant.
+HUD_DAMAGE_STAGE = 0
+
+
+def load_damage_icon(game_dir: str, stage: int = 0) -> Panel:
+    """One 20x19 damage silhouette out of ``RPVICONS`` (0..2)."""
+    if not 0 <= stage <= 2:
+        raise ValueError(f"damage stage {stage} outside 0..2")
+    sheet = load_panel(game_dir, "RPVICONS")
+    if (sheet.width, sheet.height) != (60, 29):
+        raise ValueError(f"RPVICONS is {sheet.width}x{sheet.height}, "
+                         "expected 60x29")
+    base = 20 * stage
+    y0 = HUD_DAMAGE_ICON["slice_row"]
+    rows = [sheet.indices[(y0 + r) * sheet.width + base:
+                          (y0 + r) * sheet.width + base + 20]
+            for r in range(HUD_DAMAGE_ICON["rows"])]
+    rows.reverse()
+    return Panel(f"RPVICONS/{stage}", 20, HUD_DAMAGE_ICON["rows"],
+                 b"".join(rows), sheet.palette)
 
 
 def palette_bytes(game_dir: str, mode: str = "game") -> bytes:
@@ -366,7 +395,8 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
             lut: bytes | None = None,
             text: tuple = (), fonts: dict | None = None,
             icons: tuple = (), icon_pixels: dict | None = None,
-            gauges: tuple = (), bars: tuple = ()) -> bytes:
+            gauges: tuple = (), bars: tuple = (),
+            damage_icon=None) -> bytes:
     """Blit ``panel`` onto a packed RGB frame; index 0 stays transparent.
 
     ``lut`` is the engine's 256-byte fade table for one level: the blit maps
@@ -407,13 +437,6 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
             out[do] = palette[po]
             out[do + 1] = palette[po + 1]
             out[do + 2] = palette[po + 2]
-    if text and fonts:
-        for number, tx, ty, string in text:
-            font = fonts.get(number)
-            if font is None:
-                continue
-            _draw_text_rgb(out, width, height, palette, font, tx, ty,
-                           string)
     if icons and icon_pixels:
         for name, ix, iy in icons:
             image = icon_pixels.get(name)
@@ -433,6 +456,11 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
                     out[do] = palette[po]
                     out[do + 1] = palette[po + 1]
                     out[do + 2] = palette[po + 2]
+    if damage_icon is not None:
+        _blit_index_rgb(out, width, height, palette, damage_icon,
+                        HUD_DAMAGE_ICON["x"],
+                        HUD_DAMAGE_ICON["row"] - 8,
+                        key=HUD_DAMAGE_ICON["key"])
     for gx, gy, dx, dy, length, index in gauges:
         po = index * 4
         for i in range(length):
@@ -443,19 +471,26 @@ def compose(frame: bytes, width: int, height: int, panel: Panel,
                 out[do] = palette[po]
                 out[do + 1] = palette[po + 1]
                 out[do + 2] = palette[po + 2]
+    if text and fonts:
+        for number, tx, ty, string in text:
+            font = fonts.get(number)
+            if font is None:
+                continue
+            _draw_text_rgb(out, width, height, palette, font, tx, ty,
+                           string)
     return bytes(out)
 
 
 def _blit_index_rgb(out: bytearray, width: int, height: int, palette: bytes,
-                    image, x: int, top: int) -> None:
-    """Blit a 24x24 index bitmap with no key and no fade (engine copy loop)."""
+                    image, x: int, top: int, key: int = 0) -> None:
+    """Blit an index bitmap with ``key`` transparent and no fade."""
     for r in range(image.height):
         y = top + r
         if not (0 <= y < height):
             continue
         for c in range(image.width):
             index = image.indices[r * image.width + c]
-            if not index:
+            if index == key:
                 continue
             px = x + c
             if 0 <= px < width:
@@ -524,7 +559,8 @@ def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
                        text: tuple = (), fonts: dict | None = None,
                        text_base: float | None = None,
                        icons: tuple = (), icon_pixels: dict | None = None,
-                       gauges: tuple = (), bars: tuple = ()) -> dict:
+                       gauges: tuple = (), bars: tuple = (),
+                       damage_icon=None) -> dict:
     """Fraction of band pixels whose screen index equals ``lut[panel]``.
 
     This compares *indices* against a raw screen dump (``gm_screen.bin``), so
@@ -567,6 +603,17 @@ def screen_index_match(screen: bytes, sw: int, sh: int, panel: Panel,
                     px = bx + i
                     if 0 <= px < panel.width:
                         expected[y * panel.width + px] = 0xF3
+        if damage_icon is not None:
+            ix = HUD_DAMAGE_ICON["x"]
+            iy = HUD_DAMAGE_ICON["row"] - 8 - int(round(base))
+            for r in range(damage_icon.height):
+                y = iy + r
+                if not (0 <= y < panel.height):
+                    continue
+                for c in range(damage_icon.width):
+                    v = damage_icon.indices[r * damage_icon.width + c]
+                    if v != HUD_DAMAGE_ICON["key"] and 0 <= ix + c < panel.width:
+                        expected[y * panel.width + ix + c] = v
         for gx, gy, dx, dy, length, index in gauges or ():
             for i in range(length):
                 px = gx + dx * i
@@ -805,11 +852,13 @@ def selftest() -> int:
     expect("bar stops after its length", out_bar[(151 * 320 + 150) * 3], 0)
 
     # throttle/belt bars: four and two rows, throttle capped at 0x35
-    expect("throttle rows", hud_bars({"throttle_px": 53}),
+    expect("throttle rows", hud_bars({"throttle_px": 53, "belt_px": 0}),
            [(202, 0xA3 - 8, 4, 53)])
     expect("throttle capped", hud_bars({"throttle_px": 99})[0][3], 0x35)
-    expect("belt rows", hud_bars({"belt_px": 7}), [(50, 0xB6 - 8, 2, 7)])
-    expect("no bars by default", hud_bars({}), [])
+    expect("belt rows", hud_bars({"throttle_px": 0, "belt_px": 7}),
+           [(50, 0xB6 - 8, 2, 7)])
+    expect("dump default is a 26 px throttle bar",
+           hud_bars({}), [(202, 0xA3 - 8, 4, 26)])
 
     # installed game, if present
     game = os.environ.get("GUNMETAL_GAME", "/mnt/d/games/Gunmetal 3dfx")
@@ -836,6 +885,15 @@ def selftest() -> int:
             check("digit advance is 9", digits.glyph("1").advance, 9)
             icon = load_icon(game, "WICON1")
             check("WICON1 is 24x24", (icon.width, icon.height) == (24, 24))
+            sil = load_damage_icon(game, 0)
+            check("damage icon is 20x19", (sil.width, sil.height) == (20, 19))
+            sheet = load_panel(game, "RPVICONS")
+            check("damage icon bottom row is source row 23",
+                  sil.indices[18 * 20:19 * 20],
+                  sheet.indices[23 * 60:23 * 60 + 20])
+            check("damage icon top row is source row 5",
+                  sil.indices[0:20], sheet.indices[5 * 60:5 * 60 + 20])
+            check("damage icon keeps the key", sil.indices.count(0x73) > 0)
             equip0 = load_icon(game, "EQUIP0")
             equip12 = load_icon(game, "EQUIP12")
             flipped = b"".join(equip0.indices[r * 24:(r + 1) * 24]
@@ -925,6 +983,7 @@ def main(argv: list[str] | None = None) -> int:
     icons = ()
     gauges = ()
     bars = ()
+    damage_icon = None
     if opts.text:
         import json
         for number in sorted({item[0] for item in hud_text()}):
@@ -939,6 +998,8 @@ def main(argv: list[str] | None = None) -> int:
         if not opts.no_icons:
             gauges = tuple(hud_gauges(state))
             bars = tuple(hud_bars(state))
+            damage_icon = load_damage_icon(
+                opts.game, int(state.get("damage_stage", HUD_DAMAGE_STAGE)))
             icons = tuple(hud_icons(state))
             for name, ix, iy in icons:
                 try:
@@ -951,7 +1012,8 @@ def main(argv: list[str] | None = None) -> int:
         data = compose(bytes(320 * 200 * 3), 320, 200, panel,
                        palette_bytes(opts.game), top=opts.top, lut=lut,
                        text=text, fonts=fonts, icons=icons,
-                       icon_pixels=icon_pixels, gauges=gauges, bars=bars)
+                       icon_pixels=icon_pixels, gauges=gauges, bars=bars,
+                       damage_icon=damage_icon)
         with open(opts.preview.rsplit(".", 1)[0] + "_text.png", "wb") as fh:
             fh.write(png.rgb(320, 200, data))
         print(f"wrote {opts.preview.rsplit('.', 1)[0]}_text.png")
@@ -965,7 +1027,7 @@ def main(argv: list[str] | None = None) -> int:
         res = screen_index_match(data, w, h, panel, lut, opts.top, opts.scale,
                                  text=text, fonts=fonts, icons=icons,
                                  icon_pixels=icon_pixels, gauges=gauges,
-                                 bars=bars)
+                                 bars=bars, damage_icon=damage_icon)
         print(f"{opts.check_screen}: index match {100*res['match']:.1f}% "
               f"({res['pixels']} px, top={res['top']}, scale={res['scale']})")
     return 0
