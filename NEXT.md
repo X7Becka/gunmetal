@@ -13,15 +13,23 @@
 
 ## Сейчас
 
-1. **Партия 6 влита полностью:** `feat/economy` (`M6.2.6` — деньги это
-   `+0x332c`, `+0x3330` = `salvage`), `feat/screeneffects` (`M4.2.8` — фейд
-   `SET_CAMERA_HAZE`, вспышка урона = свет модели), `feat/campaign`
-   (`M9.1` — счётчик `0x80f9cc`, 66 переходов, 24 миссии, цели/секреты/
-   `GUNMETAL.HI`/титры). Все инструменты зарегистрированы в `tools/re/README.md`
-   и в CTest. Правки §11 применены к `FORMATS.md`, `PLAYER_FIELDS.md`,
-   `SAVE_FIELDS.md`.
-   Следующая партия — по остаткам: подбор предметов/регенерация (`M6.2.6`),
-   `M9.2` (DM-правила), `M8.2` (экраны).
+1. **Партия 7: `feat/dm` влит, ждём `feat/pickup` и `feat/screens`.**
+   `feat/dm` (`M9.2`): `docs/DM_RULES.md` + `dm_rules.py` (30/30, 17
+   якорей) — режимы `game_mode` 0/1/2/**3 hunt**, флаги `0x83d184`, счёт
+   `+0x3270` (HUD `0x492fdd`), respawn, гандикап, 248 DM-стартов. Попутно
+   исправлен `SCAVENGERHUNT_GAME` в ВМ (C++ и Python): было `== 5`,
+   в оригинале `== 3`. Осталось: по возвращении `feat/pickup` (предметы,
+   регенерация, вирус/щиты — остаток `M6.2.6`) и `feat/screens` (`M8.2`)
+   слить, прогнать self-test, зарегистрировать в CTest/README, обновить
+   ROADMAP.
+2. **`M3.2.7` закрыт на 🟡:** `tools/re/export_parity.py` →
+   `build/parity/fixtures.txt`, `engine/tests/test_parity.cpp`
+   (CTest `parity_fixtures` + `parity`): 208 проверок, 1029 значений,
+   0 расхождений. Покрыты `sbw`/`sbt`/`sbc`/`sbm` (из `PICS/SBM.IDX`)/
+   `sob`; фикстур для `sbv`/`sml`/`soe`/`sou`/`sog`/`soa` нет.
+   В этом ходе также: `M4.2.4` → 🟡 (LUT-формулы доказаны, но в 3dfx-сборке
+   их не читает никто; `--no-materials` не меняет метрику `win2`/`win3`),
+   C++-фейд (`render/postfx.*`, `--haze 0..1`, CTest `postfx`).
    Партия 5 влита: `feat/sectorstuff` (`M5.2.7`, опкод 12 в C++ исправлен,
    `SECTOR_HANDLE` засевается), `feat/effects` (`M4.2.6`, отрицательный
    индекс = id таблицы `0x5642c8`), `feat/hudicons` (`M4.4.5`, иконки/компас/
