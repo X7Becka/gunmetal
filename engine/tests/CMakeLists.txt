@@ -510,8 +510,8 @@ if(GM_PYTHON3)
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_exec.py
                      --selftest)
     gm_label(re_vm_exec quick)
-    foreach(tool export_parity nested_things pickup records sound_names
-                ui_screens ui_sounds)
+    foreach(tool audio_3d export_parity nested_things pickup records
+                sound_names ui_screens ui_sounds)
         add_test(NAME re_${tool}
                  COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/${tool}.py
                          --self-test)

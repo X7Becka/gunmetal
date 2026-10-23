@@ -172,7 +172,16 @@ pitch[0x800760, f64]
 | 3 | `z` | `0x46b25b` | позиция |
 | 4 | `volume` | `0x46b26d` | громкость |
 | 5 | `sample` | `0x46b266` | индекс `SOUND_SAMPLE_TABLE`, читает `0x46b602` |
-| 6 (f64) | `pitch` | `0x46b249` | период/питч (`0x46b616`) |
+| 6 (f64) | `atten` (бывш. «pitch») | `0x46b249` | **затухание на единицу расстояния**; читает `0x46b616` (`docs/AUDIO_3D.md` §2.2) |
+
+**Поправка 2026-10-23** (`docs/AUDIO_3D.md` §2): шестая колонка — это
+`atten` на единицу, а не питч: у скриптовых источников она зашита
+`0x3f9eb851eb851eb8` = `0.03` (`0x46b8ad`/`0x46b8b7`), а `0x46b616` кладёт её
+в поле затухания запроса. Порядок **операндов** опкода `ADD_SOUND_SOURCE`
+(`0x459c6e`) — `x, y, z, sample, volume, atten`; порядок **колонок в памяти**
+— `x, y, z, volume, sample, atten` (базы выше). У
+`PLAY_FRAME_LOOP_SAMPLE_AT_SOURCE` сигнатура `LENVL` =
+`(event_hi, event_lo, sample, volume, priority)`, rate фиксирован 11025.
 
 ### 2.8. `SECTOR_STUFF` (8) — 256 × 0x58
 
