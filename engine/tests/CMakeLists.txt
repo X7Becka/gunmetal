@@ -717,7 +717,7 @@ if(GM_PYTHON3 AND EXISTS "/mnt/d/games/Gunmetal 3dfx")
     gm_label(parity full)
 
     # Tools that read the installation: same idea, one test each.
-    foreach(tool campaign_flow dm_rules economy effects equipment
+    foreach(tool campaign_flow chassis dm_rules economy effects equipment
                 hud_compose_ref hud_icons oracle_fit oracle_render screen_fx
                 sector_stuff)
         add_test(NAME re_${tool}

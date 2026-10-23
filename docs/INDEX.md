@@ -22,6 +22,7 @@
 | `docs/CAMERA.md` | 31 | 209 | Gunmetal — камера первого лица: оси, матрица, проекция |
 | `docs/CAMERA_CPP.md` | 25 | 74 | `camera/camera.h` — камера первого/третьего лица |
 | `docs/CAMPAIGN_FLOW.md` | 35 | 302 | Поток кампании: счётчик миссий, штаб, цели, секреты, время, финал (`M9.1`) |
+| `docs/CHASSIS.md` | 22 | 236 | Шасси: выбор, 57 CHEVY, модели/звуки, HUD (`M6.1.4`, `M6.5.3`) |
 | `docs/COLLIDE.md` | 25 | 10 | Gunmetal — примитивы коллизий `.sbw` |
 | `docs/CONFIG.md` | 28 | 241 | `GUNMETAL.CFG` / `CONTROLS.CFG` — карта полей |
 | `docs/CONTROLS_CPP.md` | 13 | 19 | `input/controls.h` — `.key` profiles and controller config |
@@ -44,7 +45,7 @@
 | `docs/GAME_OVER.md` | 28 | 318 | Game over, титры, рестарт и экран конца уровня (`M9.5`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
 | `docs/GHIDRA.md` | 17 | 30 | Ghidra: выбор, установка и рабочий процесс |
-| `docs/HUD_AUDIT.md` | 28 | 112 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
+| `docs/HUD_AUDIT.md` | 30 | 115 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
 | `docs/HUD_BIND.md` | 17 | 29 | HUD binding: `.sml`/`.sme` экраны → семейства `.sof`/`.fdx` и позиции `<I>` |
 | `docs/HUD_COMPOSE.md` | 34 | 43 | HUD composition: `.sml` + `.sof/.fdx` + `blit_indexed` за один вызов |
 | `docs/HUD_CPP.md` | 8 | 2 | C++ HUD-слой: блит кадров `.sof` |
@@ -71,7 +72,7 @@
 | `docs/PICKUP.md` | 29 | 305 | Предметы: подбор, маркеры регенерации, вирус и щиты (`M6.2.6`) |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
 | `docs/PLAYER_CONTROLLER.md` | 27 | 46 | Gunmetal — контроллер игрока (капсула, 91 Гц) |
-| `docs/PLAYER_FIELDS.md` | 53 | 1504 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
+| `docs/PLAYER_FIELDS.md` | 54 | 1527 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
 | `docs/PLAYER_GUIDE.md` | 12 | 0 | PLAYER_GUIDE — как играть в переиздание |
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
