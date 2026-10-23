@@ -1019,15 +1019,19 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       проверяет парсеры без Python в runtime.
       > `tools/re/export_parity.py` → `build/parity/fixtures.txt`,
       > `engine/tests/test_parity.cpp` (CTest `parity_fixtures` +
-      > `parity`, фикстуры через `FIXTURES_SETUP/REQUIRED`). 208 проверок,
-      > 1029 значений, 0 расхождений: 36 `.sbw` (tex/effects/sectors/objects/
+      > `parity`, фикстуры через `FIXTURES_SETUP/REQUIRED`). **248 проверок,
+      > 1149 значений, 0 расхождений**: 36 `.sbw` (tex/effects/sectors/objects/
       > verts/polys), 36 `.sbt` (records, счётчики по типам, непустые имена
       > таблицы сэмплов), 36 `.sbc` (magic/records/FNV пикселей), 40 текстур
       > из `PICS/SBM.IDX` (w/h/levels/flags/FNV мипа 0), 60 `SOBS/*.sob`
-      > (verts/faces). Расхождение ловится: подмена `polys` в фикстуре даёт
-      > `MISMATCH sbw dm1.sbw polys: expected 1, got 5786`. Нет фикстур для
-      > `sbv`/`sml`/`soe`/`sou`/`sog`/`soa` (там уже есть C++-голдены в
-      > `core_full`/`re_*`).
+      > (verts/faces), **40 `SML/*.sml|*.sme`** (chars/tags/FNV текста).
+      > Расхождение ловится: подмена `polys` в фикстуре даёт
+      > `MISMATCH sbw dm1.sbw polys: expected 1, got 5786`. На SML фикстуры
+      > сразу нашли реальную разницу: `sml.decode_auto` — вход **`.sme`**
+      > (позиционный сдвиг), а для plain `.sml` он даёт `<C>` вместо `<D>`
+      > при том же числе тегов; экспортёр теперь читает `.sml` как есть.
+      > Нет фикстур для `sbv`/`soe`/`sou`/`sog`/`soa` (там уже есть
+      > C++-голдены в `core_full`/`re_*`).
 
 ### M3.3. Паритет данных
 

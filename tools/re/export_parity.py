@@ -38,7 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from gm import bigfile, sbc, sbm, sbt, sbw, sob  # noqa: E402
+from gm import bigfile, sbc, sbm, sbt, sbw, sml, sob  # noqa: E402
 
 FORMAT = "gm parity fixtures v1"
 DEFAULT_GAME = "/mnt/d/games/Gunmetal 3dfx"
@@ -101,6 +101,24 @@ def _sbm(game: Path, name: str) -> dict:
             "flags": blob.flags, "pix": "%016x" % fnv1a64(blob.levels_data[0])}
 
 
+def _sml(game: Path, name: str) -> dict:
+    """Decoded SML/SME markup: size, tag count and FNV of the decoded text.
+
+    ``decode_auto`` is the **`.sme`** entry point (it applies the positional
+    Caesar shift); a plain `.sml` must be read as-is, otherwise the shift turns
+    ``<D>`` into ``<C>`` and the hash is wrong while the length and tag count
+    still match -- exactly the kind of drift the fixtures are for.
+    """
+    data = (game / name).read_bytes()
+    if name.lower().endswith(".sme"):
+        text, _repaired = sml.decode_auto(data)
+    else:
+        text = data.decode("latin-1")
+    raw = text.encode("latin-1")
+    return {"chars": len(raw), "tags": len(sml.tags(text)),
+            "pix": "%016x" % fnv1a64(raw)}
+
+
 def _sob(game: Path, name: str) -> dict:
     model = sob.parse(str(game / name))
     return {"verts": len(model.vertices), "faces": len(model.faces)}
@@ -133,7 +151,8 @@ def _sbm_entries(game: Path, limit: int) -> list:
     return checks
 
 
-def build(game: Path, sob_limit: int | None = None, sbm_limit: int = 40) -> list:
+def build(game: Path, sob_limit: int | None = None, sbm_limit: int = 40,
+          sml_limit: int = 40) -> list:
     lines = ["# " + FORMAT]
     checks = []
     for kind, (exporter, root, limit) in EXPORTERS.items():
@@ -152,6 +171,13 @@ def build(game: Path, sob_limit: int | None = None, sbm_limit: int = 40) -> list
             checks.append((kind, name, exporter(game, name)))
     if sbm_limit and (game / SBM_INDEX).is_file():
         checks.extend(_sbm_entries(game, sbm_limit))
+    sml_root = game / "SML"
+    if sml_limit and sml_root.is_dir():
+        paths = sorted(p for p in sml_root.rglob("*")
+                       if p.suffix.lower() in (".sml", ".sme") and p.is_file())
+        for path in paths[:sml_limit]:
+            checks.append(("sml", path.relative_to(game).as_posix(),
+                           _sml(game, path.relative_to(game).as_posix())))
     for kind, name, values in checks:
         lines.append(_check(kind, name, values))
     return lines

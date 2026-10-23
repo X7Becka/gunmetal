@@ -26,6 +26,7 @@
 #include "res/sbm.h"
 #include "res/sbt.h"
 #include "res/sbw.h"
+#include "res/sml.h"
 #include "res/sob.h"
 
 namespace fs = std::filesystem;
@@ -174,6 +175,23 @@ void check_sbc(const fs::path& game, const std::string& name,
             {"pix", hex64(gm::fnv1a64(pixels))}});
 }
 
+void check_sml(const fs::path& game, const std::string& name,
+               const std::map<std::string, std::string>& expected) {
+    const auto bytes = read_file(game / name);
+    std::string error;
+    const auto document = gm::parse_sml(bytes, error);
+    if (!document) {
+        report_mismatch("sml", name, "parse", "ok", error);
+        return;
+    }
+    const auto* text = reinterpret_cast<const std::uint8_t*>(document->text.data());
+    verify("sml", name, expected,
+           {{"chars", std::to_string(document->text.size())},
+            {"tags", std::to_string(document->tags.size())},
+            {"pix", hex64(gm::fnv1a64(
+                        std::span<const std::uint8_t>(text, document->text.size())))}});
+}
+
 void check_sbm(const fs::path& game, const std::string& name,
                const std::map<std::string, std::string>& expected) {
     const auto hash = name.rfind('#');
@@ -286,6 +304,8 @@ int main(int argc, char** argv) {
             check_sbc(game, name, expected);
         } else if (kind == "sbm") {
             check_sbm(game, name, expected);
+        } else if (kind == "sml") {
+            check_sml(game, name, expected);
         } else if (kind == "sob") {
             check_sob(game, name, expected);
         } else {
