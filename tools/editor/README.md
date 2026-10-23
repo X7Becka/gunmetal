@@ -8,6 +8,7 @@
 |---|---|---|
 | `sbtasm.py` | дизассемблер/ассемблер скриптов `.sbt`: текст ↔ байткод подскрипта, `IF`/`ELSE` с метками, строки/double/`EVAL`/`DEFINE_*`/`ADD_LIFT`/`DB`/`RAW` | round-trip **15 061/15 061 блока побайтово** (3 542 023 Б); `--self-test` 11/11; CTest `sbtasm_selftest`, `sbtasm_roundtrip` |
 | `sbtwrite.py` | писатель контейнера `.sbt`: `parse → write` побайтово и замена одного подскрипта с пересчётом `SCRIPT.m`/смещений колонки 2 | **36/36 файлов identical**; `--verify-replace` (+1 байт сдвигает 257…364 смещения, прочие записи идентичны); `--self-test` 18/18; CTest `sbtwrite_*` |
+| `sceneedit.py` | записи сцены в `.sbt` (всё, кроме `SCRIPT`): `--list`/`--get`/`--set`/`--replace-record`/`--check`, `--fields` с provenance | round-trip **36/36** (241 запись сцены), self-test 38/38; правка `THING_TYPES.speed` загружается движком; CTest `sceneedit_*` |
 | `bigpack.py` | упаковка/замена записей BIGFILE (`*.IDX`+`*.DAT`): round-trip, `--list`, `--replace`, `--check`, `--add` | **5 архивов, 6061 запись, 151 737 971 Б — identical**; замена `57CHEV` (тот же размер/+1360/−7393) с проверкой остальных; `--self-test` 15/15; CTest `bigpack_*` |
 
 ## Типичный цикл

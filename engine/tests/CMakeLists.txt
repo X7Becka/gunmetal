@@ -141,6 +141,13 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     set_tests_properties(bigpack_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
         "all identical=True")
     gm_label(bigpack_roundtrip quick)
+    # M11.3: every scene record survives read -> write -> compare.
+    add_test(NAME sceneedit_roundtrip
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sceneedit.py
+                     --roundtrip)
+    set_tests_properties(sceneedit_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
+        "identical \\(read -> write -> compare\\): 36/36")
+    gm_label(sceneedit_roundtrip quick)
 endif()
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX")
@@ -641,6 +648,12 @@ if(GM_PYTHON3)
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/perf.py
                      --self-test)
     gm_label(perf_selftest quick)
+
+    # M11.3: scene records (everything but SCRIPT) - tools/editor/sceneedit.py.
+    add_test(NAME sceneedit_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sceneedit.py
+                     --self-test)
+    gm_label(sceneedit_selftest quick)
 
     # M11.6: BIGFILE packing/replacement (tools/editor/bigpack.py).
     add_test(NAME bigpack_selftest
