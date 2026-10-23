@@ -398,13 +398,12 @@ void test_dm1_forward(Fixture& fixture) {
 
     CHECK(finite_state(state));
     CHECK(travelled > 100.0);
-    // Landing, not flying: the feet sit on the contact skin.  `on_ground`
-    // stays 0 because the shipped `dm1` floor polygons are wound downwards
-    // (`RayHit::front_face == false`), so the controller's floor probe
-    // classifies them as ceilings (docs/COLLIDE.md §6.2 and the level0 case of
-    // `test_player_controller`).  The grounded case is pinned separately on a
-    // front-wound `dm1` floor in `test_dm1_ground()`.
-    CHECK(!state.on_ground);
+    // Landing, not flying: the feet sit on the control skin above the dm1
+    // ground plane (`z = 0`).  The floor is recognised through its stored
+    // polygon normal, not its winding (docs/COLLIDE.md §1.2), so the probe
+    // keeps the player grounded for the whole run.  A second, authored-floor
+    // case at a different spot is pinned in `test_dm1_ground()`.
+    CHECK(state.on_ground);
     CHECK_NEAR(state.pos.z, player.config().contact_skin, 1e-4);
     CHECK(player.shots_fired() == 0);
     CHECK(!std::isnan(state.pos.x) && !std::isnan(state.pos.y) && !std::isnan(state.pos.z));
@@ -415,26 +414,27 @@ void test_dm1_forward(Fixture& fixture) {
     CHECK_NEAR(eye.z, state.pos.z + fixture.chassis.eye_height, 1e-12);
 }
 
-/// The `on_ground == true` case on real `dm1` geometry: find a front-wound
-/// floor triangle of the level (what `surface_of` calls a floor, i.e. what the
-/// controller's ground probe accepts) and rest the capsule on it.  Nothing
-/// synthetic: the triangle comes from `dm1.sbw`.
+/// The `on_ground == true` case on real `dm1` geometry: find a flat authored
+/// floor triangle of the level (`surface_normal().z >= 0.9`, i.e. what
+/// `surface_of` calls a floor and what the controller's ground probe accepts)
+/// and rest the capsule on it.  Nothing synthetic: the triangle comes from
+/// `dm1.sbw`.
 void test_dm1_ground(Fixture& fixture) {
     std::string error;
     const gm::CollisionWorld& world = fixture.runtime->collision();
-    // Collect the level's own front-wound floors (n.z >= 0.9: the flattest
-    // patches are ramps, so the capsule settles a little below the centroid),
-    // nearest to the campaign spawn first, then rest the capsule on the first
-    // one that keeps `on_ground` for ten idle ticks without drifting.
+    // Flat patches only (n.z >= 0.9; flatter ramps would let the capsule slide
+    // a little below the centroid), nearest to the campaign spawn first, then
+    // rest the capsule on the first one that keeps `on_ground` for ten idle
+    // ticks without drifting.  Steepness is measured on the stored normal.
     std::vector<std::size_t> candidates;
     const std::vector<gm::Triangle>& triangles = world.triangles();
     for (std::size_t index = 0; index < triangles.size(); ++index) {
         const gm::Triangle& triangle = triangles[index];
-        if (triangle.normal.z < 0.9) {
+        if (gm::surface_normal(triangle).z < 0.9) {
             continue; // too steep: the capsule would slide off
         }
         if (gm::surface_of(triangle) != gm::Surface::floor) {
-            continue; // wound downwards: the ground probe rejects it
+            continue; // defensive: the threshold above already implies floor
         }
         const double extent_x = triangle.bounds.hi.x - triangle.bounds.lo.x;
         const double extent_y = triangle.bounds.hi.y - triangle.bounds.lo.y;
@@ -484,7 +484,7 @@ void test_dm1_ground(Fixture& fixture) {
             break;
         }
     }
-    std::printf("sim_player: dm1 front-wound flat floors: %zu candidate(s), tried=%d, "
+    std::printf("sim_player: dm1 authored flat floors: %zu candidate(s), tried=%d, "
                 "resting=%d at (%.6f, %.6f, %.6f) sector=%u feet_z=%.17g\n",
                 candidates.size(), tried, resting, resting_at.x, resting_at.y, resting_at.z,
                 resting_sector, resting_z);

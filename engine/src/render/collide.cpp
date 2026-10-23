@@ -250,17 +250,36 @@ bool sphere_vs_triangle(const Vec3d& origin, const Vec3d& direction, double radi
     return found;
 }
 
+bool has_data_normal(const Triangle& triangle) {
+    // No sqrt: a built `data_normal` is either the zero vector or unit.
+    return dot(triangle.data_normal, triangle.data_normal) > 0.0;
+}
+
 } // namespace
 
+Vec3d surface_normal(const Triangle& triangle) {
+    // `.sbw` stores the polygon normal as f32; a zero vector means "not
+    // authored" and the winding normal is the only information left.
+    return has_data_normal(triangle) ? triangle.data_normal : triangle.normal;
+}
+
 Surface surface_of(const Triangle& triangle, double min_normal_z) {
-    // Normalisation (and the f32 -> double world transform) can move an exact
-    // 0.8 by one ulp; the tolerance keeps hand-authored 45-degree faces on the
-    // same side as tools/re/spawn.py, which compares the unrounded value.
-    constexpr double kSurfaceEps = 1e-12;
-    if (triangle.normal.z >= min_normal_z - kSurfaceEps) {
+    // Two tolerances, because the two sources have different precision:
+    //  * the stored polygon normal is f32; the exact author value 0.8 is
+    //    -0.7999999928474427 after the f32 round trip, i.e. off by ~7e-9.
+    //    The 1e-6 tolerance keeps those hand-authored 45-degree faces on the
+    //    same side as tools/re/spawn.py, which compares the unrounded value;
+    //  * the winding normal is computed in double; 1e-12 only absorbs one ulp
+    //    of normalisation.
+    const bool from_data = has_data_normal(triangle);
+    constexpr double kWindingEps = 1e-12;
+    constexpr double kDataEps = 1e-6;
+    const Vec3d n = from_data ? triangle.data_normal : triangle.normal;
+    const double eps = from_data ? kDataEps : kWindingEps;
+    if (n.z >= min_normal_z - eps) {
         return Surface::floor;
     }
-    if (triangle.normal.z <= -min_normal_z + kSurfaceEps) {
+    if (n.z <= -min_normal_z + eps) {
         return Surface::ceiling;
     }
     return Surface::wall;
@@ -512,6 +531,20 @@ bool CollisionWorld::build(const SbwLevel& level, std::string* error) {
                         continue;
                     }
                     triangle.normal = face * (1.0 / area2);
+                    // The authoring normal travels with the object like a
+                    // direction: every shipped basis is the identity, so a
+                    // rigid basis is all the data contains.  A zero or
+                    // non-finite stored normal leaves the winding as the
+                    // fallback (docs/COLLIDE.md §1.2).
+                    const Vec3d local{poly.normal.x, poly.normal.y, poly.normal.z};
+                    const Vec3d stored =
+                        transform.bx * local.x + transform.by * local.y + transform.bz * local.z;
+                    if (finite(stored)) {
+                        const double stored_length = length(stored);
+                        if (stored_length > 0.0) {
+                            triangle.data_normal = stored * (1.0 / stored_length);
+                        }
+                    }
                     triangle.plane_offset = dot(triangle.normal, triangle.a);
                     triangle.centroid = (triangle.a + triangle.b + triangle.c) * (1.0 / 3.0);
                     triangle.bounds.expand(triangle.a);
@@ -593,7 +626,11 @@ std::optional<RayHit> CollisionWorld::raycast(const Vec3d& origin, const Vec3d& 
             if (!filter.allows(triangle)) {
                 continue;
             }
-            if (!filter.backfaces && dot(triangle.normal, d) >= 0.0) {
+            // The winding never decides passability: the back-side test uses
+            // the authored normal (or the winding when there is none), and the
+            // default `backfaces = true` lets the ray through from either
+            // side (docs/COLLIDE.md §3).
+            if (!filter.backfaces && dot(surface_normal(triangle), d) >= 0.0) {
                 continue; // back face, rejected by the filter
             }
             if (!ray_aabb(origin, d, triangle.bounds, best)) {
@@ -622,9 +659,14 @@ std::optional<RayHit> CollisionWorld::raycast(const Vec3d& origin, const Vec3d& 
     hit.triangle = best_triangle;
     hit.triangle_index = best_index;
     hit.sector = best_triangle->sector;
-    const double facing_final = dot(best_triangle->normal, d);
+    // `front_face` is about the authored side of the polygon; `normal` is
+    // always reported against the incoming ray so a caller can slide on it.
+    // Flipping a unit normal and the sign of its dot product yields the same
+    // "against the ray" vector, so `normal` is unchanged by the new source.
+    const Vec3d reference = surface_normal(*best_triangle);
+    const double facing_final = dot(reference, d);
     hit.front_face = facing_final < 0.0;
-    hit.normal = facing_final > 0.0 ? -best_triangle->normal : best_triangle->normal;
+    hit.normal = facing_final > 0.0 ? -reference : reference;
     return hit;
 }
 
@@ -675,8 +717,8 @@ std::optional<SphereHit> CollisionWorld::sphere_cast(const Vec3d& origin, const 
                 continue;
             }
             if (!filter.backfaces &&
-                dot(triangle.normal, (origin + d * contact.t) - triangle.a) < 0.0) {
-                continue; // the sphere touches the back side of the triangle
+                dot(surface_normal(triangle), (origin + d * contact.t) - triangle.a) < 0.0) {
+                continue; // the sphere touches the authored back side
             }
             if (best_triangle == nullptr || contact.t < best) {
                 best = contact.t;
