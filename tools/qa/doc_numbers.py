@@ -64,6 +64,7 @@ DOC_FILES = {
     "LIGHTMAP_EDIT": "docs/LIGHTMAP_EDIT.md",
     "SBW_OBJECTS": "docs/SBW_OBJECTS.md",
     "SAMPLE_CACHE": "docs/SAMPLE_CACHE.md",
+    "SBW_MESH": "docs/SBW_MESH.md",
 }
 
 
@@ -1378,6 +1379,41 @@ def c_sample_names(env):
     ok = (len(table.names), len(named), resolvable) == (300, 137, 137)
     return "%d / %d / %d" % (len(table.names), len(named), resolvable), ok, \
         "слоты / имена с count>0 / найденные в sounds/SOU.IDX"
+
+
+
+@check("SBW_MESH", "правило radius/bounds: 28192/28192 объектов",
+       "28192 / 28192 / 20736")
+def c_sbw_radius_rule(env):
+    from gm.sbw import parse
+
+    paths = sorted(glob.glob(os.path.join(env.game, "*.sbw")))
+    objects = rule = by_bounds = 0
+    for path in paths:
+        with open(path, "rb") as fh:
+            level = parse(fh.read())
+        for sector in level.sectors:
+            for obj in sector.objects:
+                objects += 1
+                if not obj.vertices:
+                    continue
+                basis = obj.points[1:4]
+                far = 0.0
+                box = [0.0, 0.0, 0.0]
+                for vertex in obj.vertices:
+                    local = [sum(basis[r][k] * vertex[k] for k in range(3))
+                             for r in range(3)]
+                    far = max(far, sum(v * v for v in local) ** 0.5)
+                    for r in range(3):
+                        box[r] = max(box[r], abs(local[r]))
+                if abs(far - obj.radius) <= 1e-3:
+                    rule += 1
+                corner = sum(b * b for b in box) ** 0.5
+                if abs(corner - obj.radius) <= 1e-3:
+                    by_bounds += 1
+    ok = (objects, rule, by_bounds) == (28192, 28192, 20736)
+    return "%d / %d / %d" % (objects, rule, by_bounds), ok, \
+        "объекты / radius == max|basis*v| / radius == |bounds|"
 
 
 def main(argv=None) -> int:
