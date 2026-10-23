@@ -549,6 +549,15 @@ target_link_libraries(gm_mixer_tests PRIVATE gm_engine)
 add_test(NAME mixer COMMAND gm_mixer_tests)
 gm_label(mixer quick)
 
+# Music track (docs/MUSIC.md): linear fades and a linear-amplitude crossfade
+# over a decoded PcmClip.  Synthetic tones pin gain(k) = k/N, the crossfade
+# weights/peak/RMS and the negatives; real MUSIC/SOU.IDX data covers the
+# shipped `L01BONUS` (16000 header, played at 32000) and Dm1A.sog.
+add_executable(gm_music_tests test_music.cpp)
+target_link_libraries(gm_music_tests PRIVATE gm_engine)
+add_test(NAME music COMMAND gm_music_tests)
+gm_label(music quick)
+
 # Platform audio output (docs/AUDIO_OUTPUT.md): deterministic null backend for
 # the ring, underrun/overrun accounting, pause, the 0..255 volume curve and the
 # PullSource hook (including a real Mixer); the SDL3 path runs only when a
