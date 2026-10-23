@@ -1,5 +1,6 @@
 #include "game/runtime.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <memory>
@@ -103,8 +104,16 @@ bool GameRuntime::build_world(const SbtLevel& level, const SbwLevel& geometry,
     if (!next_collision.build(geometry, &local)) {
         return fail(error, "collision: " + local);
     }
+    // Moving leaves (M6.4.1): the panels come from the static triangles of the
+    // doors the world just bound, and the dynamic set is published into the
+    // temporary world before it is swapped in.
+    DoorCollisionState next_doors;
+    if (!build_door_panels(next_world, next_collision, next_doors, &local)) {
+        return fail(error, "door colliders: " + local);
+    }
     world_ = std::move(next_world);
     collision_ = std::move(next_collision);
+    door_collision_ = std::move(next_doors);
     world_built_ = true;
     // The old table may carry ids of a different level; the dispatcher has no
     // clear(), so replace it wholesale before installing the new records.
@@ -119,6 +128,149 @@ bool GameRuntime::build_world(const SbtLevel& level, const SbwLevel& geometry,
         events_.install_switches(world_.switches());
     }
     return true;
+}
+
+bool GameRuntime::build_door_panels(const WorldState& world, CollisionWorld& collision,
+                                    DoorCollisionState& out, std::string* error) {
+    out = DoorCollisionState{};
+    out.stats.static_triangles = collision.triangle_count();
+    const std::vector<Door>& doors = world.doors();
+    const std::vector<Triangle>& statics = collision.triangles();
+    for (std::size_t index = 0; index < doors.size(); ++index) {
+        const Door& door = doors[index];
+        if (!door.active()) {
+            continue; // kind outside 1..3: the engine does not animate it
+        }
+        if (door.sector < 0 || door.object < 0) {
+            ++out.stats.skipped_unbound;
+            continue;
+        }
+        const std::pair<std::uint32_t, std::uint32_t> pair{
+            static_cast<std::uint32_t>(door.sector),
+            static_cast<std::uint32_t>(door.object)};
+        if (std::find(out.suppressed.begin(), out.suppressed.end(), pair) !=
+            out.suppressed.end()) {
+            // A second door on the same object: the first one owns the panel,
+            // otherwise the same triangles would be published twice.
+            ++out.stats.skipped_duplicate;
+            continue;
+        }
+        const DoorAxis axis = door_axis(door);
+        if (axis == DoorAxis::Rotating) {
+            // A swing leaf rotates around `center`; a translation is not its
+            // motion, so it stays static (docs/DOOR_COLLISION.md §6).
+            ++out.stats.skipped_rotating;
+            continue;
+        }
+        MovingPanel panel;
+        panel.travel = door_travel(door);
+        if (panel.travel.x == 0.0 && panel.travel.y == 0.0 && panel.travel.z == 0.0) {
+            ++out.stats.skipped_static; // open == closed: the rest pose is final
+            continue;
+        }
+        for (const Triangle& triangle : statics) {
+            if (triangle.sector == pair.first && triangle.object == pair.second) {
+                panel.rest.push_back(triangle);
+            }
+        }
+        if (panel.rest.empty()) {
+            ++out.stats.skipped_unbound;
+            continue;
+        }
+        MovingCollider collider;
+        collider.set_panels({panel}, axis);
+        if (!collider.ready()) {
+            ++out.stats.skipped_refused;
+            continue;
+        }
+        // `lift_offset` is 0: the model has no lift -> level-object binding
+        // (`Lift::sob` is a SOB model index, docs/MOVING_COLLIDERS.md §2.2), so
+        // no cabin panel can be built yet.  A door leaf only slides.
+        collider.update(door.motion_fraction(), 0.0);
+        if (!collider.last_update_ok()) {
+            ++out.stats.skipped_refused;
+            continue;
+        }
+        out.suppressed.push_back(pair);
+        out.applied.push_back(collider.open_fraction());
+        out.colliders.push_back(std::move(collider));
+        out.door_index.push_back(index);
+        ++out.stats.doors;
+        ++out.stats.panels;
+    }
+    return publish_door_dynamic(collision, out, error);
+}
+
+bool GameRuntime::publish_door_dynamic(CollisionWorld& collision, DoorCollisionState& state,
+                                       std::string* error) {
+    std::size_t total = 0;
+    for (const MovingCollider& collider : state.colliders) {
+        total += collider.triangle_count();
+    }
+    std::vector<Triangle> triangles;
+    triangles.reserve(total);
+    for (const MovingCollider& collider : state.colliders) {
+        triangles.insert(triangles.end(), collider.triangles().begin(),
+                         collider.triangles().end());
+    }
+    if (!collision.set_dynamic(std::move(triangles), state.suppressed, error)) {
+        ++state.stats.failed_rebuilds;
+        return false;
+    }
+    state.stats.triangles = collision.dynamic_triangle_count();
+    state.stats.suppressed = collision.suppressed_count();
+    state.stats.static_triangles = collision.triangle_count();
+    ++state.stats.rebuilds;
+    return true;
+}
+
+bool GameRuntime::sync_door_colliders() {
+    DoorCollisionState& state = door_collision_;
+    ++state.stats.sync_ticks;
+    if (!world_built_ || state.colliders.empty()) {
+        return false;
+    }
+    const std::vector<Door>& doors = world_.doors();
+    bool changed = false;
+    for (std::size_t i = 0; i < state.colliders.size(); ++i) {
+        const std::size_t door_index = state.door_index[i];
+        if (door_index >= doors.size()) {
+            continue;
+        }
+        const double fraction = doors[door_index].motion_fraction();
+        if (fraction == state.applied[i]) {
+            continue; // resting door: nothing to re-pose, nothing to publish
+        }
+        state.colliders[i].update(fraction, 0.0);
+        // Store what the collider applied, not the request: a refused update
+        // keeps the previous pose and would otherwise be retried every tick.
+        state.applied[i] = state.colliders[i].open_fraction();
+        changed = true;
+    }
+    if (!changed) {
+        return false;
+    }
+    std::string error;
+    return publish_door_dynamic(collision_, state, &error);
+}
+
+bool GameRuntime::rebuild_door_colliders(std::string* error) {
+    clear_error(error);
+    if (!world_built_) {
+        return fail(error, "door colliders: no world built");
+    }
+    // Built into a temporary: a refused set leaves the previous panels and the
+    // previous dynamic triangles in place.
+    DoorCollisionState next;
+    if (!build_door_panels(world_, collision_, next, error)) {
+        return false;
+    }
+    door_collision_ = std::move(next);
+    return true;
+}
+
+void GameRuntime::clear_door_panels() {
+    door_collision_ = DoorCollisionState{};
 }
 
 bool GameRuntime::build_things(const SbtLevel& level, const VmState& vm,
@@ -484,6 +636,13 @@ void GameRuntime::tick_once() {
     // 4. Doors/lifts: one fixed world step.
     world_.tick(1);
 
+    // 4a. Moving leaves: re-pose the kinematic door panels from the new phases
+    //     and publish them to the collision world, so the player, the AI, the
+    //     projectiles and the aim ray see the leaf where it is now.  A tick
+    //     whose doors are all at rest touches neither the colliders nor the
+    //     dynamic set (docs/DOOR_COLLISION.md §3).
+    sync_door_colliders();
+
     // 5. Events: retry a switch tail a full queue left pending, then dispatch
     //    the whole staging buffer once.  `pump` drains it, so the next tick
     //    cannot replay these records.
@@ -807,6 +966,7 @@ void GameRuntime::reset() {
     projectiles_ = Projectiles{};
     events_ = EventRuntime{};
     collision_.clear();
+    clear_door_panels();
     player_eyes_.clear();
     player_vitals_.clear();
     // Level-side player weapon state is dropped with the level; the projectile
