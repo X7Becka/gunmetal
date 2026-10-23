@@ -26,6 +26,8 @@ struct Options {
     bool sim_god = false;     // --god: the GOD_MODE branch
     std::string sim_drive;    // --sim-drive PLAN: scripted player segments
     bool sim_projectile = false; // --sim-projectile: spawn rounds, not hitscan
+    std::string sim_vitals;   // --sim-vitals ARMOR,SHIELD: starting gauges
+    int sim_respawn = -1;     // --sim-respawn N: auto-respawn N ticks after death
     std::string film;
     std::string anim;
     std::string hud;          // optional Film/*.sof overlay

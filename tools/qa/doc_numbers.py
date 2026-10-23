@@ -63,6 +63,7 @@ DOC_FILES = {
     "SCRIPT_DEBUG": "docs/SCRIPT_DEBUG.md",
     "LIGHTMAP_EDIT": "docs/LIGHTMAP_EDIT.md",
     "SBW_OBJECTS": "docs/SBW_OBJECTS.md",
+    "SAMPLE_CACHE": "docs/SAMPLE_CACHE.md",
 }
 
 
@@ -1348,6 +1349,35 @@ def c_sbw_objects(env):
     ok = (len(paths), objects, vertices) == (36, 28192, 357818)
     return "%d / %d / %d" % (len(paths), objects, vertices), ok, \
         "объекты и локальные вершины 36 миров"
+
+
+
+# --------------------------------------------------------------------------
+# SAMPLE_CACHE (M7.4): the level table and its resolvable names
+# --------------------------------------------------------------------------
+
+@check("SAMPLE_CACHE", "level0: 300 слотов, 137 разрешаемых имён",
+       "300 / 137 / 137")
+def c_sample_names(env):
+    from gm.bigfile import BigFile
+    from gm.sbt import parse_file
+
+    parsed = parse_file(os.path.join(env.game, "level0.sbt"))
+    records = parsed.records_of(12)
+    if not records:
+        return "нет записи 12", False, "level0.sbt без SOUND_SAMPLE_TABLE"
+    table = records[0].payload
+    named = [name for name, count in zip(table.names, table.counts) if name and count]
+    index = BigFile(os.path.join(env.game, "sounds", "SOU.IDX"))
+    keys = set()
+    for entry in index.entries:
+        key = entry.name.rsplit("\\", 1)[-1].rsplit(":", 1)[-1].lower()
+        keys.add(key)
+    resolvable = sum(1 for name in named
+                     if name.rsplit("\\", 1)[-1].rsplit(":", 1)[-1].lower() in keys)
+    ok = (len(table.names), len(named), resolvable) == (300, 137, 137)
+    return "%d / %d / %d" % (len(table.names), len(named), resolvable), ok, \
+        "слоты / имена с count>0 / найденные в sounds/SOU.IDX"
 
 
 def main(argv=None) -> int:

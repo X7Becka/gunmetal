@@ -91,6 +91,22 @@ sim: drive projectile=synthetic spawned=4 blasts=2 things_damaged=0
 попадают (`things_damaged=0`); попадание и убийство вещи проверены модульным
 тестом `sim_projectile` (OILDRUM 1000 HP → 0, `alive=false`).
 
+**Урон игроку, смерть и респавн** (`docs/SIM_DAMAGE.md`, CTest `sim_damage`,
+`cli_sim_respawn`). Виталы — `LIGHT`: броня 10 000, щиты 8 000 на сторону;
+`--sim-vitals ARMOR,SHIELD` задаёт стартовые шкалы, смерть — `armor <= 0`
+(правило `0x453b50 → 0x4536e0`), `--sim-respawn N` — авто-респавн через `N`
+тиков (0 — сразу).
+
+```sh
+gunmetal -g "$GUNMETAL_DIR" --sim dm1 --sim-drive "fire:600" --sim-projectile \
+         --sim-vitals 500,0 --sim-respawn 5
+sim: drive armor=500/500 shields=0/0/0/0 alive=1 damage_taken=1500 death_tick=561 deaths=3
+```
+
+Три смерти за 600 тиков, `damage_taken` = 3 × 500; после респавна игрок снова
+жив и падает со спавна (`on_ground=0`, пока не приземлится). Ошибка формата
+(`--sim-vitals 500`) — `[error]` и код 2.
+
 **Исправлено (2026-10-23):** у поставочных полигонов обход индексов
 противоположен сохранённому `SbwPoly::normal`, поэтому полы классифицировались
 как потолки и `on_ground` оставался `0`. Теперь поверхность

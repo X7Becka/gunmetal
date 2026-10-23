@@ -421,6 +421,25 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             options.sim_drive = std::string(*v);
         } else if (arg == "--sim-projectile") {
             options.sim_projectile = true;
+        } else if (arg == "--sim-vitals") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.sim_vitals = std::string(*v);
+        } else if (arg == "--sim-respawn") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.sim_respawn = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+            if (options.sim_respawn < 0) {
+                return std::nullopt;
+            }
         } else if (arg == "--god") {
             options.sim_god = true;
         } else if (arg == "--spawn-camera") {
@@ -657,6 +676,8 @@ std::string usage() {
        << "      --god         run --sim with the GOD_MODE branch (57 CHEVY)\n"
        << "      --sim-drive PLAN  drive the --sim player: forward=1:900;turn=0.5:300;fire:200\n"
        << "      --sim-projectile  the driven player fires rounds (blast damage), not hitscan\n"
+       << "      --sim-vitals ARMOR,SHIELD  starting gauges of the driven player\n"
+       << "      --sim-respawn N  respawn the driven player N ticks after death (0 = now)\n"
        << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"

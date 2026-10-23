@@ -157,6 +157,18 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     gm_label(sim_corpus full)
     # M6.5.1: the scripted player moves and fires through the proven
     # controller and weapon seams (`docs/SIM_PLAYER.md`).
+    # M6.5.1: damage -> death (`armor <= 0`) -> respawn, and the input guard.
+    add_test(NAME cli_sim_respawn
+             COMMAND gunmetal --sim dm1 --sim-drive "fire:600" --sim-projectile
+                     --sim-vitals 500,0 --sim-respawn 5)
+    set_tests_properties(cli_sim_respawn PROPERTIES PASS_REGULAR_EXPRESSION
+        "alive=1 damage_taken=1500 death_tick=[0-9]+ deaths=[1-9][0-9]*")
+    gm_label(cli_sim_respawn quick)
+    add_test(NAME cli_sim_vitals_bad
+             COMMAND gunmetal --sim dm1 --sim-drive "fire:10" --sim-vitals 500)
+    set_tests_properties(cli_sim_vitals_bad PROPERTIES PASS_REGULAR_EXPRESSION
+        "\\[error\\] sim: --sim-vitals wants ARMOR,SHIELD")
+    gm_label(cli_sim_vitals_bad quick)
     add_test(NAME cli_sim_projectile
              COMMAND gunmetal --sim dm1 --sim-drive "fire:300" --sim-projectile)
     set_tests_properties(cli_sim_projectile PROPERTIES PASS_REGULAR_EXPRESSION

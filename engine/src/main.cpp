@@ -1066,6 +1066,7 @@ int simulate(const gm::Options& options) {
     std::vector<gm::DriveSegment> drive_plan;
     gm::SimPlayer player;
     std::size_t drive_walls = 0;
+    int drive_ticks = 0;
     if (!options.sim_drive.empty()) {
         const auto parsed = gm::parse_drive(options.sim_drive, &error);
         if (!parsed) {
@@ -1100,6 +1101,46 @@ int simulate(const gm::Options& options) {
         if (!player.init(feet, spawn_yaw, *light, &error)) {
             gm::logf(gm::LogLevel::Error, "sim", error);
             return 2;
+        }
+        // `--sim-vitals ARMOR,SHIELD`: the starting gauges (`docs/DAMAGE.md`
+        // §7 for the LIGHT defaults; the shields are the same on all sides).
+        if (!options.sim_vitals.empty()) {
+            const std::string& spec = options.sim_vitals;
+            const std::size_t comma = spec.find(',');
+            if (comma == std::string::npos) {
+                gm::logf(gm::LogLevel::Error, "sim",
+                         "--sim-vitals wants ARMOR,SHIELD, got \"" + spec + "\"");
+                return 2;
+            }
+            auto number = [](const std::string& text, int& out) {
+                if (text.empty()) {
+                    return false;
+                }
+                std::size_t used = 0;
+                try {
+                    out = std::stoi(text, &used);
+                } catch (const std::exception&) {
+                    return false;
+                }
+                return used == text.size() && out >= 0;
+            };
+            int armor = 0;
+            int shield = 0;
+            if (!number(spec.substr(0, comma), armor) ||
+                !number(spec.substr(comma + 1), shield)) {
+                gm::logf(gm::LogLevel::Error, "sim",
+                         "--sim-vitals wants two numbers ARMOR,SHIELD, got \"" + spec + "\"");
+                return 2;
+            }
+            gm::Vitals vitals = gm::kLightPlayerVitals;
+            vitals.armor = armor;
+            vitals.armor_max = armor > 0 ? armor : gm::kLightPlayerVitals.armor_max;
+            vitals.shields = {shield, shield, shield, shield};
+            vitals.shield_max = shield > 0 ? shield : gm::kLightPlayerVitals.shield_max;
+            if (!player.set_vitals(vitals, &error)) {
+                gm::logf(gm::LogLevel::Error, "sim", error);
+                return 2;
+            }
         }
         // A table-only load has an empty save loadout, so the drive would hold
         // the trigger with no weapon selected.  Make every table slot
@@ -1188,8 +1229,12 @@ int simulate(const gm::Options& options) {
             projectile.create_event = 901;
             player.set_projectile(projectile, 0);
         }
+        // A dead player's `tick()` is a no-op and its own counter stops, so
+        // the drive counts its ticks itself (that counter also drives the
+        // respawn delay).
         for (const gm::DriveSegment& segment : drive_plan) {
             for (int index = 0; index < segment.ticks; ++index) {
+                ++drive_ticks;
                 if (!player.tick(runtime, segment, index, &error)) {
                     gm::logf(gm::LogLevel::Error, "sim",
                              "tick " + std::to_string(player.tick_index()) + ": " + error);
@@ -1204,12 +1249,22 @@ int simulate(const gm::Options& options) {
                 if (player.last_step().hit_wall) {
                     ++drive_walls;
                 }
+                // `--sim-respawn N`: the death rule is real (`armor <= 0`),
+                // the delay is the drive plan's, not a DM rule
+                // (`docs/SIM_DAMAGE.md` §5).
+                if (!player.alive() && options.sim_respawn >= 0 &&
+                    drive_ticks - player.death_tick() >= options.sim_respawn) {
+                    if (!player.respawn(&error)) {
+                        gm::logf(gm::LogLevel::Error, "sim", error);
+                        return 2;
+                    }
+                }
             }
         }
         const gm::PlayerState& state = player.state();
         const int slot = runtime.player_arsenal().current;
         std::printf("sim: drive segments=%zu ticks=%d pos=(%.3f, %.3f, %.3f) yaw=%.6f\n",
-                    drive_plan.size(), player.tick_index(), state.pos.x, state.pos.y,
+                    drive_plan.size(), drive_ticks, state.pos.x, state.pos.y,
                     state.pos.z, player.yaw());
         std::printf("sim: drive on_ground=%d wall_ticks=%zu shots=%d "
                     "slot=%d ammo=%u shot_index=%llu\n",
@@ -1221,6 +1276,13 @@ int simulate(const gm::Options& options) {
                         "things_damaged=%d\n", player.projectiles_spawned(),
                         player.blast_hits(), player.things_damaged());
         }
+        const gm::Vitals& vitals = player.vitals();
+        std::printf("sim: drive armor=%d/%d shields=%d/%d/%d/%d alive=%d "
+                    "damage_taken=%d death_tick=%d deaths=%d\n",
+                    vitals.armor, vitals.armor_max, vitals.shields[0],
+                    vitals.shields[1], vitals.shields[2], vitals.shields[3],
+                    player.alive() ? 1 : 0, player.damage_taken(),
+                    player.death_tick(), player.deaths());
     }
 
     const std::size_t things_before = runtime.things().things().size();
@@ -1283,14 +1345,17 @@ int simulate(const gm::Options& options) {
         mix_real(player.state().pos.z);
         mix_real(player.yaw());
         mix(static_cast<std::uint64_t>(player.shots_fired()));
-        mix(static_cast<std::uint64_t>(player.tick_index()));
+        mix(static_cast<std::uint64_t>(drive_ticks));
         mix(static_cast<std::uint64_t>(player.projectiles_spawned()));
         mix(static_cast<std::uint64_t>(player.blast_hits()));
         mix(static_cast<std::uint64_t>(player.things_damaged()));
+        mix(static_cast<std::uint64_t>(player.vitals().armor));
+        mix(static_cast<std::uint64_t>(player.deaths()));
+        mix(player.alive() ? 1u : 0u);
     }
 
     const std::uint64_t printed_ticks =
-        drive_plan.empty() ? ticks : static_cast<std::uint64_t>(player.tick_index());
+        drive_plan.empty() ? ticks : static_cast<std::uint64_t>(drive_ticks);
     std::printf("sim: level=%s ticks=%llu mode=%d players=%d difficulty=%d god=%d\n",
                 level->name.c_str(), static_cast<unsigned long long>(printed_ticks),
                 options.sim_mode, options.sim_players, options.sim_difficulty,

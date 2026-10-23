@@ -15,7 +15,7 @@
 | `docs/AUDIO_3D.md` | 36 | 311 | 3D-позиционный звук (M7.3): очередь, слушатель, формулы |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |
-| `docs/AUDIT_NUMBERS.md` | 21 | 64 | AUDIT_NUMBERS — независимая сверка чисел в свежих RE-доках |
+| `docs/AUDIT_NUMBERS.md` | 22 | 64 | AUDIT_NUMBERS — независимая сверка чисел в свежих RE-доках |
 | `docs/BASELINE.md` | 12 | 0 | Baseline: установка, инвентарь и регрессия |
 | `docs/BIGFILE_WRITE.md` | 17 | 46 | BIGFILE_WRITE — запись архивов `.IDX`/`.DAT` (`M11.6`) |
 | `docs/BUILD.md` | 4 | 0 | Сборка движка (M3) |
@@ -53,7 +53,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 12 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 91 | 274 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 93 | 274 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -85,6 +85,7 @@
 | `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
 | `docs/RNG.md` | 7 | 41 | RNG: `rand()` оригинала, сид и потребители |
 | `docs/RUNTIME_CPP.md` | 42 | 8 | Gunmetal — C++-каркас фиксированного тика (`GameRuntime`) |
+| `docs/SAMPLE_CACHE.md` | 13 | 33 | Рантайм-кэш сэмплов (M7.4): модель, API, числа |
 | `docs/SANITIZERS.md` | 4 | 0 | Sanitizers (ASan/UBSan) |
 | `docs/SAVE.md` | 19 | 99 | Сохранения Gunmetal: контейнер, блоки, rebuild |
 | `docs/SAVE_BLOCKS.md` | 15 | 9 | C++: типизированные блоки сейва 1, 2, 3, 6, 7, 8 |
@@ -106,7 +107,8 @@
 | `docs/SECTOR_STUFF.md` | 33 | 272 | `SECTOR_STUFF`: какой слот адресует команда (27–31, 40–45) |
 | `docs/SECURITY.md` | 12 | 1 | Границы доверия и устойчивость к битым файлам |
 | `docs/SHAKE.md` | 30 | 467 | Gunmetal — тряска камеры, view-pitch и отдача |
-| `docs/SIM.md` | 7 | 0 | Безголовый прогон уровня (`--sim`, `M6.5.1`) |
+| `docs/SIM.md` | 8 | 2 | Безголовый прогон уровня (`--sim`, `M6.5.1`) |
+| `docs/SIM_DAMAGE.md` | 17 | 16 | Урон игроку, смерть и респавн (`game/sim_player.*`, `M6.5.1`, срез 3) |
 | `docs/SIM_PLAYER.md` | 19 | 5 | Игровой тик одного игрока (`game/sim_player.*`, `M6.5.1`, срез 1) |
 | `docs/SIM_PROJECTILE.md` | 17 | 6 | Игрок стреляет снарядом: попадание и урон (`game/sim_player.*`, `M6.5.1`, срез 2) |
 | `docs/SKY.md` | 20 | 100 | Фон кадра и «небо»: что рисует движок за геометрией (M4.1.6) |
