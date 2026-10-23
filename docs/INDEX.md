@@ -57,7 +57,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 12 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 111 | 300 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 112 | 300 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -79,6 +79,7 @@
 | `docs/PALETTE.md` | 5 | 15 | Палитра 8-битной графики и индексы текстур `.sbw` |
 | `docs/PERFORMANCE.md` | 3 | 0 | PERFORMANCE — измеренные времена (`M12.3`) |
 | `docs/PICKUP.md` | 29 | 305 | Предметы: подбор, маркеры регенерации, вирус и щиты (`M6.2.6`) |
+| `docs/PLATFORM_CARRY.md` | 17 | 0 | Gunmetal — движущаяся панель везёт игрока |
 | `docs/PLAYER.md` | 28 | 127 | Gunmetal — спавн игрока и первое лицо |
 | `docs/PLAYER_CONTROLLER.md` | 28 | 46 | Gunmetal — контроллер игрока (капсула, 91 Гц) |
 | `docs/PLAYER_FIELDS.md` | 54 | 1527 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
