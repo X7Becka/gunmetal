@@ -29,7 +29,7 @@
 | `docs/DAMAGE.md` | 31 | 255 | Урон, броня и щиты (`M6.5.2`) |
 | `docs/DM_RULES.md` | 31 | 394 | Deathmatch: режимы, счёт, respawn, гандикап, команды (`M9.2`) |
 | `docs/DOORS_CPP.md` | 55 | 137 | Gunmetal — C++-модель дверей, переключателей и лифтов |
-| `docs/DOOR_COLLISION.md` | 25 | 3 | Gunmetal — двери и лифты в коллизии рантайма |
+| `docs/DOOR_COLLISION.md` | 29 | 6 | Gunmetal — двери и лифты в коллизии рантайма |
 | `docs/DOOR_FIELDS.md` | 56 | 566 | Поля дверей, переключателей и лифтов (M2.3.4) |
 | `docs/ECONOMY.md` | 27 | 386 | ECONOMY — деньги, магазины, масса (`M6.2.6`) |
 | `docs/EFFECTS.md` | 37 | 198 | Отрицательные индексы текстур: кадры спрайтов/анимаций в кадровом проходе (M4.2.6) |
@@ -56,7 +56,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 12 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 102 | 283 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 103 | 283 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -67,7 +67,7 @@
 | `docs/MATERIAL_BLEND.md` | 29 | 159 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
 | `docs/MODDING.md` | 23 | 17 | MODDING — практическое руководство моддера |
-| `docs/MOVING_COLLIDERS.md` | 22 | 18 | Gunmetal — кинематические коллайдеры дверей и лифтов |
+| `docs/MOVING_COLLIDERS.md` | 29 | 30 | Gunmetal — кинематические коллайдеры дверей и лифтов |
 | `docs/MUSIC.md` | 15 | 8 | `audio/music`: громкость и переходы музыкального трека |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
 | `docs/OBJECTIVES.md` | 24 | 265 | Цели, секреты и триггеры конца уровня (`M6.4.5`) |
