@@ -30,10 +30,20 @@
 // engine is built with `-ffp-contract=off`).  Two runs of the same plan and the
 // same starting state are bit-identical.
 //
+// Projectile slice (`M6.5.1`, slice 2): with `set_projectile()` installed the
+// same tick also drives the runtime's own projectile phase, so a fired round
+// flies, hits the level geometry and blasts through the weapon-keyed bridge
+// (`GameRuntime::apply_projectile_blasts`).  No new physics: the round is
+// stepped by `Projectiles::tick_results` inside `GameRuntime::tick_once`, and
+// the damage goes through `apply_weapon_blast`/`apply_blast_damage`.  Without
+// `set_projectile()` the tick is exactly the slice-1 tick: no runtime tick, no
+// blasts, every old behaviour unchanged.
+//
 // Scope: one player, feet point from the caller, no damage to the player, no
 // death, no respawn, no keyboard/mouse input, no rendering.  See
-// `docs/SIM_PLAYER.md` for the API walk-through, the numbers of the test and
-// the list of what is still missing for the CLI (`--sim-drive`).
+// `docs/SIM_PLAYER.md` (§1) for the slice-1 walk-through, and
+// `docs/SIM_PROJECTILE.md` for the projectile API, the numbers of the test and
+// the list of what is still missing for the CLI (`--sim-projectile`).
 
 #include <cstdint>
 #include <optional>
@@ -42,10 +52,11 @@
 #include <vector>
 
 #include "game/chassis_loadout.h" // ChassisSpec
-#include "game/runtime.h"         // GameRuntime
+#include "game/runtime.h"         // GameRuntime, ProjectileBlastBatch
 #include "game/trigger.h"         // PlayerWeaponInput, PlayerWeaponTick
 #include "player/controller.h"    // PlayerState, ControllerConfig, StepResult
 #include "render/collide.h"       // Vec3d
+#include "world/things.h"         // Thing
 
 namespace gm {
 
@@ -92,8 +103,9 @@ std::optional<std::vector<DriveSegment>> parse_drive(std::string_view script,
 ///
 /// Build it with `init()`, drive it with one `tick()` per fixed tick.  The
 /// class keeps a non-owning pointer to the runtime it was last ticked with
-/// (only `ammo()` needs it), so the runtime must outlive the `SimPlayer` or the
-/// pointer must not be used after the runtime is gone.
+/// (`ammo()` reads it, and `clear_projectile()` removes the installed template
+/// through it), so the runtime must outlive the `SimPlayer` or the pointer must
+/// not be used after the runtime is gone.
 class SimPlayer {
 public:
     /// Configure the controller from `chassis` and place the player at `feet`
@@ -125,12 +137,58 @@ public:
     bool tick(GameRuntime& runtime, const DriveSegment& segment, int tick_index,
               std::string* error = nullptr);
 
+    /// Install the projectile template of the player FIRE path and switch the
+    /// player into **projectile mode**.
+    ///
+    /// A thin wrapper around `GameRuntime::set_player_projectile(projectile,
+    /// owner_player, 0.0)`: the template is the same `Thing` shape the FIRE
+    /// sub-script hands to `0x46ea40` (movement type 6; `id < 0` is replaced by
+    /// the runtime id pool per round).  The template is stored here and
+    /// installed on the runtime in the next `tick()` (before the first one it
+    /// is simply kept), so `set_projectile()` may be called right after
+    /// `init()` -- the documented use -- or between ticks.
+    ///
+    /// Projectile mode changes the per-tick contract in exactly one way: the
+    /// tick also advances the runtime (`GameRuntime::tick(1)`), because the
+    /// round spawn and the projectile step must happen in the same tick.  The
+    /// caller must therefore not drive `runtime.tick()` itself while the
+    /// player is in projectile mode.  Without this call the tick is the slice-1
+    /// tick (no runtime tick), so old plans are unaffected.
+    ///
+    /// The template is **not validated** (movement type, radius, hits and
+    /// events are passed through, like `set_player_projectile`): a template
+    /// that is not movement type 6 is still accepted by the runtime and simply
+    /// flies as an ordinary round.  See `docs/SIM_PROJECTILE.md` §5.
+    void set_projectile(const Thing& projectile, int owner_player = 0);
+    /// Drop the template and leave projectile mode (counters stay as they
+    /// are).  When this player installed the template on a runtime, the
+    /// runtime's `clear_player_projectile()` is called too, so a following
+    /// `fire` really spawns nothing.
+    void clear_projectile();
+    /// True once `set_projectile()` installed a template.
+    bool has_projectile() const { return projectile_.has_value(); }
+
     /// Current player state (feet point, velocity, yaw, capsule height).
     const PlayerState& state() const { return state_; }
     /// Current yaw in radians; equals `state().yaw`.
     double yaw() const { return state_.yaw; }
     /// Accepted shots over the life of this player (one per `fired()` action).
     int shots_fired() const { return shots_fired_; }
+    /// Shots that really produced a round: every weapon tick whose
+    /// `PlayerWeaponTick::spawned >= 0` (hitscan and rejected shots do not
+    /// count).  `0` when neither the player nor the runtime carries a
+    /// projectile template.
+    int projectiles_spawned() const { return projectiles_spawned_; }
+    /// Accumulated `ProjectileBlastBatch::damage.hits.size()` over every blast
+    /// the player's rounds applied.  One record per blast-target pair, so a
+    /// two-blast rocket inside both radii counts several hits for one target;
+    /// player entries are counted too, but this slice owns no player vitals,
+    /// so no player damage is applied (`docs/SIM_PROJECTILE.md` §5).
+    int blast_hits() const { return blast_hits_; }
+    /// Number of **distinct** thing slots that took blast damage (a damageable
+    /// thing -- `ThingVitals::max_hp > 0` -- inside a blast radius).  This is
+    /// what a test checks against `Thing::health`/`Thing::alive`.
+    int things_damaged() const { return things_damaged_; }
     /// Ammo of weapon slot `slot` in the runtime's loadout
     /// (`runtime.player_arsenal().ammo[slot]`); `0` when no runtime is known
     /// yet or `slot` is outside `0..kWeaponSlots-1`.
@@ -148,6 +206,13 @@ public:
     bool initialized() const { return initialized_; }
 
 private:
+    /// Install the stored template on `runtime` (once per runtime, before the
+    /// weapon seam so the first shot already spawns a round).
+    void install_projectile(GameRuntime& runtime);
+    /// Apply the blasts of the current `last_projectile_results()` generation
+    /// once, count them and write the result back into `Things`.
+    void apply_blasts(GameRuntime& runtime);
+
     ControllerConfig config_{};
     PlayerState state_{};
     StepResult last_step_{};
@@ -156,6 +221,19 @@ private:
     int ticks_done_ = 0;
     int shots_fired_ = 0;
     bool initialized_ = false;
+
+    // Projectile mode (slice 2).  `projectile_runtime_` is nulled by
+    // `set_projectile()`/`clear_projectile()`/`init()`, so the template reaches
+    // whichever runtime the player ticks with next.
+    std::optional<Thing> projectile_{};
+    int projectile_owner_ = 0;
+    GameRuntime* projectile_runtime_ = nullptr; ///< last runtime we installed on
+    int projectiles_spawned_ = 0;
+    int blast_hits_ = 0;
+    int things_damaged_ = 0;
+    /// Index-aligned flags of the thing slots already counted in
+    /// `things_damaged_`; sized like `runtime.things().things()`.
+    std::vector<std::uint8_t> damaged_things_{};
 };
 
 } // namespace gm

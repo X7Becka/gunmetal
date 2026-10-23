@@ -6,6 +6,12 @@
 // body of `game/trigger.cpp`).  The only arithmetic of this file is the yaw
 // integration and the aim direction; both are plain `double` and in a fixed
 // order, so the module stays bit-deterministic.
+//
+// Slice 2 (`docs/SIM_PROJECTILE.md`) adds projectile mode: with a template
+// installed the same tick runs one `GameRuntime::tick(1)` and feeds the last
+// projectile generation to `GameRuntime::apply_projectile_blasts`, storing the
+// caller-owned thing vitals back.  The round itself is stepped by the runtime;
+// nothing here re-implements `0x4752d0`.
 #include "game/sim_player.h"
 
 #include <cerrno>
@@ -220,6 +226,14 @@ bool SimPlayer::init(const Vec3d& feet, double yaw, const ChassisSpec& chassis,
     last_weapon_ = PlayerWeaponTick{};
     last_step_ = StepResult{};
 
+    // Projectile mode survives re-init (the template is configuration), but
+    // its per-life counters belong to the previous player: start clean.
+    projectile_runtime_ = nullptr;
+    projectiles_spawned_ = 0;
+    blast_hits_ = 0;
+    things_damaged_ = 0;
+    damaged_things_.clear();
+
     if (!finite(feet)) {
         return fail(error, "init: feet must be finite");
     }
@@ -258,6 +272,11 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
         !std::isfinite(segment.turn)) {
         return fail(error, "tick: segment forward/strafe/turn must be finite");
     }
+
+    // Projectile mode (slice 2): the runtime must know the template before the
+    // weapon seam can spawn a round, so install it first.  Installing is the
+    // only thing the template affects until `segment.fire` spawns a round.
+    install_projectile(runtime);
 
     // Yaw first, so the same tick moves along the new heading.  `turn` is
     // radians per second; the tick is exactly `config.dt` seconds.
@@ -308,8 +327,133 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
         if (last_weapon_.action.fired()) {
             ++shots_fired_;
         }
+        if (last_weapon_.spawned >= 0) {
+            // The round itself is stepped below; only a real spawn counts.
+            ++projectiles_spawned_;
+        }
+    }
+
+    // Projectile mode: one runtime tick, so the round just spawned (and any
+    // round of an earlier shot) is stepped by `Projectiles::tick_results` and
+    // its impact/expiry is blasted in this same tick.  The slice-1 tick does
+    // not do this; without `set_projectile()` nothing below runs.
+    if (has_projectile()) {
+        runtime.tick(1);
+        apply_blasts(runtime);
     }
     return true;
+}
+
+void SimPlayer::set_projectile(const Thing& projectile, int owner_player) {
+    projectile_ = projectile;
+    projectile_owner_ = owner_player;
+    // The old runtime keeps a copy of the previous template; the next tick
+    // re-installs the new one before it spawns anything.
+    projectile_runtime_ = nullptr;
+}
+
+void SimPlayer::clear_projectile() {
+    // The runtime keeps its own copy (`set_player_projectile`), so drop that
+    // too: otherwise a later `fire` would still spawn a round while the player
+    // is in slice-1 mode.
+    if (projectile_runtime_ != nullptr) {
+        projectile_runtime_->clear_player_projectile();
+    }
+    projectile_.reset();
+    projectile_owner_ = 0;
+    projectile_runtime_ = nullptr;
+}
+
+void SimPlayer::install_projectile(GameRuntime& runtime) {
+    if (!projectile_ || projectile_runtime_ == &runtime) {
+        return;
+    }
+    // Thin wrapper over the documented runtime seam (`0x46ea40`): no fields
+    // are rewritten and no validation is added -- the template is passed
+    // through exactly as the caller built it.
+    runtime.set_player_projectile(*projectile_, projectile_owner_, 0.0);
+    projectile_runtime_ = &runtime;
+}
+
+void SimPlayer::apply_blasts(GameRuntime& runtime) {
+    const std::span<const ProjectileTickRecord> results =
+        runtime.last_projectile_results();
+    if (results.empty()) {
+        return; // no round in the world: nothing to blast, no generation mark
+    }
+    // Cheap pre-check: only a real contact (`bounced`) or a first expiry can
+    // blast in the weapon-keyed bridge (`proximity` needs an explicit opt-in).
+    // A spent record is replayed every tick while it stays in `Projectiles`, so
+    // without this the whole vitals copy below would run for the rest of the
+    // simulation after the first hit.
+    bool triggers = false;
+    for (const ProjectileTickRecord& record : results) {
+        if (record.already_spent) {
+            continue;
+        }
+        if (record.status == ProjectileStatus::bounced ||
+            record.status == ProjectileStatus::expired) {
+            triggers = true;
+            break;
+        }
+    }
+    if (!triggers) {
+        return;
+    }
+    const Weapons* table = runtime.player_weapons();
+    if (table == nullptr) {
+        return; // no weapon table: the runtime has no blasts to select
+    }
+    const Weapon* weapon = table->at(runtime.player_arsenal().current);
+    if (weapon == nullptr) {
+        return;
+    }
+
+    // Thing vitals are caller-owned (`docs/RUNTIME_CPP.md` §7): copy them out,
+    // let the bridge write damage into the copy, then store it back.  Player
+    // vitals stay empty: this slice has no player damage.
+    const std::vector<Thing>& things = runtime.things().things();
+    std::vector<ThingVitals> vitals;
+    vitals.reserve(things.size());
+    for (const Thing& thing : things) {
+        vitals.push_back(thing_vitals(thing));
+    }
+
+    ProjectileBlastContext context;
+    context.source_player = projectile_owner_;
+    context.source_thing = -1;
+    const std::span<Vitals> no_player_vitals;
+    const ProjectileBlastBatch batch =
+        runtime.apply_projectile_blasts(*weapon, context, no_player_vitals, vitals);
+    if (batch.blasts == 0) {
+        return;
+    }
+
+    blast_hits_ += static_cast<int>(batch.damage.hits.size());
+    if (damaged_things_.size() < vitals.size()) {
+        damaged_things_.resize(vitals.size(), 0);
+    }
+    for (const AppliedBlastHit& hit : batch.damage.hits) {
+        if (hit.hit.is_player) {
+            continue; // counted in blast_hits() only (no player damage here)
+        }
+        const auto index = static_cast<std::size_t>(hit.hit.index);
+        if (index >= vitals.size() || vitals[index].max_hp <= 0) {
+            continue; // immune thing (max_hp == 0): `apply_thing_damage` no-op
+        }
+        if (damaged_things_[index] == 0) {
+            damaged_things_[index] = 1;
+            ++things_damaged_;
+        }
+    }
+
+    // The caller-owned vitals are what actually changes the world thing.
+    for (std::size_t index = 0; index < vitals.size(); ++index) {
+        Thing* thing = runtime.things().by_id(things[index].id);
+        if (thing != nullptr) {
+            store_thing_vitals(*thing, vitals[index]);
+        }
+    }
 }
 
 std::uint32_t SimPlayer::ammo(int slot) const {
