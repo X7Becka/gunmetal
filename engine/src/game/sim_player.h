@@ -39,11 +39,23 @@
 // `set_projectile()` the tick is exactly the slice-1 tick: no runtime tick, no
 // blasts, every old behaviour unchanged.
 //
-// Scope: one player, feet point from the caller, no damage to the player, no
-// death, no respawn, no keyboard/mouse input, no rendering.  See
-// `docs/SIM_PLAYER.md` (§1) for the slice-1 walk-through, and
-// `docs/SIM_PROJECTILE.md` for the projectile API, the numbers of the test and
-// the list of what is still missing for the CLI (`--sim-projectile`).
+// Damage slice (`M6.5.1`, slice 3): the player owns its gauges (`Vitals`,
+// save hundredths) and installs them on the runtime with
+// `GameRuntime::set_player_vitals` before the blasts, so the same weapon-keyed
+// bridge (`apply_projectile_blasts_to_players`) damages the player too -- a
+// point-blank round hurts its own shooter.  After every projectile tick the
+// gauges are read back from `GameRuntime::player_vitals()`, the decrease is
+// added to `damage_taken()`, and `armor <= 0` is death (the original
+// `0x4536e0`/`0x453b50` rule).  `respawn()` restores the starting gauges and
+// the starting feet/yaw; the death and respawn rules are in
+// `docs/SIM_DAMAGE.md`.
+//
+// Scope: one player, feet point from the caller, no death animation/corpse/
+// sound, no keyboard/mouse input, no rendering.  See `docs/SIM_PLAYER.md`
+// (§1) for the slice-1 walk-through, `docs/SIM_PROJECTILE.md` for the
+// projectile API and `docs/SIM_DAMAGE.md` for damage/death/respawn, the
+// numbers of the test and the list of what is still missing for the CLI
+// (`--sim-respawn`).
 
 #include <cstdint>
 #include <optional>
@@ -54,11 +66,20 @@
 #include "game/chassis_loadout.h" // ChassisSpec
 #include "game/runtime.h"         // GameRuntime, ProjectileBlastBatch
 #include "game/trigger.h"         // PlayerWeaponInput, PlayerWeaponTick
+#include "game/weapons.h"         // Vitals
 #include "player/controller.h"    // PlayerState, ControllerConfig, StepResult
 #include "render/collide.h"       // Vec3d
 #include "world/things.h"         // Thing
 
 namespace gm {
+
+/// Starting gauges of a campaign LIGHT chassis, in save hundredths
+/// (`docs/DAMAGE.md` §7: `shield_max = 8000`, `armor_max = 10000`, plates
+/// `8000/8000/8000/8000`; `docs/PLAYER_FIELDS.md` §11: `saved0` has armor
+/// `10000/10000` and shields `8000` x4).  `mult_plate`/`mult_hull` are the
+/// documented defaults `1.0` (`0x452cd0`, docs/DAMAGE.md §2.3).
+inline constexpr Vitals kLightPlayerVitals{
+    10000, 10000, 8000, {8000, 8000, 8000, 8000}, 1.0, 1.0, 0, 0, 0};
 
 /// Largest accepted `ticks` of one `DriveSegment` (one segment is at most
 /// ~3 hours of game time at 91 Hz; anything larger is a typo, not a plan).
@@ -132,8 +153,10 @@ public:
     /// trigger *edge*; later ticks only hold it).  The caller runs
     /// `0..segment.ticks-1`.  Returns `false` when the player was not
     /// initialised, a segment value is not finite, `tick_index` is negative,
-    /// the controller rejects the step or the runtime rejects the eye point;
-    /// `error` then explains why and `state()` is unchanged by the failed tick.
+    /// the controller rejects the step or the runtime rejects the eye point /
+    /// the gauges; `error` then explains why and `state()` is unchanged by the
+    /// failed tick.  A dead player's tick returns `true` without doing
+    /// anything (`docs/SIM_DAMAGE.md` §4).
     bool tick(GameRuntime& runtime, const DriveSegment& segment, int tick_index,
               std::string* error = nullptr);
 
@@ -168,6 +191,52 @@ public:
     /// True once `set_projectile()` installed a template.
     bool has_projectile() const { return projectile_.has_value(); }
 
+    /// Set the **starting** gauges (save hundredths, `Vitals` of
+    /// `game/weapons.h`).  They become the gauges of the current life and are
+    /// installed on the runtime with `GameRuntime::set_player_vitals()` on the
+    /// next `tick()` (the runtime keeps one gauge per `set_player_eyes()` point,
+    /// and that point only exists after the first tick).
+    ///
+    /// Validation follows the save invariants of `docs/PLAYER_FIELDS.md` §11:
+    /// `armor_max > 0`, `0 <= armor <= armor_max`, `shield_max >= 0`,
+    /// `0 <= shields[i] <= shield_max`, finite non-negative
+    /// `mult_plate`/`mult_hull`.  A violation returns `false` with a one-line
+    /// reason in `error` and leaves the previous gauges untouched.  May be
+    /// called before or after `init()`; it never touches the runtime directly,
+    /// so mixing gauges between runtimes is impossible.
+    bool set_vitals(const Vitals& vitals, std::string* error = nullptr);
+
+    /// Restore the state of `init()`: feet, yaw and the **starting** gauges
+    /// (`set_vitals()` or `kLightPlayerVitals`), `alive()` from
+    /// `armor > 0` (true for the default gauges), one more `deaths()`.  The
+    /// gauges are re-installed on the runtime with the next `tick()`; the
+    /// projectile template and the ammo of the runtime stay as they are,
+    /// `tick_index()` keeps counting (no clock reset, so a plan stays
+    /// deterministic).  Returns `false` with a text before `init()`.
+    bool respawn(std::string* error = nullptr);
+
+    /// True while `armor > 0`; false from the tick that killed the player until
+    /// `respawn()`.  A dead player's `tick()` is a successful no-op (no motion,
+    /// no shot, no runtime tick), so the state, the tick counter and the gauges
+    /// stop changing -- the documented behaviour of this slice.
+    bool alive() const { return alive_; }
+    /// Number of ticks (`tick_index()` of the killing tick, 1-based) of the
+    /// last death; `-1` before the first death.  Kept after `respawn()` as the
+    /// previous death's tick.
+    int death_tick() const { return death_tick_; }
+    /// Successful `respawn()` calls over the life of this player.
+    int deaths() const { return deaths_; }
+    /// Total gauge loss over the life of this player, in save hundredths:
+    /// every decrease of `armor` plus every decrease of the four shields,
+    /// summed over the projectile ticks.  Window refreshes and respawns of the
+    /// gauges do not subtract from it.
+    int damage_taken() const { return damage_taken_; }
+    /// Current gauges (a copy; the runtime-owned span is not exposed).  Before
+    /// the first tick this is the starting set, after each projectile tick it is
+    /// `GameRuntime::player_vitals()[0]` -- the same values the original
+    /// `0x453b50` writes into `+0x3244..+0x3260`.
+    const Vitals& vitals() const { return vitals_; }
+
     /// Current player state (feet point, velocity, yaw, capsule height).
     const PlayerState& state() const { return state_; }
     /// Current yaw in radians; equals `state().yaw`.
@@ -182,8 +251,8 @@ public:
     /// Accumulated `ProjectileBlastBatch::damage.hits.size()` over every blast
     /// the player's rounds applied.  One record per blast-target pair, so a
     /// two-blast rocket inside both radii counts several hits for one target;
-    /// player entries are counted too, but this slice owns no player vitals,
-    /// so no player damage is applied (`docs/SIM_PROJECTILE.md` §5).
+    /// player entries are counted too, and since slice 3 they also apply real
+    /// damage (`vitals()`/`damage_taken()`, `docs/SIM_DAMAGE.md`).
     int blast_hits() const { return blast_hits_; }
     /// Number of **distinct** thing slots that took blast damage (a damageable
     /// thing -- `ThingVitals::max_hp > 0` -- inside a blast radius).  This is
@@ -209,6 +278,9 @@ private:
     /// Install the stored template on `runtime` (once per runtime, before the
     /// weapon seam so the first shot already spawns a round).
     void install_projectile(GameRuntime& runtime);
+    /// Install the current gauges on `runtime` when the runtime has none of
+    /// ours yet (after `init()`/`set_vitals()`/`respawn()` or a runtime switch).
+    bool install_vitals(GameRuntime& runtime, std::string* error);
     /// Apply the blasts of the current `last_projectile_results()` generation
     /// once, count them and write the result back into `Things`.
     void apply_blasts(GameRuntime& runtime);
@@ -221,6 +293,23 @@ private:
     int ticks_done_ = 0;
     int shots_fired_ = 0;
     bool initialized_ = false;
+
+    // Starting pose (slice 3): `respawn()` returns here.
+    Vec3d start_feet_{};
+    double start_yaw_ = 0.0;
+
+    // Gauges (slice 3).  `start_vitals_` is the configuration (set_vitals or
+    // the LIGHT default), `vitals_` the current life.  `vitals_runtime_` is the
+    // runtime whose `player_vitals_` currently holds `installed_vitals_`; the
+    // dirty flag forces a re-install after `init()`/`set_vitals()`/`respawn()`.
+    Vitals start_vitals_ = kLightPlayerVitals;
+    Vitals vitals_ = kLightPlayerVitals;
+    const GameRuntime* vitals_runtime_ = nullptr;
+    bool vitals_dirty_ = false;
+    bool alive_ = true;
+    int death_tick_ = -1;
+    int deaths_ = 0;
+    int damage_taken_ = 0;
 
     // Projectile mode (slice 2).  `projectile_runtime_` is nulled by
     // `set_projectile()`/`clear_projectile()`/`init()`, so the template reaches
