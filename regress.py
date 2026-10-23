@@ -675,6 +675,19 @@ def render_checks(G: str, results: list[bool], out: str, full: bool = False) -> 
                           f"panel {panel.width}x{panel.height}, "
                           f"hit {hit['ncc']}, miss {miss['ncc']}"))
 
+    # Fade level of a capture (tools/re/hud_level.py): a band composed at
+    # level k must be measured back as k.  Skipped without the LUT dump.
+    lut_path = os.path.join(os.path.expanduser("~"), ".cache",
+                            "gunmetal-re", "hud_lut.bin")
+    if os.path.exists(lut_path):
+        tool = os.path.join(HERE, "tools", "re", "hud_level.py")
+        proc = subprocess.run([sys.executable, tool, "--self-test", "--game", G],
+                              capture_output=True, text=True, timeout=900)
+        ok = proc.returncode == 0 and "4/4 checks passed" in proc.stdout
+        results.append(report("render / hud fade level round trip", ok,
+                              proc.stdout.strip().splitlines()[-1]
+                              if proc.stdout.strip() else "no output"))
+
     r = sob.parse(os.path.join(G, "SOBS", "rays10.sob"))
     on = render.render(r, 64, pool=pool, az=35, el=22)
     off = render.render(r, 64, pool=pool, az=35, el=22, materials=False)
