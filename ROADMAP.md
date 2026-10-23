@@ -2176,8 +2176,10 @@ save/load восстанавливает мир, игрока, двери, па�
       > «Укажите установку» — готово: при неверном `--game` бинарник печатает
       > `[error] game: directory not found: <путь>` и подсказку (`-g/--game`,
       > `GUNMETAL_DIR`, что в каталоге должен быть `gundx.exe`), rc=2;
-      > CTest `cli_no_game` (без установки). Конфиг — `-g`/`GUNMETAL_DIR`
-      > (и `GUNMETAL_CACHE`), логи — `GM_LOG=trace|debug|info|warn|error|off`
+      > CTest `cli_no_game` (без установки). Конфиг движка — `-g`/`--game`
+      > или `GUNMETAL_DIR` (`core/config.cpp`); у реверс-инструментов свой
+      > кэш `GUNMETAL_CACHE` (`tools/re/exelib.py`, не движок). Логи —
+      > `GM_LOG=trace|debug|info|warn|error|off`
       > (`core/log.cpp::set_log_level_from_env`) и `--verbose`. Нет:
       > лаунчера и упаковки (архив/инсталлятор).
 - ⬜ `M12.6` Документация: игрок, моддер, внутренности, FAQ.
