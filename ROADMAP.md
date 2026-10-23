@@ -2411,6 +2411,13 @@ save/load восстанавливает мир, игрока, двери, па�
       > отличается на 88 пикселей из 64 000; self-test 70/70.
       > Попутно исправлено: `docs/FORMATS.md` §4 — `.sbc` это **36 в корне +
       > 15 в `SOBS/`** (было «34 + 17»).
+      > **Вершины — есть:** `tools/editor/sbwmesh.py` + `docs/SBW_MESH.md` —
+      > `--list`/`--set-vertex`/`--translate`, пересчёт `radius`/`bounds` по
+      > фактическим вершинам (правило `0x43529f`). Round-trip **36/36**,
+      > self-test 81/81; правило воспроизводит **28 192/28 192** объекта
+      > побитово. Уточнение дока: `radius == max |basis·v|` (28 192/28 192),
+      > а не `|bounds|` (20 736/28 192). Сдвиг вершины `level0` на +8 —
+      > 517 пикселей из 64 000 в рендере, размер файла и `origin` не меняются.
       > **Объекты — есть:** `tools/editor/sbwobj.py` + `docs/SBW_OBJECTS.md` —
       > `--list`, `origin=x,y,z`, `radius`, `bounds`, `basis=identity`,
       > `f74..f7c`; `--check`, `--audit`. Round-trip **36/36** (28 192

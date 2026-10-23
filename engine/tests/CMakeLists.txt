@@ -273,6 +273,25 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
         "result: OK")
     gm_label(sbwedit_audit quick)
     # M11.2: objects of the world (.sbw) - origin/basis/radius/bounds/flags.
+    # M11.2 slice 4: vertices and the radius/bounds recompute rule (.sbw).
+    add_test(NAME sbwmesh_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwmesh.py
+                     --self-test)
+    set_tests_properties(sbwmesh_selftest PROPERTIES PASS_REGULAR_EXPRESSION
+        "81/81 passed")
+    gm_label(sbwmesh_selftest quick)
+    add_test(NAME sbwmesh_roundtrip
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwmesh.py
+                     --roundtrip)
+    set_tests_properties(sbwmesh_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
+        "round-trip: 36/36 identical")
+    gm_label(sbwmesh_roundtrip quick)
+    add_test(NAME sbwmesh_audit
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwmesh.py
+                     --audit)
+    set_tests_properties(sbwmesh_audit PROPERTIES PASS_REGULAR_EXPRESSION
+        "result: OK")
+    gm_label(sbwmesh_audit quick)
     add_test(NAME sbwobj_selftest
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwobj.py
                      --self-test)
