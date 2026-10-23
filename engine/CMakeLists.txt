@@ -32,6 +32,7 @@ add_library(gm_engine STATIC
     src/ui/screen.cpp
     src/ui/sml_pager.cpp
     src/ui/frontend_menu.cpp
+    src/ui/save_slots.cpp
     src/res/bigfile.cpp
     src/res/bmp.cpp
     src/res/png.cpp

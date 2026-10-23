@@ -693,6 +693,18 @@ target_link_libraries(gm_frontend_menu_tests PRIVATE gm_engine)
 add_test(NAME frontend_menu COMMAND gm_frontend_menu_tests)
 gm_label(frontend_menu quick)
 
+# M8.7 slice 1: the headless save-slot list (docs/SAVE_SLOTS.md, docs/UI_SCREENS.md
+# §5.1): 20 table entries, the 0x4bc3b0 placeholder, 6 visible labels, the 0..13
+# scroll, the selection crossing the window edge and the overwrite-confirmation
+# model.  Synthetic saves come from the engine writer, so no install is needed;
+# the shipped SAVEGAME is checked when present.
+add_executable(gm_save_slots_tests test_save_slots.cpp)
+target_link_libraries(gm_save_slots_tests PRIVATE gm_engine)
+add_test(NAME save_slots COMMAND gm_save_slots_tests)
+set_tests_properties(save_slots PROPERTIES PASS_REGULAR_EXPRESSION
+    "save_slots: [0-9]+ checks, 20 slots, 6 visible, scroll 0\\.\\.13")
+gm_label(save_slots quick)
+
 add_executable(gm_sbtvm_tests test_sbtvm.cpp)
 target_link_libraries(gm_sbtvm_tests PRIVATE gm_engine)
 add_test(NAME sbtvm COMMAND gm_sbtvm_tests)
