@@ -24,6 +24,7 @@ struct Options {
     int sim_mode = 0;         // --sim-mode N (game_mode of the VM context)
     int sim_difficulty = 1;   // --sim-difficulty N
     bool sim_god = false;     // --god: the GOD_MODE branch
+    std::string sim_drive;    // --sim-drive PLAN: scripted player segments
     std::string film;
     std::string anim;
     std::string hud;          // optional Film/*.sof overlay

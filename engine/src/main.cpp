@@ -29,6 +29,8 @@
 #include "res/sml.h"
 #include "camera/camera.h"
 #include "game/runtime.h"
+#include "game/sim_player.h"
+#include "game/weapons.h"
 #include "res/vm_exec.h"
 #include "world/doors.h"
 #include "player/controller.h"
@@ -1031,29 +1033,122 @@ int simulate(const gm::Options& options) {
         return 2;
     }
 
-    // The first campaign spawn is the player's eye target for the AI phase
-    // (slot 0; `SET_PLAYER_START`).  Geometry-less runs keep the origin.
-    gm::Vec3d eye{};
+    // The first campaign spawn is the player's feet point (`SET_PLAYER_START`,
+    // slot 0) and the eye target of the AI phase.  Geometry-less runs keep the
+    // origin.
+    gm::Vec3d feet{};
+    double spawn_yaw = 0.0;
+    bool have_spawn = false;
     std::string scene_error;
     if (const auto scene = gm::extract_scene(*level->entities, scene_error, false)) {
         for (const gm::SceneSpawn& spawn : scene->spawns) {
-            if (spawn.slot == 0) {
-                eye.x = static_cast<double>(spawn.x);
-                eye.y = static_cast<double>(spawn.y);
-                eye.z = static_cast<double>(spawn.z) + 10.0;
+            if (!spawn.deathmatch && spawn.slot == 0) {
+                feet.x = static_cast<double>(spawn.x);
+                feet.y = static_cast<double>(spawn.y);
+                feet.z = static_cast<double>(spawn.z);
+                spawn_yaw = spawn.angles[2];
+                have_spawn = true;
                 break;
             }
         }
     }
+    gm::Vec3d eye = feet;
+    eye.z += 10.0;
     const std::span<const gm::Vec3d> eyes(&eye, 1);
     if (!runtime.set_player_eyes(eyes)) {
         gm::logf(gm::LogLevel::Error, "sim", "player eye point rejected");
         return 2;
     }
 
+    // `--sim-drive PLAN`: one scripted player on top of the runtime
+    // (`docs/SIM_PLAYER.md`).  Without it the runtime just ticks, which is the
+    // M6.5.1 scaffold.
+    std::vector<gm::DriveSegment> drive_plan;
+    gm::SimPlayer player;
+    std::size_t drive_walls = 0;
+    if (!options.sim_drive.empty()) {
+        const auto parsed = gm::parse_drive(options.sim_drive, &error);
+        if (!parsed) {
+            gm::logf(gm::LogLevel::Error, "sim", error);
+            return 2;
+        }
+        drive_plan = *parsed;
+        if (!have_spawn) {
+            gm::logf(gm::LogLevel::Error, "sim",
+                     "no campaign spawn for slot 0: cannot place the player");
+            return 2;
+        }
+        const std::filesystem::path level_path = options.game / (options.sim + ".sbt");
+        std::string chassis_error;
+        const auto chassis = gm::chassis_from_level(level_path, &chassis_error);
+        if (!chassis) {
+            gm::logf(gm::LogLevel::Error, "sim", chassis_error);
+            return 2;
+        }
+        const gm::ChassisSpec* light = nullptr;
+        for (const gm::ChassisSpec& spec : *chassis) {
+            if (spec.name.find("LIGHT") != std::string::npos) {
+                light = &spec;
+                break;
+            }
+        }
+        if (light == nullptr) {
+            gm::logf(gm::LogLevel::Error, "sim",
+                     "no LIGHT chassis record in " + level_path.string());
+            return 2;
+        }
+        if (!player.init(feet, spawn_yaw, *light, &error)) {
+            gm::logf(gm::LogLevel::Error, "sim", error);
+            return 2;
+        }
+        // A table-only load has an empty save loadout, so the drive would hold
+        // the trigger with no weapon selected.  Make every table slot
+        // available with its ammo-type maximum, like a full pickup loadout.
+        std::string weapons_error;
+        if (auto table = gm::Weapons::load(level_path, &weapons_error)) {
+            gm::Arsenal arsenal = table->initial();
+            arsenal.mask = 0;
+            for (int slot = 0; slot < static_cast<int>(table->size()); ++slot) {
+                const gm::Weapon* weapon = table->at(slot);
+                if (weapon == nullptr) {
+                    continue;
+                }
+                arsenal.mask |= 1u << slot;
+                arsenal.ammo[slot] = table->ammo_max_for(weapon->ammo_type);
+            }
+            arsenal.current = 0;
+            runtime.set_player_weapons(std::move(*table), arsenal);
+        } else {
+            gm::logf(gm::LogLevel::Info, "sim", "no player weapons: ", weapons_error);
+        }
+        for (const gm::DriveSegment& segment : drive_plan) {
+            for (int index = 0; index < segment.ticks; ++index) {
+                if (!player.tick(runtime, segment, index, &error)) {
+                    gm::logf(gm::LogLevel::Error, "sim",
+                             "tick " + std::to_string(player.tick_index()) + ": " + error);
+                    return 2;
+                }
+                runtime.tick(1);
+                if (player.last_step().hit_wall) {
+                    ++drive_walls;
+                }
+            }
+        }
+        const gm::PlayerState& state = player.state();
+        const int slot = runtime.player_arsenal().current;
+        std::printf("sim: drive segments=%zu ticks=%d pos=(%.3f, %.3f, %.3f) yaw=%.6f\n",
+                    drive_plan.size(), player.tick_index(), state.pos.x, state.pos.y,
+                    state.pos.z, player.yaw());
+        std::printf("sim: drive on_ground=%d wall_ticks=%zu shots=%d "
+                    "slot=%d ammo=%u shot_index=%llu\n",
+                    state.on_ground ? 1 : 0, drive_walls, player.shots_fired(), slot,
+                    player.ammo(slot),
+                    static_cast<unsigned long long>(runtime.player_arsenal().shot_index));
+    }
+
     const std::size_t things_before = runtime.things().things().size();
     const std::uint64_t ticks = static_cast<std::uint64_t>(options.sim_ticks);
-    if (ticks != 0) {
+    if (drive_plan.empty() && ticks != 0) {
         runtime.tick(ticks);
     }
 
@@ -1103,9 +1198,21 @@ int simulate(const gm::Options& options) {
         mix(door.phase);
         mix_real(door.open_fraction);
     }
+    // A driven run also covers the player, so the digest moves when only the
+    // player does (the runtime state alone would not see it).
+    if (!drive_plan.empty()) {
+        mix_real(player.state().pos.x);
+        mix_real(player.state().pos.y);
+        mix_real(player.state().pos.z);
+        mix_real(player.yaw());
+        mix(static_cast<std::uint64_t>(player.shots_fired()));
+        mix(static_cast<std::uint64_t>(player.tick_index()));
+    }
 
+    const std::uint64_t printed_ticks =
+        drive_plan.empty() ? ticks : static_cast<std::uint64_t>(player.tick_index());
     std::printf("sim: level=%s ticks=%llu mode=%d players=%d difficulty=%d god=%d\n",
-                level->name.c_str(), static_cast<unsigned long long>(ticks),
+                level->name.c_str(), static_cast<unsigned long long>(printed_ticks),
                 options.sim_mode, options.sim_players, options.sim_difficulty,
                 options.sim_god ? 1 : 0);
     std::printf("sim: things=%zu (alive %zu, initial %zu) doors=%zu switches=%zu "
