@@ -546,6 +546,18 @@ target_link_libraries(gm_text_layout_tests PRIVATE gm_engine)
 add_test(NAME text_layout COMMAND gm_text_layout_tests)
 gm_label(text_layout quick)
 
+# M8.1 slice 2: the runtime cursor of the SML pager over `text_layout`
+# (docs/SML_PAGER.md).  Page counts/lines/images are compared with an
+# independent `layout_text` call on six shipped documents; forward/backward
+# paging, first/last/show_page, the line cursor and the boundary negatives.
+# Skips cleanly when the game is not installed.
+add_executable(gm_sml_pager_tests test_sml_pager.cpp)
+target_link_libraries(gm_sml_pager_tests PRIVATE gm_engine)
+target_compile_definitions(gm_sml_pager_tests PRIVATE
+    GM_PAGER_TEST_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/test_sml_pager.cpp")
+add_test(NAME sml_pager COMMAND gm_sml_pager_tests)
+gm_label(sml_pager quick)
+
 add_executable(gm_soo_player_tests test_soo_player.cpp)
 target_link_libraries(gm_soo_player_tests PRIVATE gm_engine)
 # Runtime .soo player (docs/SOO_PLAYER.md): synthetic hold/loop timelines,
@@ -949,7 +961,7 @@ endif()
 # Fast targets for the inner loop: build the binaries, then run CTest.
 #   cmake --build build/dev --target check-quick
 #   cmake --build build/test --target check
-set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_vm_tests gm_fuzz_tests gm_save_tests gm_doors_tests gm_frontend_menu_tests gunmetal)
+set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_vm_tests gm_fuzz_tests gm_save_tests gm_doors_tests gm_frontend_menu_tests gm_text_layout_tests gm_sml_pager_tests gunmetal)
 add_custom_target(check-quick
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -L quick -j 8
             --output-on-failure
