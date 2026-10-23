@@ -58,6 +58,7 @@
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
 | `docs/LIGHTMAP_AUDIT.md` | 11 | 8 | Аудит лайтмапов `.sbc`: покрытие и яркость (M4) |
+| `docs/LIGHTMAP_EDIT.md` | 22 | 7 | Редактор лайтмапов `.sbc` (`M11.2`, срез 2) |
 | `docs/LOOK16.md` | 14 | 12 | `LOOK16.TAB`: что делает куб и как свет `0..127` превращается в цвет |
 | `docs/MAINLOOP.md` | 7 | 209 | Главный цикл и машина состояний (M2.2.2) |
 | `docs/MATERIAL_BLEND.md` | 29 | 159 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
@@ -104,7 +105,8 @@
 | `docs/SECTOR_STUFF.md` | 33 | 272 | `SECTOR_STUFF`: какой слот адресует команда (27–31, 40–45) |
 | `docs/SECURITY.md` | 12 | 1 | Границы доверия и устойчивость к битым файлам |
 | `docs/SHAKE.md` | 30 | 467 | Gunmetal — тряска камеры, view-pitch и отдача |
-| `docs/SIM.md` | 5 | 0 | Безголовый прогон уровня (`--sim`, `M6.5.1`) |
+| `docs/SIM.md` | 6 | 0 | Безголовый прогон уровня (`--sim`, `M6.5.1`) |
+| `docs/SIM_PLAYER.md` | 19 | 5 | Игровой тик одного игрока (`game/sim_player.*`, `M6.5.1`, срез 1) |
 | `docs/SKY.md` | 20 | 100 | Фон кадра и «небо»: что рисует движок за геометрией (M4.1.6) |
 | `docs/SML_CPP.md` | 12 | 6 | SML/SME в C++: читатель разметки UI |
 | `docs/SOA.md` | 28 | 172 | `.soa` — анимации спрайтовых текстур |

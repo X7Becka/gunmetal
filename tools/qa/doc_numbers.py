@@ -61,6 +61,7 @@ DOC_FILES = {
     "SCENE_EDIT": "docs/SCENE_EDIT.md",
     "SBW_EDIT": "docs/SBW_EDIT.md",
     "SCRIPT_DEBUG": "docs/SCRIPT_DEBUG.md",
+    "LIGHTMAP_EDIT": "docs/LIGHTMAP_EDIT.md",
 }
 
 
@@ -1302,6 +1303,30 @@ def c_script_corpus(env):
     ok = (script.n, script.m) == (350, 62497) and len(script.code) == script.m
     return "%d / %d" % (script.n, script.m), ok, \
         "SCRIPT: handles (подскрипты) / длина кода"
+
+
+
+# --------------------------------------------------------------------------
+# LIGHTMAP_EDIT (M11.2): the .sbc corpus totals
+# --------------------------------------------------------------------------
+
+@check("LIGHTMAP_EDIT", "51 файл / 67200 записей / 24214080 Б",
+       "51 / 67200 / 23944872 / 24214080")
+def c_sbc_corpus(env):
+    from gm.sbc import parse
+
+    paths = sorted(glob.glob(os.path.join(env.game, "**", "*.sbc"), recursive=True))
+    records = texels = total = 0
+    for path in paths:
+        with open(path, "rb") as fh:
+            data = fh.read()
+        blob = parse(data)
+        records += len(blob.records)
+        texels += sum(len(record.pixels) for record in blob.records)
+        total += len(data)
+    ok = (len(paths), records, texels, total) == (51, 67200, 23944872, 24214080)
+    return "%d / %d / %d / %d" % (len(paths), records, texels, total), ok, \
+        "все .sbc в корне и SOBS/"
 
 
 def main(argv=None) -> int:

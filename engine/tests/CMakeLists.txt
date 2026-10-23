@@ -141,6 +141,13 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     set_tests_properties(sim_check PROPERTIES PASS_REGULAR_EXPRESSION
         "sim_check: ok")
     gm_label(sim_check quick)
+    # A driven plan is deterministic too (the digest covers the player).
+    add_test(NAME sim_drive_check
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/sim_check.py
+                     --drive "forward=1:600;turn=0.5:200;fire:100" --ticks 1)
+    set_tests_properties(sim_drive_check PROPERTIES PASS_REGULAR_EXPRESSION
+        "sim_check: ok")
+    gm_label(sim_drive_check quick)
     # The whole shipped corpus once: no level may crash the headless tick.
     add_test(NAME sim_corpus
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/sim_check.py
@@ -148,6 +155,13 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     set_tests_properties(sim_corpus PROPERTIES PASS_REGULAR_EXPRESSION
         "36 levels, 100 ticks, 0 failed")
     gm_label(sim_corpus full)
+    # M6.5.1: the scripted player moves and fires through the proven
+    # controller and weapon seams (`docs/SIM_PLAYER.md`).
+    add_test(NAME cli_sim_drive
+             COMMAND gunmetal --sim dm1 --sim-drive "fire:300")
+    set_tests_properties(cli_sim_drive PROPERTIES PASS_REGULAR_EXPRESSION
+        "shots=[1-9][0-9]* slot=0 ammo=")
+    gm_label(cli_sim_drive quick)
     # M11.6: every shipped BIGFILE pair repacked byte for byte.
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/bigpack-tmp")
     add_test(NAME bigpack_roundtrip
@@ -165,6 +179,12 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     gm_label(sceneedit_roundtrip quick)
     # M11.2: every world survives read -> write -> compare, and the field
     # ranges of the shipped corpus are inside the documented bounds.
+    add_test(NAME lightmapedit_roundtrip
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/lightmapedit.py
+                     --roundtrip)
+    set_tests_properties(lightmapedit_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
+        "round-trip: 51/51 identical")
+    gm_label(lightmapedit_roundtrip quick)
     add_test(NAME sbwedit_roundtrip
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwedit.py
                      --roundtrip)
@@ -699,6 +719,13 @@ if(GM_PYTHON3)
     gm_label(perf_selftest quick)
 
     # M11.2: polygon fields of the world (.sbw) - tools/editor/sbwedit.py.
+    # M11.2: lightmaps (.sbc) - fill/scale/import with an oracle check.
+    add_test(NAME lightmapedit_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/lightmapedit.py
+                     --self-test)
+    set_tests_properties(lightmapedit_selftest PROPERTIES PASS_REGULAR_EXPRESSION
+        "70/70 passed")
+    gm_label(lightmapedit_selftest quick)
     add_test(NAME sbwedit_selftest
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwedit.py
                      --self-test)
