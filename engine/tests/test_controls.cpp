@@ -467,6 +467,15 @@ void test_real_key_files(const fs::path& keycfg) {
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
     }};
 
+    // `KEYCFG/*.KEY` are user data: the game rewrites them when controls are
+    // remapped.  Exact shipped values are checked only while the install still
+    // matches docs/manifests/gunmetal-3dfx-136.sha256 (CMake then sets
+    // GM_KEYCFG_SHIPPED); otherwise the parser invariants below still run.
+    const bool shipped = std::getenv("GM_KEYCFG_SHIPPED") != nullptr;
+    if (!shipped) {
+        std::printf("controls: KEYCFG is user-modified, exact shipped values skipped\n");
+    }
+
     for (const Golden& golden : goldens) {
         Controls controls;
         std::string error;
@@ -476,16 +485,15 @@ void test_real_key_files(const fs::path& keycfg) {
             std::fprintf(stderr, "  %s: %s\n", golden.file, error.c_str());
             continue;
         }
-        CHECK_EQ(controls.profile().name, std::string(golden.name));
         CHECK_EQ(controls.profile().bytes_read, std::size_t(gm::kKeyFileSize));
         CHECK(!controls.profile().have_tail);
         CHECK(controls.unknown_keys().empty());
+        CHECK_EQ(controls.profile().pairs.size(), std::size_t(gm::kKeyPairCount));
 
+        // Parser self-consistency holds for any profile, shipped or remapped.
         int bound = 0;
         for (int slot = 0; slot < gm::kActionCount; ++slot) {
             const gm::KeyPair& pair = controls.profile().pairs[static_cast<std::size_t>(slot)];
-            CHECK_EQ(pair.a, golden.codes[static_cast<std::size_t>(slot)]);
-            CHECK_EQ(pair.b, 0u);
             if (pair.a != 0) {
                 ++bound;
                 CHECK_EQ(controls.profile().bindings[static_cast<std::size_t>(slot)].key,
@@ -493,6 +501,15 @@ void test_real_key_files(const fs::path& keycfg) {
                 CHECK_EQ(controls.map_key(static_cast<int>(pair.a)).value_or(""),
                          std::string(gm::Controls::action_name(slot)));
             }
+        }
+        if (!shipped) {
+            continue;
+        }
+        CHECK_EQ(controls.profile().name, std::string(golden.name));
+        for (int slot = 0; slot < gm::kActionCount; ++slot) {
+            const gm::KeyPair& pair = controls.profile().pairs[static_cast<std::size_t>(slot)];
+            CHECK_EQ(pair.a, golden.codes[static_cast<std::size_t>(slot)]);
+            CHECK_EQ(pair.b, 0u);
         }
         CHECK_EQ(bound, golden.bound);
 
@@ -506,7 +523,6 @@ void test_real_key_files(const fs::path& keycfg) {
         CHECK_EQ(controls.profile().pairs[43].a, 2703360u);
         CHECK_EQ(controls.profile().pairs[44].a, 1761392u);
         CHECK_EQ(controls.profile().pairs[44].b, 2000535658u);
-        CHECK_EQ(controls.profile().pairs.size(), std::size_t(gm::kKeyPairCount));
     }
 
     // Characteristic bindings of each shipped layout.
@@ -516,6 +532,9 @@ void test_real_key_files(const fs::path& keycfg) {
     CHECK(perfect.load_key_file(keycfg / "PERFECT.key"));
     CHECK(split1.load_key_file(keycfg / "SPLIT1.KEY"));
     CHECK(split2.load_key_file(keycfg / "SPLIT2.KEY"));
+    if (!shipped) {
+        return;
+    }
     CHECK_EQ(perfect.map_key(0x11).value_or(""), std::string("forward"));
     CHECK_EQ(perfect.map_key(0x2E).value_or(""), std::string("look_center"));
     CHECK_EQ(split1.map_key(0x16).value_or(""), std::string("forward"));

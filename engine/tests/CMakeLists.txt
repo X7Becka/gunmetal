@@ -170,6 +170,27 @@ target_link_libraries(gm_controls_tests PRIVATE gm_engine)
 # 5/15/5/15, four identical controller records).
 add_test(NAME controls COMMAND gm_controls_tests)
 gm_label(controls quick)
+# KEYCFG/*.KEY are user data (the game rewrites them on remap), so the exact
+# shipped values are pinned only while the files still match the 1.36
+# manifest; a remapped install checks the parser invariants instead.
+set(_keycfg_shipped TRUE)
+foreach(_pair "PERFECT.key;3cbf40d9742e4589545074b8c7e121809e7dfd81e138bb55f59cf3fa56bf56f5"
+              "SPLIT1.KEY;9f9798ec4ebb3c85b5cf0c8df26aea607b03c2cd7dc83d62a6dda7b9e97b058d"
+              "SPLIT2.KEY;6025740645e5329b9fbebae6ce0f184e22b6e61fd92457edf0c652c7a4ee89c3")
+    list(GET _pair 0 _name)
+    list(GET _pair 1 _sha)
+    if(EXISTS "/mnt/d/games/Gunmetal 3dfx/KEYCFG/${_name}")
+        file(SHA256 "/mnt/d/games/Gunmetal 3dfx/KEYCFG/${_name}" _actual)
+        if(NOT _actual STREQUAL _sha)
+            set(_keycfg_shipped FALSE)
+        endif()
+    else()
+        set(_keycfg_shipped FALSE)
+    endif()
+endforeach()
+if(_keycfg_shipped)
+    set_tests_properties(controls PROPERTIES ENVIRONMENT "GM_KEYCFG_SHIPPED=1")
+endif()
 
 add_executable(gm_sou2_tests test_sou2.cpp)
 target_link_libraries(gm_sou2_tests PRIVATE gm_engine)
