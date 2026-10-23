@@ -60,6 +60,7 @@ DOC_FILES = {
     "SBT_WRITE": "docs/SBT_WRITE.md",
     "SCENE_EDIT": "docs/SCENE_EDIT.md",
     "SBW_EDIT": "docs/SBW_EDIT.md",
+    "SCRIPT_DEBUG": "docs/SCRIPT_DEBUG.md",
 }
 
 
@@ -1282,6 +1283,25 @@ def c_sbw_corpus(env):
     ok = (len(paths), objects, polygons, total) == (36, 28192, 235069, 40037031)
     return "%d / %d / %d / %d" % (len(paths), objects, polygons, total), ok, \
         "все .sbw в корне установки"
+
+
+
+# --------------------------------------------------------------------------
+# SCRIPT_DEBUG (M11.4): the block/byte counts of the debugger's table
+# --------------------------------------------------------------------------
+
+@check("SCRIPT_DEBUG", "level0: 350 блоков / 62497 байт", "350 / 62497")
+def c_script_corpus(env):
+    from gm.sbt import parse_file
+
+    parsed = parse_file(os.path.join(env.game, "level0.sbt"))
+    records = parsed.records_of(11)
+    if not records:
+        return "нет SCRIPT", False, "level0.sbt без записи 11"
+    script = records[0].payload
+    ok = (script.n, script.m) == (350, 62497) and len(script.code) == script.m
+    return "%d / %d" % (script.n, script.m), ok, \
+        "SCRIPT: handles (подскрипты) / длина кода"
 
 
 def main(argv=None) -> int:
