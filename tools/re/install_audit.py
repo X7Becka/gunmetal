@@ -93,7 +93,16 @@ NON_GAME_MARK = "не игровой"          # gm.py INVENTORY status prefix
 # 'сохранение: "GUNMETAL.CFG" в режиме "wb"'), so its bytes depend on when
 # the game last ran.  The manifest holds an earlier snapshot; a difference
 # here is expected drift, not damage, and is reported as ``volatile``.
-VOLATILE_FILES = frozenset({"GUNMETAL.CFG"})
+VOLATILE_FILES = frozenset({
+    "GUNMETAL.CFG",
+    # The control profiles are rewritten by the game's options screen whenever
+    # the player rebinds a key (docs/CONTROLS_CPP.md): the manifest snapshot
+    # then legitimately differs.  The C++ `controls` test treats them the same
+    # way (exact shipped values only while the sha256 matches the manifest).
+    "KEYCFG/PERFECT.key",
+    "KEYCFG/SPLIT1.KEY",
+    "KEYCFG/SPLIT2.KEY",
+})
 
 
 # --------------------------------------------------------------------------

@@ -159,10 +159,10 @@ CHASSIS_HEADER = [
      "предел массы -> player+0x81c378 (1000 по умолчанию)"),
     ((1, 2), 0x18, "f64", "speed_penalty", "код", "0x47ac9b 0x4525d5",
      "штраф скорости на единицу массы сверх предела"),
-    (3, 0x14c, "u32", "armor_x100", "код", "0x47acad 0x479dfc 0x47a00c",
-     "броня: в игрока пишется x100 (0x47acc5)"),
-    (4, 0x150, "u32", "armor_cap_x100", "код", "0x47acd4",
-     "предел брони: x100 (0x47ace0)"),
+    (3, 0x14c, "u32", "shield_max_x100", "код", "0x47acad 0x479dfc 0x47a00c",
+     "щиты: x100 -> player+0x324c, затем 4 плиты (0x47acc5, 0x452de4)"),
+    (4, 0x150, "u32", "armor_max_x100", "код", "0x47acd4",
+     "броня: x100 -> player+0x3244 (0x47ace0, 0x452dd8)"),
     ((5, 6), 0x20, "f64", "max_speed", "код", "0x47ac77 0x47ac83",
      "базовая максимальная скорость (ед/тик)"),
     (7, 0x154, "u32", "model_index", "код", "0x47af34",
@@ -511,8 +511,10 @@ def verify_levels(paths):
             light = got["LIGHT"]
             expect(light[0x148][1] == 500, "%s: LIGHT weight_limit=%d"
                    % (path, light[0x148][1]))
-            expect(light[0x14c][1] == 8000, "%s: LIGHT armor*100=%d"
+            expect(light[0x14c][1] == 8000, "%s: LIGHT shield_max*100=%d"
                    % (path, light[0x14c][1]))
+            expect(light[0x150][1] == 10000, "%s: LIGHT armor_max*100=%d"
+                   % (path, light[0x150][1]))
             expect(abs(light[0x20][1] - 1.7) < 1e-6, "%s: LIGHT max_speed=%r"
                    % (path, light[0x20][1]))
             expect(abs(light[0x60][1] - 0.9) < 1e-9,
