@@ -1,5 +1,6 @@
 #include "core/config.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <sstream>
 #include <system_error>
@@ -52,6 +53,34 @@ bool parse_vec3(std::string_view text, std::array<double, 3>& out) {
         start = end + 1;
     }
     return true;
+}
+
+/// Comma-separated finite doubles with `min_count..max_count` components
+/// (`--listener X,Y,Z[,YAW]`, docs/AUDIO_3D.md §13).
+bool parse_double_list(std::string_view text, std::vector<double>& out, std::size_t min_count,
+                       std::size_t max_count) {
+    out.clear();
+    std::size_t start = 0;
+    for (;;) {
+        const std::size_t comma = text.find(',', start);
+        const std::size_t end = comma == std::string_view::npos ? text.size() : comma;
+        try {
+            std::size_t used = 0;
+            const std::string part(text.substr(start, end - start));
+            const double parsed = std::stod(part, &used);
+            if (used != part.size() || !std::isfinite(parsed)) {
+                return false;
+            }
+            out.push_back(parsed);
+        } catch (const std::exception&) {
+            return false;
+        }
+        if (comma == std::string_view::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    return out.size() >= min_count && out.size() <= max_count;
 }
 
 } // namespace
@@ -220,6 +249,40 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             options.sample_play = std::string(*v);
         } else if (arg == "--twice") {
             options.twice = true;
+        } else if (arg == "--listener") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            std::vector<double> parts;
+            if (!parse_double_list(*v, parts, 3, 4)) {
+                error = "--listener expects X,Y,Z[,YAW] (yaw in radians)";
+                return std::nullopt;
+            }
+            options.listener = {parts[0], parts[1], parts[2]};
+            options.listener_yaw = parts.size() == 4 ? parts[3] : 0.0;
+            options.has_listener = true;
+        } else if (arg == "--volume") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            if (!parse_int(*v, options.sample_volume) || options.sample_volume < 1 ||
+                options.sample_volume > 32) {
+                error = "--volume expects an integer 1..32";
+                return std::nullopt;
+            }
+        } else if (arg == "--atten") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            std::vector<double> parts;
+            if (!parse_double_list(*v, parts, 1, 1) || parts[0] < 0.0) {
+                error = "--atten expects a non-negative number";
+                return std::nullopt;
+            }
+            options.sample_atten = parts[0];
         } else if (arg == "--song") {
             const auto v = value(arg);
             if (!v) {
@@ -744,6 +807,11 @@ std::string usage() {
        << "      --sample NAME resolve a sample name like the engine (sounds, then music)\n"
        << "      --sample-play NAME  decode a level sample through SampleCache and play it\n"
        << "      --twice       with --sample-play: acquire the same name twice (cache hit)\n"
+       << "      --pos X,Y,Z   camera eye; with --sample-play: the source position\n"
+       << "      --listener X,Y,Z[,YAW]  with --sample-play: listener pose, YAW in radians\n"
+       << "                    (default 0,0,0,0); turns on the 3D path, stereo output\n"
+       << "      --volume N    with --sample-play: 5-bit volume 1..32 (default 32 = 64)\n"
+       << "      --atten A     with --sample-play: falloff per unit (default 0.03)\n"
        << "      --music NAME  play MUSIC/NAME.sog through the SOG playlist\n"
        << "      --scene NAME  print the level script scene (lights/doors/items...)\n"
        << "      --sim NAME    headless fixed-tick run of a level (no window)\n"
@@ -770,7 +838,6 @@ std::string usage() {
        << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"
-       << "      --pos X,Y,Z   camera eye in world space (with --look)\n"
        << "      --look X,Y,Z  camera target in world space\n"
        << "      --clip N      drop faces farther than N from the eye\n"
        << "      --headless    do not create a window\n"
