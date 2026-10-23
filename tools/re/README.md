@@ -67,6 +67,7 @@ python3 regress.py --mirror                   # сам синхронизиру�
 | `exelib.py` | общий модуль: разбор PE, `va2off`/`off2va`, `cstr`, `strings_in`, `sig_size`, чтение листинга (кэш + индекс) |
 | `gmcache.py` | постоянный кэш реверса: листинг/индекс/копия exe, зеркало установки, `status`/`build`/`mirror`/`selftest` |
 | `export_parity.py` | экспорт ожидаемых значений Python-парсеров (`sbw`/`sbt`/`sbc`/`sbm` из `SBM.IDX`/`sob`) в текстовый файл — контракт для C++ `test_parity`; `--out`/`--stats`/`--self-test` (12 проверок) |
+| `ui_screens.py` | экранный автомат фронтенда: 33 экрана, 34 перехода (таблица `0x4883d8`, id 5..37), слоты сейвов, KEYCFG, UI-ассеты; `--map`/`--assets`/`--json`/`--self-test` (498 проверок) |
 | `game_content.py` | FNV-1a64 канонического содержимого `.sbt`/`.sbw` по манифесту; `--check` ловит переставленные/переименованные файлы, `--write` обновляет `engine/tests/game_content.h` |
 | `install_audit.py` | аудит установки по `docs/manifests/gunmetal-3dfx-136.sha256`: ok/renamed/missing/modified/volatile/extra, группы swap, `--strict`/`--json`/`--jobs`; 2161 файл за 4,3 с; установку только читает |
 | `disrange.py` | печать диапазона VA из листинга: `disrange.py 450be0 450d60` |
