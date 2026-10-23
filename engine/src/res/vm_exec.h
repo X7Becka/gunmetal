@@ -461,6 +461,11 @@ struct VmState {
     int player_count = 1;
     int difficulty = 1;
     int level_number = 0;
+    /// Mission counter `ds:0x80f9cc` (docs/CAMPAIGN_FLOW.md §4): a new game
+    /// sets 1, `NEXT_LEVEL` builds `LEVEL<n>` from it and then increments
+    /// (0x457b17..0x457b2f), `NEXT_LEVEL_NUMBER` compares it (0x45ea26),
+    /// "restart level from HQ" decrements it (0x44295e, floor 1).
+    int mission_counter = 1;
     bool god_mode = false;
 
     std::string level_name;

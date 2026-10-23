@@ -1117,6 +1117,7 @@ VmState vm_state_from_level(const SbtLevel& level, const VmContext& context) {
     state.player_count = context.player_count;
     state.difficulty = context.difficulty;
     state.level_number = context.level_number;
+    state.mission_counter = context.level_number > 0 ? context.level_number : 1;
     state.god_mode = context.god_mode;
     state.rng = context.seed & 0x7FFFFFFFu;
     state.source_player = context.source_player;
@@ -1900,8 +1901,8 @@ std::optional<bool> VmExecutor::check(VmState& state, int cid,
         const std::uint32_t mask = (1u << n) - 1u;
         return (state.objectives_bits & mask) == mask;
     }
-    case 8: // NEXT_LEVEL_NUMBER
-        return state.level_number == arg_i32(args.at(0));
+    case 8: // NEXT_LEVEL_NUMBER (0x45ea26: ds:0x80f9cc == n)
+        return state.mission_counter == arg_i32(args.at(0));
     case 9: // SOURCE_IS_PLAYER
         return state.source_player.has_value();
     case 10: // SOURCE_IS_LOCAL_PLAYER_ONE
@@ -2161,8 +2162,16 @@ std::optional<std::size_t> VmExecutor::h_stop_sleeping(VmState& state, const VmI
     return std::nullopt;
 }
 
-std::optional<std::size_t> VmExecutor::h_transition(VmState& /*state*/,
+std::optional<std::size_t> VmExecutor::h_transition(VmState& state,
                                                     const VmInsn& insn) {
+    // `NEXT_LEVEL` with no operand is the campaign step: the target name is
+    // built from the counter *before* the increment (0x457b17..0x457b2f).
+    if (insn.name == "NEXT_LEVEL" && insn.args.empty()) {
+        const std::string detail =
+            "NEXT_LEVEL LEVEL" + std::to_string(state.mission_counter);
+        ++state.mission_counter;
+        throw HaltSignal{VmReason::LevelTransition, insn.pc, detail};
+    }
     throw HaltSignal{VmReason::LevelTransition, insn.pc,
                      insn.name + " " + args_text(insn.args)};
 }

@@ -638,9 +638,19 @@ class State:
     player_count: int = 1
     difficulty: int = 1
     level_number: int = 0
+    #: Mission counter `ds:0x80f9cc` (docs/CAMPAIGN_FLOW.md §4).
+    mission_counter: int = 1
     god_mode: bool = False
     level_name: str = ""
     level: dict = field(default_factory=dict)          # SET_LEVEL_* values
+    #: Music banks and the playing bank (LOAD/PLAY/STOP/UNLOAD + memorize):
+    #: 0x40b8a0 is the only playback site (docs/UI_SOUNDS.md §3).
+    music_banks: dict = field(default_factory=dict)
+    music_bank: int | None = None
+    music_memorized: int | None = None
+    music_playing: bool = False
+    #: ADD_SCREEN_TEXT / ADD_SOURCESCREEN_TEXT: (slot, text) in script order.
+    screen_text: list = field(default_factory=list)
     objectives: list = field(default_factory=list)     # names (DEFINE_*)
     objectives_bits: int = 0
     defs: dict = field(default_factory=dict)           # DEFINE_* record lists
@@ -928,7 +938,7 @@ class Executor:
             return (st.objectives_bits & ((1 << len(st.objectives)) - 1)) == \
                 ((1 << len(st.objectives)) - 1)
         if cid == 8:                                   # NEXT_LEVEL_NUMBER
-            return st.level_number == s32(a[0])
+            return st.mission_counter == s32(a[0])
         if cid == 9:                                   # SOURCE_IS_PLAYER
             return st.source_player is not None
         if cid == 10:                                  # SOURCE_IS_LOCAL_PLAYER_ONE
@@ -1145,6 +1155,14 @@ class Executor:
                 _op("ADD_SOURCEPLAYER_SALVAGE"): self._h_salvage,
                 _op("ADJUST_SOURCEPLAYER_MORALE"): self._h_morale,
                 _op("INCREMENT_SOURCEPLAYER_SECRET_TALLY"): self._h_secret,
+                _op("LOAD_MUSIC"): self._h_music,
+                _op("PLAY_MUSIC"): self._h_music,
+                _op("STOP_MUSIC"): self._h_music,
+                _op("UNLOAD_MUSIC"): self._h_music,
+                _op("MEMORIZE_CURRENT_MUSIC_BANK"): self._h_music,
+                _op("PLAY_MEMORIZED_MUSIC_BANK"): self._h_music,
+                _op("ADD_SCREEN_TEXT"): self._h_screen_text,
+                _op("ADD_SOURCESCREEN_TEXT"): self._h_screen_text,
                 _op("DEFINE_SHIELDS"): self._h_def,
                 _op("DEFINE_VIRUS"): self._h_def,
                 _op("DEFINE_REGENERATION_MARKER"): self._h_def,
@@ -1188,7 +1206,47 @@ class Executor:
         self._event(st, ins, note="sleep %d" % s32(ins.args[0]))
         return None
 
+    def _h_music(self, st, ins):
+        """Music bank state (M5.2.5); the event is the one the generic log had."""
+        if ins.name == "LOAD_MUSIC" and len(ins.args) >= 2:
+            st.music_banks[s32(ins.args[0])] = str(ins.args[1])
+        elif ins.name == "PLAY_MUSIC" and ins.args:
+            st.music_bank = s32(ins.args[0])
+            st.music_playing = True
+        elif ins.name == "STOP_MUSIC":
+            st.music_playing = False
+        elif ins.name == "UNLOAD_MUSIC" and ins.args:
+            bank = s32(ins.args[0])
+            st.music_banks.pop(bank, None)
+            if st.music_bank == bank:
+                st.music_playing = False
+        elif ins.name == "MEMORIZE_CURRENT_MUSIC_BANK":
+            st.music_memorized = st.music_bank
+        elif (ins.name == "PLAY_MEMORIZED_MUSIC_BANK"
+              and st.music_memorized is not None):
+            st.music_bank = st.music_memorized
+            st.music_playing = True
+        self._event(st, ins)
+        return None
+
+    def _h_screen_text(self, st, ins):
+        slot = 0
+        text = ""
+        for value in ins.args:
+            if isinstance(value, str):
+                text = value
+            else:
+                slot = s32(value)
+        st.screen_text.append((slot, text))
+        self._event(st, ins)
+        return None
+
     def _h_transition(self, st, ins):
+        if ins.name == "NEXT_LEVEL" and not ins.args:
+            # 0x457b17..0x457b2f: name from the counter, then +1.
+            detail = "NEXT_LEVEL LEVEL%d" % st.mission_counter
+            st.mission_counter += 1
+            raise Halt(LEVEL_TRANSITION, ins.pc, detail)
         raise Halt(LEVEL_TRANSITION, ins.pc,
                    "%s %r" % (ins.name, ins.args))
 
@@ -1603,6 +1661,7 @@ def state_from_script(script, *, game_mode: int = 0, player_count: int = 1,
     st = State(code=bytes(script.code), game_mode=game_mode,
                mp_flags=mp_flags, player_count=player_count,
                difficulty=difficulty, level_number=level_number,
+               mission_counter=level_number if level_number > 0 else 1,
                god_mode=god_mode, rng=seed & 0x7FFFFFFF,
                source_player=source_player)
     for i in range(players):

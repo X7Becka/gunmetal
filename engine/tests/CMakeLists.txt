@@ -31,6 +31,12 @@ target_link_libraries(gm_vm_music_tests PRIVATE gm_engine)
 add_test(NAME vm_music COMMAND gm_vm_music_tests)
 gm_label(vm_music quick)
 
+# M9.1: the mission counter ds:0x80f9cc (NEXT_LEVEL / NEXT_LEVEL_NUMBER).
+add_executable(gm_vm_campaign_tests test_vm_campaign.cpp)
+target_link_libraries(gm_vm_campaign_tests PRIVATE gm_engine)
+add_test(NAME vm_campaign COMMAND gm_vm_campaign_tests)
+gm_label(vm_campaign quick)
+
 add_test(NAME core COMMAND gm_tests)
 gm_label(core quick)
 
