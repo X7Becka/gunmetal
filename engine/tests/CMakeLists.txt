@@ -698,6 +698,16 @@ target_link_libraries(gm_sim_projectile_tests PRIVATE gm_engine)
 add_test(NAME sim_projectile COMMAND gm_sim_projectile_tests)
 gm_label(sim_projectile quick)
 
+# M6.5.1 slice 3: player damage, death and respawn (docs/SIM_DAMAGE.md).
+# Real dm1 + level0 ROCKET + the LIGHT starting gauges of saved0; point-blank
+# self-damage, fire until armor 0 (shields first), the no-op tick after death,
+# respawn() back to the starting feet/yaw and gauges, damage after respawn,
+# custom gauges via set_vitals(), a determinism replay and the negatives.
+add_executable(gm_sim_damage_tests test_sim_damage.cpp)
+target_link_libraries(gm_sim_damage_tests PRIVATE gm_engine)
+add_test(NAME sim_damage COMMAND gm_sim_damage_tests)
+gm_label(sim_damage quick)
+
 # The original's CRT `rand()` (docs/RNG.md): MSVC LCG `state*214013+2531011`,
 # output `(state >> 16) & 0x7FFF`, seeded from `time(nullptr)` at init
 # (`0x44A491`).  Goldens are the documented `srand(1)` sequence.

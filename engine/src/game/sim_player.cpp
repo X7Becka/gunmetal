@@ -12,6 +12,13 @@
 // projectile generation to `GameRuntime::apply_projectile_blasts`, storing the
 // caller-owned thing vitals back.  The round itself is stepped by the runtime;
 // nothing here re-implements `0x4752d0`.
+//
+// Slice 3 (`docs/SIM_DAMAGE.md`) gives the player real gauges: `set_vitals()`
+// stores the starting `Vitals`, the tick installs them on the runtime
+// (`set_player_vitals`) and blasts through
+// `apply_projectile_blasts_to_players`, reads `player_vitals()` back and
+// accumulates `damage_taken()`.  Death is `armor <= 0` -- the original rule of
+// `0x453b50`/`0x4536e0` -- and `respawn()` restores the starting pose/gauges.
 #include "game/sim_player.h"
 
 #include <cerrno>
@@ -29,6 +36,36 @@ bool fail(std::string* error, const std::string& text) {
         *error = text;
     }
     return false;
+}
+
+/// One line of `set_vitals()`: the save invariants of
+/// `docs/PLAYER_FIELDS.md` §11 (`0 < armor_max <= 10^6`, `0 <= armor <=
+/// armor_max`, `0 <= shields[i] <= shield_max`).  A gauge outside them would
+/// make `apply_damage_gauge()` meaningless (and `mult_*` non-finite would
+/// poison every later hit), so it is rejected instead of clamped.
+bool valid_vitals(const Vitals& vitals, std::string* error) {
+    if (vitals.armor_max <= 0) {
+        return fail(error, "set_vitals: armor_max must be > 0");
+    }
+    if (vitals.armor < 0 || vitals.armor > vitals.armor_max) {
+        return fail(error, "set_vitals: armor must be in 0..armor_max");
+    }
+    if (vitals.shield_max < 0) {
+        return fail(error, "set_vitals: shield_max must be >= 0");
+    }
+    for (std::size_t i = 0; i < vitals.shields.size(); ++i) {
+        if (vitals.shields[i] < 0 || vitals.shields[i] > vitals.shield_max) {
+            return fail(error, "set_vitals: shields[" + std::to_string(i) +
+                                   "] must be in 0..shield_max");
+        }
+    }
+    if (!std::isfinite(vitals.mult_plate) || vitals.mult_plate < 0.0) {
+        return fail(error, "set_vitals: mult_plate must be finite and >= 0");
+    }
+    if (!std::isfinite(vitals.mult_hull) || vitals.mult_hull < 0.0) {
+        return fail(error, "set_vitals: mult_hull must be finite and >= 0");
+    }
+    return true;
 }
 
 std::string_view trimmed(std::string_view text) {
@@ -225,6 +262,8 @@ bool SimPlayer::init(const Vec3d& feet, double yaw, const ChassisSpec& chassis,
     shots_fired_ = 0;
     last_weapon_ = PlayerWeaponTick{};
     last_step_ = StepResult{};
+    vitals_runtime_ = nullptr;
+    vitals_dirty_ = true;
 
     // Projectile mode survives re-init (the template is configuration), but
     // its per-life counters belong to the previous player: start clean.
@@ -256,7 +295,42 @@ bool SimPlayer::init(const Vec3d& feet, double yaw, const ChassisSpec& chassis,
 
     config_ = config;
     state_ = make_state(feet, yaw, config_);
+    start_feet_ = feet;
+    start_yaw_ = yaw;
+
+    // `start_vitals_` is configuration and survives re-init (set_vitals() may
+    // be called before init()); every new life starts from it.
+    vitals_ = start_vitals_;
+    alive_ = vitals_.armor > 0;
+    death_tick_ = -1;
+    deaths_ = 0;
+    damage_taken_ = 0;
     initialized_ = true;
+    return true;
+}
+
+bool SimPlayer::set_vitals(const Vitals& vitals, std::string* error) {
+    if (!valid_vitals(vitals, error)) {
+        return false;
+    }
+    start_vitals_ = vitals;
+    vitals_ = vitals;
+    alive_ = vitals.armor > 0;
+    vitals_dirty_ = true; // installed on the runtime by the next tick()
+    return true;
+}
+
+bool SimPlayer::respawn(std::string* error) {
+    if (!initialized_) {
+        return fail(error, "respawn: SimPlayer::init() has not been called");
+    }
+    state_ = make_state(start_feet_, start_yaw_, config_);
+    vitals_ = start_vitals_;
+    alive_ = vitals_.armor > 0;
+    vitals_dirty_ = true;
+    ++deaths_;
+    last_step_ = StepResult{};
+    last_weapon_ = PlayerWeaponTick{};
     return true;
 }
 
@@ -271,6 +345,12 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
     if (!std::isfinite(segment.forward) || !std::isfinite(segment.strafe) ||
         !std::isfinite(segment.turn)) {
         return fail(error, "tick: segment forward/strafe/turn must be finite");
+    }
+    if (!alive_) {
+        // Dead player: a successful no-op.  Nothing moves, nothing fires and
+        // the runtime is not ticked, so the state, the tick counter and the
+        // gauges stop changing until `respawn()` (docs/SIM_DAMAGE.md §4).
+        return true;
     }
 
     // Projectile mode (slice 2): the runtime must know the template before the
@@ -307,6 +387,12 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
     if (!runtime.set_player_eyes(eyes)) {
         return fail(error, "player eye point rejected by the runtime");
     }
+    // The gauges live on the runtime (`set_player_vitals`): one per eye point,
+    // so they can only be installed after `set_player_eyes()` and must be
+    // re-installed per runtime / after set_vitals()/respawn().
+    if (!install_vitals(runtime, error)) {
+        return false;
+    }
 
     // Commit only after every check passed, so `state()` stays unchanged by a
     // failed tick.
@@ -339,7 +425,31 @@ bool SimPlayer::tick(GameRuntime& runtime, const DriveSegment& segment,
     // not do this; without `set_projectile()` nothing below runs.
     if (has_projectile()) {
         runtime.tick(1);
+        const Vitals before = vitals_;
         apply_blasts(runtime);
+        // The runtime owns the gauges it just wrote (`docs/RUNTIME_CPP.md` §7);
+        // copy them back so `vitals()`/the next tick see the damage.
+        const std::span<const Vitals> owned = runtime.player_vitals();
+        if (!owned.empty()) {
+            vitals_ = owned[0];
+        } else {
+            vitals_dirty_ = true; // eyes/vitals list was dropped behind our back
+        }
+        const auto lost = [](std::int32_t was, std::int32_t now) {
+            return was > now ? was - now : 0;
+        };
+        damage_taken_ += lost(before.armor, vitals_.armor);
+        for (std::size_t i = 0; i < vitals_.shields.size(); ++i) {
+            damage_taken_ += lost(before.shields[i], vitals_.shields[i]);
+        }
+        // Death rule of the original `0x453b50` -> `0x4536e0` (docs/DAMAGE.md
+        // §2.7/§3): the gauges are written first, then `armor <= 0` kills.  The
+        // `+0x3200 & 0x20` bit of the original is the shield-hit flash, not
+        // death (docs/PLAYER_FIELDS.md §7, docs/SIM_DAMAGE.md §3).
+        if (alive_ && vitals_.armor <= 0) {
+            alive_ = false;
+            death_tick_ = ticks_done_;
+        }
     }
     return true;
 }
@@ -373,6 +483,21 @@ void SimPlayer::install_projectile(GameRuntime& runtime) {
     // through exactly as the caller built it.
     runtime.set_player_projectile(*projectile_, projectile_owner_, 0.0);
     projectile_runtime_ = &runtime;
+}
+
+bool SimPlayer::install_vitals(GameRuntime& runtime, std::string* error) {
+    if (!vitals_dirty_ && vitals_runtime_ == &runtime) {
+        return true;
+    }
+    const std::span<const Vitals> span(&vitals_, 1);
+    if (!runtime.set_player_vitals(span)) {
+        // The only documented rejection is a size mismatch with the eye list,
+        // and `set_player_eyes({eye})` above always made it one.
+        return fail(error, "player vitals rejected by the runtime");
+    }
+    vitals_runtime_ = &runtime;
+    vitals_dirty_ = false;
+    return true;
 }
 
 void SimPlayer::apply_blasts(GameRuntime& runtime) {
@@ -410,8 +535,9 @@ void SimPlayer::apply_blasts(GameRuntime& runtime) {
     }
 
     // Thing vitals are caller-owned (`docs/RUNTIME_CPP.md` §7): copy them out,
-    // let the bridge write damage into the copy, then store it back.  Player
-    // vitals stay empty: this slice has no player damage.
+    // let the bridge write damage into the copy, then store it back.  The
+    // player gauges are runtime-owned (`install_vitals`), so the bridge takes
+    // them from `player_vitals_` -- this is the slice-3 damage path.
     const std::vector<Thing>& things = runtime.things().things();
     std::vector<ThingVitals> vitals;
     vitals.reserve(things.size());
@@ -422,9 +548,8 @@ void SimPlayer::apply_blasts(GameRuntime& runtime) {
     ProjectileBlastContext context;
     context.source_player = projectile_owner_;
     context.source_thing = -1;
-    const std::span<Vitals> no_player_vitals;
     const ProjectileBlastBatch batch =
-        runtime.apply_projectile_blasts(*weapon, context, no_player_vitals, vitals);
+        runtime.apply_projectile_blasts_to_players(*weapon, context, vitals);
     if (batch.blasts == 0) {
         return;
     }
@@ -435,7 +560,7 @@ void SimPlayer::apply_blasts(GameRuntime& runtime) {
     }
     for (const AppliedBlastHit& hit : batch.damage.hits) {
         if (hit.hit.is_player) {
-            continue; // counted in blast_hits() only (no player damage here)
+            continue; // counted in blast_hits(); its damage is in player_vitals()
         }
         const auto index = static_cast<std::size_t>(hit.hit.index);
         if (index >= vitals.size() || vitals[index].max_hp <= 0) {
