@@ -341,7 +341,7 @@ engine-corrupt,self-test}`), человеческие строки подавл�
 | `fixture.sbm` | 4 | `log2w 3→13` | `ValueError: implausible dimensions` | rc=2 `[error] sbm: implausible dimensions 2^13 x 2^3` |
 | `fixture.sob` | 1 | `'3'→'9'` (вершин) | `ValueError: truncated vertex list` | rc=2 `[error] sob: bad vertex 3` |
 | `fixture.soo` | 0 | `'0'→'x'` (mode) | `ValueError: header is not two integers` | rc=2 `[error] soo: not a .soo: header is not two integers` |
-| `fixture.sml` | 0 | `'<'→'x'` | `CheckFailed` (нет `<d>`) | **rc=0** — ограничение, см. §6.2 |
+| `fixture.sml` | 0 | `'<'→'x'` | `CheckFailed` (нет `<d>`) | **rc=2**, `[error] dump: not SML markup`, см. §6.2 |
 | `fixture.idx` | 20 | offset `0→255` | `ValueError: entry 0 offset 255 beyond DAT` | rc=2 `[error] dump: entry 'FIXTURE' has a bad offset` |
 
 Проверка движка (фрагмент вывода `--engine`):
@@ -381,14 +381,18 @@ engine-corrupt,self-test}`), человеческие строки подавл�
 изменение поведения обоих читателей — отдельная задача, здесь не делалось
 (общие файлы `gm/*`, `engine/src/*` в этой задаче не правятся).
 
-### 6.2 `.sml`: движок не считает битую разметку ошибкой
+### 6.2 `.sml`: битая разметка теперь ошибка (исправлено 2026-10-23)
 
 `gunmetal --dump x.sml` при провале `parse_sml` уходит в резервную ветку
-(скан тегов + `sml_plain`) и возвращает 0 (`engine/src/main.cpp`, ветка
-`.sml`/`.sme`). Поэтому порча первого `<` даёт `rc=0`; оракул её ловит
-(`sml._valid_document`). Это ограничение движка, зафиксировано в `--engine`
-как `[note]`/`limitations` и **не** замаскировано: сам файл `fixture.sml`
-движок разбирает правильно (`document: ok`, 6 тегов).
+(скан тегов + `sml_plain`). Раньше она возвращала 0 на любом входе; теперь
+файл, который не разбирается **и** не обрамлён разметкой (`<...>`), даёт
+`[error] dump: not SML markup: the document does not parse and has no <...>
+frame` и `rc=2` (DoD: «тихие пропуски» запрещены). Поставочный
+`SML/prelevel/dm4.sml` — несбалансированная, но настоящая разметка, поэтому
+он остаётся на резервной ветке с `[warn]` и `rc=0` (проверено: 148 из 149
+файлов разбираются нормально, `dm4.sml` — единственное исключение).
+Порча первого `<` у `fixture.sml` теперь ловится движком (`rc=2`), оракул
+`gm.sml` тоже её отвергает.
 
 ### 6.3 Читатели не сверяют «хвост» `.sbw`/`.sbc`/`.sbm`/`.sbt` с размером
 

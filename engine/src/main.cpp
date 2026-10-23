@@ -294,6 +294,20 @@ int dump_file(const gm::Options& options) {
         }
         const auto plain = encoded ? gm::sml_decode(*bytes) : *bytes;
         const std::string_view text(reinterpret_cast<const char*>(plain.data()), plain.size());
+        // A file that neither parses as a document nor is framed by markup is a
+        // broken asset (DoD: no silent skip, rc=2).  The shipped
+        // `SML/prelevel/dm4.sml` is unbalanced markup, so it keeps the summary
+        // path with a warning.
+        const std::size_t first = text.find_first_not_of(" \t\r\n");
+        const std::size_t last = text.find_last_not_of(" \t\r\n");
+        if (first == std::string_view::npos || text[first] != '<' ||
+            last == std::string_view::npos || text[last] != '>') {
+            gm::logf(gm::LogLevel::Error, "dump",
+                     "not SML markup: the document does not parse and has no <...> frame");
+            return 2;
+        }
+        gm::logf(gm::LogLevel::Warn, "dump",
+                 "the document is not well-formed; the summary below is best effort");
         const auto tags = gm::sml_tags(text);
         std::printf("kind: SML markup\n");
         std::printf("encoded: %s\n", encoded ? "yes" : "no");

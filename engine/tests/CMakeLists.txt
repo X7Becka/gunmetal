@@ -823,6 +823,26 @@ if(GM_PYTHON3)
     # (docs/SCRIPT_DEBUG.md); the self-test is synthetic, no game needed.
     # M3.2.1: C++ structs, the Python parsers and the shipped data must agree
     # with the declared schema (docs/SCHEMA.md).
+    # M3.2.7: minimal synthetic fixtures of every format; the engine reads the
+    # same bytes (`fixtures_check` consumes the dir `fixtures_write` produced).
+    add_test(NAME fixtures_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/fixtures.py
+                     --self-test)
+    set_tests_properties(fixtures_selftest PROPERTIES PASS_REGULAR_EXPRESSION
+        "status: ok")
+    gm_label(fixtures_selftest quick)
+    add_test(NAME fixtures_write
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/fixtures.py
+                     --write ${CMAKE_BINARY_DIR}/fixtures)
+    set_tests_properties(fixtures_write PROPERTIES FIXTURES_SETUP gm_fixtures)
+    gm_label(fixtures_write quick)
+    add_test(NAME fixtures_check
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/fixtures.py
+                     --check ${CMAKE_BINARY_DIR}/fixtures --engine
+                     --binary $<TARGET_FILE:gunmetal>)
+    set_tests_properties(fixtures_check PROPERTIES FIXTURES_REQUIRED gm_fixtures
+        PASS_REGULAR_EXPRESSION "status: ok")
+    gm_label(fixtures_check quick)
     add_test(NAME schema_check_selftest
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/schema_check.py
                      --self-test)

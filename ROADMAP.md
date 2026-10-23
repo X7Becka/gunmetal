@@ -1059,6 +1059,19 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > скрипта; FNV-хэши и 36/36-паритет — в CTest.
 - 🟡 `M3.2.7` Тестовые векторы: Python экспортирует бинарные фикстуры, C++
       проверяет парсеры без Python в runtime.
+      > **Минимальные синтетические фикстуры — есть:** `tools/qa/fixtures.py` +
+      > `docs/FIXTURES.md` (CTest `fixtures_selftest`/`fixtures_write`/
+      > `fixtures_check`): 10 файлов (`.sbw` 365 Б, `.sbt` 4013 Б с SCRIPT +
+      > таблицей сэмплов, `.sbc` 16 Б, `.sbm` 76 Б, `.sob`, `.soo`, `.sml`,
+      > BIGFILE `.idx/.dat`), побайтовый `parse → to_bytes`, детерминизм
+      > записи, неизвестная запись — отдельный негативный файл. Движок читает
+      > те же байты и даёт те же числа (`--info`: vertices=4 polygons=1,
+      > records=3, SBC0 1 запись/4 текселя). Порча по байту: **8 из 9**
+      > отвергнуты движком с `rc=2`, девятый — `.sml`, и он **исправлен**
+      > (теперь `[error] dump: not SML markup`, `rc=2`; единственный
+      > поставочный несбалансированный `SML/prelevel/dm4.sml` остаётся с
+      > `[warn]`). Нет: фикстур сейвов и `.soa`-анимаций, полного покрытия
+      > семантики (нормали, UV).
       > `tools/re/export_parity.py` → `build/parity/fixtures.txt`,
       > `engine/tests/test_parity.cpp` (CTest `parity_fixtures` +
       > `parity`, фикстуры через `FIXTURES_SETUP/REQUIRED`). **288 проверок,
