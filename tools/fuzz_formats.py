@@ -53,7 +53,8 @@ from typing import Callable
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from gm import bigfile, sbc, sbm, sbt, sbv, sbw, sof, soo, sou1, soe, soa  # noqa: E402
+from gm import bigfile, sbc, sbm, sbt, sbv, sbw, sml, sof, sog, soo, sou  # noqa: E402
+from gm import soa, soe, sou1  # noqa: E402
 
 DEFAULT_GAME = os.environ.get("GUNMETAL_DIR", "/mnt/d/games/Gunmetal 3dfx")
 
@@ -76,7 +77,7 @@ CASES_SUBDIR = "cases"
 
 #: Bumped whenever the *content* of a generated case changes (the layout of
 #: the matrix, not the corpus format).  Recorded in the manifest meta.
-TOOL_VERSION = 2
+TOOL_VERSION = 3
 
 
 class Timeout(Exception):
@@ -427,6 +428,37 @@ def _load_sou1(game: str) -> bytes | None:
     return None if entry is None else archive.read(entry)
 
 
+def _load_sml(game: str) -> bytes | None:
+    path = os.path.join(game, "SML", "credits.sml")
+    if not os.path.exists(path):
+        path = _first_with_suffix(os.path.join(game, "SML"), ".sml")
+    return None if path is None else _read(path)
+
+
+def _load_sog(game: str) -> bytes | None:
+    path = os.path.join(game, "MUSIC", "Dm1A.sog")
+    if not os.path.exists(path):
+        path = _first_with_suffix(os.path.join(game, "MUSIC"), ".sog")
+    return None if path is None else _read(path)
+
+
+def _load_sou(game: str) -> bytes | None:
+    idx = os.path.join(game, "sounds", "SOU.IDX")
+    if not os.path.exists(idx):
+        return None
+    archive = bigfile.BigFile(idx)
+    entry = next((e for e in archive.entries if e.name.upper() == "ALARMK"), None)
+    return None if entry is None else archive.read(entry)
+
+
+def _load_sou2(game: str) -> bytes | None:
+    idx = os.path.join(game, "MUSIC", "SOU.IDX")
+    if not os.path.exists(idx):
+        return None
+    archive = bigfile.BigFile(idx)
+    return archive.read(archive.entries[0]) if archive.entries else None
+
+
 def _runner(parse):
     def run(case: Case, tmpdir: str) -> None:
         parse(case.data)
@@ -482,6 +514,20 @@ TARGETS: list[Target] = [
     Target("sou1", "sounds/SOU.IDX[SILENCE]", _load_sou1,
            lambda b, l, r: _trunc_cases("sou1", b, l, r) + _mut_cases("sou1", b, l, r),
            _runner(sou1.decode_entry)),
+    # Containers that the earlier matrix left out (M6.4): the SOU header
+    # parser for both codecs, the SML markup decoder and the SOG playlist.
+    Target("sou", "sounds/SOU.IDX[ALARMK]", _load_sou,
+           lambda b, l, r: _trunc_cases("sou", b, l, r) + _mut_cases("sou", b, l, r),
+           _runner(sou.parse)),
+    Target("sou2", "MUSIC/SOU.IDX[0]", _load_sou2,
+           lambda b, l, r: _trunc_cases("sou2", b, l, r) + _mut_cases("sou2", b, l, r),
+           _runner(sou.parse)),
+    Target("sml", "SML/credits.sml", _load_sml,
+           lambda b, l, r: _trunc_cases("sml", b, l, r) + _mut_cases("sml", b, l, r),
+           _runner(lambda blob: sml.tags(sml.decode_auto(blob)[0]))),
+    Target("sog", "MUSIC/Dm1A.sog", _load_sog,
+           lambda b, l, r: _trunc_cases("sog", b, l, r) + _mut_cases("sog", b, l, r),
+           _runner(sog.parse)),
 ]
 
 RUNNERS = {t.name: t.run for t in TARGETS}

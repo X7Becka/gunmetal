@@ -2283,8 +2283,11 @@ save/load восстанавливает мир, игрока, двери, па�
 - ✅ Парсеры ядра: `tools/fuzz_formats.py` (BIGFILE/`.sbv`/`.sbw`/`.sbt`/`.sbm`/
   `.sbc`; пустые, обрезанные, мутированные и extreme-header файлы; лимит времени
   на кейс). Входит в `regress.py` быстрым прогоном.
-- ⬜ Остальные парсеры: `.soo`, `.sou`, `.sml`, `.soe`, `.sog` (`.sof` уже
-  покрыт golden-тестом C++ и round-trip).
+- ✅ Остальные парсеры: `.soo`, `.sou` (SOU0/1/2 через `gm.sou.parse`),
+  `.sml` (`decode_auto` + теги), `.soe`, `.sog` добавлены в `TARGETS`
+  `tools/fuzz_formats.py` (плюс уже были `.soa`, `sou1`-декод). Полная
+  матрица — **1619 кейсов, 0 падений** (2 с), быстрая (`--quick`, в
+  `regress.py`) — 723. `.sof` покрыт golden-тестом C++ и round-trip.
 - ✅ C++-фаззер: `engine/tests/test_fuzz.cpp` (`gm_fuzz_tests`, quick 3451 /
   full 8119 кейсов; `docs/FUZZ_CPP.md`).
 - VM: случайные опкоды/операнды → нет падений/утечек.
