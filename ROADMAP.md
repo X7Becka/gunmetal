@@ -1671,9 +1671,17 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > **57 CHEVY**: `DEFINE_PLAYER_TYPES` — цепочка if/else-if/else, ветвь
       > `IF GOD_MODE` (`[0x62cad4]`, единственная запись — чит `/god`
       > `0x44a9e8`) добавляет пятый тип; в DM/SCAV его нет.
-      > Нет: движок/HUD/опкоды 189–193 (`res/vm_exec.cpp` — no-op);
-      > `game/player_types.*` читает только `eye_height` — список нужного
-      > в `docs/CHASSIS.md` §7.
+      > **Движок:** `game/chassis_loadout.*` — единственное место, где
+      > названы девять полей: `chassis_spec` (масштаб брони ×100, модель
+      > 0..255, звук `-1`/`0xFFFFFFFF` → −1, отказы на NaN/отрицательных/
+      > дробных), `chassis_motion` (op0/op1/op4 → `ChassisMotion`) и
+      > `shop_price` (`0x479dd0`: LIGHT 26 000 … CHEVY 560 000);
+      > `chassis_from_level` обходит IF/ELSE и собирает таблицы всех ветвей.
+      > CTest `chassis_loadout`: пять шасси из `docs/CHASSIS.md` §4,
+      > реальные `level0`/`dm1` (ветки `GOD_MODE`/DM), негативы.
+      > Нет: проводки в рантайм/HUD, опкодов 189–193 (`res/vm_exec.cpp` —
+      > no-op), смены модели по имени и цикла звука двигателя — список в
+      > `docs/CHASSIS.md` §7.
 - 🟡 `M6.1.5` Ввод: клавиатура/мышь/джойстик, раскладки `KEYCFG`.
       > C++ `input/controls.*` (CTest `controls`): `.key` 376 Б / 45 пар,
       > 31 действие, коды из `0x4A5B88`, deadzone/invert, edge-детект,

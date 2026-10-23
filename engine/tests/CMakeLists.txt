@@ -597,6 +597,15 @@ gm_label(game_state quick)
 # ammo/mask/slot, fixed-tick cooldown/reload, hitscan/projectile, spread,
 # recoil and damage.  Synthetic tables/worlds plus saved0/saved1 + level0.sbt
 # first-shot goldens.
+add_executable(gm_chassis_loadout_tests test_chassis_loadout.cpp)
+target_link_libraries(gm_chassis_loadout_tests PRIVATE gm_engine)
+# `DEFINE_PLAYER_TYPES` -> the nine fields the original applies (M6.1.4):
+# the five shipped chassis, the *100 armour scaling, the 0x479dd0 shop price
+# and the ChassisMotion mapping; real level0/dm1 branches; short/NaN/negative/
+# fractional/out-of-range negatives.
+add_test(NAME chassis_loadout COMMAND gm_chassis_loadout_tests)
+gm_label(chassis_loadout quick)
+
 add_executable(gm_weapons_tests test_weapons.cpp)
 target_link_libraries(gm_weapons_tests PRIVATE gm_engine)
 add_test(NAME weapons COMMAND gm_weapons_tests)
