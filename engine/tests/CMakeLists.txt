@@ -81,6 +81,20 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/SML/help.sme")
     set_tests_properties(cli_pager_bad PROPERTIES PASS_REGULAR_EXPRESSION
         "\\[error\\] pager: no page 99")
     gm_label(cli_pager_bad quick)
+    # M8.1 slice 3: `--png` renders the current page (after --page/--pager-keys)
+    # into a 320x200 PNG (docs/PAGER_RENDER.md).
+    add_test(NAME cli_pager_png
+             COMMAND gunmetal --pager help.sme --page 2 --png
+                     ${CMAKE_CURRENT_BINARY_DIR}/pager-page2.png)
+    set_tests_properties(cli_pager_png PROPERTIES PASS_REGULAR_EXPRESSION
+        "render: page 2/3 320x200 lines=[0-9]+ glyphs=[0-9]+ missing=0 ink=[1-9][0-9]*")
+    gm_label(cli_pager_png quick)
+    add_test(NAME cli_pager_png_all
+             COMMAND gunmetal --pager help.sme --all --png
+                     ${CMAKE_CURRENT_BINARY_DIR}/pager-all.png)
+    set_tests_properties(cli_pager_png_all PROPERTIES PASS_REGULAR_EXPRESSION
+        "\\[error\\] pager: --all prints every page")
+    gm_label(cli_pager_png_all quick)
 endif()
 
 # M8.7/M9.4: the strict save writer round-trips a shipped save byte for byte.
@@ -735,6 +749,18 @@ target_compile_definitions(gm_sml_pager_tests PRIVATE
 add_test(NAME sml_pager COMMAND gm_sml_pager_tests)
 gm_label(sml_pager quick)
 
+# M8.1 slice 3: the current page painted into the 320x200 RGBA canvas
+# (docs/PAGER_RENDER.md).  help.sme and CREDITS.SML: ink>0 and < 320*200, the
+# stats against an independent walk over the page's runs, two byte-identical
+# renders, different pages differ, the game-directory overload paints the same
+# bytes, an empty document renders 0 ink, `--page 99` is refused and a closed
+# pager / a missing atlas / a missing provider fail with a text.
+# Skips cleanly when the game is not installed.
+add_executable(gm_pager_render_tests test_pager_render.cpp)
+target_link_libraries(gm_pager_render_tests PRIVATE gm_engine)
+add_test(NAME pager_render COMMAND gm_pager_render_tests)
+gm_label(pager_render quick)
+
 add_executable(gm_soo_player_tests test_soo_player.cpp)
 target_link_libraries(gm_soo_player_tests PRIVATE gm_engine)
 # Runtime .soo player (docs/SOO_PLAYER.md): synthetic hold/loop timelines,
@@ -1185,7 +1211,7 @@ endif()
 # Fast targets for the inner loop: build the binaries, then run CTest.
 #   cmake --build build/dev --target check-quick
 #   cmake --build build/test --target check
-set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_vm_tests gm_fuzz_tests gm_save_tests gm_doors_tests gm_frontend_menu_tests gm_text_layout_tests gm_sml_pager_tests gunmetal)
+set(GM_CHECK_DEPENDS gm_tests gm_sou2_tests gm_sou1_tests gm_sof_tests gm_hud_tests gm_sbv_video_tests gm_sbtvm_tests gm_vm_tests gm_fuzz_tests gm_save_tests gm_doors_tests gm_frontend_menu_tests gm_text_layout_tests gm_sml_pager_tests gm_pager_render_tests gunmetal)
 add_custom_target(check-quick
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -L quick -j 8
             --output-on-failure

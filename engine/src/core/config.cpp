@@ -765,7 +765,7 @@ std::string usage() {
        << "      --at MS       animation time for --anim (default 0)\n"
        << "  -l, --level NAME  level to load (opens the viewer; with --info prints a summary)\n"
        << "  -d, --dump FILE   print size and the first bytes of FILE, then exit\n"
-       << "      --png OUT     with --dump of a .sbm/.bmp: write OUT as PNG\n"
+       << "      --png OUT     with --dump of a .sbm/.bmp or with --pager: write OUT as PNG\n"
        << "      --save-out OUT with --dump of a save: re-serialise it to OUT\n"
        << "      --set K=V     edit a save field (ammo0..11, armor, shield0..3,\n"
        << "                    posx/posy/posz, weapon); repeatable\n"

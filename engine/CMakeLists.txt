@@ -31,6 +31,7 @@ add_library(gm_engine STATIC
     src/render/hud_compose.cpp
     src/ui/screen.cpp
     src/ui/sml_pager.cpp
+    src/ui/pager_render.cpp
     src/ui/frontend_menu.cpp
     src/ui/save_slots.cpp
     src/res/bigfile.cpp
