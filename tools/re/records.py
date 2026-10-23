@@ -108,9 +108,15 @@ TYPE_MODE = {
     18: "fields", 19: "fields", 20: "fields",
 }
 
-# Item state values, from the per-frame updater 0x468e41:
-#   -2 free (0x468490), -1 active, 0 (re)spawn, -3/-4 pending removal,
-#   >0 deathmatch respawn timer (0x468840).
+# Item state values, from the per-frame updater 0x468e41 (semantics corrected
+# 2026-10-23, docs/PICKUP.md §10 — the old names describe the *observed* sets,
+# which are unchanged, not the meaning):
+#   -2 free (0x468490)
+#   -1 phantom: the record exists but no object was created (data-driven)
+#    0 live item
+#   -3/-4 armed mines (nothing removes them automatically; a script or +0x50)
+#   >0 deathmatch respawn timer (0x468840)
+# State -5 does not exist in the binary: the creator accepts {0, -3, -4}.
 ITEM_FREE = -2
 ITEM_ACTIVE = -1
 ITEM_SPAWN = 0
@@ -135,9 +141,12 @@ ITEM_FIELDS = (
     (0x48, "op4", "u32", "code", "script operand a4; named items: f6"),
     (0x4c, "op5", "u32", "code", "script operand a5; named items: f7"),
     (0x50, "op6", "u32", "code", "script operand a6; named items: f8, duplicated at +0x54"),
-    (0x54, "op6_hi", "u32", "code", "copy of +0x50 (0x4687be/0x4687c4)"),
+    (0x54, "op6_hi", "u32", "code",
+     "timer reload: 0x4690d2/0x4690d8 restores +0x50 from it (docs/PICKUP.md §10)"),
     (0x58, "flags", "u8", "code", "copied to object+0x74 (0x468516)"),
-    (0x5c, "sentinel", "u32", "code", "0xffff written by all four handlers"),
+    (0x5c, "sentinel", "u32", "code",
+     "handle addend on event post (0x4692d8) = eax & 0xffff: 0xffff for ops 52-55, "
+     "literal 0xffffffff for op 177; name kept for the save value"),
 )
 
 #: Sector record fields: (offset, name, kind, provenance, note)

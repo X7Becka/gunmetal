@@ -491,7 +491,7 @@ if(GM_PYTHON3)
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/vm_exec.py
                      --selftest)
     gm_label(re_vm_exec quick)
-    foreach(tool export_parity nested_things records ui_screens)
+    foreach(tool export_parity nested_things pickup records ui_screens)
         add_test(NAME re_${tool}
                  COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/re/${tool}.py
                          --self-test)
