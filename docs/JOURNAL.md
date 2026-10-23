@@ -722,3 +722,34 @@
 - **Проверено:** `ctest` 89/90 (только внешний `controls`), `regress --full
   --mirror` 123/124 (только `install_audit`), `vm_trace` 36/36, ROADMAP
   92✅ / 89🟡 / 52⬜.
+
+## Ход 2026-10-23 (после партии 8: звук, ВМ-состояние, CLI)
+
+- **3D-звук (`M7.3`).** `docs/AUDIO_3D.md` + `audio_3d.py` (61): расстояние
+  `max+0.25(mid+min)` (`0x4344df`), гейн `trunc(volume−atten·2^n·dist)>>2n`,
+  панорама по базису слушателя (`0x437909`), 10 409 3D-вызовов в корпусе.
+  В C++ формулы вынесены в `audio/engine_3d.*` (CTest `engine_3d`, пять
+  векторов из `audio_3d.py --calc`); микшер пока не переведён. Поправки
+  внесены в `SOUND_FIELDS.md` (уточнения формул) и `SBT_RECORDS.md`
+  (6-я колонка `SOUND_SOURCES` — `atten`, а не `pitch`).
+- **Имена сэмплов в движке.** `gunmetal --sample NAME` (`res/sound_catalog.*`):
+  `alarmk` → `archive=sounds name=ALARMK offset=24369 size=13619`, отсечение
+  каталога `C:\Sounds\alarmk` работает, `DM1A01` уходит в `music`, промах —
+  «not found (the original plays silence)», rc=0. CTest `cli_sample`,
+  `cli_sample_miss`.
+- **ВМ ведёт состояние.** `mission_counter` (`ds:0x80f9cc`, `NEXT_LEVEL` /
+  `NEXT_LEVEL_NUMBER`, CTest `vm_campaign`), музыкальные банки и тексты
+  (`vm_music`), запросы полных экранов `SHOW_*`/`REFRESH_SCREEN`
+  (`vm_screens`). Все обработчики сохраняют ровно одно событие — `vm_trace`
+  (C++ ↔ Python) не сдвинулся. Python-модель повторяет поля.
+  `docs/VM_CPP.md` §4.4 — таблица полей с адресами.
+- **`controls` снова зелёный.** `KEYCFG/*.KEY` — пользовательские данные:
+  точные значения поставочных профилей проверяются только если файлы
+  совпадают с манифестом 1.36 (CMake считает sha256 и ставит
+  `GM_KEYCFG_SHIPPED=1`), иначе тест проверяет инварианты парсера. На
+  изменённой установке: `ctest` 97/97.
+- **Статусы.** `M6.5.4` → 🟡 (модель дверей и корпусные пины 1779/3964/45),
+  `M8.5` — fade в обоих рендерах, переходы не подключены.
+- **В работе:** `feat/chassis` (`M6.1.4`/`M6.5.3`), `feat/damage`
+  (`M6.5.2`), `feat/gameover` (`M9.5`), `feat/audit` (независимая проверка
+  чисел в свежих доках), `feat/scriptasm` (ассемблер `.sbt`, `M11.1`).
