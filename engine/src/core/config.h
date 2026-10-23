@@ -31,6 +31,10 @@ struct Options {
     std::string menu_keys;    // --menu-keys up,down,enter: feed the menu
     std::string menu_screen;  // --menu-screen ID: start on that §2 screen
     bool menu_json = false;   // --menu-json: machine-readable screen dump
+    std::string pager;        // --pager FILE: headless SML pager (M8.1)
+    std::string pager_keys;   // --pager-keys next,next,prev,first,last
+    int pager_page = 0;       // --page N: 1-based page to show
+    bool pager_all = false;   // --all: every page
     int sim_respawn = -1;     // --sim-respawn N: auto-respawn N ticks after death
     std::string film;
     std::string anim;

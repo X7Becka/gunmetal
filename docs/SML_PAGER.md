@@ -128,6 +128,29 @@ invariants and negatives; OK
 (сам исходник теста как «не-SML»), шрифт 6 (нет атласа), пагер без источника
 шрифтов; `reset()` и повторный `open()`.
 
+## 4.1. CLI (`--pager`) — сделано
+
+Модуль подключён к движку (игра нужна только для атласов шрифтов
+`FRONTEND/BMP.IDX`; имя файла резолвится без учёта регистра под `--game`,
+затем под `SML/`):
+
+```sh
+gunmetal -g "$GUNMETAL_DIR" --pager help.sme
+pager: page 1/3 pages=3 lines=42
+  line  0 x=95  y=0   w=76  h=10 font=1  GUNMETAL HELP
+  line  1 x=113 y=10  w=40  h=10 font=1  F1 - Help
+```
+
+* `--page N` — показать страницу (1-based), вне диапазона — `[error] pager:
+  no page N (1..M)` и код 2;
+* `--pager-keys next,prev,first,last,line,up` — листать и печатать `status()`
+  после каждой клавиши (`(no change)` на границе);
+* `--all` — все страницы подряд;
+* неизвестный ключ — `[error]` и код 2; отсутствующий файл — `[error]` и 2.
+
+CTest: `sml_pager` (модуль: 6 документов, 18 страниц, 230 строк),
+`cli_pager`, `cli_pager_keys`, `cli_pager_bad`.
+
 ## 5. Ограничения (что срез 2 сознательно не делает)
 
 * **Нет рендера 320×200.** Пагер не собирает кадр `HELPSCRN`/`LOADPAGE`/

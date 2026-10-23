@@ -30,6 +30,7 @@
 #include "camera/camera.h"
 #include "game/runtime.h"
 #include "ui/frontend_menu.h"
+#include "ui/sml_pager.h"
 #include "game/sim_player.h"
 #include "game/weapons.h"
 #include "res/vm_exec.h"
@@ -2515,6 +2516,98 @@ int show_menu(const gm::Options& options) {
     return 0;
 }
 
+
+// `--pager`: the headless SML pager over `text_layout` pages
+// (`docs/SML_PAGER.md`).  No window and no game files: the font metrics are
+// table-driven.
+int show_pager(const gm::Options& options) {
+    // Atlases come from the install (`FRONTEND/BMP.IDX`); a bare name is
+    // resolved case-insensitively under the game dir and then under `SML`
+    // (`SmlPager::open`).
+    gm::SmlPager pager(std::filesystem::path(options.game));
+    std::string error;
+    if (!pager.open(std::filesystem::path(options.pager), &error)) {
+        gm::logf(gm::LogLevel::Error, "pager", error);
+        return 2;
+    }
+    if (options.pager_page > 0) {
+        if (!pager.show_page(options.pager_page - 1)) {
+            gm::logf(gm::LogLevel::Error, "pager",
+                     "no page " + std::to_string(options.pager_page) + " (1.." +
+                         std::to_string(pager.page_count()) + ")");
+            return 2;
+        }
+    }
+
+    auto dump = [&pager](const char* prefix) {
+        std::printf("%s: %s pages=%d lines=%d\n", prefix, pager.status().c_str(),
+                    pager.page_count(), pager.line_count());
+        const std::string& text = pager.document().text;
+        int index = 0;
+        for (const gm::LayoutLine& line : pager.lines()) {
+            std::string shown;
+            if (line.first < text.size() && line.last <= text.size() &&
+                line.last > line.first) {
+                shown = text.substr(line.first, line.last - line.first);
+                for (char& c : shown) {
+                    if (c == '\r' || c == '\n') {
+                        c = ' ';
+                    }
+                }
+            }
+            std::printf("  line %2d x=%-3d y=%-3d w=%-3d h=%-2d font=%d  %s\n",
+                        index, line.x, line.y, line.width, line.height, line.font,
+                        shown.c_str());
+            ++index;
+        }
+    };
+
+    if (options.pager_all) {
+        for (int page = 0; page < pager.page_count(); ++page) {
+            pager.show_page(page);
+            dump("page");
+        }
+        return 0;
+    }
+    dump("pager");
+
+    if (options.pager_keys.empty()) {
+        return 0;
+    }
+    std::size_t begin = 0;
+    while (begin <= options.pager_keys.size()) {
+        std::size_t end = options.pager_keys.find(',', begin);
+        if (end == std::string::npos) {
+            end = options.pager_keys.size();
+        }
+        const std::string token = options.pager_keys.substr(begin, end - begin);
+        begin = end + 1;
+        bool moved = false;
+        if (token == "next") {
+            moved = pager.next_page();
+        } else if (token == "prev") {
+            moved = pager.prev_page();
+        } else if (token == "first") {
+            moved = pager.first_page();
+        } else if (token == "last") {
+            moved = pager.last_page();
+        } else if (token == "line") {
+            moved = pager.scroll_next_line();
+        } else if (token == "up") {
+            moved = pager.scroll_prev_line();
+        } else {
+            gm::logf(gm::LogLevel::Error, "pager",
+                     "unknown key \"" + token +
+                         "\" (next, prev, first, last, line, up)");
+            return 2;
+        }
+        std::printf("  key %-6s -> %s%s\n", token.c_str(), pager.status().c_str(),
+                    moved ? "" : " (no change)");
+    }
+    dump("final");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     gm::set_log_level_from_env();
 
@@ -2539,6 +2632,9 @@ int main(int argc, char** argv) {
     // check (`M8`, `docs/FRONTEND.md`).
     if (options->menu) {
         return show_menu(*options);
+    }
+    if (!options->pager.empty()) {
+        return show_pager(*options);
     }
     // M12.5: say *which* directory is missing instead of a bare ".sbw not
     // found": every data command joins names under `--game`.

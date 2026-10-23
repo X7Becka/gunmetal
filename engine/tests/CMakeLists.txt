@@ -64,6 +64,25 @@ add_test(NAME core_full COMMAND gm_tests --full)
 gm_label(core_full full)
 
 # M8: the headless frontend needs no game files (docs/FRONTEND.md).
+# M8.1: the headless pager over text_layout pages (game only for the fonts).
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/SML/help.sme")
+    add_test(NAME cli_pager
+             COMMAND gunmetal --pager help.sme)
+    set_tests_properties(cli_pager PROPERTIES PASS_REGULAR_EXPRESSION
+        "page 1/3 pages=3 lines=42")
+    gm_label(cli_pager quick)
+    add_test(NAME cli_pager_keys
+             COMMAND gunmetal --pager credits.sml --pager-keys "next,next,prev")
+    set_tests_properties(cli_pager_keys PROPERTIES PASS_REGULAR_EXPRESSION
+        "final: page 2/5")
+    gm_label(cli_pager_keys quick)
+    add_test(NAME cli_pager_bad
+             COMMAND gunmetal --pager credits.sml --page 99)
+    set_tests_properties(cli_pager_bad PROPERTIES PASS_REGULAR_EXPRESSION
+        "\\[error\\] pager: no page 99")
+    gm_label(cli_pager_bad quick)
+endif()
+
 add_test(NAME cli_menu COMMAND gunmetal --menu)
 set_tests_properties(cli_menu PROPERTIES PASS_REGULAR_EXPRESSION
     "MAIN MENU \\(id 1\\)")

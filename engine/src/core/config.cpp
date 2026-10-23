@@ -438,6 +438,33 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             }
             options.menu = true;
             options.menu_screen = std::string(*v);
+        } else if (arg == "--pager") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.pager = std::string(*v);
+        } else if (arg == "--pager-keys") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.pager_keys = std::string(*v);
+        } else if (arg == "--page") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.pager_page = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+            if (options.pager_page < 1) {
+                return std::nullopt;
+            }
+        } else if (arg == "--all") {
+            options.pager_all = true;
         } else if (arg == "--sim-projectile") {
             options.sim_projectile = true;
         } else if (arg == "--sim-vitals") {
@@ -701,6 +728,10 @@ std::string usage() {
        << "      --menu-keys up,down,enter,esc,text:0x1b  feed these keys and print each screen\n"
        << "      --menu-screen ID  start on that UI_SCREENS §2 screen id\n"
        << "      --menu-json   machine-readable dump\n"
+       << "      --pager FILE  headless SML pager: status, lines, pages (M8.1)\n"
+       << "      --pager-keys next,next,prev,first,last  feed the pager\n"
+       << "      --page N      show page N (1-based)\n"
+       << "      --all         with --pager: print every page\n"
        << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"

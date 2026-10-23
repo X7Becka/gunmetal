@@ -55,7 +55,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 12 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 97 | 281 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 99 | 282 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -117,6 +117,7 @@
 | `docs/SIM_PROJECTILE.md` | 17 | 6 | Игрок стреляет снарядом: попадание и урон (`game/sim_player.*`, `M6.5.1`, срез 2) |
 | `docs/SKY.md` | 20 | 100 | Фон кадра и «небо»: что рисует движок за геометрией (M4.1.6) |
 | `docs/SML_CPP.md` | 12 | 6 | SML/SME в C++: читатель разметки UI |
+| `docs/SML_PAGER.md` | 14 | 17 | SML-пагер: runtime-курсор страниц (`engine/src/ui/sml_pager.h`) |
 | `docs/SOA.md` | 28 | 172 | `.soa` — анимации спрайтовых текстур |
 | `docs/SOB.md` | 17 | 0 | `.sob` — модели объектов: формат, писатель, round-trip |
 | `docs/SOE.md` | 21 | 197 | `.soe` → `THING_TYPES`: семантика полей (M1.6) |
