@@ -28,7 +28,11 @@ std::optional<LevelBundle> load_level(const std::filesystem::path& dir,
     const std::string base(name);
     const auto world_path = resolve_ci(dir, base + ".sbw");
     if (!world_path) {
-        error = "level '" + base + "': .sbw not found under " + dir.string();
+        error = "level '" + base + "': " + base + ".sbw not found under " +
+                dir.string();
+        if (!resolve_ci(dir, base + ".sbt")) {
+            error += " (no " + base + ".sbt either -- wrong level name?)";
+        }
         return std::nullopt;
     }
     const auto world_bytes = read_file(*world_path);

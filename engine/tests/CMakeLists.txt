@@ -93,6 +93,12 @@ set_tests_properties(cli_missing_dump PROPERTIES PASS_REGULAR_EXPRESSION
 gm_label(cli_missing_dump quick)
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
+    # A wrong level name names the missing world file and says what else is
+    # absent instead of failing on the first `.sbw` lookup alone.
+    add_test(NAME cli_missing_level COMMAND gunmetal -l nosuchlevel --info)
+    set_tests_properties(cli_missing_level PROPERTIES PASS_REGULAR_EXPRESSION
+        "wrong level name")
+    gm_label(cli_missing_level quick)
     # M11.1: text -> bytecode -> bytes on every shipped block.
     add_test(NAME sbtasm_roundtrip
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtasm.py
