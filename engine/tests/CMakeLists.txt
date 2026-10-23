@@ -579,6 +579,15 @@ target_link_libraries(gm_sample_table_tests PRIVATE gm_engine)
 add_test(NAME sample_table COMMAND gm_sample_table_tests)
 gm_label(sample_table quick)
 
+# M7.4: runtime sample cache (docs/SAMPLE_CACHE.md).  Ref-counted
+# `SOUND_SAMPLE_TABLE` slots, real SOU0/SOU1/SOU2 decoding through
+# `sounds/SOU.IDX`, LRU eviction under the `0x100 + PCM` byte budget, quiet
+# missing/count-0 nullopts and deterministic stats.
+add_executable(gm_sample_cache_tests test_sample_cache.cpp)
+target_link_libraries(gm_sample_cache_tests PRIVATE gm_engine)
+add_test(NAME sample_cache COMMAND gm_sample_cache_tests)
+gm_label(sample_cache quick)
+
 add_executable(gm_soe_tests test_soe.cpp)
 target_link_libraries(gm_soe_tests PRIVATE gm_engine)
 add_test(NAME soe COMMAND gm_soe_tests)
