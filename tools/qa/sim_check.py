@@ -36,10 +36,10 @@ def run(binary: str, game: str, level: str, ticks: int) -> subprocess.CompletedP
 
 def parse(text: str) -> dict:
     out: dict = {}
-    match = re.search(r"sim: things=(\d+) \(alive (\d+), built (\d+)\) "
+    match = re.search(r"sim: things=(\d+) \(alive (\d+), initial (\d+)\) "
                       r"doors=(\d+) switches=(\d+) lifts=(\d+) agents=(\d+)", text)
     if match:
-        out["things"], out["alive"], out["built"], out["doors"], out["switches"], \
+        out["things"], out["alive"], out["initial"], out["doors"], out["switches"], \
             out["lifts"], out["agents"] = (int(value) for value in match.groups())
     match = re.search(r"sim: motion=stepped (\d+) moved (\d+) pushed (\d+)", text)
     if match:
@@ -86,8 +86,11 @@ def main(argv=None) -> int:
     elif one["digest"] != two["digest"]:
         problems.append("non-deterministic digest: %s != %s"
                         % (one["digest"], two["digest"]))
-    if one.get("things") != one.get("built"):
-        problems.append("things=%s but built=%s" % (one.get("things"), one.get("built")))
+    if one.get("things") is None or one.get("initial") is None:
+        problems.append("the summary line is missing")
+    elif one["things"] < one["initial"]:
+        problems.append("things=%s shrank below the initial %s"
+                        % (one["things"], one["initial"]))
     if problems:
         for problem in problems:
             print("sim_check: FAIL %s" % problem, file=sys.stderr)

@@ -10,7 +10,7 @@
 ```sh
 gunmetal -g "$GUNMETAL_DIR" --sim dm1 --ticks 500
 sim: level=dm1 ticks=500 mode=0 players=1 difficulty=1 god=0
-sim: things=141 (alive 141, built 141) doors=61 switches=129 lifts=0 agents=5
+sim: things=141 (alive 141, initial 141) doors=61 switches=129 lifts=0 agents=5
 sim: motion=stepped 19860 moved 14952 pushed 0
 sim: digest=68fff76ed447887a
 sim: ok

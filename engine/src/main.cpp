@@ -1108,7 +1108,7 @@ int simulate(const gm::Options& options) {
                 level->name.c_str(), static_cast<unsigned long long>(ticks),
                 options.sim_mode, options.sim_players, options.sim_difficulty,
                 options.sim_god ? 1 : 0);
-    std::printf("sim: things=%zu (alive %zu, built %zu) doors=%zu switches=%zu "
+    std::printf("sim: things=%zu (alive %zu, initial %zu) doors=%zu switches=%zu "
                 "lifts=%zu agents=%zu\n",
                 runtime.things().things().size(), alive, things_before,
                 runtime.world().doors().size(), runtime.world().switches().size(),
