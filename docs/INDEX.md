@@ -15,7 +15,7 @@
 | `docs/AUDIO_3D.md` | 36 | 311 | 3D-позиционный звук (M7.3): очередь, слушатель, формулы |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |
-| `docs/AUDIT_NUMBERS.md` | 18 | 64 | AUDIT_NUMBERS — независимая сверка чисел в свежих RE-доках |
+| `docs/AUDIT_NUMBERS.md` | 19 | 64 | AUDIT_NUMBERS — независимая сверка чисел в свежих RE-доках |
 | `docs/BASELINE.md` | 12 | 0 | Baseline: установка, инвентарь и регрессия |
 | `docs/BUILD.md` | 4 | 0 | Сборка движка (M3) |
 | `docs/CAMERA.md` | 31 | 209 | Gunmetal — камера первого лица: оси, матрица, проекция |
@@ -52,7 +52,7 @@
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
 | `docs/JOURNAL.md` | 65 | 220 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
-| `docs/LEVEL_LOAD.md` | 32 | 666 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
+| `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
 | `docs/LIGHTMAP_AUDIT.md` | 11 | 8 | Аудит лайтмапов `.sbc`: покрытие и яркость (M4) |
 | `docs/LOOK16.md` | 14 | 12 | `LOOK16.TAB`: что делает куб и как свет `0..127` превращается в цвет |
@@ -60,6 +60,7 @@
 | `docs/MATERIAL_BLEND.md` | 29 | 159 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
+| `docs/OBJECTIVES.md` | 24 | 265 | Цели, секреты и триггеры конца уровня (`M6.4.5`) |
 | `docs/ORACLE.md` | 35 | 12 | Эталонный оракул (M4.4.2) |
 | `docs/ORACLE_RENDER.md` | 12 | 1 | Воспроизводимый рендер эталонного кадра (`oracle_render.py`) |
 | `docs/PALETTE.md` | 5 | 15 | Палитра 8-битной графики и индексы текстур `.sbw` |
@@ -76,7 +77,7 @@
 | `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
 | `docs/RNG.md` | 7 | 41 | RNG: `rand()` оригинала, сид и потребители |
 | `docs/RUNTIME_CPP.md` | 42 | 8 | Gunmetal — C++-каркас фиксированного тика (`GameRuntime`) |
-| `docs/SANITIZERS.md` | 1 | 0 | Sanitizers (ASan/UBSan) |
+| `docs/SANITIZERS.md` | 3 | 0 | Sanitizers (ASan/UBSan) |
 | `docs/SAVE.md` | 19 | 99 | Сохранения Gunmetal: контейнер, блоки, rebuild |
 | `docs/SAVE_BLOCKS.md` | 15 | 9 | C++: типизированные блоки сейва 1, 2, 3, 6, 7, 8 |
 | `docs/SAVE_CPP.md` | 16 | 45 | C++-читатель сейвов Gunmetal |
