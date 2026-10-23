@@ -934,3 +934,16 @@
 - **DoD/уровень:** неверное имя уровня теперь говорит, что нет и `.sbw`,
   и `.sbt` (`wrong level name?`), CTest `cli_missing_level`.
 - **Гейты:** `ctest` **118/118**, `regress --full` **124/124**.
+
+## Ход 2026-10-23 (партия 16: редактор геометрии `.sbw`)
+
+- **`M11.2` → 🟡.** `tools/editor/sbwedit.py` + `docs/SBW_EDIT.md`: шесть
+  документированных полей полигона (`texture/material/lightmap/brightness/
+  overlay/flags`), `--list/--get/--set/--check/--audit/--fields`; дисковые
+  смещения ≠ движковым (`material` на диске `+0x04`, `lightmap` `+0x02`,
+  `flags` после списка индексов). Round-trip **36/36** (28 192 объекта,
+  235 069 полигонов, 40 037 031 Б), self-test 59/59, `--audit` диапазонов
+  поставки. Реальная правка `texture 1 → 28` (`WHITE6`): 1 байт, оракул
+  видит 28, движок грузит и **рендерит** (75 из 64 000 пикселей отличаются).
+  CTest `sbwedit_selftest`/`sbwedit_roundtrip`/`sbwedit_audit`.
+- **Гейты:** `ctest` **121/121**, `regress --full --mirror` **124/124**.
