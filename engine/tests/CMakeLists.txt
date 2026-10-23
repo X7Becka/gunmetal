@@ -709,6 +709,29 @@ if(GM_PYTHON3)
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtasm.py
                      --self-test)
     gm_label(sbtasm_selftest quick)
+    # M11.4: trace/breakpoints/watch/CFG over the reference interpreter
+    # (docs/SCRIPT_DEBUG.md); the self-test is synthetic, no game needed.
+    add_test(NAME sbtdbg_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtdbg.py
+                     --self-test)
+    set_tests_properties(sbtdbg_selftest PROPERTIES PASS_REGULAR_EXPRESSION
+        "26/26 self-tests passed")
+    gm_label(sbtdbg_selftest quick)
+    # A real level: the init script runs to the end, and a breakpoint stops
+    # exactly on the requested instruction.
+    add_test(NAME sbtdbg_run
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtdbg.py
+                     --run level0 --script main --trace-limit 5)
+    set_tests_properties(sbtdbg_run PROPERTIES PASS_REGULAR_EXPRESSION
+        "stop reasons: end=1")
+    gm_label(sbtdbg_run quick)
+    add_test(NAME sbtdbg_break
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtdbg.py
+                     --run level0 --script off:0xbd8b --source-player 0
+                     --break-offset 0xbdb2 --continue 2)
+    set_tests_properties(sbtdbg_break PROPERTIES PASS_REGULAR_EXPRESSION
+        "player.cash 0 -> 20000")
+    gm_label(sbtdbg_break quick)
     # Independent re-derivation of the numbers in the merged RE docs
     # (docs/AUDIT_NUMBERS.md); no game files needed for the self-test.
     add_test(NAME doc_numbers

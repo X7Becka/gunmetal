@@ -37,6 +37,9 @@
   `brightness`, `overlay`, `flags`) через `tools/editor/sbwedit.py`
   (`docs/SBW_EDIT.md`): round-trip 36/36, правка видна рендеру; вершины и
   создание полигонов — нет;
+* отладка скриптов — `tools/editor/sbtdbg.py` (`docs/SCRIPT_DEBUG.md`):
+  `--run` с трассой, `--break-offset/--break-op/--break-event`, `--watch`,
+  CFG блока в DOT/Mermaid;
 * BIGFILE — **есть**: `docs/BIGFILE_WRITE.md` и `tools/editor/bigpack.py`
   (`--roundtrip` всех 5 архивов побайтово, `--replace` с пересчётом
   `.IDX`/`.DAT`, `--check`); пункт `M11.6` закрыт. Быстрая замена одной
