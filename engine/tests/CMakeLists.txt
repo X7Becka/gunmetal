@@ -148,6 +148,20 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     set_tests_properties(sceneedit_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
         "identical \\(read -> write -> compare\\): 36/36")
     gm_label(sceneedit_roundtrip quick)
+    # M11.2: every world survives read -> write -> compare, and the field
+    # ranges of the shipped corpus are inside the documented bounds.
+    add_test(NAME sbwedit_roundtrip
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwedit.py
+                     --roundtrip)
+    set_tests_properties(sbwedit_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
+        "round-trip: 36/36 identical")
+    gm_label(sbwedit_roundtrip quick)
+    add_test(NAME sbwedit_audit
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwedit.py
+                     --audit)
+    set_tests_properties(sbwedit_audit PROPERTIES PASS_REGULAR_EXPRESSION
+        "result: OK")
+    gm_label(sbwedit_audit quick)
 endif()
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX")
@@ -648,6 +662,12 @@ if(GM_PYTHON3)
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/perf.py
                      --self-test)
     gm_label(perf_selftest quick)
+
+    # M11.2: polygon fields of the world (.sbw) - tools/editor/sbwedit.py.
+    add_test(NAME sbwedit_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbwedit.py
+                     --self-test)
+    gm_label(sbwedit_selftest quick)
 
     # M11.3: scene records (everything but SCRIPT) - tools/editor/sceneedit.py.
     add_test(NAME sceneedit_selftest

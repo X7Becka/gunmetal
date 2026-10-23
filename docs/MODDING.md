@@ -33,6 +33,10 @@
 * записи сцены (вещи, двери, переключатели, лифты, таблицы `THING_TYPES`)
   — `tools/editor/sceneedit.py` (`docs/SCENE_EDIT.md`): `--list`/`--get`/
   `--set`/`--check`; код скриптов правится `sbtwrite.py`;
+* геометрия мира — поля полигонов (`texture`, `material`, `lightmap`,
+  `brightness`, `overlay`, `flags`) через `tools/editor/sbwedit.py`
+  (`docs/SBW_EDIT.md`): round-trip 36/36, правка видна рендеру; вершины и
+  создание полигонов — нет;
 * BIGFILE — **есть**: `docs/BIGFILE_WRITE.md` и `tools/editor/bigpack.py`
   (`--roundtrip` всех 5 архивов побайтово, `--replace` с пересчётом
   `.IDX`/`.DAT`, `--check`); пункт `M11.6` закрыт. Быстрая замена одной
