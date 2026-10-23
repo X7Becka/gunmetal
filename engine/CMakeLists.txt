@@ -47,6 +47,7 @@ add_library(gm_engine STATIC
     src/game/trigger.cpp
     src/game/projectile.cpp
     src/game/runtime.cpp
+    src/game/sim_player.cpp
     src/game/equipment.cpp
     src/game/player_types.cpp
     src/game/chassis_loadout.cpp

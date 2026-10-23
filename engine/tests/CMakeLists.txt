@@ -633,6 +633,17 @@ target_link_libraries(gm_player_trigger_tests PRIVATE gm_engine)
 add_test(NAME player_trigger COMMAND gm_player_trigger_tests)
 gm_label(player_trigger quick)
 
+# M6.5.1 slice 1: one scripted player over `GameRuntime` (docs/SIM_PLAYER.md).
+# `parse_drive` positives/negatives, then on dm1: 900 ticks of forward from
+# the campaign spawn of slot 0 (displacement, finite state), a two-run
+# determinism check, a wall run aimed at the nearest geometry found with
+# `CollisionWorld::raycast`, `on_ground` on a front-wound dm1 floor and a
+# fire=300 segment that spends ammo; one smoke case on level1.
+add_executable(gm_sim_player_tests test_sim_player.cpp)
+target_link_libraries(gm_sim_player_tests PRIVATE gm_engine)
+add_test(NAME sim_player COMMAND gm_sim_player_tests)
+gm_label(sim_player quick)
+
 # The original's CRT `rand()` (docs/RNG.md): MSVC LCG `state*214013+2531011`,
 # output `(state >> 16) & 0x7FFF`, seeded from `time(nullptr)` at init
 # (`0x44A491`).  Goldens are the documented `srand(1)` sequence.
