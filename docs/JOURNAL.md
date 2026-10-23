@@ -946,4 +946,5 @@
   поставки. Реальная правка `texture 1 → 28` (`WHITE6`): 1 байт, оракул
   видит 28, движок грузит и **рендерит** (75 из 64 000 пикселей отличаются).
   CTest `sbwedit_selftest`/`sbwedit_roundtrip`/`sbwedit_audit`.
+- **Аудит:** `doc_numbers.py` + `SBW_EDIT` — **48/48 по 14 докам**.
 - **Гейты:** `ctest` **121/121**, `regress --full --mirror` **124/124**.
