@@ -1,0 +1,34 @@
+# tools/editor — правка данных Gunmetal
+
+Три инструмента, которые читают поставочные файлы и пишут **новые** (игра
+только читается; вывод по умолчанию — вне установки). Все проверки
+воспроизводимы и входят в CTest.
+
+| файл | что делает | доказательство |
+|---|---|---|
+| `sbtasm.py` | дизассемблер/ассемблер скриптов `.sbt`: текст ↔ байткод подскрипта, `IF`/`ELSE` с метками, строки/double/`EVAL`/`DEFINE_*`/`ADD_LIFT`/`DB`/`RAW` | round-trip **15 061/15 061 блока побайтово** (3 542 023 Б); `--self-test` 11/11; CTest `sbtasm_selftest`, `sbtasm_roundtrip` |
+| `sbtwrite.py` | писатель контейнера `.sbt`: `parse → write` побайтово и замена одного подскрипта с пересчётом `SCRIPT.m`/смещений колонки 2 | **36/36 файлов identical**; `--verify-replace` (+1 байт сдвигает 257…364 смещения, прочие записи идентичны); `--self-test` 18/18; CTest `sbtwrite_*` |
+| `bigpack.py` | упаковка/замена записей BIGFILE (`*.IDX`+`*.DAT`): round-trip, `--list`, `--replace`, `--check`, `--add` | **5 архивов, 6061 запись, 151 737 971 Б — identical**; замена `57CHEV` (тот же размер/+1360/−7393) с проверкой остальных; `--self-test` 15/15; CTest `bigpack_*` |
+
+## Типичный цикл
+
+```sh
+# 1) блок -> текст (точный вариант, без потерь %g)
+python3 tools/editor/sbtasm.py disasm level0 --block 0x6f92 --exact --out block.txt
+# 2) правка block.txt (например, литерал SET_CAMERA_HAZE)
+# 3) текст -> байты в существующий контейнер
+python3 tools/editor/sbtwrite.py --script level0 --block 0x6f92 \
+    --asm block.txt --out /tmp/opencode/level0_mod.sbt
+# 4) проверка контейнера
+python3 tools/editor/sbtwrite.py --check /tmp/opencode/level0_mod.sbt
+
+# ассеты: заменить запись в архиве
+python3 tools/editor/bigpack.py --replace PICS/SBM.IDX --name 57CHEV \
+    --file new.bin --out /tmp/opencode/pics
+python3 tools/editor/bigpack.py --check /tmp/opencode/pics/SBM.IDX \
+    --against PICS/SBM.IDX --name 57CHEV --expect new.bin
+```
+
+`--game` по умолчанию `/mnt/d/games/Gunmetal 3dfx` (или `GUNMETAL_DIR`).
+Подробности и ограничения — `docs/SBT_ASM.md`, `docs/SBT_WRITE.md`,
+`docs/BIGFILE_WRITE.md`, `docs/MODDING.md`.

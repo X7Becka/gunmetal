@@ -87,6 +87,8 @@ DAT:  сырая конкатенация блобов.
 
 ```
 python3 tools/editor/bigpack.py --roundtrip [--game DIR] [--tmp-dir /tmp]
+python3 tools/editor/bigpack.py --list PICS/SBM.IDX     # имя разрешается под --game
+
 python3 tools/editor/bigpack.py --list ARCHIVE.IDX [--limit N]
 python3 tools/editor/bigpack.py --replace ARCHIVE.IDX --name NAME \
         --file NEW.BIN --out PREFIX [--add] [--force]

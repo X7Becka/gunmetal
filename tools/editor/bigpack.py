@@ -1086,6 +1086,30 @@ def run_self_test(as_json: bool) -> int:
             return "two independent rebuilds agree"
         check("determinism: rebuild is idempotent", twice)
 
+        # ---- archive paths resolve under --game ---------------------------
+        def resolve_paths():
+            os.makedirs(os.path.join(tmp, "PICS"), exist_ok=True)
+            with open(os.path.join(tmp, "PICS", "X.IDX"), "wb") as fh:
+                fh.write(b"")
+            assert resolve_archive_path("PICS/X.IDX", tmp) == \
+                os.path.join(tmp, "PICS", "X.IDX"), "game-relative path"
+            assert resolve_archive_path("/abs/X.IDX", tmp) == "/abs/X.IDX", \
+                "absolute path must stay absolute"
+            assert resolve_archive_path("no/X.IDX", tmp) == "no/X.IDX", \
+                "a missing name must not be invented"
+            assert resolve_archive_path(None, tmp) is None, "None passes through"
+            here = os.path.join(tmp, "X.IDX")
+            open(here, "wb").close()
+            cwd_old = os.getcwd()
+            os.chdir(tmp)
+            try:
+                assert resolve_archive_path("X.IDX", "/nonexistent") == "X.IDX", \
+                    "an existing cwd-relative file wins"
+            finally:
+                os.chdir(cwd_old)
+            return "game-relative, absolute, missing, None, existing"
+        check("paths: PICS/SBM.IDX resolves under --game", resolve_paths)
+
     passed = sum(1 for c in checks if c["ok"])
     total = len(checks)
     lines = [f"{'ok  ' if c['ok'] else 'FAIL'} {c['check']}: {c['detail']}"
@@ -1161,8 +1185,28 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def resolve_archive_path(path: str | None, game: str | None) -> str | None:
+    """`PICS/SBM.IDX` means the file in the *installation*, like the engine.
+
+    Absolute paths and paths that exist relative to the shell are used as they
+    are; otherwise the same relative name is looked up under ``--game``.  That
+    keeps `--list PICS/SBM.IDX` working from any directory (`gm.py` resolves
+    the same way) without guessing when the file is simply missing.
+    """
+    if not path or os.path.isabs(path) or os.path.exists(path):
+        return path
+    if game and os.path.isfile(os.path.join(game, path)):
+        return os.path.join(game, path)
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    game = args.game if args.game and os.path.isdir(args.game) else None
+    args.list = resolve_archive_path(args.list, game)
+    args.replace = resolve_archive_path(args.replace, game)
+    args.check = resolve_archive_path(args.check, game)
+    args.against = resolve_archive_path(args.against, game)
     try:
         if args.self_test:
             return run_self_test(args.json)
@@ -1177,7 +1221,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise BigpackError(f"--replace needs {flag}")
             return cmd_replace(args.replace, args.name, args.file, args.out,
                                add=args.add, force=args.force,
-                               game=args.game if os.path.isdir(args.game) else None,
+                               game=game,
                                as_json=args.json, allow_any=args.allow_any_name)
         if args.check:
             if args.name is None and (args.against or args.expect):
