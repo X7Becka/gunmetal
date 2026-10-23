@@ -15,14 +15,16 @@
 | `docs/AUDIO_3D.md` | 36 | 311 | 3D-позиционный звук (M7.3): очередь, слушатель, формулы |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |
+| `docs/AUDIT_NUMBERS.md` | 18 | 64 | AUDIT_NUMBERS — независимая сверка чисел в свежих RE-доках |
 | `docs/BASELINE.md` | 12 | 0 | Baseline: установка, инвентарь и регрессия |
 | `docs/BUILD.md` | 4 | 0 | Сборка движка (M3) |
 | `docs/CAMERA.md` | 31 | 209 | Gunmetal — камера первого лица: оси, матрица, проекция |
 | `docs/CAMERA_CPP.md` | 25 | 74 | `camera/camera.h` — камера первого/третьего лица |
-| `docs/CAMPAIGN_FLOW.md` | 34 | 293 | Поток кампании: счётчик миссий, штаб, цели, секреты, время, финал (`M9.1`) |
+| `docs/CAMPAIGN_FLOW.md` | 35 | 302 | Поток кампании: счётчик миссий, штаб, цели, секреты, время, финал (`M9.1`) |
 | `docs/COLLIDE.md` | 25 | 10 | Gunmetal — примитивы коллизий `.sbw` |
 | `docs/CONFIG.md` | 28 | 241 | `GUNMETAL.CFG` / `CONTROLS.CFG` — карта полей |
 | `docs/CONTROLS_CPP.md` | 13 | 19 | `input/controls.h` — `.key` profiles and controller config |
+| `docs/DAMAGE.md` | 31 | 255 | Урон, броня и щиты (`M6.5.2`) |
 | `docs/DM_RULES.md` | 31 | 394 | Deathmatch: режимы, счёт, respawn, гандикап, команды (`M9.2`) |
 | `docs/DOORS_CPP.md` | 55 | 137 | Gunmetal — C++-модель дверей, переключателей и лифтов |
 | `docs/DOOR_FIELDS.md` | 56 | 566 | Поля дверей, переключателей и лифтов (M2.3.4) |
@@ -37,6 +39,7 @@
 | `docs/FRAME_METRIC.md` | 22 | 0 | Метрика сравнения кадров (M4.4.3) |
 | `docs/FUZZ_CORPUS.md` | 11 | 1 | Фазз-корпус: сохранение и повтор (save / replay) |
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
+| `docs/GAME_OVER.md` | 28 | 318 | Game over, титры, рестарт и экран конца уровня (`M9.5`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
 | `docs/GHIDRA.md` | 17 | 30 | Ghidra: выбор, установка и рабочий процесс |
 | `docs/HUD_AUDIT.md` | 24 | 89 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
@@ -47,7 +50,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 60 | 208 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 65 | 220 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 7 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 666 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -100,7 +103,7 @@
 | `docs/SOU1_CPP.md` | 10 | 14 | `SOU1` в C++: слой `audio/sou1` |
 | `docs/SOU2.md` | 6 | 10 | `SOU2`: музыкальный кодек и правила рендера |
 | `docs/SOUND_FIELDS.md` | 24 | 255 | Звук: записи сэмплов и голоса (M2.3.7) |
-| `docs/SOUND_NAMES.md` | 26 | 205 | Имена сэмплов: `SOUND_SAMPLE_TABLE` → `SOU.IDX`, поведение при промахе (M7.6) |
+| `docs/SOUND_NAMES.md` | 27 | 205 | Имена сэмплов: `SOUND_SAMPLE_TABLE` → `SOU.IDX`, поведение при промахе (M7.6) |
 | `docs/SOU_CONTAINER.md` | 12 | 19 | Контейнер `.sou`: SOU0 / SOU1 / SOU2 |
 | `docs/SPRITE.md` | 12 | 0 | Спрайтовый блиттер: индексированные `.sbm` в RGB-кадр |
 | `docs/SPRITE_GOLDENS.md` | 6 | 0 | Спрайтовые golden'ы: постоянный Python-эталон |
@@ -113,14 +116,14 @@
 | `docs/TOOLCHAIN.md` | 2 | 1 | Инструменты и версии |
 | `docs/TOOLING.md` | 9 | 2 | Инструменты помимо Ghidra: что брать и зачем |
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |
-| `docs/UI_SCREENS.md` | 30 | 366 | Экраны фронтенда: карта, переходы, load/save, options |
-| `docs/UI_SOUNDS.md` | 28 | 313 | Звуки интерфейса и музыка фронтенда (`M8.6`) |
+| `docs/UI_SCREENS.md` | 30 | 368 | Экраны фронтенда: карта, переходы, load/save, options |
+| `docs/UI_SOUNDS.md` | 29 | 313 | Звуки интерфейса и музыка фронтенда (`M8.6`) |
 | `docs/VM_CPP.md` | 22 | 49 | C++-исполнение SCRIPT-VM (`vm_exec.h` / `vm_exec.cpp`) |
 | `docs/VM_EXEC.md` | 55 | 530 | Исполнение SCRIPT-VM (`.sbt`, запись 11) — прототип |
 | `docs/VM_SCENE.md` | 25 | 111 | Сцена, созданная ВМ, против сцены из файла (`M5.2`) |
 | `docs/VM_TRACE.md` | 5 | 15 | Трасса ВМ: C++ против Python (`M5.3.2`) — закрыто |
 | `docs/WEAPONS_CPP.md` | 62 | 320 | `game/weapons.*` — runtime оружия |
-| `docs/WEAPON_FIELDS.md` | 26 | 278 | Карта записей «оружие / боеприпасы / оборудование / шасси» (M2.3.5) |
+| `docs/WEAPON_FIELDS.md` | 26 | 283 | Карта записей «оружие / боеприпасы / оборудование / шасси» (M2.3.5) |
 | `docs/WORLD_FIELDS.md` | 42 | 331 | Мир / сектор / объект / полигон: карта рантайма (M2.3.2) |
 | `docs/WORLD_MATERIALS.md` | 34 | 240 | Материалы, оверлеи и флаги мира: потребители полей (M2.3.2) |
 
