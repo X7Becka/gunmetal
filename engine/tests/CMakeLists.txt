@@ -580,6 +580,12 @@ if(GM_PYTHON3)
                          --self-test)
         gm_label(re_${tool} quick)
     endforeach()
+    # M12.3: performance snapshot tool; the metric maths runs without a game.
+    add_test(NAME perf_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/perf.py
+                     --self-test)
+    gm_label(perf_selftest quick)
+
     # M11.1: text <-> bytecode for the SBT scripts (tools/editor/sbtasm.py).
     add_test(NAME sbtasm_selftest
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtasm.py
