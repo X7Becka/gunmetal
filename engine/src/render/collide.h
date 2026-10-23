@@ -24,6 +24,19 @@
 //     surface it starts on does not hit that surface again;
 //   * queries do not allocate: results are values/pointers into the world,
 //     `overlap_aabb` writes into a caller-owned vector.
+//
+// Dynamic set (`set_dynamic`, docs/DOOR_COLLISION.md): a level object that
+// moves (a sliding door leaf) keeps its triangles in `triangles()` at the rest
+// pose, which becomes stale as soon as the object is animated.  `set_dynamic`
+// installs the current pose of such objects as a second, small triangle set and
+// names the `(sector, object)` pairs whose static triangles must be ignored by
+// `raycast`/`sphere_cast`/`floor_at`.  The static storage itself is untouched
+// (`triangles()`, `triangle_count()` and `stats()` describe the built level
+// exactly as before), and an empty dynamic set with an empty suppression list
+// leaves every query bit-identical to the static-only implementation.  The
+// suppressed pairs are applied through a one-byte-per-static-triangle mask and
+// the dynamic set through a union AABB plus block AABBs, so a query over a
+// level with moving doors stays close to the static cost.
 
 #include <cmath>
 #include <cstddef>
@@ -32,6 +45,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "render/render.h" // Vec3d
@@ -210,9 +224,14 @@ struct RayHit {
     Vec3d point;
     Vec3d normal;       ///< unit, pointing against the ray (towards its origin)
     const Triangle* triangle = nullptr; ///< valid while the world is alive
+    /// Index of the hit triangle: into `triangles()` for a static hit, into
+    /// `dynamic_triangles()` when `dynamic` is true.
     std::uint32_t triangle_index = 0;
     std::uint32_t sector = 0;
     bool front_face = false; ///< the ray arrived on the front side of `surface_normal()`
+    /// The hit came from the dynamic set (`set_dynamic`), not from the built
+    /// level.  `triangle_index` addresses `dynamic_triangles()` then.
+    bool dynamic = false;
 };
 
 struct SphereHit {
@@ -221,8 +240,9 @@ struct SphereHit {
     Vec3d centre;       ///< sphere centre at the moment of contact
     Vec3d normal;       ///< unit, pushes the sphere out of the surface
     const Triangle* triangle = nullptr;
-    std::uint32_t triangle_index = 0;
+    std::uint32_t triangle_index = 0; ///< see `RayHit::triangle_index`
     std::uint32_t sector = 0;
+    bool dynamic = false; ///< see `RayHit::dynamic`
 };
 
 /// Immutable triangle soup plus sector AABBs.  Build once per level; queries
@@ -251,11 +271,49 @@ public:
     bool empty() const { return triangles_.empty(); }
 
     const std::vector<Triangle>& triangles() const { return triangles_; }
+    /// Number of *static* (built) triangles; the dynamic set is counted by
+    /// `dynamic_triangle_count()` and never changes this value.
     std::size_t triangle_count() const { return triangles_.size(); }
     std::size_t sector_count() const { return sectors_.size(); }
     const Aabb& bounds() const { return bounds_; }
     const Aabb& sector_bounds(std::uint32_t sector) const;
     const BuildStats& stats() const { return stats_; }
+
+    // --- dynamic set (moving objects, docs/DOOR_COLLISION.md) ---------------
+
+    /// Replace the dynamic triangle set and the list of `(sector, object)`
+    /// pairs whose *static* triangles are excluded from every query.
+    ///
+    /// The triangles are used as given: `raycast`/`sphere_cast` need finite
+    /// vertices and normals, `plane_offset`, `centroid` and `bounds`.  A field
+    /// the caller left empty (non-finite or an empty `bounds`) is derived from
+    /// the vertices here, so `Triangle{a, b, c}` is a valid input; a supplied
+    /// field is trusted verbatim (the moving collider already computes all of
+    /// them).  `dynamic` must be sorted/ordered by the caller; the order is
+    /// kept and ties against a static triangle are won by the static one.
+    ///
+    /// Returns false (and leaves the previous dynamic set and the suppression
+    /// list untouched) for a NaN/inf vertex, `normal`, `centroid` or
+    /// `data_normal`, or a vertex beyond `kCollideMaxCoordinate`; `error`
+    /// names the first rejected triangle.  An empty set with an empty list
+    /// restores the plain static world and is bit-for-bit equivalent to never
+    /// having called `set_dynamic`.
+    bool set_dynamic(std::vector<Triangle> triangles,
+                     std::vector<std::pair<std::uint32_t, std::uint32_t>> suppressed = {},
+                     std::string* error = nullptr);
+
+    /// Drop the dynamic set and the suppression list.
+    void clear_dynamic();
+
+    const std::vector<Triangle>& dynamic_triangles() const { return dynamic_; }
+    std::size_t dynamic_triangle_count() const { return dynamic_.size(); }
+    const Aabb& dynamic_bounds() const { return dynamic_bounds_; }
+    /// The `(sector, object)` pairs whose static triangles queries skip.
+    const std::vector<std::pair<std::uint32_t, std::uint32_t>>& suppressed() const {
+        return suppressed_;
+    }
+    std::size_t suppressed_count() const { return suppressed_.size(); }
+    bool is_suppressed(std::uint32_t sector, std::uint32_t object) const;
 
     /// Nearest triangle along `direction` (need not be unit).  Returns
     /// `std::nullopt` for a miss, a zero/NaN/inf direction, a NaN origin or a
@@ -280,7 +338,9 @@ public:
 
     /// Triangle indices whose AABB overlaps `box`.  `out` is cleared first;
     /// reuse one vector to avoid per-query allocation.  Results are in build
-    /// order (sector-major, then polygon order).
+    /// order (sector-major, then polygon order).  Static triangles of a
+    /// suppressed `(sector, object)` are skipped; the dynamic set is not
+    /// reported (its indices would be ambiguous), see docs/DOOR_COLLISION.md.
     std::size_t overlap_aabb(const Aabb& box, std::vector<std::uint32_t>& out,
                              const CollideFilter& filter = {}) const;
 
@@ -291,11 +351,34 @@ private:
         std::uint32_t count = 0;
     };
 
+    /// Dynamic triangles per broad-phase block (see `dynamic_chunks_`).
+    static constexpr std::size_t kDynamicChunk = 32;
+
     std::vector<Triangle> triangles_;
     std::vector<Sector> sectors_;
     Aabb bounds_;
     BuildStats stats_;
+
+    std::vector<Triangle> dynamic_;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> suppressed_;
+    /// Sorted `(sector << 32) | object` keys of `suppressed_`; backs the public
+    /// `is_suppressed()` (rarely called; the queries use the byte mask below).
+    std::vector<std::uint64_t> suppressed_keys_;
+    /// One byte per *static* triangle: 1 when its `(sector, object)` is
+    /// suppressed.  A query reads one byte per triangle it examines, which is
+    /// what a per-triangle binary search over the pair list cost in Debug
+    /// builds; the mask is rebuilt only when the pair list changes.
+    std::vector<std::uint8_t> suppressed_triangles_;
+    void rebuild_suppressed_mask();
+    Aabb dynamic_bounds_;
+    /// Union AABB of each block of `kDynamicChunk` dynamic triangles.  The
+    /// dynamic set has no sector broad phase; this is the cheap replacement:
+    /// a query tests the block boxes and only touches the triangles of the
+    /// blocks it crosses.  Block order is the triangle order, so the
+    /// first-triangle-wins rule is untouched.
+    std::vector<Aabb> dynamic_chunks_;
 };
+
 
 /// Exposed for tests and for tools that already have three points: nearest
 /// point on a triangle, point-in-triangle (barycentric), and ray/triangle

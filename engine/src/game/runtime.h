@@ -33,6 +33,10 @@
 //                  `spawn_player_shot()` for a fired projectile
 //   3. projectiles `Projectiles::tick_results(1, targets, collision, queue)`
 //   4. doors/world `WorldState::tick(1)`
+//   4a. door collision `sync_door_colliders()`: re-pose the moving leaves from
+//                  the new door phases and publish them with
+//                  `CollisionWorld::set_dynamic` (only when a fraction changed,
+//                  docs/DOOR_COLLISION.md)
 //   5. events      pending switch tail + `EventRuntime::pump(now)`
 //
 // `tick(n)` runs that body exactly `n` times; there is no second pass over any
@@ -86,6 +90,7 @@
 #include "res/vm_exec.h"
 #include "world/ai.h"
 #include "world/doors.h"
+#include "world/moving_collider.h"
 #include "world/things.h"
 
 namespace gm {
@@ -155,6 +160,30 @@ struct GameRuntimeStats {
     /// (`Ai::apply_aim`).  0 when the `ai_apply_aim` bridge is off or when
     /// no agent had a target.
     std::size_t aimed_things = 0;
+};
+
+/// State of the moving door panels the runtime hands to `CollisionWorld`
+/// (`set_dynamic`, docs/DOOR_COLLISION.md).
+///
+/// One panel is built per moving sliding door of the level: the door's
+/// `(sector, object)` triangles at the rest pose plus `Door::open - Door::closed`
+/// (`world/moving_collider.h`).  The static triangles of those pairs are
+/// suppressed in `collision()`, so a closed leaf holds the player, a projected
+/// ray and the AI, while an open one is really gone from the world.
+struct DoorCollisionStats {
+    std::size_t doors = 0;      ///< moving sliding doors with a usable panel
+    std::size_t panels = 0;     ///< panels inside the colliders (one per door)
+    std::size_t triangles = 0;  ///< dynamic triangles of the current pose
+    std::size_t suppressed = 0; ///< `(sector, object)` pairs carved out
+    std::size_t static_triangles = 0; ///< `collision().triangle_count()`
+    std::size_t skipped_rotating = 0; ///< swing doors, kept static (§6)
+    std::size_t skipped_static = 0;   ///< `open == closed`, nothing moves
+    std::size_t skipped_duplicate = 0; ///< second door on the same object
+    std::size_t skipped_unbound = 0;  ///< no triangles for `(sector, object)`
+    std::size_t skipped_refused = 0;  ///< `MovingCollider` refused the panel
+    std::size_t rebuilds = 0;   ///< `CollisionWorld::set_dynamic` calls
+    std::size_t failed_rebuilds = 0; ///< refused dynamic sets (pose kept)
+    std::size_t sync_ticks = 0; ///< `sync_door_colliders()` calls
 };
 
 /// One `apply_projectile_blasts()` call.  `damage` merges the applied blasts in
@@ -397,6 +426,32 @@ public:
     /// `last_events()`/`last_projectile_results()` describe the last step only.
     void tick(std::uint64_t ticks = 1);
 
+    // --- moving door collision ---------------------------------------------
+
+    /// Re-pose the moving door panels from the current door state and hand the
+    /// new triangles to `collision()` (`CollisionWorld::set_dynamic`).  Called
+    /// by every tick right after `WorldState::tick`, so the player, the AI,
+    /// the projectiles and the aim ray all see the leaf where it is now.
+    ///
+    /// Returns `true` only when the dynamic set was actually rebuilt: the
+    /// fractions of the panels are compared with the last applied ones and an
+    /// unchanged door set touches nothing (a resting level rebuilds zero times
+    /// per tick).  A caller that moves a door outside `tick()` (state restore,
+    /// a test forcing `Door::phase`) calls this directly to publish the pose.
+    bool sync_door_colliders();
+
+    /// Rebuild the panel list and the dynamic set from scratch, from the
+    /// current `world().doors()` and the static `collision()` triangles.  This
+    /// is what `build_world()` does; call it again after editing the doors
+    /// through `world().doors_mutable()` (a changed `(sector, object)` binding
+    /// or a script-restored state).  Returns false with `error` when the
+    /// resulting set is rejected (the previous set stays active).
+    bool rebuild_door_colliders(std::string* error = nullptr);
+
+    /// What the last build/rebuild published; `rebuilds`/`sync_ticks` count
+    /// the calls since `build_world()`.  See `DoorCollisionStats`.
+    const DoorCollisionStats& door_collision() const { return door_collision_.stats; }
+
     // --- owned state --------------------------------------------------------
 
     WorldState& world() { return world_; }
@@ -620,7 +675,27 @@ public:
     void clear_projectiles();
 
 private:
+    /// One moving door panel plus the fraction it was last posed at.
+    struct DoorCollisionState {
+        std::vector<MovingCollider> colliders; ///< one single-panel collider per door
+        std::vector<std::size_t> door_index;   ///< index into `WorldState::doors()`
+        std::vector<double> applied;           ///< last fraction handed to `update`
+        std::vector<std::pair<std::uint32_t, std::uint32_t>> suppressed;
+        DoorCollisionStats stats;
+    };
+
     void tick_once();
+    /// Build the moving door panels from `world` and `collision` into `out` and
+    /// publish them through `collision.set_dynamic`.  Does not touch the
+    /// runtime: the caller swaps `out` in on success, so a rejected level leaves
+    /// the previous collision set untouched.
+    bool build_door_panels(const WorldState& world, CollisionWorld& collision,
+                           DoorCollisionState& out, std::string* error);
+    /// Concatenate the current panel poses into `collision.set_dynamic` and
+    /// refresh the statistics.  Returns false (set untouched) when rejected.
+    bool publish_door_dynamic(CollisionWorld& collision, DoorCollisionState& state,
+                              std::string* error);
+    void clear_door_panels();
     /// Enable the movement automata of `things_` when the opt-in aim bridge
     /// needs them (the collision world of the runtime is the probe geometry).
     /// Idempotent: the flag is only applied once per `Things` instance.
@@ -651,6 +726,8 @@ private:
     Projectiles projectiles_;
     EventRuntime events_;
     CollisionWorld collision_;
+    /// Moving door panels and the dynamic set they publish (docs/DOOR_COLLISION.md).
+    DoorCollisionState door_collision_;
     std::optional<Thing> ai_projectile_template_;
     /// Player weapon seam state (docs/WEAPONS_CPP.md §3.6).  The tables and
     /// loadout are level state (dropped by `reset()`); the projectile template

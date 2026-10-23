@@ -124,6 +124,71 @@ struct SphereContact {
     Vec3d normal;
 };
 
+/// A ray with the per-axis reciprocal hoisted out of the box loop: the dynamic
+/// broad phase tests a dozen block boxes per query, and `ray_aabb` recomputes
+/// `1/d` for every one of them.
+struct RaySlab {
+    Vec3d origin;
+    Vec3d inv;
+    std::uint8_t parallel = 0; ///< bit `i`: direction component `i` is ~0
+};
+
+RaySlab make_slab(const Vec3d& origin, const Vec3d& direction) {
+    RaySlab slab;
+    slab.origin = origin;
+    for (int i = 0; i < 3; ++i) {
+        const double d = axis_of(direction, i);
+        if (std::fabs(d) < 1e-300) {
+            slab.parallel |= static_cast<std::uint8_t>(1u << i);
+        } else {
+            const double inv = 1.0 / d;
+            if (i == 0) {
+                slab.inv.x = inv;
+            } else if (i == 1) {
+                slab.inv.y = inv;
+            } else {
+                slab.inv.z = inv;
+            }
+        }
+    }
+    return slab;
+}
+
+/// The same slab test as `ray_aabb`, with the reciprocals of `slab` and the
+/// branch chosen from the pre-computed `parallel` mask.  Used only for the
+/// dynamic broad phase (the static path keeps `ray_aabb`, bit for bit).
+bool ray_slab_aabb(const RaySlab& slab, const Aabb& box, double max_t) {
+    double t_min = 0.0;
+    double t_max = max_t;
+    for (int i = 0; i < 3; ++i) {
+        const double o = axis_of(slab.origin, i);
+        const double lo = axis_of(box.lo, i);
+        const double hi = axis_of(box.hi, i);
+        if ((slab.parallel & static_cast<std::uint8_t>(1u << i)) != 0) {
+            if (o < lo || o > hi) {
+                return false;
+            }
+            continue;
+        }
+        const double inv = axis_of(slab.inv, i);
+        double ta = (lo - o) * inv;
+        double tb = (hi - o) * inv;
+        if (ta > tb) {
+            std::swap(ta, tb);
+        }
+        if (ta > t_min) {
+            t_min = ta;
+        }
+        if (tb < t_max) {
+            t_max = tb;
+        }
+        if (t_min > t_max) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /// Closest approach of a swept sphere to one triangle: face, three edges and
 /// three vertices.  Each candidate is a genuine contact of the Minkowski sum
 /// `triangle (+) sphere`, so the earliest one is the entry time.
@@ -253,6 +318,33 @@ bool sphere_vs_triangle(const Vec3d& origin, const Vec3d& direction, double radi
 bool has_data_normal(const Triangle& triangle) {
     // No sqrt: a built `data_normal` is either the zero vector or unit.
     return dot(triangle.data_normal, triangle.data_normal) > 0.0;
+}
+
+/// Fill the fields of one dynamic triangle that the caller may have left
+/// empty.  `bounds` is detectable (the default AABB is invalid), `normal` too
+/// (zero or non-finite); `centroid` and `plane_offset` are recomputed
+/// unconditionally because the formula is exact and cheap, which lets a caller
+/// pass a bare `Triangle{a, b, c}`.  For a triangle produced by
+/// `MovingCollider` the recomputation yields the same bits (same expressions,
+/// same order), so this never moves a pose.
+void complete_dynamic_triangle(Triangle& triangle) {
+    if (!triangle.bounds.valid() || !finite(triangle.bounds.lo) ||
+        !finite(triangle.bounds.hi)) {
+        triangle.bounds = Aabb{};
+        triangle.bounds.expand(triangle.a);
+        triangle.bounds.expand(triangle.b);
+        triangle.bounds.expand(triangle.c);
+    }
+    if (!finite(triangle.normal) || dot(triangle.normal, triangle.normal) <= 0.0) {
+        const Vec3d face = cross(triangle.b - triangle.a, triangle.c - triangle.a);
+        const double area2 = length(face);
+        triangle.normal = area2 > 0.0 ? face * (1.0 / area2) : Vec3d{};
+    }
+    if (!finite(triangle.data_normal)) {
+        triangle.data_normal = Vec3d{};
+    }
+    triangle.plane_offset = dot(triangle.normal, triangle.a);
+    triangle.centroid = (triangle.a + triangle.b + triangle.c) * (1.0 / 3.0);
 }
 
 } // namespace
@@ -587,6 +679,133 @@ void CollisionWorld::clear() {
     sectors_.clear();
     bounds_ = Aabb{};
     stats_ = BuildStats{};
+    clear_dynamic();
+}
+
+void CollisionWorld::clear_dynamic() {
+    dynamic_.clear();
+    suppressed_.clear();
+    suppressed_keys_.clear();
+    suppressed_triangles_.clear();
+    dynamic_bounds_ = Aabb{};
+    dynamic_chunks_.clear();
+}
+
+bool CollisionWorld::is_suppressed(std::uint32_t sector, std::uint32_t object) const {
+    if (suppressed_keys_.empty()) {
+        return false;
+    }
+    const std::uint64_t key = (static_cast<std::uint64_t>(sector) << 32) |
+                              static_cast<std::uint64_t>(object);
+    return std::binary_search(suppressed_keys_.begin(), suppressed_keys_.end(), key);
+}
+
+/// Mark every static triangle whose `(sector, object)` is in `suppressed_`.
+///
+/// The scan is O(static triangles) and runs only when the pair list changes
+/// (the runtime republishes the same list on every door pose).  Membership is a
+/// per-sector bitmask, so the scan does not degrade into pairs × triangles.
+void CollisionWorld::rebuild_suppressed_mask() {
+    suppressed_triangles_.assign(triangles_.size(), 0);
+    if (suppressed_.empty()) {
+        return;
+    }
+    std::vector<std::vector<std::uint64_t>> masks(sectors_.size());
+    for (const auto& pair : suppressed_) {
+        if (pair.first >= masks.size()) {
+            continue;
+        }
+        std::vector<std::uint64_t>& mask = masks[pair.first];
+        const std::size_t word = pair.second >> 6;
+        if (mask.size() <= word) {
+            mask.resize(word + 1, 0);
+        }
+        mask[word] |= std::uint64_t{1} << (pair.second & 63);
+    }
+    for (std::size_t i = 0; i < triangles_.size(); ++i) {
+        const Triangle& triangle = triangles_[i];
+        if (triangle.sector >= masks.size()) {
+            continue;
+        }
+        const std::vector<std::uint64_t>& mask = masks[triangle.sector];
+        const std::size_t word = triangle.object >> 6;
+        if (word < mask.size() &&
+            ((mask[word] >> (triangle.object & 63)) & std::uint64_t{1}) != 0) {
+            suppressed_triangles_[i] = 1;
+        }
+    }
+}
+
+bool CollisionWorld::set_dynamic(
+    std::vector<Triangle> triangles,
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> suppressed, std::string* error) {
+    if (error != nullptr) {
+        error->clear();
+    }
+    std::string failure;
+    for (std::size_t i = 0; i < triangles.size(); ++i) {
+        Triangle& triangle = triangles[i];
+        const std::string where = "dynamic triangle " + std::to_string(i);
+        if (!finite(triangle.a) || !finite(triangle.b) || !finite(triangle.c)) {
+            set_first_error(&failure, where + ": non-finite vertex");
+            break;
+        }
+        if (!coordinate_ok(triangle.a) || !coordinate_ok(triangle.b) ||
+            !coordinate_ok(triangle.c)) {
+            set_first_error(&failure, where + ": vertex out of range");
+            break;
+        }
+        if (!finite(triangle.normal) || !finite(triangle.data_normal) ||
+            !finite(triangle.centroid)) {
+            set_first_error(&failure, where + ": non-finite normal/centroid");
+            break;
+        }
+        if (triangle.bounds.valid() &&
+            (!finite(triangle.bounds.lo) || !finite(triangle.bounds.hi))) {
+            set_first_error(&failure, where + ": non-finite bounds");
+            break;
+        }
+        complete_dynamic_triangle(triangle);
+    }
+    if (!failure.empty()) {
+        // The previous set survives a rejected call: a NaN frame must not
+        // teleport or remove the door (docs/DOOR_COLLISION.md §4).
+        if (error != nullptr) {
+            *error = failure;
+        }
+        return false;
+    }
+
+    dynamic_ = std::move(triangles);
+    // Note the comparison before the move: the mask only has to be rebuilt
+    // when the pair list changes (the runtime republishes the same list on
+    // every door pose).
+    const bool same_suppression = suppressed == suppressed_;
+    suppressed_ = std::move(suppressed);
+    dynamic_bounds_ = Aabb{};
+    dynamic_chunks_.clear();
+    for (std::size_t i = 0; i < dynamic_.size(); ++i) {
+        const Triangle& triangle = dynamic_[i];
+        dynamic_bounds_.expand(triangle.bounds);
+        if (i % kDynamicChunk == 0) {
+            dynamic_chunks_.push_back(Aabb{});
+        }
+        dynamic_chunks_.back().expand(triangle.bounds);
+    }
+    // Lookup structures of the suppression list: a sorted key vector (for the
+    // public `is_suppressed`) and a byte mask over the static triangles (for
+    // the query loops).
+    suppressed_keys_.clear();
+    suppressed_keys_.reserve(suppressed_.size());
+    for (const auto& pair : suppressed_) {
+        suppressed_keys_.push_back((static_cast<std::uint64_t>(pair.first) << 32) |
+                                   static_cast<std::uint64_t>(pair.second));
+    }
+    std::sort(suppressed_keys_.begin(), suppressed_keys_.end());
+    if (!same_suppression) {
+        rebuild_suppressed_mask();
+    }
+    return true;
 }
 
 const Aabb& CollisionWorld::sector_bounds(std::uint32_t sector) const {
@@ -612,7 +831,19 @@ std::optional<RayHit> CollisionWorld::raycast(const Vec3d& origin, const Vec3d& 
     double best = limit;
     const Triangle* best_triangle = nullptr;
     std::uint32_t best_index = 0;
+    bool best_dynamic = false;
 
+    // The static loop repeats the dynamic candidate test on purpose: Debug
+    // builds are -O0, where a per-triangle lambda call is measurable in the
+    // tens-of-thousands of casts a tick makes.  The two bodies below must stay
+    // in lockstep (same clause order, same epsilons).
+    //
+    // `skip` is the one-byte-per-static-triangle suppression mask; it is null
+    // when nothing is suppressed, so a plain world pays one register test per
+    // sector and no per-triangle lookup at all.
+    const std::uint8_t* const skip =
+        suppressed_triangles_.size() == triangles_.size() ? suppressed_triangles_.data()
+                                                          : nullptr;
     for (std::size_t s = 0; s < sectors_.size(); ++s) {
         const Sector& sector = sectors_[s];
         if (sector.count == 0 || !sector_allowed(filter, static_cast<std::uint32_t>(s))) {
@@ -623,6 +854,9 @@ std::optional<RayHit> CollisionWorld::raycast(const Vec3d& origin, const Vec3d& 
         }
         for (std::uint32_t i = sector.begin; i < sector.begin + sector.count; ++i) {
             const Triangle& triangle = triangles_[i];
+            if (skip != nullptr && skip[i] != 0) {
+                continue; // stale rest pose of a moving object
+            }
             if (!filter.allows(triangle)) {
                 continue;
             }
@@ -646,6 +880,49 @@ std::optional<RayHit> CollisionWorld::raycast(const Vec3d& origin, const Vec3d& 
             best = *t;
             best_triangle = &triangle;
             best_index = i;
+            best_dynamic = false;
+        }
+    }
+
+    // Dynamic set: no sector broad phase (it holds the panels of a handful of
+    // doors), so the pre-computed block boxes are the broad phase: the union
+    // box first, then one box per `kDynamicChunk` triangles, with the ray
+    // reciprocals hoisted out of the loop.  Both tests only skip triangles the
+    // per-triangle tests below would reject as well.  Static wins a tie.
+    if (!dynamic_.empty()) {
+        const RaySlab slab = make_slab(origin, d);
+        if (ray_slab_aabb(slab, dynamic_bounds_, best)) {
+            for (std::size_t c = 0; c < dynamic_chunks_.size(); ++c) {
+                if (!ray_slab_aabb(slab, dynamic_chunks_[c], best)) {
+                    continue;
+                }
+                const std::size_t begin = c * kDynamicChunk;
+                const std::size_t end = std::min(begin + kDynamicChunk, dynamic_.size());
+                for (std::size_t i = begin; i < end; ++i) {
+                    const Triangle& triangle = dynamic_[i];
+                    if (!filter.allows(triangle)) {
+                        continue;
+                    }
+                    if (!filter.backfaces && dot(surface_normal(triangle), d) >= 0.0) {
+                        continue;
+                    }
+                    if (!ray_aabb(origin, d, triangle.bounds, best)) {
+                        continue;
+                    }
+                    const std::optional<double> t =
+                        ray_triangle(origin, d, triangle, best);
+                    if (!t.has_value() || *t > best) {
+                        continue;
+                    }
+                    if (best_triangle != nullptr && !(*t < best)) {
+                        continue;
+                    }
+                    best = *t;
+                    best_triangle = &triangle;
+                    best_index = static_cast<std::uint32_t>(i);
+                    best_dynamic = true;
+                }
+            }
         }
     }
 
@@ -659,6 +936,7 @@ std::optional<RayHit> CollisionWorld::raycast(const Vec3d& origin, const Vec3d& 
     hit.triangle = best_triangle;
     hit.triangle_index = best_index;
     hit.sector = best_triangle->sector;
+    hit.dynamic = best_dynamic;
     // `front_face` is about the authored side of the polygon; `normal` is
     // always reported against the incoming ray so a caller can slide on it.
     // Flipping a unit normal and the sign of its dot product yields the same
@@ -690,8 +968,15 @@ std::optional<SphereHit> CollisionWorld::sphere_cast(const Vec3d& origin, const 
     double best = limit;
     const Triangle* best_triangle = nullptr;
     std::uint32_t best_index = 0;
+    bool best_dynamic = false;
     SphereContact best_contact;
 
+    // Same deliberate duplication as `raycast`: at -O0 a per-triangle helper
+    // call is measurable.  Static first, dynamic after, static wins an exact
+    // tie (the order of the two loops is the tie-break).
+    const std::uint8_t* const skip =
+        suppressed_triangles_.size() == triangles_.size() ? suppressed_triangles_.data()
+                                                          : nullptr;
     for (std::size_t s = 0; s < sectors_.size(); ++s) {
         const Sector& sector = sectors_[s];
         if (sector.count == 0 || !sector_allowed(filter, static_cast<std::uint32_t>(s))) {
@@ -704,6 +989,9 @@ std::optional<SphereHit> CollisionWorld::sphere_cast(const Vec3d& origin, const 
         }
         for (std::uint32_t i = sector.begin; i < sector.begin + sector.count; ++i) {
             const Triangle& triangle = triangles_[i];
+            if (skip != nullptr && skip[i] != 0) {
+                continue; // stale rest pose of a moving object
+            }
             if (!filter.allows(triangle)) {
                 continue;
             }
@@ -725,6 +1013,51 @@ std::optional<SphereHit> CollisionWorld::sphere_cast(const Vec3d& origin, const 
                 best_contact = contact;
                 best_triangle = &triangle;
                 best_index = i;
+                best_dynamic = false;
+            }
+        }
+    }
+
+    if (!dynamic_.empty()) {
+        Aabb union_box = dynamic_bounds_;
+        union_box.grow(grow);
+        const RaySlab slab = make_slab(origin, d);
+        if (ray_slab_aabb(slab, union_box, best)) {
+            for (std::size_t c = 0; c < dynamic_chunks_.size(); ++c) {
+                Aabb chunk = dynamic_chunks_[c];
+                chunk.grow(grow);
+                if (!ray_slab_aabb(slab, chunk, best)) {
+                    continue;
+                }
+                const std::size_t begin = c * kDynamicChunk;
+                const std::size_t end = std::min(begin + kDynamicChunk, dynamic_.size());
+                for (std::size_t i = begin; i < end; ++i) {
+                    const Triangle& triangle = dynamic_[i];
+                    if (!filter.allows(triangle)) {
+                        continue;
+                    }
+                    Aabb tri_broad = triangle.bounds;
+                    tri_broad.grow(grow);
+                    if (!ray_aabb(origin, d, tri_broad, best)) {
+                        continue;
+                    }
+                    SphereContact contact;
+                    if (!sphere_vs_triangle(origin, d, radius, triangle, best, contact)) {
+                        continue;
+                    }
+                    if (!filter.backfaces &&
+                        dot(surface_normal(triangle), (origin + d * contact.t) -
+                                                          triangle.a) < 0.0) {
+                        continue;
+                    }
+                    if (best_triangle == nullptr || contact.t < best) {
+                        best = contact.t;
+                        best_contact = contact;
+                        best_triangle = &triangle;
+                        best_index = static_cast<std::uint32_t>(i);
+                        best_dynamic = true;
+                    }
+                }
             }
         }
     }
@@ -740,6 +1073,7 @@ std::optional<SphereHit> CollisionWorld::sphere_cast(const Vec3d& origin, const 
     hit.triangle = best_triangle;
     hit.triangle_index = best_index;
     hit.sector = best_triangle->sector;
+    hit.dynamic = best_dynamic;
     return hit;
 }
 
@@ -770,6 +1104,9 @@ std::size_t CollisionWorld::overlap_aabb(const Aabb& box, std::vector<std::uint3
     if (!box.valid() || !finite(box.lo) || !finite(box.hi)) {
         return 0;
     }
+    const std::uint8_t* const skip =
+        suppressed_triangles_.size() == triangles_.size() ? suppressed_triangles_.data()
+                                                          : nullptr;
     for (std::size_t s = 0; s < sectors_.size(); ++s) {
         const Sector& sector = sectors_[s];
         if (sector.count == 0 || !sector_allowed(filter, static_cast<std::uint32_t>(s))) {
@@ -780,6 +1117,9 @@ std::size_t CollisionWorld::overlap_aabb(const Aabb& box, std::vector<std::uint3
         }
         for (std::uint32_t i = sector.begin; i < sector.begin + sector.count; ++i) {
             const Triangle& triangle = triangles_[i];
+            if (skip != nullptr && skip[i] != 0) {
+                continue; // stale rest pose of a moving object
+            }
             if (!filter.allows(triangle)) {
                 continue;
             }

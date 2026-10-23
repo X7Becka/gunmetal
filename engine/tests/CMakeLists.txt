@@ -361,6 +361,18 @@ target_link_libraries(gm_moving_collider_tests PRIVATE gm_engine)
 add_test(NAME moving_collider COMMAND gm_moving_collider_tests)
 gm_label(moving_collider quick)
 
+# M6.4.1 slice 2: moving doors really hold the player (docs/DOOR_COLLISION.md).
+# `CollisionWorld::set_dynamic` + static suppression (NaN/inf refusal, empty-set
+# parity), the runtime building one panel per moving sliding door on real
+# level0/dm1 and rebuilding only when a door phase changed, a ray/sphere on the
+# real level0 leaf closed vs open, `gm::step` stopped by the closed leaf and
+# passing the open one, a SimPlayer walking through the real dm1 doorway, and
+# the negatives (swing doors stay static, a door rebound to a missing object).
+add_executable(gm_door_collision_tests test_door_collision.cpp)
+target_link_libraries(gm_door_collision_tests PRIVATE gm_engine)
+add_test(NAME door_collision COMMAND gm_door_collision_tests)
+gm_label(door_collision quick)
+
 add_executable(gm_player_controller_tests test_player_controller.cpp)
 target_link_libraries(gm_player_controller_tests PRIVATE gm_engine)
 # Deterministic 91 Hz player controller (docs/PLAYER_CONTROLLER.md): synthetic
