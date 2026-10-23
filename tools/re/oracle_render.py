@@ -405,6 +405,17 @@ def main(argv: list[str]) -> int:
                     help="do not drop the 1 px window frame of the capture")
     ap.add_argument("--world-end", type=float, default=WORLD_END,
                     help="share of height that is world (default 0.70)")
+    ap.add_argument("--hud", action="store_true",
+                    help="draw the cockpit band: PANEL 320x78 through the "
+                         "engine fade LUT (docs/HUD_AUDIT.md 2.7)")
+    ap.add_argument("--hud-lut", default=os.path.expanduser(
+        "~/.cache/gunmetal-re/hud_lut.bin"),
+        help="16x256 fade LUT dump (tools/win/dump_lut.lua)")
+    ap.add_argument("--hud-level", type=int, default=10,
+                    help="fade level 0..15 (player field +0x81c24c; the "
+                         "win2 capture matches 10)")
+    ap.add_argument("--hud-top", type=int, default=130,
+                    help="band top row in the 320x200 frame (default 130)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--self-test", dest="selftest", action="store_true")
     opts = ap.parse_args(argv)
@@ -426,6 +437,24 @@ def main(argv: list[str]) -> int:
                         opts.materials, opts.ambient, opts.chromakey,
                         opts.uv, opts.skip_untextured, opts.pitch_offset,
                         opts.fade)
+    if opts.hud:
+        from gm import hud as hudmod
+        from gm import png as pngmod
+
+        image = pngmod.decode(data)
+        if image.mode != "RGB":
+            raise SystemExit("--hud expects an RGB render")
+        if not os.path.exists(opts.hud_lut):
+            raise SystemExit(
+                f"--hud needs the fade LUT dump at {opts.hud_lut}; produce it "
+                "with tools/win/dump_lut.lua (Cheat Engine, gm_lut.bin)")
+        panel = hudmod.engine_order(hudmod.load_panel(opts.game))
+        lut = hudmod.load_lut(opts.hud_lut, opts.hud_level)
+        rgb = hudmod.compose(image.pixels, image.width, image.height, panel,
+                             hudmod.palette_bytes(opts.game),
+                             top=opts.hud_top, lut=lut)
+        data = pngmod.rgb(image.width, image.height, rgb)
+
     out_dir = os.path.dirname(os.path.abspath(opts.out))
     os.makedirs(out_dir, exist_ok=True)
     with open(opts.out, "wb") as fh:
@@ -446,6 +475,7 @@ def main(argv: list[str]) -> int:
         "materials": opts.materials,
         "chromakey": opts.chromakey,
         "uv": opts.uv,
+        "hud": {"on": opts.hud, "top": opts.hud_top, "level": opts.hud_level} if opts.hud else False,
         "pitch_offset_deg": opts.pitch_offset,
         "skip_untextured": opts.skip_untextured,
         "ambient": opts.ambient,
