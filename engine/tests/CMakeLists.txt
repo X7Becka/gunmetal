@@ -133,6 +133,14 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
             PASS_REGULAR_EXPRESSION "result: ok")
         gm_label(mod_regress_${mod_name} quick)
     endforeach()
+    # M6.5.1: `gunmetal --sim` is deterministic (same digest twice) and the
+    # AI -> movement bridge actually moves things.
+    add_test(NAME sim_check
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/sim_check.py
+                     --level dm1 --ticks 500)
+    set_tests_properties(sim_check PROPERTIES PASS_REGULAR_EXPRESSION
+        "sim_check: ok")
+    gm_label(sim_check quick)
     # M11.6: every shipped BIGFILE pair repacked byte for byte.
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/bigpack-tmp")
     add_test(NAME bigpack_roundtrip

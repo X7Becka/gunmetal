@@ -28,6 +28,9 @@
 #include "res/soe.h"
 #include "res/sml.h"
 #include "camera/camera.h"
+#include "game/runtime.h"
+#include "res/vm_exec.h"
+#include "world/doors.h"
 #include "player/controller.h"
 #include "render/collide.h"
 #include "render/hud_player.h"
@@ -986,6 +989,137 @@ int show_level(const gm::Options& options) {
         std::printf("lightmaps: magic=%s records=%zu texels=%zu\n",
                     level->lightmaps->magic.c_str(), level->lightmaps->records.size(), texels);
     }
+    return 0;
+}
+
+/// `--sim LEVEL`: one headless fixed-tick run (`M6.5.1` scaffold).
+///
+/// Builds exactly what the tests build (`vm_state_from_level` +
+/// `GameRuntime::build`) from a shipped level and steps the 91 Hz tick
+/// `--ticks` times.  No window, no input, no rendering: the point is a
+/// deterministic, scriptable run that can be diffed between builds.  The
+/// digest covers every thing position/alive flag and every door phase, so two
+/// runs of the same build must print the same number.
+int simulate(const gm::Options& options) {
+    std::string error;
+    const auto level = gm::load_level(options.game, options.sim, error);
+    if (!level) {
+        gm::logf(gm::LogLevel::Error, "sim", error);
+        return 2;
+    }
+    if (!level->world || !level->entities) {
+        gm::logf(gm::LogLevel::Error, "sim",
+                 "the level has no .sbw/.sbt pair: " + options.sim);
+        return 2;
+    }
+
+    gm::VmContext context;
+    context.game_mode = options.sim_mode;
+    context.player_count = options.sim_players;
+    context.players = options.sim_players;
+    context.difficulty = options.sim_difficulty;
+    context.god_mode = options.sim_god;
+    const gm::VmState vm = gm::vm_state_from_level(*level->entities, context);
+
+    // Opt-in AI -> movement bridge: without it the automata never receive a
+    // target and a long run would be indistinguishable from a short one.
+    gm::GameRuntimeConfig config;
+    config.ai_apply_aim = true;
+    gm::GameRuntime runtime(config);
+    if (!runtime.build(*level->entities, vm, *level->world, &error)) {
+        gm::logf(gm::LogLevel::Error, "sim", error);
+        return 2;
+    }
+
+    // The first campaign spawn is the player's eye target for the AI phase
+    // (slot 0; `SET_PLAYER_START`).  Geometry-less runs keep the origin.
+    gm::Vec3d eye{};
+    std::string scene_error;
+    if (const auto scene = gm::extract_scene(*level->entities, scene_error, false)) {
+        for (const gm::SceneSpawn& spawn : scene->spawns) {
+            if (spawn.slot == 0) {
+                eye.x = static_cast<double>(spawn.x);
+                eye.y = static_cast<double>(spawn.y);
+                eye.z = static_cast<double>(spawn.z) + 10.0;
+                break;
+            }
+        }
+    }
+    const std::span<const gm::Vec3d> eyes(&eye, 1);
+    if (!runtime.set_player_eyes(eyes)) {
+        gm::logf(gm::LogLevel::Error, "sim", "player eye point rejected");
+        return 2;
+    }
+
+    const std::size_t things_before = runtime.things().things().size();
+    const std::uint64_t ticks = static_cast<std::uint64_t>(options.sim_ticks);
+    if (ticks != 0) {
+        runtime.tick(ticks);
+    }
+
+    std::uint64_t digest = 1469598103934665603ull;
+    auto mix = [&digest](std::uint64_t value) {
+        digest ^= value;
+        digest *= 1099511628211ull;
+    };
+    // World coordinates are signed doubles; go through int64 so a negative
+    // value is a well-defined bit pattern instead of a UB float->unsigned cast.
+    auto mix_real = [&mix](double value) {
+        mix(static_cast<std::uint64_t>(static_cast<std::int64_t>(value * 1000.0)));
+    };
+    std::size_t alive = 0;
+    for (const gm::Thing& thing : runtime.things().things()) {
+        mix(static_cast<std::uint64_t>(thing.id));
+        mix(static_cast<std::uint64_t>(thing.type + 1));
+        mix(static_cast<std::uint64_t>(thing.alive ? 1 : 0));
+        if (thing.alive) {
+            ++alive;
+        }
+        if (thing.world_position) {
+            for (double axis : *thing.world_position) {
+                mix_real(axis);
+            }
+        } else if (thing.position) {
+            for (int axis : *thing.position) {
+                mix(static_cast<std::uint64_t>(static_cast<std::int64_t>(axis)));
+            }
+        }
+    }
+    // Movement automata keep their own position (`thing_motion.h`), so the
+    // thing record alone would hide every AI-driven move.
+    const auto& moved_things = runtime.things().things();
+    for (std::size_t index = 0; index < moved_things.size(); ++index) {
+        const gm::ThingMotionState* state = runtime.things().motion_state(index);
+        if (state == nullptr) {
+            continue;
+        }
+        mix_real(state->position.x);
+        mix_real(state->position.y);
+        mix_real(state->position.z);
+        mix_real(state->yaw);
+    }
+    for (const gm::Door& door : runtime.world().doors()) {
+        mix(static_cast<std::uint64_t>(door.id));
+        mix(door.phase);
+        mix_real(door.open_fraction);
+    }
+
+    std::printf("sim: level=%s ticks=%llu mode=%d players=%d difficulty=%d god=%d\n",
+                level->name.c_str(), static_cast<unsigned long long>(ticks),
+                options.sim_mode, options.sim_players, options.sim_difficulty,
+                options.sim_god ? 1 : 0);
+    std::printf("sim: things=%zu (alive %zu, built %zu) doors=%zu switches=%zu "
+                "lifts=%zu agents=%zu\n",
+                runtime.things().things().size(), alive, things_before,
+                runtime.world().doors().size(), runtime.world().switches().size(),
+                runtime.world().lifts().size(), runtime.ai().agents().size());
+    std::printf("sim: motion=stepped %zu moved %zu pushed %zu\n",
+                runtime.things().stats().motion_steps,
+                runtime.things().stats().motion_moved,
+                runtime.things().stats().motion_pushed);
+    std::printf("sim: digest=%016llx\n",
+                static_cast<unsigned long long>(digest));
+    std::printf("sim: ok\n");
     return 0;
 }
 
@@ -2011,6 +2145,9 @@ int main(int argc, char** argv) {
     }
     if (!options->scene.empty()) {
         return show_scene(*options);
+    }
+    if (!options->sim.empty()) {
+        return simulate(*options);
     }
     if (!options->sou1.empty()) {
         return export_sou1(*options);

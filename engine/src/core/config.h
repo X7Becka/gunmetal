@@ -18,6 +18,12 @@ struct Options {
     std::string song;
     std::string sample; // --sample: resolve a SOUND_SAMPLE_TABLE name
     std::string scene;
+    std::string sim;          // --sim LEVEL: headless fixed-tick run
+    int sim_ticks = 1;        // --ticks N
+    int sim_players = 1;      // --sim-players N (1..8)
+    int sim_mode = 0;         // --sim-mode N (game_mode of the VM context)
+    int sim_difficulty = 1;   // --sim-difficulty N
+    bool sim_god = false;     // --god: the GOD_MODE branch
     std::string film;
     std::string anim;
     std::string hud;          // optional Film/*.sof overlay

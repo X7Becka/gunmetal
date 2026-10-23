@@ -355,6 +355,66 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 error = "--transparent-index expects an integer";
                 return std::nullopt;
             }
+        } else if (arg == "--sim") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.sim = std::string(*v);
+        } else if (arg == "--ticks") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.sim_ticks = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--ticks expects an integer";
+                return std::nullopt;
+            }
+            if (options.sim_ticks < 0 || options.sim_ticks > 10000000) {
+                error = "--ticks expects 0..10000000";
+                return std::nullopt;
+            }
+        } else if (arg == "--sim-players") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.sim_players = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--sim-players expects an integer";
+                return std::nullopt;
+            }
+            if (options.sim_players < 1 || options.sim_players > 8) {
+                error = "--sim-players expects 1..8";
+                return std::nullopt;
+            }
+        } else if (arg == "--sim-mode") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.sim_mode = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--sim-mode expects an integer";
+                return std::nullopt;
+            }
+        } else if (arg == "--sim-difficulty") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.sim_difficulty = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                error = "--sim-difficulty expects an integer";
+                return std::nullopt;
+            }
+        } else if (arg == "--god") {
+            options.sim_god = true;
         } else if (arg == "--spawn-camera") {
             options.spawn_camera = true;
         } else if (arg == "--spawn-slot") {
@@ -581,6 +641,12 @@ std::string usage() {
        << "      --sample NAME resolve a sample name like the engine (sounds, then music)\n"
        << "      --music NAME  play MUSIC/NAME.sog through the SOG playlist\n"
        << "      --scene NAME  print the level script scene (lights/doors/items...)\n"
+       << "      --sim NAME    headless fixed-tick run of a level (no window)\n"
+       << "      --ticks N     ticks for --sim (91 Hz, default 1)\n"
+       << "      --sim-players N  VM player count for --sim (1..8)\n"
+       << "      --sim-mode N     VM game_mode for --sim (0 = campaign)\n"
+       << "      --sim-difficulty N  VM difficulty for --sim\n"
+       << "      --god         run --sim with the GOD_MODE branch (57 CHEVY)\n"
        << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"
