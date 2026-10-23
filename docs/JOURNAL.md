@@ -1130,3 +1130,21 @@
 - **Аудит:** `SBW_OBJECTS` — **51/51 по 17 докам**.
 - **Гейты:** `ctest` **138/138** (quick 124 + full 14),
   `regress --full --mirror` **125/125**.
+
+## Ход 2026-10-23 (партия 23: урон/смерть/респавн, кэш сэмплов)
+
+- **`M6.5.1` срез 3.** `SimPlayer::set_vitals/respawn/deaths/damage_taken`
+  (`docs/SIM_DAMAGE.md`, CTest `sim_damage`): виталы `LIGHT` (броня 10 000,
+  щиты 8 000 на сторону), смерть по `armor <= 0` (`0x453b50 → 0x4536e0`,
+  не `status_flags & 0x20`), самоурон ROCKET'ом 5 060 за попадание,
+  смерть на 328 тике, респавн восстанавливает шкалы и точку.
+  CLI: `--sim-vitals ARMOR,SHIELD`, `--sim-respawn N` (CTest
+  `cli_sim_respawn`, `cli_sim_vitals_bad`): 3 смерти / 1 500 урона за
+  600 тиков.
+- **`M7.4` (кэш сэмплов).** `engine/src/audio/sample_cache.*` +
+  `docs/SAMPLE_CACHE.md` (CTest `sample_cache`): имя → SOU0/1/2, refcount
+  (`0x4cebd8`/`0x4cf1a8`), бюджет `0x100 + 2·samples`, LRU только для
+  `refcount == 0`, статистика; `level0` — 300 слотов, 137 имён, все
+  разрешаются; гипотезы (16 МиБ, LRU, стоимость) помечены в доке.
+- **Аудит:** + `SAMPLE_CACHE` — **52/52 по 18 докам**.
+- **Гейты:** `ctest` **142/142**, `regress --full --mirror` **125/125**.
