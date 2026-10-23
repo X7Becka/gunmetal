@@ -22,7 +22,7 @@
 | `tools/qa/state.py` | 221 пункт этапов `M0…M12`: 95 ✅ / 104 🟡 / 21 ⬜ / 1 ⛔; item-строки (с DoD и стратегией) — 98 ✅ / 108 🟡 / 27 ⬜ / 1 ⛔ |
 | `python3 regress.py --mirror` | **114/114** проверок за 61,7 с |
 | `python3 regress.py --full --mirror` | **124/124** за 107,3 с (0 из кэша) |
-| `ctest --test-dir build/sandbox -j4` | **168/168** за ~8 мин |
+| `ctest --test-dir build/sandbox -j4` | **169/169** за ~8 мин |
 | Код | 45 119 строк C++ (`engine/src`, 65 `.cpp` + 68 `.h`), 121 CTest, 95 скриптов в `tools/re`, 129 документов в `docs` |
 | База сессий OpenCode | 175 проектных сессий, 107,7M input / 9,0M output, $34,36; 48,8 ч активной работы, пик 8 параллельных |
 
@@ -190,7 +190,7 @@
 
 * `regress.py --mirror`: **114/114** за 61,7 с.
 * `regress.py --full --mirror`: **124/124** за 107,3 с.
-* CTest: **168** тестов, **168/168** (`quick` + `full`), включая `core`,
+* CTest: **168** тестов, **169/169** (`quick` + `full`), включая `core`,
   `sprite`, `parity_mip`, `sbv_parity`, `sou1_full`, `sou1_audio`, `mixer`,
   `audio_output`, `controls`, `game_state`, `weapons`, `camera_rig`,
   `player_controller`, `doors`, `doors_full`, `things`, `things_full`,
