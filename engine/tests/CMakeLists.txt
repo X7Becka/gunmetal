@@ -86,6 +86,20 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     set_tests_properties(sbtasm_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
         "15061/15061 byte-identical")
     gm_label(sbtasm_roundtrip quick)
+    # M11.5: read -> write -> identical, and a block replacement that shifts
+    # the sub-script offsets.
+    add_test(NAME sbtwrite_roundtrip
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtwrite.py
+                     --roundtrip)
+    set_tests_properties(sbtwrite_roundtrip PROPERTIES PASS_REGULAR_EXPRESSION
+        "identical: 36/36")
+    gm_label(sbtwrite_roundtrip quick)
+    add_test(NAME sbtwrite_replace
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtwrite.py
+                     --verify-replace)
+    set_tests_properties(sbtwrite_replace PROPERTIES PASS_REGULAR_EXPRESSION
+        "others identical: yes, block==asm: yes")
+    gm_label(sbtwrite_replace quick)
 endif()
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX")
@@ -585,6 +599,12 @@ if(GM_PYTHON3)
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/perf.py
                      --self-test)
     gm_label(perf_selftest quick)
+
+    # M11.1/M11.5: the container writer (tools/editor/sbtwrite.py).
+    add_test(NAME sbtwrite_selftest
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/sbtwrite.py
+                     --self-test)
+    gm_label(sbtwrite_selftest quick)
 
     # M11.1: text <-> bytecode for the SBT scripts (tools/editor/sbtasm.py).
     add_test(NAME sbtasm_selftest

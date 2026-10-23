@@ -86,6 +86,7 @@
 | `docs/SAVE_WRITER.md` | 12 | 22 | C++-писатель сейвов Gunmetal |
 | `docs/SBT_ASM.md` | 24 | 13 | Ассемблер скриптов `.sbt` (текст → байткод `SCRIPT`) |
 | `docs/SBT_RECORDS.md` | 20 | 140 | Все типы записей `.sbt`: раскладка, писатели, побайтовая проверка |
+| `docs/SBT_WRITE.md` | 23 | 21 | Писатель контейнера `.sbt` (`M11.4`, часть 1) |
 | `docs/SBV.md` | 21 | 17 | `.sbv` — видео/анимации Gunmetal |
 | `docs/SBV_PARITY.md` | 9 | 3 | Паритет C++ ↔ Python для `.sbv` на всём корпусе |
 | `docs/SCREEN_CPP.md` | 15 | 5 | SML-экран в C++: один рантайм от `.sme` до RGB |
