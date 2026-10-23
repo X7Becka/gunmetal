@@ -83,6 +83,16 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/SML/help.sme")
     gm_label(cli_pager_bad quick)
 endif()
 
+# M8.7/M9.4: the strict save writer round-trips a shipped save byte for byte.
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/SAVEGAME/saved0.sbt")
+    add_test(NAME cli_save_out
+             COMMAND gunmetal --dump SAVEGAME/saved0.sbt
+                     --save-out ${CMAKE_BINARY_DIR}/saved0-roundtrip.sbt)
+    set_tests_properties(cli_save_out PROPERTIES PASS_REGULAR_EXPRESSION
+        "blocks=15, byte-exact=yes")
+    gm_label(cli_save_out quick)
+endif()
+
 # M8.7: the headless save-slot table (`docs/SAVE_SLOTS.md`).
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/savegame/saved0.sbt")
     add_test(NAME cli_save_slots COMMAND gunmetal --save-slots)

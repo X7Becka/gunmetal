@@ -25,6 +25,7 @@
 #include "res/sbv_video.h"
 #include "res/anim.h"
 #include "res/save.h"
+#include "res/save_write.h"
 #include "res/soe.h"
 #include "res/sml.h"
 #include "camera/camera.h"
@@ -588,20 +589,26 @@ int dump_file(const gm::Options& options) {
                 }
             }
             if (!options.save_out.empty()) {
+                // The strict writer (`docs/SAVE_WRITE_CPP.md`): it validates the
+                // block chain, keeps the never-read header bytes of the input
+                // and re-parses its own output.  Falls back to the plain
+                // encoder only when the model is not representable.
                 std::string write_error;
-                const auto out = save->to_bytes(write_error);
-                if (!out) {
-                    gm::logf(gm::LogLevel::Error, "save", write_error);
+                std::vector<std::uint8_t> out;
+                gm::SaveWriteCode code = gm::SaveWriteCode::ok;
+                if (!gm::write_save(*save, out, &write_error, &code, *bytes)) {
+                    gm::logf(gm::LogLevel::Error, "save", write_error, " (",
+                             gm::save_write_code_name(code), ")");
                     return 2;
                 }
-                if (!write_file(options.save_out, *out)) {
+                if (!write_file(options.save_out, out)) {
                     gm::logf(gm::LogLevel::Error, "save",
                              "cannot write ", options.save_out.string());
                     return 2;
                 }
-                std::printf("save-out: %s (%zu bytes, byte-exact=%s)\n",
-                            options.save_out.string().c_str(), out->size(),
-                            *out == *bytes ? "yes" : "no");
+                std::printf("save-out: %s (%zu bytes, blocks=%zu, byte-exact=%s)\n",
+                            options.save_out.string().c_str(), out.size(),
+                            save->blocks.size(), out == *bytes ? "yes" : "no");
             }
             if (save->player) {
                 const auto& p = *save->player;
