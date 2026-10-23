@@ -239,6 +239,104 @@ BlastDamageResult apply_event_blast(
     std::span<const Vec3d> thing_positions, std::span<const bool> thing_alive,
     std::span<ThingVitals> thing_vitals, std::size_t* matched = nullptr);
 
+/// Maximum number of `GENERATE` hops from an event block to the blasts it
+/// reaches (`docs/EVENT_DAMAGE.md`).  The shipped scripts do not come close:
+/// the longest chain that a shipped event needs is well inside this bound, and
+/// the limit is what keeps a script cycle (event A -> B -> A) finite.
+inline constexpr int kEventBlastChainDepth = 4;
+
+/// Counters of one `build_event_registry()` call.  `generate_commands` and
+/// `blast_commands` count the *direct* ops of every decoded entity block
+/// (recursing into IF bodies, not following `GENERATE`), so they are the raw
+/// data census; `blasts` is what the registry stores after following the
+/// `GENERATE` chain and applying the guards.
+struct EventRegistryBuildStats {
+    std::size_t entity_blocks = 0;    ///< rows of the SCRIPT handle table
+    std::size_t ids = 0;              ///< distinct event ids (first row wins)
+    std::size_t scripts_decoded = 0;  ///< blocks that decoded cleanly
+    std::size_t generate_commands = 0; ///< op 2 `GENERATE` anywhere in a block
+    std::size_t blast_commands = 0;   ///< op 75 `CAUSE_BLAST_RADIUS_DAMAGE`
+    std::size_t ids_with_blasts = 0;  ///< registered event ids
+    std::size_t blasts = 0;           ///< registered blasts (with chains)
+    std::size_t chain_cycles = 0;     ///< `GENERATE` back-edges cut
+    std::size_t chain_depth_cut = 0;  ///< `GENERATE` hops past the limit
+    std::size_t decode_failures = 0;  ///< blocks the VM decoder rejected
+};
+
+/// Build the level-wide "event id -> `CAUSE_BLAST_RADIUS_DAMAGE`" registry from
+/// the compiled SCRIPT record.
+///
+/// Every distinct entity id of the handle table is decoded (first row wins,
+/// exactly like the engine's linear search at `0x457c49`), scanned for op 75,
+/// then its `GENERATE` (op 2) children are followed up to
+/// `kEventBlastChainDepth`; a repeated id in the current chain is a cycle and
+/// is cut.  IF guards (`SOURCE_UNDERWATER`, `SOURCE_FROM_GROUND`,
+/// `DEATHMATCH_GAME`) travel into the `Blast` exactly like
+/// `Weapons::load()`'s `collect_event_blasts()`.  `out` is replaced (cleared
+/// first), so the result is deterministic and independent of the previous
+/// contents.
+///
+/// Returns false with `error` when the level has no usable SCRIPT record (no
+/// code or no handle table); `out` is then empty and `stats` still holds the
+/// census that could be taken.  A level with a SCRIPT record but no blast op
+/// returns true with an empty registry.
+bool build_event_registry(const SbtLevel& level, EventBlastRegistry& out,
+                          std::string* error = nullptr,
+                          EventRegistryBuildStats* stats = nullptr);
+
+/// Context of one `damaged_event` chain (the medium/deathmatch branch and the
+/// attacker ids of the original `apply_event_blast()` call).
+struct EventDamageChainContext {
+    bool underwater = false;   ///< selects the water branch of a blast
+    bool from_ground = true;   ///< `SOURCE_FROM_GROUND` true
+    bool deathmatch = true;    ///< `DEATHMATCH_GAME` true
+    int source_player = -1;    ///< attacker slot, -1 = world
+    int source_thing = -1;     ///< attacker thing index, -1 = world
+    int max_depth = kEventBlastChainDepth; ///< chained `damaged_event` limit
+};
+
+/// Counters of one `chase_damaged_events()` call.
+struct EventDamageChainStats {
+    std::size_t events = 0;          ///< `damaged_event` blasts that ran
+    std::size_t blasts = 0;          ///< blasts that passed the guards
+    std::size_t hits = 0;            ///< target hits (`damage.hits.size()`)
+    std::size_t depth_max = 0;       ///< deepest chain step reached (1-based)
+    std::size_t skipped_no_event = 0; ///< hit thing has `damaged_event == 0`
+    std::size_t skipped_dead = 0;    ///< target died: only `destroy_event` follows
+    std::size_t skipped_missing = 0; ///< event id absent from the registry
+    std::size_t skipped_cycle = 0;   ///< event id already in the chain
+    std::size_t skipped_depth = 0;   ///< chain would exceed `max_depth`
+};
+
+/// Result of the `damaged_event` chase.  `damage.hits[i]` was applied at
+/// `centers[i]` (the position of the thing whose event posted it).
+struct EventDamageChainResult {
+    BlastDamageResult damage;
+    std::vector<Vec3d> centers;
+    EventDamageChainStats stats;
+};
+
+/// Chase the `damaged_event` (`THING_TYPES+0x1f4`, instance `+0x518`) of every
+/// thing hit by `applied` and apply the registered blasts at that thing.
+///
+/// This is the event bridge of the original: a non-lethal blast hit posts
+/// `damaged_event` (`0x470995`), `event_dispatch` turns it into `GENERATE`,
+/// and the event's sub-script runs `CAUSE_BLAST_RADIUS_DAMAGE`
+/// (`0x45775b`).  The chase is depth-first in hit order, so it is fully
+/// deterministic.  A target that died in `applied` only has a `destroy_event`
+/// (not modeled here) and is counted in `skipped_dead`.
+///
+/// `damaged_events[i]` is the event id of thing `i` (same index as
+/// `thing_positions`/`thing_vitals`); shorter spans simply stop the chase for
+/// indices outside them.  A missing id/registry entry is a no-op, not an
+/// error.
+EventDamageChainResult chase_damaged_events(
+    const EventBlastRegistry& registry, const BlastDamageResult& applied,
+    std::span<const std::uint32_t> damaged_events,
+    std::span<const Vec3d> thing_positions, std::span<const bool> thing_alive,
+    std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+    const EventDamageChainContext& context = {});
+
 /// One entry of the original runtime switch table `0x5a4af0` (stride 0x20),
 /// written by the level/trigger setup and consumed by `FUN_0044f960`.
 struct SwitchEffect {

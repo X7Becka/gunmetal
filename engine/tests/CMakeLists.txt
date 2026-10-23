@@ -785,6 +785,14 @@ target_link_libraries(gm_blast_damage_tests PRIVATE gm_engine)
 add_test(NAME blast_damage COMMAND gm_blast_damage_tests)
 gm_label(blast_damage quick)
 
+# Event-driven damage to things (M6.2.5, docs/EVENT_DAMAGE.md): the level-wide
+# SCRIPT scan (`build_event_registry`) and the `damaged_event` chain
+# (`chase_damaged_events`) that the runtime bridge runs after a blast.
+add_executable(gm_event_damage_tests test_event_damage.cpp)
+target_link_libraries(gm_event_damage_tests PRIVATE gm_engine)
+add_test(NAME event_damage COMMAND gm_event_damage_tests)
+gm_label(event_damage quick)
+
 # Aimed switches (kind 0x101) through CollisionWorld: GameRuntime::aim_switch
 # is the 0x44fc30 ray half, docs/DOORS_CPP.md §2.3.
 add_executable(gm_aim_switch_tests test_aim_switch.cpp)

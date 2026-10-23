@@ -152,6 +152,15 @@ struct GameRuntimeConfig {
     /// movement automata are enabled, no motion target is written and
     /// `stats().aimed_things` stays 0.
     bool ai_apply_aim = false;
+    /// On by default: after a blast of the registry overloads hits a living
+    /// thing with a non-zero `damaged_event` (`THING_TYPES+0x1f4`,
+    /// instance `+0x518`), `chase_damaged_events()` applies that event's
+    /// registered blasts at the thing, depth-first, at most
+    /// `kEventBlastChainDepth` levels deep with a cycle cut.  This is the
+    /// original `0x470995` -> `event_post` -> `GENERATE` -> op 75 bridge
+    /// (docs/EVENT_DAMAGE.md).  `false` leaves the primary blast only; the
+    /// `Weapon` overloads never chain (they carry no registry).
+    bool chain_damaged_events = true;
 };
 
 /// Counters of the last tick (docs/RUNTIME_CPP.md §2).
@@ -217,6 +226,10 @@ struct ProjectileBlastBatch {
     /// Blast event records the queue accepted (0 for `event == 0` hits and for
     /// a full queue, which drops the record like every other runtime post).
     std::size_t posted_events = 0;
+    /// Chained `damaged_event` blasts of the registry overloads (see
+    /// `GameRuntimeConfig::chain_damaged_events` and docs/EVENT_DAMAGE.md).
+    /// The `Weapon` overloads leave every counter at 0.
+    EventDamageChainStats chain;
 };
 
 /// Headless owner of one level's runtime.  Build it with `build()` or the two
@@ -784,6 +797,9 @@ private:
     // and `std::vector<bool>` has no contiguous `bool` storage.  They are
     // derived data, like `target_*` above: `reset()` keeps the capacity.
     std::vector<Vec3d> blast_thing_positions_;
+    /// `damaged_event` of the same things, in the same order; read only by the
+    /// `damaged_event` chain (docs/EVENT_DAMAGE.md).
+    std::vector<std::uint32_t> blast_thing_damaged_events_;
     std::unique_ptr<bool[]> blast_thing_alive_;
     std::size_t blast_thing_alive_capacity_ = 0;
 
