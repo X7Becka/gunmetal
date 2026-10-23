@@ -67,3 +67,8 @@ ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build/asan -j 4
 `stack-use-after-return` в `Ai::sync_vitals` (`things.cpp:917` через
 `Ai::tick`). Теперь `Things` живёт в `unique_ptr` и не перемещается после
 `attach` (у `Ai::attach(Things&&)` и так стоит `= delete`).
+
+**Дополнения того же дня:** `damage_model`, `vm_screens`, `parity`,
+`gunmetal -g /nope` (rc=2) и полный холодный рендер `--render` под ASan —
+чисто; новые C++-тесты (`engine_3d`, `damage_model`) входят в набор без
+исключений.
