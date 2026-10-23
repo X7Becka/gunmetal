@@ -1951,8 +1951,14 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > (`0x4536b0`). Лучшее время — `GUNMETAL.HI` 576 Б = 9 записей.
       > Финал: 0 сайтов `END_GAME`, титры — пункт меню `0x4971e0` →
       > `winner.sbv` → `SML/CREDITS.SML`. Магазин/деньги закрыты в `M6.2.6`.
-      > Нет: исполнения счётчика в ВМ, автоматических титров после `level24`,
-      > проверки `level13`/`level15`/`secrt2`/`temple` на живой игре.
+      > Счётчик в ВМ: `VmState::mission_counter` / Python
+      > `State.mission_counter` — `NEXT_LEVEL` без операнда даёт цель
+      > `LEVEL<n>` и инкрементит, `NEXT_LEVEL_NUMBER` сравнивает его (при
+      > загрузке уровня ставится номер уровня); CTest `vm_campaign`
+      > (синтетика: в 36 поставочных скриптах `NEXT_LEVEL_NUMBER` не
+      > встречается ни разу, корпус не сдвинулся). Нет: автоматических
+      > титров после `level24`, проверки `level13`/`level15`/`secrt2`/
+      > `temple` на живой игре.
 - 🟡 `M9.2` DM: classic/normal/hunt/team, правила, счёт, respawn, handicap.
       > `docs/DM_RULES.md` + `tools/re/dm_rules.py` (self-test 30/30, 17
       > якорей). Режим — `ds:0x83d2c8`: 0 кампания, 1 normal, 2 classic,
