@@ -62,6 +62,7 @@ add_library(gm_engine STATIC
     src/res/text.cpp
     src/res/sml.cpp
     src/world/doors.cpp
+    src/world/moving_collider.cpp
     src/world/things.cpp
     src/world/ai.cpp
     src/world/ai_move.cpp
