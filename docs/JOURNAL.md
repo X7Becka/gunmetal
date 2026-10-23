@@ -1162,3 +1162,18 @@
 - CTest `schema_check_selftest`, `schema_check`.
 - **ASan** на новых модулях (`sample_cache`, `sim_damage`, `sim_projectile`,
   `sim_player`): 6/6; корпусный `--sim` — 36 уровней, 0 падений.
+
+## Ход 2026-10-23 (партия 25: минимальные фикстуры форматов)
+
+- **`M3.2.7` → 🟡.** `tools/qa/fixtures.py` + `docs/FIXTURES.md` (CTest
+  `fixtures_selftest`/`fixtures_write`/`fixtures_check`): 10 минимальных
+  файлов (`.sbw` 365 Б, `.sbt` 4013 Б, `.sbc` 16 Б, `.sbm` 76 Б, `.sob`,
+  `.soo`, `.sml`, BIGFILE), побайтовый `parse → to_bytes`, детерминизм,
+  неизвестная запись — отдельный негативный файл. Движок читает те же байты:
+  `--info` → vertices=4 polygons=1, records=3, SBC0 1 запись/4 текселя.
+- **Найдено и исправлено (DoD):** `--dump` на битом `.sml` возвращал 0
+  (резервная ветка без проверки). Теперь файл без разметки и без разбора —
+  `[error] dump: not SML markup` и `rc=2`; поставочный несбалансированный
+  `SML/prelevel/dm4.sml` (единственный из 149) остаётся с `[warn]`.
+  Порча байта: 8 из 9 отвергнуты движком, девятый (`.sml`) — теперь тоже.
+- **Гейты:** `ctest` **147/147**, `regress --full --mirror` **125/125**.
