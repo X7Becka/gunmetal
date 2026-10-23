@@ -2177,8 +2177,9 @@ save/load восстанавливает мир, игрока, двери, па�
       > `[error] game: directory not found: <путь>` и подсказку (`-g/--game`,
       > `GUNMETAL_DIR`, что в каталоге должен быть `gundx.exe`), rc=2;
       > CTest `cli_no_game` (без установки). Конфиг — `-g`/`GUNMETAL_DIR`
-      > (и `GUNMETAL_CACHE`), логи — `GUNMETAL_LOG`/`--verbose` (уровни
-      > `core/log.h`). Нет: лаунчера и упаковки (архив/инсталлятор).
+      > (и `GUNMETAL_CACHE`), логи — `GM_LOG=trace|debug|info|warn|error|off`
+      > (`core/log.cpp::set_log_level_from_env`) и `--verbose`. Нет:
+      > лаунчера и упаковки (архив/инсталлятор).
 - ⬜ `M12.6` Документация: игрок, моддер, внутренности, FAQ.
 - ⬜ `M12.7` Лицензия/правовая рамка; никаких ассетов в релизе.
 - ⬜ `M12.8` Release checklist и тег `v1.0`.
