@@ -11,6 +11,7 @@
 #include "res/sbm.h"
 #include "res/sbw.h"
 #include "res/sou.h"
+#include "res/sound_catalog.h"
 #include "res/sof.h"
 #include "res/sou1.h"
 #include "res/sou2.h"
@@ -98,6 +99,28 @@ int export_png(const gm::Options& options, int width, int height,
 
 bool apply_save_edits(const gm::Options& options, gm::SavePlayer& player,
                       std::string& error);
+
+/// `--sample NAME`: the engine's own lookup (`res/sound_catalog.*`, `0x40ade0`):
+/// basename, 8-byte uppercase key, `sounds/SOU.IDX`, then `MUSIC/SOU.IDX`.
+/// A miss is not an error — the original returns -1 and plays silence.
+int show_sample(const gm::Options& options) {
+    std::string error;
+    const auto catalog = gm::SoundCatalog::open(options.game, error);
+    if (!catalog) {
+        gm::logf(gm::LogLevel::Error, "sample", error);
+        return 2;
+    }
+    const auto hit = catalog->find(options.sample);
+    if (!hit) {
+        std::printf("sample %s: not found (the original plays silence)\n",
+                    options.sample.c_str());
+        return 0;
+    }
+    std::printf("sample %s: archive=%s name=%s offset=%u size=%u\n",
+                options.sample.c_str(), hit->archive.c_str(), hit->name.c_str(),
+                hit->offset, hit->size);
+    return 0;
+}
 
 int dump_file(const gm::Options& options) {
     fs::path path = options.dump;
@@ -1980,6 +2003,9 @@ int main(int argc, char** argv) {
     }
     if (!options->sou2.empty()) {
         return export_sou2(*options);
+    }
+    if (!options->sample.empty()) {
+        return show_sample(*options);
     }
     if (!options->song.empty()) {
         return show_song(*options);

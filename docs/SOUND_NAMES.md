@@ -41,6 +41,24 @@ sounds.sub: 161 пар; загружается 0x40b510: НЕТ (нет счёт
 «отсутствующих имён» в поставке нет. Число «95» в `ROADMAP.md` описывало
 именно строки `sounds.sub` (и было прочитано как «ненайденные»).
 
+## 0. Как проверить в движке
+
+`gunmetal --sample <NAME>` повторяет движковый резолв (`res/sound_catalog.*`)
+и печатает архив, имя записи, смещение и размер:
+
+```
+$ ./build/sandbox/engine/gunmetal --sample alarmk
+sample alarmk: archive=sounds name=ALARMK offset=24369 size=13619
+$ ./build/sandbox/engine/gunmetal --sample "C:\Sounds\alarmk"   # отсечение каталога
+sample C:\Sounds\alarmk: archive=sounds name=ALARMK offset=24369 size=13619
+$ ./build/sandbox/engine/gunmetal --sample nosuchname
+sample nosuchname: not found (the original plays silence)   # rc=0
+$ ./build/sandbox/engine/gunmetal --sample DM1A01
+sample DM1A01: archive=music name=DM1A01 offset=0 size=31148   # фолбэк
+```
+
+CTest: `cli_sample`, `cli_sample_miss`, `sound_catalog`.
+
 ## 1. Каталог: `sounds/SOU.IDX` + `SOU.DAT`
 
 `SOU.IDX` — обычный BIGFILE (`docs/FORMATS.md` §1, `gm/bigfile.py`):

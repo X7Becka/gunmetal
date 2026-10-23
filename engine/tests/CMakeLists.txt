@@ -71,6 +71,18 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt")
     gm_label(cli_scene quick)
 endif()
 
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX")
+    # M7.6: the engine's own name lookup in the real binary.
+    add_test(NAME cli_sample COMMAND gunmetal --sample alarmk)
+    set_tests_properties(cli_sample PROPERTIES PASS_REGULAR_EXPRESSION
+        "archive=sounds name=ALARMK offset=24369 size=13619")
+    gm_label(cli_sample quick)
+    add_test(NAME cli_sample_miss COMMAND gunmetal --sample nosuchname)
+    set_tests_properties(cli_sample_miss PROPERTIES PASS_REGULAR_EXPRESSION
+        "not found \\(the original plays silence\\)")
+    gm_label(cli_sample_miss quick)
+endif()
+
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/MUSIC/Dm1A.sog")
     add_test(NAME cli_song COMMAND gunmetal --song Dm1A)
     set_tests_properties(cli_song PROPERTIES PASS_REGULAR_EXPRESSION "tracks: 8")

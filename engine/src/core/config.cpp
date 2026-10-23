@@ -206,6 +206,12 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.scene = std::string(*v);
+        } else if (arg == "--sample") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.sample = std::string(*v);
         } else if (arg == "--song") {
             const auto v = value(arg);
             if (!v) {
@@ -572,6 +578,7 @@ std::string usage() {
        << "      --info        print the level summary instead of opening the viewer\n"
        << "      --play NAME   play Vid/NAME.sbv (--frames limits the frame count)\n"
        << "      --song NAME   list the MUSIC/NAME.sog playlist and its SOU.DAT entries\n"
+       << "      --sample NAME resolve a sample name like the engine (sounds, then music)\n"
        << "      --music NAME  play MUSIC/NAME.sog through the SOG playlist\n"
        << "      --scene NAME  print the level script scene (lights/doors/items...)\n"
        << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"

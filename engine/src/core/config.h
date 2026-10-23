@@ -16,6 +16,7 @@ struct Options {
     std::string level;
     std::string play;
     std::string song;
+    std::string sample; // --sample: resolve a SOUND_SAMPLE_TABLE name
     std::string scene;
     std::string film;
     std::string anim;
