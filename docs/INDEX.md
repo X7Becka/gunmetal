@@ -12,6 +12,7 @@
 | `docs/ADR/0004-re-infrastructure.md` | 3 | 0 | ADR 0004 — инфраструктура реверса: кэш, зеркало, бюджет контекста |
 | `docs/AI_CPP.md` | 79 | 76 | Gunmetal — минимальный C++ AI вещей (`Ai`) |
 | `docs/ALPHA.md` | 17 | 74 | Альфа мировых текстур и постоянный цвет кадра (M4.1.5) |
+| `docs/AUDIO_3D.md` | 36 | 311 | 3D-позиционный звук (M7.3): очередь, слушатель, формулы |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |
 | `docs/BASELINE.md` | 12 | 0 | Baseline: установка, инвентарь и регрессия |
@@ -46,7 +47,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 11 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 57 | 201 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 60 | 208 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 7 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 666 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -78,7 +79,7 @@
 | `docs/SAVE_CPP.md` | 16 | 45 | C++-читатель сейвов Gunmetal |
 | `docs/SAVE_FIELDS.md` | 35 | 324 | Поля сейва Gunmetal: карта «поле → смещение → смысл → доказательство» |
 | `docs/SAVE_WRITER.md` | 12 | 22 | C++-писатель сейвов Gunmetal |
-| `docs/SBT_RECORDS.md` | 19 | 136 | Все типы записей `.sbt`: раскладка, писатели, побайтовая проверка |
+| `docs/SBT_RECORDS.md` | 20 | 140 | Все типы записей `.sbt`: раскладка, писатели, побайтовая проверка |
 | `docs/SBV.md` | 21 | 17 | `.sbv` — видео/анимации Gunmetal |
 | `docs/SBV_PARITY.md` | 9 | 3 | Паритет C++ ↔ Python для `.sbv` на всём корпусе |
 | `docs/SCREEN_CPP.md` | 15 | 5 | SML-экран в C++: один рантайм от `.sme` до RGB |
@@ -98,7 +99,7 @@
 | `docs/SOU1.md` | 12 | 102 | `SOU1`: 4-битный ADPCM Miles — разобран |
 | `docs/SOU1_CPP.md` | 10 | 14 | `SOU1` в C++: слой `audio/sou1` |
 | `docs/SOU2.md` | 6 | 10 | `SOU2`: музыкальный кодек и правила рендера |
-| `docs/SOUND_FIELDS.md` | 23 | 249 | Звук: записи сэмплов и голоса (M2.3.7) |
+| `docs/SOUND_FIELDS.md` | 24 | 255 | Звук: записи сэмплов и голоса (M2.3.7) |
 | `docs/SOUND_NAMES.md` | 26 | 205 | Имена сэмплов: `SOUND_SAMPLE_TABLE` → `SOU.IDX`, поведение при промахе (M7.6) |
 | `docs/SOU_CONTAINER.md` | 12 | 19 | Контейнер `.sou`: SOU0 / SOU1 / SOU2 |
 | `docs/SPRITE.md` | 12 | 0 | Спрайтовый блиттер: индексированные `.sbm` в RGB-кадр |
@@ -114,7 +115,7 @@
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |
 | `docs/UI_SCREENS.md` | 30 | 366 | Экраны фронтенда: карта, переходы, load/save, options |
 | `docs/UI_SOUNDS.md` | 28 | 313 | Звуки интерфейса и музыка фронтенда (`M8.6`) |
-| `docs/VM_CPP.md` | 20 | 39 | C++-исполнение SCRIPT-VM (`vm_exec.h` / `vm_exec.cpp`) |
+| `docs/VM_CPP.md` | 22 | 49 | C++-исполнение SCRIPT-VM (`vm_exec.h` / `vm_exec.cpp`) |
 | `docs/VM_EXEC.md` | 55 | 530 | Исполнение SCRIPT-VM (`.sbt`, запись 11) — прототип |
 | `docs/VM_SCENE.md` | 25 | 111 | Сцена, созданная ВМ, против сцены из файла (`M5.2`) |
 | `docs/VM_TRACE.md` | 5 | 15 | Трасса ВМ: C++ против Python (`M5.3.2`) — закрыто |

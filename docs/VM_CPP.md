@@ -218,6 +218,28 @@ then исполняется сразу). `max_paths` ограничивает fr
 уровнях Python тоже даёт форк по неизвестному условию, поэтому число путей
 может быть 1–2).
 
+### 4.4. Состояние, которое ведёт исполнитель
+
+`VmState` — не только счётчики сцены: часть команд пишет поля, которые
+читают условия и будущий рантайм. Каждое поле привязано к адресу оригинала
+(подробности — в перечисленных доках):
+
+| поле | команда | адрес в exe | тест |
+|---|---|---|---|
+| `objectives`, `objectives_bits` | `DEFINE_OBJECTIVE`, `OR_LEVEL_OBJECTIVES_BITS` | условие 7 | `vm` |
+| `players[i].secrets` | `INCREMENT_SOURCEPLAYER_SECRET_TALLY` (95) | `0x4536b0` (из `0x45b978`) | `vm`, `docs/CAMPAIGN_FLOW.md` §5 |
+| `level["SET_LEVEL_SECRETS"]`, `level["SET_LEVEL_BEST_TIME"]` | 94 / 93 | `0x45b816`, `0x45b7xx` | `vm`, `docs/CAMPAIGN_FLOW.md` §5/§6 |
+| `mission_counter` | `NEXT_LEVEL` (62) / `NEXT_LEVEL_NUMBER` (8) | `0x80f9cc`, `0x457b17..0x457b2f`, `0x45ea26` | `vm_campaign` |
+| `music_banks`, `music_bank`, `music_memorized`, `music_playing` | `LOAD_MUSIC` (81), `PLAY_MUSIC` (82), `STOP_MUSIC` (83), `UNLOAD_MUSIC` (84), 85/86 | `0x40b8a0` — единственный сайт воспроизведения | `vm_music` |
+| `screen_text` | `ADD_SCREEN_TEXT` (50), `ADD_SOURCESCREEN_TEXT` (51) | `docs/UI_SCREENS.md` | `vm_music` |
+| `screens` | `SHOW_LEVEL_END_SCREEN` (91), `REFRESH_SCREEN` (167), магазины (189–193), `SHOW_BRIEFING_SCREEN` (194), `SHOW_HELP_SCREEN` (195) | `docs/UI_SCREENS.md`, `docs/CAMPAIGN_FLOW.md` §7 | `vm_screens` |
+| `haze`, `haze_rate` | `SET_CAMERA_HAZE` (80) | `0x83d288`, `0x446764`, `docs/SCREEN_FX.md` | `vm`, `postfx` |
+
+Все перечисленные обработчики **сохраняют событие** в трассе: событие
+осталось ровно одно на команду, поэтому `vm_trace` (C++ ↔ Python) совпадает
+бит в бит и после их добавления. Python-модель повторяет поля один в один
+(`State.mission_counter`, `music_*`, `screen_text`, `screen_requests`).
+
 ## 5. Негативы и границы
 
 Синтетические тесты (`test_vm_exec.cpp`, без файлов игры) покрывают:
