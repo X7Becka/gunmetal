@@ -37,6 +37,11 @@
   `brightness`, `overlay`, `flags`) через `tools/editor/sbwedit.py`
   (`docs/SBW_EDIT.md`): round-trip 36/36, правка видна рендеру; вершины и
   создание полигонов — нет;
+* объекты мира — `origin`, `radius`, `bounds`, флаги через
+  `tools/editor/sbwobj.py` (`docs/SBW_OBJECTS.md`): сдвиг `origin` двигает
+  объект целиком, AABB мира и рендер меняются;
+* лайтмапы — `tools/editor/lightmapedit.py` (`docs/LIGHTMAP_EDIT.md`):
+  `--fill/--scale/--import` записи `.sbc`, round-trip 51/51;
 * отладка скриптов — `tools/editor/sbtdbg.py` (`docs/SCRIPT_DEBUG.md`):
   `--run` с трассой, `--break-offset/--break-op/--break-event`, `--watch`,
   CFG блока в DOT/Mermaid;
