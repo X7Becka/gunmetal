@@ -55,6 +55,7 @@ DOC_FILES = {
     "AUDIO_3D": "docs/AUDIO_3D.md",
     "GAME_OVER": "docs/GAME_OVER.md",
     "SBT_ASM": "docs/SBT_ASM.md",
+    "OBJECTIVES": "docs/OBJECTIVES.md",
 }
 
 
@@ -1159,6 +1160,51 @@ def c_asm_corpus(env):
     return "%d / %d / %d / %d" % (blocks, byte_total, insn_total,
                                   len(opcodes)), ok, \
         "по блокам таблицы сущностей, без двойного счёта ELSE"
+
+
+
+# --------------------------------------------------------------------------
+# OBJECTIVES (M6.4.5): goals, objective bits and the secret tally
+# --------------------------------------------------------------------------
+
+@check("OBJECTIVES", "25 уровней / 35 объявлений DEFINE_LEVEL_OBJECTIVES (103)",
+       "25 / 35")
+def c_obj_declarations(env):
+    levels = set()
+    sites = 0
+    for base, _ins in env.corpus.ops(103):
+        levels.add(base)
+        sites += 1
+    ok = (len(levels), sites) == (25, 35)
+    return "%d уровней / %d объявлений" % (len(levels), sites), ok, \
+        "op 103 по корпусу"
+
+
+@check("OBJECTIVES", "51 сайт OR_LEVEL_OBJECTIVES_BITS (104)", "51")
+def c_obj_bits(env):
+    levels = set()
+    sites = 0
+    for base, _ins in env.corpus.ops(104):
+        levels.add(base)
+        sites += 1
+    ok = sites == 51 and len(levels) == 19
+    return "%d сайтов на %d уровнях" % (sites, len(levels)), ok, \
+        "op 104: единственный писатель маски 0x80f9d0"
+
+
+@check("OBJECTIVES", "секреты: 25 объявлений / 101 всего / 105 инкрементов",
+       "25 / 101 / 105")
+def c_obj_secrets(env):
+    declared_levels = set()
+    declared_total = 0
+    for base, ins in env.corpus.ops(94):
+        declared_levels.add(base)
+        arg = ins.args[0] if ins.args else 0
+        declared_total += int(getattr(arg, "value", arg))
+    increments = sum(1 for _ in env.corpus.ops(95))
+    ok = (len(declared_levels), declared_total, increments) == (25, 101, 105)
+    return "%d / %d / %d" % (len(declared_levels), declared_total, increments), ok, \
+        "op 94 (сумма операнда) и op 95"
 
 
 def main(argv=None) -> int:
