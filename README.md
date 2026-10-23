@@ -69,6 +69,9 @@ docs/RE_METHOD.md     методика реверса: доказательст�
 docs/REGRESSION.md    слои проверок, бюджеты времени, практики и known gaps
 docs/TOOLING.md       инструменты помимо Ghidra: отладчики, LE/LX, diffs, эмуляция
 docs/INDEX.md         карта документации (генерируется tools/ctx.py index)
+docs/PLAYER_GUIDE.md  как собрать и запустить, что уже работает
+docs/MODDING.md       моддинг: правка скриптов .sbt, упаковка BIGFILE
+docs/FAQ.md           частые вопросы со ссылками на канон
 tools/fuzz_formats.py фазз-матрица парсеров (пустые/битые/мутированные файлы;
                       --save/--replay/--seed — воспроизводимый корпус)
 tools/qa/fuzz_corpus.py  инспектор корпуса (digest, sha256, --replay/--json)
