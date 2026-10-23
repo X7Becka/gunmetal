@@ -1,5 +1,7 @@
 #include "game/events.h"
 
+#include "res/sbt.h"
+#include "res/sbtvm.h"
 #include "world/doors.h"
 #include "world/things.h"
 
@@ -7,6 +9,8 @@
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <map>
+#include <optional>
 #include <utility>
 
 namespace gm {
@@ -647,6 +651,409 @@ bool post_thing_event(EventQueue& queue, const Thing& thing, ThingEventKind kind
     return queue.post_generate(static_cast<std::int32_t>(id), 0,
                                static_cast<double>(x), static_cast<double>(y),
                                static_cast<double>(z), extra);
+}
+
+namespace {
+
+std::uint32_t read_u32_at(const std::uint8_t* data) {
+    return static_cast<std::uint32_t>(data[0]) |
+           (static_cast<std::uint32_t>(data[1]) << 8U) |
+           (static_cast<std::uint32_t>(data[2]) << 16U) |
+           (static_cast<std::uint32_t>(data[3]) << 24U);
+}
+
+/// The entity table of the compiled SCRIPT record: distinct entity ids mapped
+/// to `[offset, end)` byte ranges of `level.script_code`.
+///
+/// The engine looks an id up with a linear search over the id column
+/// (`0x457c49`/`0x45fa5c`); several shipped levels carry a second, DEATHMATCH
+/// copy of the same ids further down the table, so the first row wins, exactly
+/// like the lookup.  The block ends at the next handle offset of the level.
+class EntityBlocks {
+public:
+    explicit EntityBlocks(const SbtLevel& level) {
+        const std::size_t n = level.script.handles;
+        if (n == 0 || level.script_handles_data.size() < n * 12) {
+            error_ = "level has no SCRIPT handle table";
+            return;
+        }
+        const auto* data = level.script_handles_data.data();
+        std::vector<std::uint32_t> all;
+        all.reserve(n);
+        for (std::size_t i = 0; i < n; ++i) {
+            all.push_back(read_u32_at(data + (2 * n + i) * 4));
+        }
+        std::sort(all.begin(), all.end());
+        all.erase(std::unique(all.begin(), all.end()), all.end());
+        for (std::size_t i = 0; i < n; ++i) {
+            const std::uint32_t id = read_u32_at(data + (n + i) * 4);
+            const std::uint32_t offset = read_u32_at(data + (2 * n + i) * 4);
+            if (by_id_.find(id) != by_id_.end()) {
+                continue; // first row wins
+            }
+            if (offset >= level.script_code.size()) {
+                continue;
+            }
+            const auto bound = std::upper_bound(all.begin(), all.end(), offset);
+            const std::uint32_t end =
+                bound != all.end() ? *bound
+                                   : static_cast<std::uint32_t>(
+                                         level.script_code.size());
+            if (end <= offset) {
+                continue;
+            }
+            by_id_.emplace(id, std::array<std::uint32_t, 2>{offset, end});
+            ids_.push_back(id);
+        }
+    }
+
+    [[nodiscard]] bool valid() const { return error_.empty(); }
+    [[nodiscard]] const std::string& error() const { return error_; }
+    [[nodiscard]] const std::vector<std::uint32_t>& ids() const { return ids_; }
+    [[nodiscard]] std::size_t size() const { return ids_.size(); }
+
+    bool span(std::uint32_t id, std::uint32_t& offset, std::uint32_t& end) const {
+        const auto it = by_id_.find(id);
+        if (it == by_id_.end()) {
+            return false;
+        }
+        offset = it->second[0];
+        end = it->second[1];
+        return end > offset;
+    }
+
+private:
+    std::vector<std::uint32_t> ids_;
+    std::map<std::uint32_t, std::array<std::uint32_t, 2>> by_id_;
+    std::string error_;
+};
+
+/// Operand -> u32, the rule of `tools/re/impact.py` / `weapons.cpp`.
+std::uint32_t as_uint(const SbtValue& value) {
+    if (value.kind == SbtValue::Kind::UInt) {
+        return value.u;
+    }
+    if (value.kind == SbtValue::Kind::Real && std::isfinite(value.d) &&
+        value.d >= 0.0 && value.d <= 4294967295.0) {
+        return static_cast<std::uint32_t>(value.d);
+    }
+    return 0;
+}
+
+/// Guards of the mutually exclusive IF branches proven in the shipped data
+/// (the same model as `Weapons::load()`'s `collect_event_blasts`).
+struct BlastGuard {
+    bool air = true;
+    bool water = true;
+    bool ground = true;
+    bool not_ground = true;
+    bool deathmatch = true;
+    bool not_deathmatch = true;
+};
+
+bool guarded_condition(const std::string& condition) {
+    return condition == "SOURCE_UNDERWATER" ||
+           condition.rfind("SOURCE_FROM_GROUND", 0) == 0 ||
+           condition == "DEATHMATCH_GAME";
+}
+
+BlastGuard branch_guard(BlastGuard guard, const std::string& condition,
+                        bool truth) {
+    if (condition == "SOURCE_UNDERWATER") {
+        (truth ? guard.air : guard.water) = false;
+    } else if (condition.rfind("SOURCE_FROM_GROUND", 0) == 0) {
+        (truth ? guard.not_ground : guard.ground) = false;
+    } else if (condition == "DEATHMATCH_GAME") {
+        (truth ? guard.not_deathmatch : guard.deathmatch) = false;
+    }
+    return guard;
+}
+
+/// VM op 75 operands: flags, no_direction, plate, hull, radius, event.
+std::optional<Blast> blast_from_insn(const SbtInsn& insn) {
+    if (insn.name != "CAUSE_BLAST_RADIUS_DAMAGE" || insn.args.size() < 6) {
+        return std::nullopt;
+    }
+    Blast blast;
+    blast.flags = as_uint(insn.args[0]);
+    blast.no_direction = as_uint(insn.args[1]) != 0;
+    blast.plate = static_cast<std::int32_t>(as_uint(insn.args[2]));
+    blast.hull = static_cast<std::int32_t>(as_uint(insn.args[3]));
+    blast.radius = static_cast<int>(as_uint(insn.args[4]));
+    blast.event = as_uint(insn.args[5]);
+    return blast;
+}
+
+void count_commands(const std::vector<SbtInsn>& insns,
+                    std::size_t& generates, std::size_t& blasts) {
+    for (const SbtInsn& insn : insns) {
+        if (insn.name == "GENERATE") {
+            ++generates;
+        } else if (insn.name == "CAUSE_BLAST_RADIUS_DAMAGE") {
+            ++blasts;
+        }
+        if (!insn.body.empty()) {
+            count_commands(insn.body, generates, blasts);
+        }
+    }
+}
+
+void scan_event_block(const SbtLevel& level, const EntityBlocks& blocks,
+                      const std::vector<SbtInsn>& insns,
+                      std::vector<Blast>& out, const BlastGuard& guard,
+                      int depth, std::vector<std::uint32_t>& stack,
+                      EventRegistryBuildStats* stats);
+
+void collect_event(const SbtLevel& level, const EntityBlocks& blocks,
+                   std::uint32_t event_id, int depth, const BlastGuard& guard,
+                   std::vector<std::uint32_t>& stack, std::vector<Blast>& out,
+                   EventRegistryBuildStats* stats) {
+    if (event_id == 0 || event_id == 0xffffffffU) {
+        return;
+    }
+    if (depth > kEventBlastChainDepth) {
+        if (stats != nullptr) {
+            ++stats->chain_depth_cut;
+        }
+        return;
+    }
+    if (std::find(stack.begin(), stack.end(), event_id) != stack.end()) {
+        if (stats != nullptr) {
+            ++stats->chain_cycles;
+        }
+        return;
+    }
+    std::uint32_t offset = 0;
+    std::uint32_t end = 0;
+    if (!blocks.span(event_id, offset, end)) {
+        return;
+    }
+    std::string error;
+    const std::span<const std::uint8_t> bytes(level.script_code.data() + offset,
+                                              end - offset);
+    const auto program = decode_sbt_script(bytes, error);
+    if (!program) {
+        if (stats != nullptr) {
+            ++stats->decode_failures;
+        }
+        return;
+    }
+    stack.push_back(event_id);
+    scan_event_block(level, blocks, program->insns, out, guard, depth, stack,
+                     stats);
+    stack.pop_back();
+}
+
+void scan_event_block(const SbtLevel& level, const EntityBlocks& blocks,
+                      const std::vector<SbtInsn>& insns,
+                      std::vector<Blast>& out, const BlastGuard& guard,
+                      int depth, std::vector<std::uint32_t>& stack,
+                      EventRegistryBuildStats* stats) {
+    for (std::size_t i = 0; i < insns.size(); ++i) {
+        const SbtInsn& insn = insns[i];
+        if (insn.name == "IF" && guarded_condition(insn.condition)) {
+            const BlastGuard taken = branch_guard(guard, insn.condition, true);
+            const BlastGuard fallthrough =
+                branch_guard(guard, insn.condition, false);
+            std::uint32_t else_target = 0;
+            std::vector<SbtInsn> body;
+            for (const SbtInsn& child : insn.body) {
+                if (child.name == "ELSE") {
+                    else_target = child.target;
+                } else {
+                    body.push_back(child);
+                }
+            }
+            scan_event_block(level, blocks, body, out, taken, depth, stack,
+                             stats);
+            if (else_target == 0 && !insn.body.empty() &&
+                insn.body.back().name == "ELSE") {
+                else_target = insn.body.back().target;
+            }
+            if (else_target == 0 && i + 1 < insns.size() &&
+                insns[i + 1].name == "ELSE") {
+                // Sibling ELSE of the C++ decoder: the else-code follows it.
+                else_target = insns[i + 1].target;
+            }
+            if (else_target != 0) {
+                std::size_t j = i + 1;
+                while (j < insns.size() && insns[j].offset < else_target) {
+                    ++j;
+                }
+                if (j > i + 1) {
+                    std::vector<SbtInsn> fall(insns.begin() + i + 1,
+                                              insns.begin() + j);
+                    scan_event_block(level, blocks, fall, out, fallthrough,
+                                     depth, stack, stats);
+                }
+                i = j - 1;
+            }
+            continue;
+        }
+        if (auto blast = blast_from_insn(insn)) {
+            blast->air = guard.air;
+            blast->water = guard.water;
+            blast->ground = guard.ground;
+            blast->not_ground = guard.not_ground;
+            blast->deathmatch = guard.deathmatch;
+            blast->not_deathmatch = guard.not_deathmatch;
+            out.push_back(*blast);
+        }
+        if (insn.name == "GENERATE" && !insn.args.empty()) {
+            collect_event(level, blocks, as_uint(insn.args[0]), depth + 1,
+                          guard, stack, out, stats);
+        }
+        if (!insn.body.empty()) {
+            scan_event_block(level, blocks, insn.body, out, guard, depth,
+                             stack, stats);
+        }
+    }
+}
+
+} // namespace
+
+bool build_event_registry(const SbtLevel& level, EventBlastRegistry& out,
+                          std::string* error, EventRegistryBuildStats* stats) {
+    EventRegistryBuildStats local;
+    EventRegistryBuildStats& s = stats != nullptr ? *stats : local;
+    s = EventRegistryBuildStats{};
+    out.clear();
+
+    const EntityBlocks blocks(level);
+    s.entity_blocks = level.script.handles;
+    if (!blocks.valid() || level.script_code.empty()) {
+        const std::string message =
+            blocks.error().empty() ? "level has no SCRIPT code" : blocks.error();
+        if (error != nullptr) {
+            *error = message;
+        }
+        return false;
+    }
+    s.ids = blocks.size();
+
+    // Census: direct op 2 / op 75 of every distinct block, no chain following.
+    for (std::uint32_t id : blocks.ids()) {
+        std::uint32_t offset = 0;
+        std::uint32_t end = 0;
+        if (!blocks.span(id, offset, end)) {
+            continue;
+        }
+        std::string decode_error;
+        const std::span<const std::uint8_t> bytes(
+            level.script_code.data() + offset, end - offset);
+        const auto program = decode_sbt_script(bytes, decode_error);
+        if (!program) {
+            ++s.decode_failures;
+            continue;
+        }
+        ++s.scripts_decoded;
+        count_commands(program->insns, s.generate_commands, s.blast_commands);
+    }
+
+    // Registry: every id gets its own blasts plus the `GENERATE` chain.
+    for (std::uint32_t id : blocks.ids()) {
+        std::vector<Blast> blasts;
+        std::vector<std::uint32_t> stack;
+        collect_event(level, blocks, id, 0, BlastGuard{}, stack, blasts, &s);
+        if (blasts.empty()) {
+            continue;
+        }
+        s.blasts += blasts.size();
+        ++s.ids_with_blasts;
+        out.set(id, std::move(blasts));
+    }
+    return true;
+}
+
+namespace {
+
+void chase_impl(const EventBlastRegistry& registry,
+                const BlastDamageResult& applied,
+                std::span<const std::uint32_t> damaged_events,
+                std::span<const Vec3d> thing_positions,
+                std::span<const bool> thing_alive,
+                std::span<Vitals> player_vitals,
+                std::span<ThingVitals> thing_vitals,
+                const EventDamageChainContext& context, int depth,
+                std::vector<std::uint32_t>& stack,
+                EventDamageChainResult& out) {
+    for (const AppliedBlastHit& hit : applied.hits) {
+        if (hit.hit.is_player || hit.hit.index < 0) {
+            continue;
+        }
+        const auto index = static_cast<std::size_t>(hit.hit.index);
+        if (index >= damaged_events.size()) {
+            continue;
+        }
+        if (!hit.thing_damage.ok) {
+            continue;
+        }
+        if (!hit.thing_damage.damaged_event) {
+            if (hit.thing_damage.dead) {
+                ++out.stats.skipped_dead;
+            }
+            continue;
+        }
+        const std::uint32_t event_id = damaged_events[index];
+        if (event_id == 0) {
+            ++out.stats.skipped_no_event;
+            continue;
+        }
+        if (depth > context.max_depth) {
+            ++out.stats.skipped_depth;
+            continue;
+        }
+        if (std::find(stack.begin(), stack.end(), event_id) != stack.end()) {
+            ++out.stats.skipped_cycle;
+            continue;
+        }
+        if (registry.find(event_id).empty()) {
+            ++out.stats.skipped_missing;
+            continue;
+        }
+        if (index >= thing_positions.size() || index >= thing_vitals.size()) {
+            continue;
+        }
+        const Vec3d center = thing_positions[index];
+        std::size_t matched = 0;
+        BlastDamageResult one = apply_event_blast(
+            registry, event_id, center, context.underwater, context.from_ground,
+            context.deathmatch, context.source_player, context.source_thing,
+            {}, player_vitals, thing_positions, thing_alive, thing_vitals,
+            &matched);
+        ++out.stats.events;
+        out.stats.blasts += matched;
+        out.stats.depth_max =
+            std::max<std::size_t>(out.stats.depth_max,
+                                  static_cast<std::size_t>(depth));
+        out.damage.chain_reaction =
+            out.damage.chain_reaction || one.chain_reaction;
+        for (const AppliedBlastHit& chained : one.hits) {
+            out.damage.hits.push_back(chained);
+            out.centers.push_back(center);
+        }
+        out.stats.hits = out.damage.hits.size();
+        stack.push_back(event_id);
+        chase_impl(registry, one, damaged_events, thing_positions, thing_alive,
+                   player_vitals, thing_vitals, context, depth + 1, stack, out);
+        stack.pop_back();
+    }
+}
+
+} // namespace
+
+EventDamageChainResult chase_damaged_events(
+    const EventBlastRegistry& registry, const BlastDamageResult& applied,
+    std::span<const std::uint32_t> damaged_events,
+    std::span<const Vec3d> thing_positions, std::span<const bool> thing_alive,
+    std::span<Vitals> player_vitals, std::span<ThingVitals> thing_vitals,
+    const EventDamageChainContext& context) {
+    EventDamageChainResult out;
+    std::vector<std::uint32_t> stack;
+    chase_impl(registry, applied, damaged_events, thing_positions, thing_alive,
+               player_vitals, thing_vitals, context, 1, stack, out);
+    out.stats.hits = out.damage.hits.size();
+    return out;
 }
 
 std::span<const Blast> EventBlastRegistry::find(std::uint32_t event_id) const {

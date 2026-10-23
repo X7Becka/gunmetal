@@ -45,6 +45,20 @@ bool blast_trigger(ProjectileStatus status, bool already_spent,
     return false;
 }
 
+/// Add the counters of one chained blast into the batch total.
+void accumulate_chain(EventDamageChainStats& total,
+                      const EventDamageChainStats& one) {
+    total.events += one.events;
+    total.blasts += one.blasts;
+    total.hits += one.hits;
+    total.depth_max = std::max(total.depth_max, one.depth_max);
+    total.skipped_no_event += one.skipped_no_event;
+    total.skipped_dead += one.skipped_dead;
+    total.skipped_missing += one.skipped_missing;
+    total.skipped_cycle += one.skipped_cycle;
+    total.skipped_depth += one.skipped_depth;
+}
+
 /// Copy the staged records of `queue` into a queue of the same kind, dropping
 /// the `Trigger Switch` (type 2) records.  `build_world()` replaces the switch
 /// table wholesale; a staged type-2 record addresses that table by index, so
@@ -771,6 +785,7 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts_impl(
     const std::vector<Thing>& list = things_.things();
     const std::size_t thing_count = list.size();
     blast_thing_positions_.resize(thing_count);
+    blast_thing_damaged_events_.resize(thing_count);
     if (thing_count > blast_thing_alive_capacity_) {
         blast_thing_alive_ = std::make_unique<bool[]>(thing_count);
         blast_thing_alive_capacity_ = thing_count;
@@ -784,6 +799,7 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts_impl(
                              static_cast<double>((*thing.position)[2])}
                      : Vec3d{};
         blast_thing_alive_[i] = thing.alive && absolute;
+        blast_thing_damaged_events_[i] = thing.damaged_event;
     }
 
     ProjectileBlastTargets targets;
@@ -877,6 +893,41 @@ ProjectileBlastBatch GameRuntime::apply_projectile_blasts_impl(
                     0)) {
                 ++batch.posted_events;
             }
+        }
+
+        if (registry != nullptr && config_.chain_damaged_events &&
+            !one.hits.empty()) {
+            // The non-lethal hits post `damaged_event` (`0x470995`); the
+            // event's sub-script is the follow-up blast.  Depth-first and
+            // cycle-cut, so the result does not depend on hash order.
+            EventDamageChainContext chain_context;
+            chain_context.underwater = context->underwater;
+            chain_context.from_ground = context->from_ground;
+            chain_context.deathmatch = context->deathmatch;
+            chain_context.source_player = context->source_player;
+            chain_context.source_thing = context->source_thing;
+            EventDamageChainResult chained = chase_damaged_events(
+                *registry, one, blast_thing_damaged_events_,
+                blast_thing_positions_, targets.thing_alive,
+                targets.player_vitals, targets.thing_vitals, chain_context);
+            for (std::size_t k = 0; k < chained.damage.hits.size(); ++k) {
+                const AppliedBlastHit& hit = chained.damage.hits[k];
+                if (hit.hit.event == 0 || k >= chained.centers.size()) {
+                    continue;
+                }
+                const Vec3d& center = chained.centers[k];
+                if (events_.queue().post_generate(
+                        static_cast<std::int32_t>(hit.hit.event), 0, center.x,
+                        center.y, center.z, 0)) {
+                    ++batch.posted_events;
+                }
+            }
+            accumulate_chain(batch.chain, chained.stats);
+            batch.damage.chain_reaction =
+                batch.damage.chain_reaction || chained.damage.chain_reaction;
+            batch.damage.hits.insert(batch.damage.hits.end(),
+                                     chained.damage.hits.begin(),
+                                     chained.damage.hits.end());
         }
 
         batch.damage.chain_reaction =
