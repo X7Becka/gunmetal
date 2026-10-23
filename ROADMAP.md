@@ -2183,7 +2183,13 @@ save/load восстанавливает мир, игрока, двери, па�
       > `Ai::attach`/перемещённый `Things`). **Нет:** статического анализа
       > (clang-tidy/cppcheck) и фаззинга с покрытием на всех 9 контейнерах —
       > только быстрая матрица.
-- ⬜ `M12.2` 64-bit, Windows, Linux; CI-матрица.
+- 🟡 `M12.2` 64-bit, Windows, Linux; CI-матрица.
+      > **64-bit Linux уже работает:** сборка Zig по умолчанию даёт
+      > `ELF 64-bit LSB executable, x86-64` (`file build/sandbox/engine/
+      > gunmetal`), весь набор — **112/112** CTest и **101/101** под ASan;
+      > отдельной 32-битной цели нет. Код не содержит `-m32`/inline asm
+      > под 32 бита. Нет: Windows-сборки (SDL3/filesystem переносимы, но не
+      > проверялись), macOS и CI-матрицы.
 - 🟡 `M12.3` Производительность: 60 FPS, память, время загрузки уровня.
       > `tools/qa/perf.py` + `docs/PERFORMANCE.md` (CTest `perf_selftest`):
       > разбор `level0/dm1/level24` — 8.5/31.9/47.8 мс (Python) и 61.7 мс
