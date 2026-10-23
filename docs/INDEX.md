@@ -44,7 +44,7 @@
 | `docs/GAME_OVER.md` | 28 | 318 | Game over, титры, рестарт и экран конца уровня (`M9.5`) |
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
 | `docs/GHIDRA.md` | 17 | 30 | Ghidra: выбор, установка и рабочий процесс |
-| `docs/HUD_AUDIT.md` | 24 | 89 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
+| `docs/HUD_AUDIT.md` | 28 | 112 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
 | `docs/HUD_BIND.md` | 17 | 29 | HUD binding: `.sml`/`.sme` экраны → семейства `.sof`/`.fdx` и позиции `<I>` |
 | `docs/HUD_COMPOSE.md` | 34 | 43 | HUD composition: `.sml` + `.sof/.fdx` + `blit_indexed` за один вызов |
 | `docs/HUD_CPP.md` | 8 | 2 | C++ HUD-слой: блит кадров `.sof` |
@@ -52,7 +52,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 12 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 76 | 242 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 77 | 242 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -83,7 +83,7 @@
 | `docs/RE_METHOD.md` | 14 | 7 | Методика реверса `gunmetal-re` |
 | `docs/RNG.md` | 7 | 41 | RNG: `rand()` оригинала, сид и потребители |
 | `docs/RUNTIME_CPP.md` | 42 | 8 | Gunmetal — C++-каркас фиксированного тика (`GameRuntime`) |
-| `docs/SANITIZERS.md` | 3 | 0 | Sanitizers (ASan/UBSan) |
+| `docs/SANITIZERS.md` | 4 | 0 | Sanitizers (ASan/UBSan) |
 | `docs/SAVE.md` | 19 | 99 | Сохранения Gunmetal: контейнер, блоки, rebuild |
 | `docs/SAVE_BLOCKS.md` | 15 | 9 | C++: типизированные блоки сейва 1, 2, 3, 6, 7, 8 |
 | `docs/SAVE_CPP.md` | 16 | 45 | C++-читатель сейвов Gunmetal |
