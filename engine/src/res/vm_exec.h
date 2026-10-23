@@ -465,6 +465,20 @@ struct VmState {
 
     std::string level_name;
     std::map<std::string, std::vector<SbtValue>> level;
+
+    /// Music state, `LOAD_MUSIC` (81) / `PLAY_MUSIC` (82) / `STOP_MUSIC` (83)
+    /// / `UNLOAD_MUSIC` (84) / `MEMORIZE_CURRENT_MUSIC_BANK` (85) /
+    /// `PLAY_MEMORIZED_MUSIC_BANK` (86): bank id -> name and the playing
+    /// bank.  `0x40b8a0` is the only playback site (`docs/UI_SOUNDS.md` §3);
+    /// the runtime has no mixer for it yet, so the state is what is kept.
+    std::map<int, std::string> music_banks;
+    std::optional<int> music_bank;
+    std::optional<int> music_memorized;
+    bool music_playing = false;
+
+    /// `ADD_SCREEN_TEXT` (50) / `ADD_SOURCESCREEN_TEXT` (51): 2D overlay
+    /// lines, `(slot id, text)` in script order.
+    std::vector<std::pair<int, std::string>> screen_text;
     std::vector<std::string> objectives;
     std::uint32_t objectives_bits = 0;
     std::map<std::string, std::vector<SbtValue>> defs;             // DEFINE_* args
@@ -793,6 +807,8 @@ private:
     std::optional<std::size_t> h_world_poly(VmState&, const VmInsn&);
     // state
     std::optional<std::size_t> h_level(VmState&, const VmInsn&);
+    std::optional<std::size_t> h_music(VmState&, const VmInsn&);
+    std::optional<std::size_t> h_screen_text(VmState&, const VmInsn&);
     std::optional<std::size_t> h_camera_haze(VmState&, const VmInsn&);
     std::optional<std::size_t> h_add_ammo(VmState&, const VmInsn&);
     std::optional<std::size_t> h_cash(VmState&, const VmInsn&);

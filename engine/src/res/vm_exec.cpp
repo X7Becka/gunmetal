@@ -1556,6 +1556,15 @@ void VmExecutor::install_handlers() {
     set("SET_LEVEL_BEST_TIME", &VmExecutor::h_level);
     set("SET_LEVEL_SECRETS", &VmExecutor::h_level);
     set("SET_LEVEL_END_CAMERA_XYZ", &VmExecutor::h_level);
+    // Music and overlay text: both used to fall through to the generic event
+    // log; they keep that event and additionally record the state (M5.2.5).
+    for (const char* name : {"LOAD_MUSIC", "PLAY_MUSIC", "STOP_MUSIC",
+                             "UNLOAD_MUSIC", "MEMORIZE_CURRENT_MUSIC_BANK",
+                             "PLAY_MEMORIZED_MUSIC_BANK"}) {
+        set(name, &VmExecutor::h_music);
+    }
+    set("ADD_SCREEN_TEXT", &VmExecutor::h_screen_text);
+    set("ADD_SOURCESCREEN_TEXT", &VmExecutor::h_screen_text);
     set("ADD_SOURCEPLAYER_AMMO", &VmExecutor::h_add_ammo);
     set("ADD_SOURCEPLAYER_CASH", &VmExecutor::h_cash);
     set("HEAL_SOURCEPLAYER", &VmExecutor::h_heal);
@@ -2852,6 +2861,48 @@ std::optional<std::size_t> VmExecutor::h_level(VmState& state, const VmInsn& ins
     if (insn.name == "SET_LEVEL_COUNTDOWN_TIMER" && !insn.args.empty()) {
         state.level["countdown"] = {insn.args.at(0)};
     }
+    return std::nullopt;
+}
+
+std::optional<std::size_t> VmExecutor::h_music(VmState& state, const VmInsn& insn) {
+    const auto bank = [&]() { return arg_i32(insn.args.at(0)); };
+    if (insn.name == "LOAD_MUSIC" && insn.args.size() >= 2) {
+        const SbtValue& value = insn.args.at(1);
+        state.music_banks[bank()] =
+            value.kind == SbtValue::Kind::String ? value.s : value_text(value);
+    } else if (insn.name == "PLAY_MUSIC" && !insn.args.empty()) {
+        state.music_bank = bank();
+        state.music_playing = true;
+    } else if (insn.name == "STOP_MUSIC") {
+        state.music_playing = false;
+    } else if (insn.name == "UNLOAD_MUSIC" && !insn.args.empty()) {
+        state.music_banks.erase(bank());
+        if (state.music_bank == bank()) {
+            state.music_playing = false;
+        }
+    } else if (insn.name == "MEMORIZE_CURRENT_MUSIC_BANK") {
+        state.music_memorized = state.music_bank;
+    } else if (insn.name == "PLAY_MEMORIZED_MUSIC_BANK" && state.music_memorized) {
+        state.music_bank = state.music_memorized;
+        state.music_playing = true;
+    }
+    event(state, insn); // same event the generic action logged before
+    return std::nullopt;
+}
+
+std::optional<std::size_t> VmExecutor::h_screen_text(VmState& state,
+                                                     const VmInsn& insn) {
+    int slot = 0;
+    std::string text;
+    for (const SbtValue& value : insn.args) {
+        if (value.kind == SbtValue::Kind::String) {
+            text = value.s;
+        } else {
+            slot = arg_i32(value);
+        }
+    }
+    state.screen_text.emplace_back(slot, text);
+    event(state, insn);
     return std::nullopt;
 }
 

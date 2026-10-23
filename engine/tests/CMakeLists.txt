@@ -25,6 +25,12 @@ function(gm_label test_name label)
     set_tests_properties(${test_name} PROPERTIES LABELS ${label})
 endfunction()
 
+# M5.2.5: music banks + overlay text kept as VM state (synthetic byte code).
+add_executable(gm_vm_music_tests test_vm_music.cpp)
+target_link_libraries(gm_vm_music_tests PRIVATE gm_engine)
+add_test(NAME vm_music COMMAND gm_vm_music_tests)
+gm_label(vm_music quick)
+
 add_test(NAME core COMMAND gm_tests)
 gm_label(core quick)
 
