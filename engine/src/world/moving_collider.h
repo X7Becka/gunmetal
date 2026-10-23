@@ -100,8 +100,10 @@ struct MovingPanel {
     std::vector<Triangle> rest;
     /// `open - closed`, world units.  For a swing leaf this is the slide of
     /// the rotation pivot (`center(f) = pivot + travel * f`), not the vertex
-    /// displacement.  Zero for a pure lift panel that is moved only by
-    /// `update(..., lift_offset)`.
+    /// displacement.  A lift cabin uses the whole `Lift::pos_delta` here
+    /// (`0x44e6f0`: `origin = pos + pos_delta * height/65535`); a panel that
+    /// only has a vertical offset can leave this zero and use
+    /// `update(..., lift_offset)` instead (docs/LIFT_COLLISION.md).
     Vec3d travel{};
 };
 

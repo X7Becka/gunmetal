@@ -459,23 +459,28 @@ void MovingCollider::pose(double fraction, double lift_offset) {
     const bool rotating = axis_ == DoorAxis::Rotating;
     const double angle = rotating ? swing_.max_angle * fraction : 0.0;
     // `f = 0, lift = 0` is the identity transform of `0x44dfc0`/`0x434887`
-    // (`center == closed`, basis identity): copy the rest triangles so the
-    // closed pose is bit-identical to the static `.sbw` geometry.
-    const bool identity = rotating && fraction == 0.0 && lift_offset == 0.0;
+    // (`center == closed`, basis identity) for a sliding leaf and for a cabin
+    // alike: copy the rest triangles so the zero pose is bit-identical to the
+    // static `.sbw` geometry (`moved_triangle` would re-derive `centroid` and
+    // `plane_offset` and can differ in the last bit).
+    const bool identity = fraction == 0.0 && lift_offset == 0.0;
     for (std::size_t i = 0; i < panels_.size(); ++i) {
         const MovingPanel& panel = panels_[i];
+        if (identity) {
+            for (const Triangle& rest : panel.rest) {
+                triangles_.push_back(rest);
+                panel_of_.push_back(static_cast<std::uint32_t>(i));
+            }
+            continue;
+        }
         if (rotating) {
             // center(f) = closed + (open - closed) * f; the rotation is about
             // that point (the `size`-folded closed corner) along the engine's
             // unit axis.
             const Vec3d center_delta = panel.travel * fraction;
             for (const Triangle& rest : panel.rest) {
-                if (identity) {
-                    triangles_.push_back(rest);
-                } else {
-                    triangles_.push_back(swung_triangle(rest, swing_.pivot, center_delta,
-                                                        swing_.axis, angle, lift_offset));
-                }
+                triangles_.push_back(swung_triangle(rest, swing_.pivot, center_delta,
+                                                    swing_.axis, angle, lift_offset));
                 panel_of_.push_back(static_cast<std::uint32_t>(i));
             }
             continue;

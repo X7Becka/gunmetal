@@ -299,7 +299,18 @@ struct Lift {
     /// movement (door-style) and keeps this flag to emit the matching stop.
     bool move_sound_queued = false;
 
+    /// `.sbw` binding of the cabin, or -1/-1 when there is none.
+    ///
+    /// The shipped data has **no** such binding: the cabin is a runtime object
+    /// built from `SOB_TABLE[sob]` (`0x44e800` -> `0x47c990` -> `0x4277cd` /
+    /// `0x43b639`), not a level object (docs/LIFT_COLLISION.md §2).  A caller
+    /// that knows one (an edited level or a test) may set the pair; the runtime
+    /// then builds a moving cabin panel out of those triangles.
+    int cabin_sector = -1;
+    int cabin_object = -1;
+
     bool movable() const { return speed > 0 && !stops.empty(); }
+    bool cabin_bound() const { return cabin_sector >= 0 && cabin_object >= 0; }
 };
 
 /// ``height / 65535`` clamped to ``0..1`` — the cabin interpolation fraction.
@@ -545,6 +556,10 @@ public:
     std::vector<Door>& doors_mutable() { return doors_; }
     const std::vector<Switch>& switches() const { return switches_; }
     const std::vector<Lift>& lifts() const { return lifts_; }
+    /// Mutable view for a caller that binds a cabin to a `.sbw` object
+    /// (`Lift::cabin_sector`/`cabin_object`) or restores a lift state.  No
+    /// shipped level has a cabin binding; see docs/LIFT_COLLISION.md.
+    std::vector<Lift>& lifts_mutable() { return lifts_; }
     const std::vector<WorldEvent>& events() const { return events_; }
     void clear_events() {
         events_.clear();

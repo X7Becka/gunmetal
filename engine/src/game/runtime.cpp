@@ -215,6 +215,71 @@ bool GameRuntime::build_door_panels(const WorldState& world, CollisionWorld& col
             ++out.stats.rotating;
         }
     }
+    // Moving lift cabins (M6.4.1 slice 4, docs/LIFT_COLLISION.md).  The shipped
+    // data has no cabin -> `.sbw` binding, so every lift lands in
+    // `lifts_unbound`; a caller-bound pair gets the same treatment as a door
+    // leaf: the rest triangles become a dynamic panel and the static ones are
+    // suppressed.  The panel travel is the full cabin delta `pos_delta`
+    // (`0x44e6f0`: `origin = pos + pos_delta * height/65535`), applied through
+    // the collider fraction.  A cabin whose basis deltas (`+0x18..+0x28`)
+    // turn it is not representable by that translation seam and is skipped
+    // rather than posed wrongly.
+    const std::vector<Lift>& lifts = world.lifts();
+    for (std::size_t index = 0; index < lifts.size(); ++index) {
+        const Lift& lift = lifts[index];
+        if (!lift.cabin_bound()) {
+            ++out.stats.lifts_unbound;
+            continue;
+        }
+        if (lift.basis[3] != 0.0 || lift.basis[4] != 0.0 || lift.basis[5] != 0.0) {
+            ++out.stats.lifts_skipped_rotating;
+            continue;
+        }
+        const std::pair<std::uint32_t, std::uint32_t> pair{
+            static_cast<std::uint32_t>(lift.cabin_sector),
+            static_cast<std::uint32_t>(lift.cabin_object)};
+        if (std::find(out.suppressed.begin(), out.suppressed.end(), pair) !=
+            out.suppressed.end()) {
+            // A door already owns this object; publishing it twice would put
+            // two poses of the same triangles into the dynamic set.
+            ++out.stats.lifts_skipped_duplicate;
+            continue;
+        }
+        MovingPanel panel;
+        panel.travel = {static_cast<double>(lift.pos_delta[0]),
+                        static_cast<double>(lift.pos_delta[1]),
+                        static_cast<double>(lift.pos_delta[2])};
+        if (panel.travel.x == 0.0 && panel.travel.y == 0.0 && panel.travel.z == 0.0) {
+            ++out.stats.lifts_skipped_static; // the cabin stands still
+            continue;
+        }
+        for (const Triangle& triangle : statics) {
+            if (triangle.sector == pair.first && triangle.object == pair.second) {
+                panel.rest.push_back(triangle);
+            }
+        }
+        if (panel.rest.empty()) {
+            ++out.stats.lifts_unbound;
+            continue;
+        }
+        MovingCollider collider;
+        collider.set_panels({panel}, DoorAxis::Travel, DoorSwing{});
+        if (!collider.ready()) {
+            ++out.stats.lifts_skipped_refused;
+            continue;
+        }
+        collider.update(lift_fraction(lift), 0.0);
+        if (!collider.last_update_ok()) {
+            ++out.stats.lifts_skipped_refused;
+            continue;
+        }
+        out.suppressed.push_back(pair);
+        out.lift_colliders.push_back(std::move(collider));
+        out.lift_index.push_back(index);
+        out.applied_lift_height.push_back(lift.height);
+        ++out.stats.lifts;
+        ++out.stats.lift_panels;
+    }
     return publish_door_dynamic(collision, out, error);
 }
 
@@ -224,9 +289,16 @@ bool GameRuntime::publish_door_dynamic(CollisionWorld& collision, DoorCollisionS
     for (const MovingCollider& collider : state.colliders) {
         total += collider.triangle_count();
     }
+    for (const MovingCollider& collider : state.lift_colliders) {
+        total += collider.triangle_count();
+    }
     std::vector<Triangle> triangles;
     triangles.reserve(total);
     for (const MovingCollider& collider : state.colliders) {
+        triangles.insert(triangles.end(), collider.triangles().begin(),
+                         collider.triangles().end());
+    }
+    for (const MovingCollider& collider : state.lift_colliders) {
         triangles.insert(triangles.end(), collider.triangles().begin(),
                          collider.triangles().end());
     }
@@ -244,7 +316,7 @@ bool GameRuntime::publish_door_dynamic(CollisionWorld& collision, DoorCollisionS
 bool GameRuntime::sync_door_colliders() {
     DoorCollisionState& state = door_collision_;
     ++state.stats.sync_ticks;
-    if (!world_built_ || state.colliders.empty()) {
+    if (!world_built_ || (state.colliders.empty() && state.lift_colliders.empty())) {
         return false;
     }
     const std::vector<Door>& doors = world_.doors();
@@ -262,6 +334,27 @@ bool GameRuntime::sync_door_colliders() {
         // Store what the collider applied, not the request: a refused update
         // keeps the previous pose and would otherwise be retried every tick.
         state.applied[i] = state.colliders[i].open_fraction();
+        changed = true;
+    }
+    // Lift cabins move on `Lift::height` (`0x450180` writes it, `0x44e6f0`
+    // applies `pos + pos_delta * height/65535`).  Repose only when the height
+    // changed; the panel travel is the full `pos_delta`, so the pose is
+    // `rest + pos_delta * fraction`.
+    const std::vector<Lift>& lifts = world_.lifts();
+    for (std::size_t i = 0; i < state.lift_colliders.size(); ++i) {
+        const std::size_t lift_index = state.lift_index[i];
+        if (lift_index >= lifts.size()) {
+            continue;
+        }
+        const Lift& lift = lifts[lift_index];
+        if (lift.height == state.applied_lift_height[i]) {
+            continue;
+        }
+        state.lift_colliders[i].update(lift_fraction(lift), 0.0);
+        if (!state.lift_colliders[i].last_update_ok()) {
+            continue; // keep the last good pose and retry on the next height
+        }
+        state.applied_lift_height[i] = lift.height;
         changed = true;
     }
     if (!changed) {
