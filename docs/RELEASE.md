@@ -17,8 +17,8 @@
 export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
 cmake -S . -B build/sandbox -G Ninja
 cmake --build build/sandbox -j 8
-ctest --test-dir build/sandbox -j 4 --output-on-failure     # сейчас 174/174
-python3 regress.py --full --mirror --json                   # сейчас 174/174
+ctest --test-dir build/sandbox -j 4 --output-on-failure     # сейчас 180/180
+python3 regress.py --full --mirror --json                   # сейчас 180/180
 python3 tools/re/install_audit.py --game "$GUNMETAL_DIR"    # RESULT: ok
 python3 tools/qa/perf.py --game "$GUNMETAL_DIR" --repeat 3  # снимок, не гейт
 ```

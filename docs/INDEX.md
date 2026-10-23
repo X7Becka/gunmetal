@@ -12,7 +12,7 @@
 | `docs/ADR/0004-re-infrastructure.md` | 3 | 0 | ADR 0004 — инфраструктура реверса: кэш, зеркало, бюджет контекста |
 | `docs/AI_CPP.md` | 79 | 76 | Gunmetal — минимальный C++ AI вещей (`Ai`) |
 | `docs/ALPHA.md` | 17 | 74 | Альфа мировых текстур и постоянный цвет кадра (M4.1.5) |
-| `docs/AUDIO_3D.md` | 36 | 311 | 3D-позиционный звук (M7.3): очередь, слушатель, формулы |
+| `docs/AUDIO_3D.md` | 44 | 316 | 3D-позиционный звук (M7.3): очередь, слушатель, формулы |
 | `docs/AUDIO_MIXER.md` | 14 | 8 | `audio/mixer`: детерминированный software-микшер |
 | `docs/AUDIO_OUTPUT.md` | 16 | 0 | `platform/audio`: вывод звука (SDL3 + null) |
 | `docs/AUDIT_NUMBERS.md` | 22 | 64 | AUDIT_NUMBERS — независимая сверка чисел в свежих RE-доках |
@@ -57,7 +57,7 @@
 | `docs/HUD_PLAYER.md` | 14 | 13 | C++ HUD-фильмы: проигрывание `.sof` + `.fdx` во времени |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 12 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 108 | 300 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 110 | 300 | JOURNAL — журнал ходов |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEXE.md` | 15 | 105 | LE/LX-формат: DOS-сборка Gunmetal (`gun.exe`) |
@@ -101,6 +101,7 @@
 | `docs/SAVE_FIELDS.md` | 35 | 324 | Поля сейва Gunmetal: карта «поле → смещение → смысл → доказательство» |
 | `docs/SAVE_SLOTS.md` | 11 | 27 | Безголовый список слотов сохранения (`M8.7`, срез 1) |
 | `docs/SAVE_WRITER.md` | 12 | 22 | C++-писатель сейвов Gunmetal |
+| `docs/SAVE_WRITE_CPP.md` | 19 | 29 | C++-писатель сейва: `write_save()` |
 | `docs/SBT_ASM.md` | 24 | 13 | Ассемблер скриптов `.sbt` (текст → байткод `SCRIPT`) |
 | `docs/SBT_RECORDS.md` | 20 | 140 | Все типы записей `.sbt`: раскладка, писатели, побайтовая проверка |
 | `docs/SBT_WRITE.md` | 24 | 24 | Писатель контейнера `.sbt` (`M11.4`, часть 1) |

@@ -1335,3 +1335,21 @@
   CLI `--save-slots` (CTest `cli_save_slots`): на поставке `present=2/20`,
   `A SAVED GAME`, `::: empty slot :::`.
 - **Гейты:** `ctest` **174/174**, `regress --full --mirror` **125/125**.
+
+## Ход 2026-10-23 (партия 36: строгий писатель сейвов, 3D-сэмпл)
+
+- **`M9.3` (писатель).** `engine/src/res/save_write.*` +
+  `docs/SAVE_WRITE_CPP.md` (CTest `save_write`, 125 проверок): проверка
+  цепочки блоков, перенос opaque-заголовка `0x10..0x50`, re-parse с
+  типизированным сравнением, коды отказа. `saved0`/`saved1` — 243 368 Б
+  **побайтово** (sha256 `e39c0c35…`/`93f4edd3…`), 15 блоков; паритет с
+  независимым Python-писателем `save_rebuild.py` на исходных и правленых
+  файлах. CLI: `--dump SAVEGAME/saved0.sbt --save-out OUT` →
+  `blocks=15, byte-exact=yes` (CTest `cli_save_out`).
+- **`M7.3` срез 2 (интеграция).** `--sample-play --pos/--listener/
+  --volume/--atten`: `--headless` печатает `dist/gain/pan/L/R`, в устройство
+  идёт стерео с этими амплитудами (CTest `cli_sample_play_3d*`,
+  `docs/AUDIO_3D.md` §13). Пример §8.1 дословно: `dist=198`, `gain=58`,
+  `pan=159`, `L/R=23/32`; yaw 1.5708 → `pan=122, L/R=32/29`; далёкий
+  источник — `gain=0, L=R=0`; RMS записанного потока — 0.7188 = 23/32.
+- **Гейты:** `ctest` **180/180**, `regress --full --mirror` **125/125**.
