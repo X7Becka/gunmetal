@@ -1922,7 +1922,8 @@ std::optional<bool> VmExecutor::check(VmState& state, int cid,
     case 26: // GOD_MODE
         return state.god_mode;
     case 28: // SCAVENGERHUNT_GAME
-        return state.game_mode == 5;
+        // 0x45e26b -> 0x4421d0: `cmp ecx,3 / sete` (docs/DM_RULES.md §3).
+        return state.game_mode == 3;
     default:
         break;
     }

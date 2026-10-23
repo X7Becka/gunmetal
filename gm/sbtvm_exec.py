@@ -960,7 +960,9 @@ class Executor:
         if cid == 26:                                  # GOD_MODE
             return st.god_mode
         if cid == 28:                                  # SCAVENGERHUNT_GAME
-            return st.game_mode == 5
+            # 0x45e26b -> 0x4421d0: `cmp ecx,3 / sete`; the mode table is
+            # 0 campaign, 1 normal, 2 classic, 3 hunt (docs/DM_RULES.md §3).
+            return st.game_mode == 3
         # every SOURCEPLAYER_* check below reads the current source player;
         # with no source (a level-level script) the value is genuinely open
         if p is None:

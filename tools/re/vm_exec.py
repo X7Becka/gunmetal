@@ -51,8 +51,9 @@ CATEGORY = {
 CATEGORIES = ("lights", "locations", "items", "sounds", "sprites",
               "doors", "switches", "lifts", "spawns", "things")
 
+# 0x83d2c8: 0 campaign, 1 normal, 2 classic, 3 hunt (docs/DM_RULES.md §3).
 GAME_MODES = {"campaign": 0, "dm-normal": 1, "dm-classic": 2,
-              "scavenger": 5}
+              "scavenger": 3}
 
 
 # --------------------------------------------------------------------------

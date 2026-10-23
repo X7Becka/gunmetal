@@ -1837,7 +1837,26 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > `winner.sbv` → `SML/CREDITS.SML`. Магазин/деньги закрыты в `M6.2.6`.
       > Нет: исполнения счётчика в ВМ, автоматических титров после `level24`,
       > проверки `level13`/`level15`/`secrt2`/`temple` на живой игре.
-- ⬜ `M9.2` DM: classic/normal/hunt/team, правила, счёт, respawn, handicap.
+- 🟡 `M9.2` DM: classic/normal/hunt/team, правила, счёт, respawn, handicap.
+      > `docs/DM_RULES.md` + `tools/re/dm_rules.py` (self-test 30/30, 17
+      > якорей). Режим — `ds:0x83d2c8`: 0 кампания, 1 normal, 2 classic,
+      > **3 hunt** (`0x4421d0`), меню `0x4bc6e8`/`0x48b0c0`. Флаги
+      > `0x83d184`: 1 team, 2 ctf, 4 no-monsters, 8 freeze, 0x10 no-buy,
+      > 0x20 handicap (`0x44a719..0x44a811`). **Счёт = `+0x3270`**:
+      > `0x4536e0` +1 убийце, −1 за team kill/самоубийство; HUD `0x492fdd`
+      > (закрыт открытый пункт `HUD_AUDIT` §3.3). Лимита фрагов в коде нет,
+      > таймер уровня задан только `level15` (38220) и `level23` (13650).
+      > Respawn: `action_state=7`, таймер `+0x33d4` до `0x88`, `0x452670`
+      > → `0x452730`; неуязвимость не ставится. Старты: 248 DM на 31 карте
+      > (8 слотов), 143 `SET_PLAYER_START`. Гандикап: `mp_flags & 0x20` →
+      > максимум фрагов других (`0x452e74`) → кредиты `5/4/3/…/⅒`
+      > (`0x452e9a..0x452f71`). HUNT: `OR_SOURCEPLAYER_WEAPON_BITS 0x7fffff`
+      > под `IF SCAVENGERHUNT_GAME`. Ботов нет — слоты только
+      > `player_join 0x453120`, «монстры» — вещи с маской 0x20.
+      > Попутно исправлено: `SCAVENGERHUNT_GAME` в ВМ (C++ и Python) был
+      > `game_mode == 5`, в оригинале `== 3` (`0x4421d0`). Нет: тика
+      > респавна в модели, `+0x344c` (team id), триггера бита `0x8000`,
+      > масштаба стартовых кредитов.
 - ✅ `M9.3` Сохранения: все блоки `M1.7`, чтение оригинала, запись своих.
       > Все пункты `M1.7` закрыты: 15 блоков типизированы, `savefile.py`
       > round-trip, C++ `Save`/`rebuild_save` — `saved0`/`saved1` 2/2

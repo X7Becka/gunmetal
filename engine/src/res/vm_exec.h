@@ -456,7 +456,7 @@ struct VmState {
     double haze = 0.0;
     double haze_rate = 0.0;
 
-    int game_mode = 0; // 0 campaign, 1 dm-normal, 2 dm-classic, 5 scavenger
+    int game_mode = 0; // 0 campaign, 1 dm-normal, 2 dm-classic, 3 dm-hunt
     int mp_flags = 0;  // bit0 team, bit1 CTF
     int player_count = 1;
     int difficulty = 1;
