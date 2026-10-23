@@ -7,8 +7,9 @@
 Коротко: кэш принимает имя из `SOUND_SAMPLE_TABLE` (300 слотов), на промахе
 декодирует SOU0/SOU1/SOU2 из `sounds/SOU.IDX` (фолбэк `MUSIC/SOU.IDX`),
 держит запись, пока `refcount > 0`, и выгружает записи с `refcount == 0` в
-порядке LRU, если вставка выходит за бюджет. Пока **не подключён** к микшеру,
-3D-звуку и сейвам.
+порядке LRU, если вставка выходит за бюджет. Подключён к CLI
+(`--sample-play`, §8): декод → `AudioDevice`. К микшеру, 3D-звуку и сейвам
+по-прежнему не подключён.
 
 Что доказано кодом/данными, что гипотеза — §4–§5. Адреса ниже — из
 `docs/SOUND_NAMES.md`, `docs/SOUND_FIELDS.md` и `ROADMAP.md` (M7.4); Ghidra
@@ -172,8 +173,8 @@ sample_cache: ok
   `misses`;
 * две одинаковые последовательности на двух кэшах → одинаковые `Stats`.
 
-Стоимость: `updown`/`select` — 6272 кадра (8 кГц), 12800 B = `0x100` + 6272×2;
-`vleft` — 4608 кадров, 9472 B.
+Стоимость: `updown`/`select` — 6272 кадра (16 кГц), 12800 B = `0x100` + 6272×2;
+`vleft` — 4608 кадров (8 кГц), 9472 B.
 
 Python-оракул: `python3 regress.py --mirror --json` →
 `{"passed": 115, "total": 115, "seconds": 48.7, "full": false, ... "failed": []}`.
@@ -196,8 +197,9 @@ Python-оракул: `python3 regress.py --mirror --json` →
 
 ## 6. Ограничения
 
-* Не подключён к `Mixer`, `audio/engine_3d.*`, платформенному выводу и
-  сейвам; это следующий шаг, а не часть M7.4-модели.
+* Не подключён к `Mixer`, `audio/engine_3d.*` и сейвам: единственный путь
+  воспроизведения — CLI `--sample-play` (§8), который кладёт PCM прямо в
+  `AudioDevice`. 3D-позиционирования, панорамы и громкости нет.
 * Нет выгрузки по времени/простаиванию — только по бюджету и только
   `refcount == 0`.
 * Бюджет фиксируется в `open`; сеттера нет (тесты создают отдельный кэш).
@@ -225,3 +227,50 @@ Python-оракул: `python3 regress.py --mirror --json` →
 Тест использует `level0.sbt` (137 именованных слотов, все разрешаются в
 `sounds/SOU.IDX`); `dm1`-таблица проверяется тем же кодом в `sample_table`,
 отдельный кэш для неё не нужен.
+
+---
+
+## 8. Воспроизведение (`--sample-play`)
+
+Срез 2 M7.4: кэш подключён к CLI. Имя ищется в `SOUND_SAMPLE_TABLE` уровня
+`--level` (по умолчанию `level0`), берётся через `SampleCache::acquire`
+(кэш + декод SOU0/SOU1/SOU2), PCM отдаётся в `AudioDevice` и затем
+`release`. Refcount/LRU не менялись; отдельный аксессор не понадобился —
+`SampleCache::sound(Handle)` уже возвращает `const Sound*` с
+`samples/frames/sample_rate/channels`.
+
+```sh
+$ ./build/sandbox/engine/gunmetal --sample-play updown --headless
+sample: name=updown frames=6272 rate=16000 channels=1 bytes=12800
+stats: hits=0 misses=1 evictions=0 peak=12800
+
+$ ./build/sandbox/engine/gunmetal --sample-play updown --headless --twice
+sample: name=updown frames=6272 rate=16000 channels=1 bytes=12800
+sample: name=updown frames=6272 rate=16000 channels=1 bytes=12800
+stats: hits=1 misses=1 evictions=0 peak=12800
+
+$ ./build/sandbox/engine/gunmetal --sample-play nosuchname --headless
+[error] sample-play: sample "nosuchname" is not in SOUND_SAMPLE_TABLE (0x4c9c90)
+$ echo $?
+2
+```
+
+* `sample:` — `name`, `frames`, `rate`, `channels` из декодированного `Sound`,
+  `bytes` из `EntryInfo` (учёт кэша: `0x100 + 2·samples`; у `updown` 12800).
+* `stats:` — `hits/misses/evictions/peak` после `release`; `--twice` делает
+  второй `acquire` того же имени, поэтому `hits=1`, а `misses` остаётся `1`
+  (второго декода нет).
+* `--headless` не открывает устройство вообще: ни SDL, ни окно. Читаются
+  только `<level>.sbt`, `sounds/SOU.IDX` и архив по найденной записи
+  (`MUSIC/SOU.IDX` — только как фолбэк); `.sbw`/`.sbc` не трогаются.
+* Без `--headless`: `AudioDevice::open(rate, channels, false)`, один `queue`
+  и пауза длительности клипа + 0.2 с перед `release`. Проверено с
+  `SDL_AUDIODRIVER=dummy` (`audio: 16000 Hz 1 ch`, код 0); на реальном
+  устройстве слышимость не проверялась.
+* Ошибки: неизвестное имя, отсутствующий `<level>.sbt`/`SOUND_SAMPLE_TABLE`,
+  промах BIGFILE, битый контейнер → `[error] sample-play: ...` и код 2.
+
+CTest (`quick`, game-gated): `cli_sample_play` (`frames=` и `misses=1`),
+`cli_sample_play_twice` (`hits=1 misses=1`), `cli_sample_play_bad`
+(`[error]`). Ограничения: нет 3D-позиционирования/громкости/панорамы, нет
+цикла, нет микшера — один клип напрямую в устройство.

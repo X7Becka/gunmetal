@@ -324,6 +324,28 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX")
     gm_label(cli_sample_miss quick)
 endif()
 
+# M7.4 slice 2: `--sample-play` decodes through SampleCache, not a bare lookup.
+# `updown` is slot 0 of level0 (6272 frames, 16000 Hz, 12800 accounted bytes).
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX"
+   AND EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt")
+    add_test(NAME cli_sample_play
+             COMMAND gunmetal --sample-play updown --headless)
+    set_tests_properties(cli_sample_play PROPERTIES PASS_REGULAR_EXPRESSION
+        "sample: name=updown frames=[0-9]+ rate=[0-9]+ channels=1 bytes=[0-9]+.*misses=1")
+    gm_label(cli_sample_play quick)
+    # A second acquire in the same process must be a cache hit, not a decode.
+    add_test(NAME cli_sample_play_twice
+             COMMAND gunmetal --sample-play updown --headless --twice)
+    set_tests_properties(cli_sample_play_twice PROPERTIES PASS_REGULAR_EXPRESSION
+        "stats: hits=1 misses=1")
+    gm_label(cli_sample_play_twice quick)
+    add_test(NAME cli_sample_play_bad
+             COMMAND gunmetal --sample-play nosuchname --headless)
+    set_tests_properties(cli_sample_play_bad PROPERTIES PASS_REGULAR_EXPRESSION
+        "\\[error\\] sample-play: .*SOUND_SAMPLE_TABLE")
+    gm_label(cli_sample_play_bad quick)
+endif()
+
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/MUSIC/Dm1A.sog")
     add_test(NAME cli_song COMMAND gunmetal --song Dm1A)
     set_tests_properties(cli_song PROPERTIES PASS_REGULAR_EXPRESSION "tracks: 8")

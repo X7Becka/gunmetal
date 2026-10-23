@@ -17,6 +17,8 @@ struct Options {
     std::string play;
     std::string song;
     std::string sample; // --sample: resolve a SOUND_SAMPLE_TABLE name
+    std::string sample_play; // --sample-play: decode/play through SampleCache (M7.4)
+    bool twice = false;      // --twice: acquire the same sample twice (cache hit)
     std::string scene;
     std::string sim;          // --sim LEVEL: headless fixed-tick run
     int sim_ticks = 1;        // --ticks N
