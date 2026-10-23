@@ -34,6 +34,7 @@
 #include "audio/music.h"
 #include "audio/sample_cache.h"
 #include "ui/frontend_menu.h"
+#include "ui/pager_render.h"
 #include "ui/save_slots.h"
 #include "ui/sml_pager.h"
 #include "game/sim_player.h"
@@ -2790,10 +2791,54 @@ int show_menu(const gm::Options& options) {
 }
 
 
+// `--pager ... --png OUT`: draw the *current* page (after `--page` and
+// `--pager-keys`) into a 320x200 RGBA PNG (`docs/PAGER_RENDER.md`).  The page
+// is painted with the font atlases of `<game>/FRONTEND/BMP.IDX`, the same ones
+// the pager uses; the background of the original (`HELPSCRN`) is not drawn.
+int render_pager_png(const gm::Options& options, const gm::SmlPager& pager) {
+    std::vector<std::uint32_t> pixels;
+    int width = 0;
+    int height = 0;
+    gm::PageRenderStats stats;
+    std::string error;
+    if (!gm::render_page(pager, std::filesystem::path(options.game), pixels, width,
+                         height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "pager", error);
+        return 2;
+    }
+    std::printf("render: page %d/%d %dx%d lines=%d glyphs=%d missing=%d ink=%d\n",
+                pager.page() + 1, pager.page_count(), width, height, stats.lines,
+                stats.glyphs, stats.missing_glyphs, stats.ink_pixels);
+
+    std::vector<std::uint8_t> rgba(pixels.size() * 4u);
+    for (std::size_t i = 0; i < pixels.size(); ++i) {
+        rgba[i * 4 + 0] = static_cast<std::uint8_t>(pixels[i] >> 24);
+        rgba[i * 4 + 1] = static_cast<std::uint8_t>(pixels[i] >> 16);
+        rgba[i * 4 + 2] = static_cast<std::uint8_t>(pixels[i] >> 8);
+        rgba[i * 4 + 3] = static_cast<std::uint8_t>(pixels[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, rgba);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "pager",
+                 "cannot write " + options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
 // `--pager`: the headless SML pager over `text_layout` pages
 // (`docs/SML_PAGER.md`).  No window and no game files: the font metrics are
 // table-driven.
 int show_pager(const gm::Options& options) {
+    // `--all` prints every page and has no single picture to render; refuse the
+    // combination instead of silently writing page 1 (`--png` renders the
+    // current page, `docs/PAGER_RENDER.md`).
+    if (options.pager_all && !options.png.empty()) {
+        gm::logf(gm::LogLevel::Error, "pager",
+                 "--all prints every page; --png renders the current page only");
+        return 2;
+    }
     // Atlases come from the install (`FRONTEND/BMP.IDX`); a bare name is
     // resolved case-insensitively under the game dir and then under `SML`
     // (`SmlPager::open`).
@@ -2844,40 +2889,43 @@ int show_pager(const gm::Options& options) {
     }
     dump("pager");
 
-    if (options.pager_keys.empty()) {
-        return 0;
-    }
-    std::size_t begin = 0;
-    while (begin <= options.pager_keys.size()) {
-        std::size_t end = options.pager_keys.find(',', begin);
-        if (end == std::string::npos) {
-            end = options.pager_keys.size();
+    if (!options.pager_keys.empty()) {
+        std::size_t begin = 0;
+        while (begin <= options.pager_keys.size()) {
+            std::size_t end = options.pager_keys.find(',', begin);
+            if (end == std::string::npos) {
+                end = options.pager_keys.size();
+            }
+            const std::string token = options.pager_keys.substr(begin, end - begin);
+            begin = end + 1;
+            bool moved = false;
+            if (token == "next") {
+                moved = pager.next_page();
+            } else if (token == "prev") {
+                moved = pager.prev_page();
+            } else if (token == "first") {
+                moved = pager.first_page();
+            } else if (token == "last") {
+                moved = pager.last_page();
+            } else if (token == "line") {
+                moved = pager.scroll_next_line();
+            } else if (token == "up") {
+                moved = pager.scroll_prev_line();
+            } else {
+                gm::logf(gm::LogLevel::Error, "pager",
+                         "unknown key \"" + token +
+                             "\" (next, prev, first, last, line, up)");
+                return 2;
+            }
+            std::printf("  key %-6s -> %s%s\n", token.c_str(), pager.status().c_str(),
+                        moved ? "" : " (no change)");
         }
-        const std::string token = options.pager_keys.substr(begin, end - begin);
-        begin = end + 1;
-        bool moved = false;
-        if (token == "next") {
-            moved = pager.next_page();
-        } else if (token == "prev") {
-            moved = pager.prev_page();
-        } else if (token == "first") {
-            moved = pager.first_page();
-        } else if (token == "last") {
-            moved = pager.last_page();
-        } else if (token == "line") {
-            moved = pager.scroll_next_line();
-        } else if (token == "up") {
-            moved = pager.scroll_prev_line();
-        } else {
-            gm::logf(gm::LogLevel::Error, "pager",
-                     "unknown key \"" + token +
-                         "\" (next, prev, first, last, line, up)");
-            return 2;
-        }
-        std::printf("  key %-6s -> %s%s\n", token.c_str(), pager.status().c_str(),
-                    moved ? "" : " (no change)");
+        dump("final");
     }
-    dump("final");
+
+    if (!options.png.empty()) {
+        return render_pager_png(options, pager);
+    }
     return 0;
 }
 
