@@ -462,6 +462,7 @@ def main(argv: list[str]) -> int:
         text = ()
         icons = ()
         gauges = ()
+        bars = ()
         if opts.hud_text:
             state = json.loads(opts.hud_state) if opts.hud_state else {}
             text = tuple(hudmod.hud_text(state))
@@ -469,13 +470,15 @@ def main(argv: list[str]) -> int:
                 fonts[number] = hudmod.load_font(opts.game, number)
             icons = tuple(hudmod.hud_icons(state))
             gauges = tuple(hudmod.hud_gauges(state))
+            bars = tuple(hudmod.hud_bars(state))
             for name, _, _ in icons:
                 icon_pixels[name] = hudmod.load_icon(opts.game, name)
         rgb = hudmod.compose(image.pixels, image.width, image.height, panel,
                              hudmod.palette_bytes(opts.game),
                              top=opts.hud_top, lut=lut,
                              text=text, fonts=fonts, icons=icons,
-                             icon_pixels=icon_pixels, gauges=gauges)
+                             icon_pixels=icon_pixels, gauges=gauges,
+                             bars=bars)
         data = pngmod.rgb(image.width, image.height, rgb)
 
     out_dir = os.path.dirname(os.path.abspath(opts.out))
