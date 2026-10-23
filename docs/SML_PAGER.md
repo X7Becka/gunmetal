@@ -153,9 +153,13 @@ CTest: `sml_pager` (модуль: 6 документов, 18 страниц, 230
 
 ## 5. Ограничения (что срез 2 сознательно не делает)
 
-* **Нет рендера 320×200.** Пагер не собирает кадр `HELPSCRN`/`LOADPAGE`/
-  `BRIEFBG2`, не кладёт текст на фон и не отдаёт RGB. Это делает `Screen`
-  (`docs/SCREEN_CPP.md`); пагер отдаёт только `LayoutLine`/`LayoutImage`.
+* **Рендер — отдельным слоем (срез 3).** `engine/src/ui/pager_render.*`
+  + `docs/PAGER_RENDER.md`: страница 320×200 RGBA с глифами из атласов
+  `FONTS1/2/4`, CLI `--pager FILE --png OUT` (CTest `pager_render`,
+  `cli_pager_png`). `help.sme` стр. 2 — 15 строк / 322 глифа / `ink=3905`,
+  `missing=0`; PNG 320×200 проверен независимо. Сам пагер по-прежнему только
+  отдаёт `LayoutLine`/`LayoutImage`; фона `HELPSCRN`/`LOADPAGE`/`BRIEFBG2`
+  в рендере нет (чёрный фон — гипотеза, `PAGER_RENDER.md` §5).
 * **Нет атласов, кроме шрифтовых.** Читается `FRONTEND/BMP.IDX` через
   `load_font`; `<I>`-битмапы (`SML/<f>.bmp`) не декодируются — от `text_layout`
   берутся только метрики и слоты float.
