@@ -61,7 +61,7 @@
 | `docs/MAINLOOP.md` | 7 | 209 | Главный цикл и машина состояний (M2.2.2) |
 | `docs/MATERIAL_BLEND.md` | 29 | 159 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
 | `docs/MIPMAPS.md` | 15 | 33 | Mip-уровни, фильтрация и прозрачный индекс |
-| `docs/MODDING.md` | 21 | 15 | MODDING — практическое руководство моддера |
+| `docs/MODDING.md` | 22 | 17 | MODDING — практическое руководство моддера |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
 | `docs/OBJECTIVES.md` | 24 | 265 | Цели, секреты и триггеры конца уровня (`M6.4.5`) |
 | `docs/ORACLE.md` | 35 | 12 | Эталонный оракул (M4.4.2) |

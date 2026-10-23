@@ -238,6 +238,21 @@ round-trip). Если блок стал длиннее/короче, писат�
 
 ## 6. Проверка мода движком
 
+Вся цепочка (disasm → правка → asm → replace → загрузка движком) уже
+упакована в один скрипт и в CTest:
+
+```sh
+python3 tools/qa/mod_regress.py --level level0 --block 0x6f92
+# mod_regress: level0 block 0x6f92 -> /tmp/opencode/mod-regress
+#   engine: records=8 scripts=350/62497 sbw=254439 B (unchanged)
+#   edit visible in the written .sbt: 1/7 SET_CAMERA_HAZE at 0.5
+#   result: ok
+```
+
+Он копирует `level0.sbt/.sbw` во временный каталог, меняет один литерал
+`SET_CAMERA_HAZE` и требует, чтобы движок загрузил результат с той же
+структурой (CTest `mod_regress`). Ручная проверка того же — ниже.
+
 Наш движок читает тот же контейнер, поэтому структурную проверку можно
 сделать без запуска игры:
 

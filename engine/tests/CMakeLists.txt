@@ -114,6 +114,14 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
     set_tests_properties(sbtwrite_replace PROPERTIES PASS_REGULAR_EXPRESSION
         "others identical: yes, block==asm: yes")
     gm_label(sbtwrite_replace quick)
+    # M11.7: the whole modder chain ends in the engine: disasm -> edit -> asm ->
+    # replace in the container -> `gunmetal -l level0 --info` must load it.
+    add_test(NAME mod_regress
+             COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/qa/mod_regress.py
+                     --work ${CMAKE_BINARY_DIR}/mod-regress)
+    set_tests_properties(mod_regress PROPERTIES PASS_REGULAR_EXPRESSION
+        "result: ok")
+    gm_label(mod_regress quick)
     # M11.6: every shipped BIGFILE pair repacked byte for byte.
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/bigpack-tmp")
     add_test(NAME bigpack_roundtrip
