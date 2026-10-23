@@ -1182,8 +1182,14 @@ void test_tick_path_random() {
     // `Ai::tick` enters the route branch for a type-11 agent only when the
     // caller enabled `use_path_random` *and* supplied the generator.
     const gm::CollisionWorld empty;
+    // `Ai::attach` keeps a reference to the `Things` it is given (it deletes
+    // the `Things&&` overload for exactly this reason).  The test used to
+    // attach an lvalue and then move it into the returned pair, leaving the
+    // AI pointing at a moved-from stack object -- ASan reports
+    // `stack-use-after-return` in `Ai::sync_vitals`.  The owned `Things` now
+    // lives on the heap so its address stays valid after the move.
     const auto make_ai = [](gm::MsvcRand* rng, bool enable) {
-        gm::Things things = make_waypoint_things();
+        auto things = std::make_unique<gm::Things>(make_waypoint_things());
         gm::AiConfig config;
         config.use_path = true;
         config.use_move_step = true;
@@ -1192,7 +1198,7 @@ void test_tick_path_random() {
         config.patrol_after_seconds = 0.005; // idle -> patrol on the first tick
         auto ai = std::make_unique<gm::Ai>(config);
         ai->set_path_rng(rng);
-        ai->attach(things);
+        ai->attach(*things);
         return std::make_pair(std::move(ai), std::move(things));
     };
 
