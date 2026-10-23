@@ -63,6 +63,32 @@ gm_label(core quick)
 add_test(NAME core_full COMMAND gm_tests --full)
 gm_label(core_full full)
 
+# M8: the headless frontend needs no game files (docs/FRONTEND.md).
+add_test(NAME cli_menu COMMAND gunmetal --menu)
+set_tests_properties(cli_menu PROPERTIES PASS_REGULAR_EXPRESSION
+    "MAIN MENU \\(id 1\\)")
+gm_label(cli_menu quick)
+
+add_test(NAME cli_menu_keys COMMAND gunmetal --menu-keys "down,down,enter")
+set_tests_properties(cli_menu_keys PROPERTIES PASS_REGULAR_EXPRESSION
+    "final: GRAPHICS OPTIONS \\(id 12\\)")
+gm_label(cli_menu_keys quick)
+
+add_test(NAME cli_menu_esc COMMAND gunmetal --menu-keys esc)
+set_tests_properties(cli_menu_esc PROPERTIES PASS_REGULAR_EXPRESSION
+    "QUIT GAME\\? \\(id 33\\)")
+gm_label(cli_menu_esc quick)
+
+add_test(NAME cli_menu_json COMMAND gunmetal --menu-json)
+set_tests_properties(cli_menu_json PROPERTIES PASS_REGULAR_EXPRESSION
+    "\"name\": \"MAIN MENU\"")
+gm_label(cli_menu_json quick)
+
+add_test(NAME cli_menu_bad COMMAND gunmetal --menu-keys bogus)
+set_tests_properties(cli_menu_bad PROPERTIES PASS_REGULAR_EXPRESSION
+    "\\[error\\] menu: unknown key")
+gm_label(cli_menu_bad quick)
+
 add_test(NAME cli_version COMMAND gunmetal --version)
 set_tests_properties(cli_version PROPERTIES PASS_REGULAR_EXPRESSION "gunmetal 0.1.0")
 gm_label(cli_version quick)

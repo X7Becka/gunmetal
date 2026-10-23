@@ -251,19 +251,30 @@ frontend_menu: 34 §2 screens, 35 §4 rows -> 36 entries (35 enabled), 12 docume
 * **`--json` расходится с §3.8 по id 37** — инструмент находит только `Yes`,
   в снимке `Yes`/`No` по §3.8 (VA `No` — `0x4bc7a4`, общая строка).
 
-## 6. Что осталось для CLI (`--menu`)
+## 6. CLI (`--menu`) — сделано
 
-`main.cpp`/`config.*` в этом срезе **не менялись** — проводку делает основной
-агент. Предлагаемый контракт (всё уже поддержано API):
+* `--menu` — экран, его пункты (`row`, `id`, текст, `va` без неразрешённых
+  указателей) и выделение; игра не нужна;
+* `--menu-keys up,down,enter,esc,back,text:0x1b` — последовательность через
+  `feed()` и цепочка экранов; `Enter` на `QUIT`/`Yes` даёт `Screen::Exit`
+  (код 0, `"exit": true` в JSON);
+* `--menu-json` — та же цепочка строками JSON (для тестов); `--json` не
+  используется, чтобы не столкнуться с другими режимами;
+* `--menu-screen <id>` — стартовый экран (`enter()`), по умолчанию `MAIN`;
+  неизвестный id/ключ — `[error]` и код 2.
 
-* `--menu` — напечатать текущий экран, его пункты (`id`, `x`, `row`, текст) и
-  `back()`, затем выйти (диагностика снимка);
-* `--menu-keys up,down,enter,esc,backspace,text:0x1b` — прогнать
-  последовательность через `feed()` и напечатать цепочку экранов + конечное
-  состояние; `Enter` на `QUIT`/`Yes` даёт `Screen::Exit` (код возврата 0,
-  отдельный признак — `screen() == Screen::Exit`);
-* `--menu-keys ... --json` — та же цепочка одной строкой для тестов;
-* `--menu-screen <id>` — стартовый экран (`enter()`), по умолчанию `MAIN`.
+```sh
+gunmetal --menu-keys down,down,enter
+menu: MAIN MENU (id 1), selected=0
+  ...
+  key down       -> MAIN MENU
+  key down       -> MAIN MENU
+  key enter      -> GRAPHICS OPTIONS
+final: GRAPHICS OPTIONS (id 12), selected=0
+```
+
+CTest: `frontend_menu` (модуль, 34 экрана / 36 записей §4) и `cli_menu`,
+`cli_menu_keys`, `cli_menu_esc`, `cli_menu_json`, `cli_menu_bad`.
 
 Осталось на следующие срезы: рендер `plate`/шрифтов из `FRONTEND/BMP.IDX`,
 чтение `KEYCFG/*.KEY` и `GUNMETAL.CFG` (имена наборов, реальные биндинги),

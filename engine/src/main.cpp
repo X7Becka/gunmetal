@@ -29,6 +29,7 @@
 #include "res/sml.h"
 #include "camera/camera.h"
 #include "game/runtime.h"
+#include "ui/frontend_menu.h"
 #include "game/sim_player.h"
 #include "game/weapons.h"
 #include "res/vm_exec.h"
@@ -2369,6 +2370,151 @@ int run(const gm::Options& options) {
 
 } // namespace
 
+
+// `--menu`: the headless frontend (`docs/FRONTEND.md`).  No game files are
+// needed: the screen table and the items are the §2/§4 snapshot.
+int show_menu(const gm::Options& options) {
+    gm::FrontendMenu menu;
+    menu.reset();
+    if (!options.menu_screen.empty()) {
+        int id = -1;
+        std::size_t used = 0;
+        try {
+            id = std::stoi(options.menu_screen, &used);
+        } catch (const std::exception&) {
+            gm::logf(gm::LogLevel::Error, "menu",
+                     "--menu-screen wants a §2 screen id, got \"" +
+                         options.menu_screen + "\"");
+            return 2;
+        }
+        if (used != options.menu_screen.size()) {
+            gm::logf(gm::LogLevel::Error, "menu",
+                     "--menu-screen wants a §2 screen id, got \"" +
+                         options.menu_screen + "\"");
+            return 2;
+        }
+        gm::Screen target = gm::Screen::None;
+        for (const gm::Screen screen : gm::FrontendMenu::screens()) {
+            if (gm::FrontendMenu::screen_id(screen) == id) {
+                target = screen;
+                break;
+            }
+        }
+        if (target == gm::Screen::None) {
+            gm::logf(gm::LogLevel::Error, "menu",
+                     "no §2 screen with id " + std::to_string(id));
+            return 2;
+        }
+        menu.enter(target);
+    }
+
+    auto dump = [&options, &menu](const char* prefix) {
+        const gm::Screen screen = menu.screen();
+        if (options.menu_json) {
+            std::printf("{\"stage\": \"%s\", \"screen\": %d, \"name\": \"%s\", "
+                        "\"selected\": %d, \"exit\": %s, \"items\": [",
+                        prefix, gm::FrontendMenu::screen_id(screen),
+                        std::string(gm::FrontendMenu::screen_name(screen)).c_str(),
+                        static_cast<int>(menu.selected()),
+                        screen == gm::Screen::Exit ? "true" : "false");
+            bool first = true;
+            for (const gm::Item& item : menu.items()) {
+                std::printf("%s{\"row\": %d, \"id\": %d, \"label\": \"%s\", "
+                            "\"va\": \"%s\"}", first ? "" : ", ", item.row, item.id,
+                            std::string(item.label).c_str(),
+                            std::string(item.va).c_str());
+                first = false;
+            }
+            std::printf("]}\n");
+            return;
+        }
+        std::printf("%s: %s (id %d), selected=%d\n", prefix,
+                    std::string(gm::FrontendMenu::screen_name(screen)).c_str(),
+                    gm::FrontendMenu::screen_id(screen),
+                    static_cast<int>(menu.selected()));
+        for (const gm::Item& item : menu.items()) {
+            // `va` is the doc's value; unresolved pointers stay hidden.
+            const bool have_va = item.va != "-" && item.va.rfind("0x", 0) != 0;
+            std::printf("  %2d %s %s%s%s\n", item.row,
+                        item.selectable() ? "*" : " ", std::string(item.label).c_str(),
+                        have_va ? " = " : "", have_va ? std::string(item.va).c_str() : "");
+        }
+    };
+
+    if (options.menu_keys.empty()) {
+        dump("menu");
+        return 0;
+    }
+    dump("start");
+
+    std::size_t begin = 0;
+    while (begin <= options.menu_keys.size()) {
+        std::size_t end = options.menu_keys.find(',', begin);
+        if (end == std::string::npos) {
+            end = options.menu_keys.size();
+        }
+        const std::string token = options.menu_keys.substr(begin, end - begin);
+        begin = end + 1;
+        if (token.empty()) {
+            gm::logf(gm::LogLevel::Error, "menu", "empty key in --menu-keys");
+            return 2;
+        }
+        gm::KeyEvent event;
+        if (token == "up") {
+            event.kind = gm::KeyEvent::Up;
+        } else if (token == "down") {
+            event.kind = gm::KeyEvent::Down;
+        } else if (token == "left") {
+            event.kind = gm::KeyEvent::Left;
+        } else if (token == "right") {
+            event.kind = gm::KeyEvent::Right;
+        } else if (token == "enter") {
+            event.kind = gm::KeyEvent::Enter;
+        } else if (token == "esc" || token == "escape") {
+            event.kind = gm::KeyEvent::Escape;
+        } else if (token == "back") {
+            event.kind = gm::KeyEvent::Backspace;
+        } else if (token.rfind("text:", 0) == 0) {
+            const std::string hex = token.substr(5);
+            char* tail = nullptr;
+            const long value = std::strtol(hex.c_str(), &tail, 16);
+            if (hex.empty() || tail == nullptr || *tail != '\0' || value < 0 ||
+                value > 0xff) {
+                gm::logf(gm::LogLevel::Error, "menu",
+                         "bad text key \"" + token + "\" (text:0xNN)");
+                return 2;
+            }
+            event.kind = gm::KeyEvent::Text;
+            event.code = static_cast<int>(value);
+        } else {
+            gm::logf(gm::LogLevel::Error, "menu",
+                     "unknown key \"" + token +
+                         "\" (up, down, left, right, enter, esc, back, text:0xNN)");
+            return 2;
+        }
+        const bool changed = menu.feed(event);
+        if (options.menu_json) {
+            std::printf("{\"stage\": \"key\", \"key\": \"%s\", \"changed\": %s, "
+                        "\"screen\": %d, \"name\": \"%s\"}\n", token.c_str(),
+                        changed ? "true" : "false",
+                        gm::FrontendMenu::screen_id(menu.screen()),
+                        std::string(gm::FrontendMenu::screen_name(menu.screen())).c_str());
+        } else {
+            std::printf("  key %-10s -> %s%s\n", token.c_str(),
+                        std::string(gm::FrontendMenu::screen_name(menu.screen())).c_str(),
+                        changed ? "" : " (ignored)");
+        }
+        if (menu.screen() == gm::Screen::Exit) {
+            break;
+        }
+        if (begin > options.menu_keys.size()) {
+            break;
+        }
+    }
+    dump("final");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     gm::set_log_level_from_env();
 
@@ -2388,6 +2534,11 @@ int main(int argc, char** argv) {
     }
     if (options->verbose) {
         gm::set_log_level(gm::LogLevel::Debug);
+    }
+    // The headless menu needs no game files, so it runs before the `--game`
+    // check (`M8`, `docs/FRONTEND.md`).
+    if (options->menu) {
+        return show_menu(*options);
     }
     // M12.5: say *which* directory is missing instead of a bare ".sbw not
     // found": every data command joins names under `--game`.

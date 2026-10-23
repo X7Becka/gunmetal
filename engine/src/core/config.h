@@ -27,6 +27,10 @@ struct Options {
     std::string sim_drive;    // --sim-drive PLAN: scripted player segments
     bool sim_projectile = false; // --sim-projectile: spawn rounds, not hitscan
     std::string sim_vitals;   // --sim-vitals ARMOR,SHIELD: starting gauges
+    bool menu = false;        // --menu: dump the headless frontend screen
+    std::string menu_keys;    // --menu-keys up,down,enter: feed the menu
+    std::string menu_screen;  // --menu-screen ID: start on that §2 screen
+    bool menu_json = false;   // --menu-json: machine-readable screen dump
     int sim_respawn = -1;     // --sim-respawn N: auto-respawn N ticks after death
     std::string film;
     std::string anim;

@@ -419,6 +419,25 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.sim_drive = std::string(*v);
+        } else if (arg == "--menu") {
+            options.menu = true;
+        } else if (arg == "--menu-json") {
+            options.menu = true;
+            options.menu_json = true;
+        } else if (arg == "--menu-keys") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.menu = true;
+            options.menu_keys = std::string(*v);
+        } else if (arg == "--menu-screen") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.menu = true;
+            options.menu_screen = std::string(*v);
         } else if (arg == "--sim-projectile") {
             options.sim_projectile = true;
         } else if (arg == "--sim-vitals") {
@@ -678,6 +697,10 @@ std::string usage() {
        << "      --sim-projectile  the driven player fires rounds (blast damage), not hitscan\n"
        << "      --sim-vitals ARMOR,SHIELD  starting gauges of the driven player\n"
        << "      --sim-respawn N  respawn the driven player N ticks after death (0 = now)\n"
+       << "      --menu        dump the headless frontend screen (M8)\n"
+       << "      --menu-keys up,down,enter,esc,text:0x1b  feed these keys and print each screen\n"
+       << "      --menu-screen ID  start on that UI_SCREENS §2 screen id\n"
+       << "      --menu-json   machine-readable dump\n"
        << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"

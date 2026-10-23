@@ -41,6 +41,7 @@
 | `docs/FOG.md` | 22 | 220 | Туман по глубине: формула, таблица `lighttable`, Glide (M4.1.6) |
 | `docs/FORMATS.md` | 203 | 951 | Gunmetal — спецификация форматов данных |
 | `docs/FRAME_METRIC.md` | 23 | 0 | Метрика сравнения кадров (M4.4.3) |
+| `docs/FRONTEND.md` | 20 | 83 | Безголовый автомат меню (`M8`, срез 1) |
 | `docs/FUZZ_CORPUS.md` | 11 | 1 | Фазз-корпус: сохранение и повтор (save / replay) |
 | `docs/FUZZ_CPP.md` | 6 | 3 | C++ reader fuzzing (`engine/tests/test_fuzz.cpp`) |
 | `docs/GAME_OVER.md` | 28 | 318 | Game over, титры, рестарт и экран конца уровня (`M9.5`) |

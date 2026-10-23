@@ -2118,6 +2118,18 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > страницы 267×167; 6 golden, 299 файлов / 372 страницы. Остались runtime-
       > пагинация, точный `<I>`-прямоугольник, цвет текста и меню `0x485dd0`.
 - 🟡 `M8.2` Экраны: главное меню, new game, load/save, options, controls,
+      > **Безголовый автомат меню — есть:** `engine/src/ui/frontend_menu.*`
+      > + `docs/FRONTEND.md` (CTest `frontend_menu`): 34 экрана §2, 35 строк
+      > §4 (36 записей, 35 включённых; титры — выключенная строка), таблица
+      > переходов с адресами сайтов, `back()`, алиас `0x48e212`, снимки
+      > пунктов экранов 30/34/35 с подписями bindings из `0x4bc558`.
+      > BFS по полному графу — 34/34, из `MAIN` только 18/34: 12 входных
+      > рёбер (пагер, видеорежим, мастер новой игры) вынесены в
+      > `entry_edges()` и `feed()` не применяются. CLI `--menu`,
+      > `--menu-keys`, `--menu-screen`, `--menu-json` (CTest `cli_menu*`):
+      > `down,down,enter` → GRAPHICS OPTIONS, `esc` → QUIT GAME?.
+      > Нет: рендера/атласов/шрифтов, SDL-ввода, SML-пагера, сейвов,
+      > `KEYCFG`, звуков UI, `Done`/выхода из экрана 31.
       credits, help, briefings, prelevel, design.
       > `docs/UI_SCREENS.md` + `tools/re/ui_screens.py` (self-test 498/498):
       > 33 экрана, **35** переходов в таблице (34 записи в JSON: `34→10` и
