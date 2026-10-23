@@ -13,15 +13,16 @@
 
 ## Сейчас
 
-1. **Партия 7: `feat/dm` влит, ждём `feat/pickup` и `feat/screens`.**
+1. **Партия 7: `feat/dm` и `feat/screens` влиты, ждём `feat/pickup`.**
    `feat/dm` (`M9.2`): `docs/DM_RULES.md` + `dm_rules.py` (30/30, 17
    якорей) — режимы `game_mode` 0/1/2/**3 hunt**, флаги `0x83d184`, счёт
    `+0x3270` (HUD `0x492fdd`), respawn, гандикап, 248 DM-стартов. Попутно
    исправлен `SCAVENGERHUNT_GAME` в ВМ (C++ и Python): было `== 5`,
-   в оригинале `== 3`. Осталось: по возвращении `feat/pickup` (предметы,
-   регенерация, вирус/щиты — остаток `M6.2.6`) и `feat/screens` (`M8.2`)
-   слить, прогнать self-test, зарегистрировать в CTest/README, обновить
-   ROADMAP.
+   в оригинале `== 3`. `feat/screens` (`M8.2`/`M8.7`): `docs/UI_SCREENS.md`
+   + `ui_screens.py` (498/498) — 33 экрана, 34 перехода, слоты сейвов,
+   биты options, KEYCFG. Осталось: дождаться `feat/pickup` (предметы,
+   регенерация, вирус/щиты — остаток `M6.2.6`), слить, прогнать self-test,
+   зарегистрировать в CTest/README, обновить ROADMAP.
 2. **`M3.2.7` закрыт на 🟡:** `tools/re/export_parity.py` →
    `build/parity/fixtures.txt`, `engine/tests/test_parity.cpp`
    (CTest `parity_fixtures` + `parity`): 208 проверок, 1029 значений,
