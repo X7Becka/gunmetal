@@ -19,6 +19,14 @@ struct Options {
     std::string sample; // --sample: resolve a SOUND_SAMPLE_TABLE name
     std::string sample_play; // --sample-play: decode/play through SampleCache (M7.4)
     bool twice = false;      // --twice: acquire the same sample twice (cache hit)
+    // M7.3 slice 2: positional `--sample-play` (docs/AUDIO_3D.md §13).
+    // The source position reuses `--pos`/`has_pos` (the camera eye otherwise);
+    // `--sample-play` with `--pos` or `--listener` switches to the 3D path.
+    std::array<double, 3> listener{}; // --listener X,Y,Z[,YAW]
+    double listener_yaw = 0.0;        // yaw in radians, 0 = facing +Z
+    bool has_listener = false;
+    int sample_volume = 32;      // --volume: 5-bit 1..32 (doubled for gain_of)
+    double sample_atten = 0.03;  // --atten: linear falloff per world unit
     std::string scene;
     std::string sim;          // --sim LEVEL: headless fixed-tick run
     int sim_ticks = 1;        // --ticks N

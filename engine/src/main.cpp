@@ -29,6 +29,7 @@
 #include "res/sml.h"
 #include "camera/camera.h"
 #include "game/runtime.h"
+#include "audio/engine_3d.h"
 #include "audio/music.h"
 #include "audio/sample_cache.h"
 #include "ui/frontend_menu.h"
@@ -134,6 +135,71 @@ int show_sample(const gm::Options& options) {
     return 0;
 }
 
+/// Resolved positional state of a `--sample-play` source: exactly the numbers
+/// `audio/engine_3d.*` computes (`docs/AUDIO_3D.md` §5), so the CLI prints what
+/// the formulas say instead of a second implementation.
+struct Sample3d {
+    double dx = 0.0;
+    double dy = 0.0;
+    double dz = 0.0;
+    double dist = 1.0; // `0x4344df` then `0x46bd84` (clamped to >= 1)
+    int gain = 0;      // effective: below the `gain >= 2` threshold it is 0
+    int pan = 128;     // 0..255, 128 = centre
+    int volume = 0;    // 5-bit request volume (`0x40be4a`), 0 = no request
+    int left = 0;      // 5-bit channel gains (`0x40a4b0`), 0 = silence
+    int right = 0;
+};
+
+/// `--pos` is the source, `--listener` the listener (default `0,0,0,0`, yaw in
+/// radians).  `--volume` is the **5-bit** volume of the request (1..32, the
+/// same scale as `request: volume=` in docs/AUDIO_3D.md §8); the gain formula
+/// takes the doubled `volume` field of the queue entry, so the default 32 means
+/// `volume = 64` — the value `level0:0` carries, which makes §8.1 reproducible.
+Sample3d sample_position(const gm::Options& options) {
+    Sample3d state;
+    state.dx = options.pos[0] - options.listener[0];
+    state.dy = options.pos[1] - options.listener[1];
+    state.dz = options.pos[2] - options.listener[2];
+    state.dist = gm::audio::clamped_distance(
+        gm::audio::length_approx(state.dx, state.dy, state.dz));
+
+    const int gain =
+        gm::audio::gain_of(options.sample_volume * 2, options.sample_atten, state.dist);
+    state.gain = gain < 2 ? 0 : gain; // 0x40be58: no request below 2
+
+    const auto right = gm::audio::basis_right(0.0, 0.0, options.listener_yaw);
+    state.pan = gm::audio::pan_of(state.dx, state.dy, state.dz, right, state.dist);
+    state.volume = gm::audio::request_volume(state.gain);
+    if (const auto channels = gm::audio::channel_gains(state.volume, state.pan)) {
+        state.left = channels->left;
+        state.right = channels->right;
+    }
+    return state;
+}
+
+/// Interleaved stereo from a canonical S16 clip, scaled by the 5-bit channel
+/// gains: `1..32` maps to amplitude `1/32..1` and the result is clamped to
+/// int16 (docs/AUDIO_3D.md §13).  A mono source feeds both channels, a stereo
+/// one keeps its own channels.
+std::vector<std::int16_t> to_stereo(const gm::audio::Sound& sound, int left, int right) {
+    auto scale = [](std::int16_t sample, int gain) -> std::int16_t {
+        const std::int32_t value = static_cast<std::int32_t>(sample) * gain;
+        const std::int32_t rounded =
+            value >= 0 ? (value + 16) / 32 : -((-value + 16) / 32);
+        return static_cast<std::int16_t>(std::clamp(rounded, -32768, 32767));
+    };
+    const std::size_t frames = sound.frames();
+    std::vector<std::int16_t> out(frames * 2, 0);
+    for (std::size_t frame = 0; frame < frames; ++frame) {
+        const std::size_t at = frame * sound.channels;
+        const std::int16_t mono = sound.samples[at];
+        const std::int16_t right_sample = sound.channels > 1 ? sound.samples[at + 1] : mono;
+        out[frame * 2 + 0] = scale(mono, left);
+        out[frame * 2 + 1] = scale(right_sample, right);
+    }
+    return out;
+}
+
 /// `--sample-play NAME` (M7.4, slice 2): the runtime path, not just a lookup.
 ///
 /// Resolves `NAME` in the level's `SOUND_SAMPLE_TABLE` (record 12 of
@@ -142,6 +208,11 @@ int show_sample(const gm::Options& options) {
 /// through `AudioDevice`.  `--headless` never opens the device: it prints the
 /// cache's numbers instead.  `--twice` acquires the same name a second time —
 /// that acquire must be a cache hit (`hits` grows, `misses` does not).
+///
+/// `--pos`/`--listener` switch on the positional path (`M7.3` slice 2,
+/// docs/AUDIO_3D.md §5/§13): the distance, gain, pan and 5-bit channel gains
+/// come from `audio/engine_3d.*`, the mono clip becomes interleaved stereo on
+/// a 2-channel device, and `--headless` prints those numbers.
 ///
 /// Only `<level>.sbt`, `sounds/SOU.IDX` and the archive it points at are read:
 /// no window, no `.sbw`/`.sbc`, no mixer.
@@ -178,6 +249,10 @@ int play_sample(const gm::Options& options) {
     }
 
     const int plays = options.twice ? 2 : 1;
+    // A 3D source needs either an explicit position or an explicit listener;
+    // without both flags the command stays the plain 2D clip of M7.4.
+    const bool positional = options.has_pos || options.has_listener;
+    const Sample3d state = positional ? sample_position(options) : Sample3d{};
     std::vector<gm::audio::SampleCache::Handle> handles;
     std::optional<gm::AudioDevice> device;
     for (int i = 0; i < plays; ++i) {
@@ -202,24 +277,34 @@ int play_sample(const gm::Options& options) {
                      "sample \"" + options.sample_play + "\" is not resident after acquire");
             return 2;
         }
-        std::printf("sample: name=%s frames=%u rate=%u channels=%u bytes=%zu\n",
+        std::printf("sample: name=%s frames=%u rate=%u channels=%u bytes=%zu",
                     info->name.c_str(), sound->frames(), sound->sample_rate,
                     static_cast<unsigned>(sound->channels), info->bytes);
+        if (positional) {
+            std::printf(" dist=%.6f gain=%d pan=%d L=%d R=%d", state.dist, state.gain,
+                        state.pan, state.left, state.right);
+        }
+        std::printf("\n");
 
         if (options.headless) {
             continue;
         }
+        const int out_channels = positional ? 2 : static_cast<int>(sound->channels);
         if (!device) {
             auto opened = gm::AudioDevice::open(static_cast<int>(sound->sample_rate),
-                                                static_cast<int>(sound->channels), false,
-                                                error);
+                                                out_channels, false, error);
             if (!opened) {
                 gm::logf(gm::LogLevel::Error, "sample-play", error);
                 return 1;
             }
             device = std::move(*opened);
         }
-        device->queue(sound->samples.data(), sound->frames());
+        if (positional) {
+            const auto stereo = to_stereo(*sound, state.left, state.right);
+            device->queue(stereo.data(), sound->frames());
+        } else {
+            device->queue(sound->samples.data(), sound->frames());
+        }
         const double seconds = static_cast<double>(sound->frames()) /
                                static_cast<double>(sound->sample_rate);
         std::this_thread::sleep_for(std::chrono::duration<double>(seconds + 0.2));

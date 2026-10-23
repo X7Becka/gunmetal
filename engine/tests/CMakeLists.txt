@@ -352,6 +352,35 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/sounds/SOU.IDX"
     set_tests_properties(cli_sample_play_bad PROPERTIES PASS_REGULAR_EXPRESSION
         "\\[error\\] sample-play: .*SOUND_SAMPLE_TABLE")
     gm_label(cli_sample_play_bad quick)
+    # M7.3 slice 2: the positional path (`--pos`/`--listener`).  The numbers are
+    # docs/AUDIO_3D.md §8.1: d = (48, 8, -184), dist 198, gain 58, pan 159,
+    # L/R 23/32 (volume 64, atten 0.03, yaw 0).
+    add_test(NAME cli_sample_play_3d
+             COMMAND gunmetal --sample-play updown --headless --pos 48,3208,-136
+                     --listener 0,3200,48,0)
+    set_tests_properties(cli_sample_play_3d PROPERTIES PASS_REGULAR_EXPRESSION
+        "dist=198\\.000000 gain=58 pan=159 L=23 R=32")
+    gm_label(cli_sample_play_3d quick)
+    # Same source with a +90° listener yaw (§8.2): only `e1` changes.
+    add_test(NAME cli_sample_play_3d_yaw
+             COMMAND gunmetal --sample-play updown --headless --pos 48,3208,-136
+                     --listener 0,3200,48,1.5707963267948966)
+    set_tests_properties(cli_sample_play_3d_yaw PROPERTIES PASS_REGULAR_EXPRESSION
+        "dist=198\\.000000 gain=58 pan=122 L=32 R=29")
+    gm_label(cli_sample_play_3d_yaw quick)
+    # gain < 2 means no request (0x40be58): a far source is silence, not a
+    # negative gain and not a quiet centre pan.
+    add_test(NAME cli_sample_play_3d_silent
+             COMMAND gunmetal --sample-play updown --headless --pos 100000,0,0)
+    set_tests_properties(cli_sample_play_3d_silent PROPERTIES PASS_REGULAR_EXPRESSION
+        "dist=100000\\.000000 gain=0 pan=255 L=0 R=0")
+    gm_label(cli_sample_play_3d_silent quick)
+    # Out-of-range options are a usage error (text + exit code 2), not silence.
+    add_test(NAME cli_sample_play_3d_bad_volume
+             COMMAND gunmetal --sample-play updown --headless --volume 40)
+    set_tests_properties(cli_sample_play_3d_bad_volume PROPERTIES
+        PASS_REGULAR_EXPRESSION "gunmetal: --volume expects an integer 1\\.\\.32")
+    gm_label(cli_sample_play_3d_bad_volume quick)
 endif()
 
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/MUSIC/Dm1A.sog")
