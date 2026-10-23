@@ -108,6 +108,7 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/level0.sbt" AND GM_PYTHON3)
         "others identical: yes, block==asm: yes")
     gm_label(sbtwrite_replace quick)
     # M11.6: every shipped BIGFILE pair repacked byte for byte.
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/bigpack-tmp")
     add_test(NAME bigpack_roundtrip
              COMMAND ${GM_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/editor/bigpack.py
                      --roundtrip --tmp-dir ${CMAKE_BINARY_DIR}/bigpack-tmp)
