@@ -1318,3 +1318,20 @@
   перелива; по умолчанию выключен — паритет по числам с `test_sim_damage`
   (`damage=5060`, щиты 6735×4, 120 холостых тиков — без изменений).
 - **Гейты:** `ctest` **166/166**, `regress --mirror` **115/115**.
+
+## Ход 2026-10-23 (партия 35: воспроизведение сэмплов и слоты сохранения)
+
+- **`M7.4` срез 2.** `--sample-play NAME [--headless] [--twice]`
+  (CTest `cli_sample_play`, `cli_sample_play_twice`, `cli_sample_play_bad`,
+  `docs/SAMPLE_CACHE.md` §8): имя → таблица уровня → `SampleCache` →
+  SOU0/1/2 → `AudioDevice`. `updown`: frames=6272, rate=16000, bytes=12800,
+  `misses=1`; повтор — `hits=1 misses=1`; ошибки (нет имени/записи/битый
+  контейнер) — `[error]` и код 2. Нет 3D/громкости/цикла/микшера.
+- **`M8.7` срез 1.** `engine/src/ui/save_slots.*` + `docs/SAVE_SLOTS.md`
+  (CTest `save_slots`, 103 проверки): 20 слотов по `0x13` (`0x6c2fe0`),
+  6 видимых, прокрутка 0..13 (`scroll + 6 < 20` в `0x48aa60`/`0x48abd0`),
+  `::: empty slot :::` (`0x4bc3b0`), подтверждение перезаписи как модель.
+  Следствие: слот **19 недостижим** — модель это воспроизводит.
+  CLI `--save-slots` (CTest `cli_save_slots`): на поставке `present=2/20`,
+  `A SAVED GAME`, `::: empty slot :::`.
+- **Гейты:** `ctest` **174/174**, `regress --full --mirror` **125/125**.
