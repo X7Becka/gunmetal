@@ -37,6 +37,7 @@ struct Options {
     std::string pager_keys;   // --pager-keys next,next,prev,first,last
     int pager_page = 0;       // --page N: 1-based page to show
     bool pager_all = false;   // --all: every page
+    bool save_slots = false;  // --save-slots: headless save-slot list (M8.7)
     int sim_respawn = -1;     // --sim-respawn N: auto-respawn N ticks after death
     std::string film;
     std::string anim;

@@ -83,6 +83,14 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/SML/help.sme")
     gm_label(cli_pager_bad quick)
 endif()
 
+# M8.7: the headless save-slot table (`docs/SAVE_SLOTS.md`).
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/savegame/saved0.sbt")
+    add_test(NAME cli_save_slots COMMAND gunmetal --save-slots)
+    set_tests_properties(cli_save_slots PROPERTIES PASS_REGULAR_EXPRESSION
+        "save-slots: present=2/20")
+    gm_label(cli_save_slots quick)
+endif()
+
 # M7.5: the music envelope is applied to the decoded PCM (`docs/MUSIC.md`).
 if(EXISTS "/mnt/d/games/Gunmetal 3dfx/MUSIC/Dm1A.sog")
     add_test(NAME cli_music_fade

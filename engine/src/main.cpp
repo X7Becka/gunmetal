@@ -31,6 +31,7 @@
 #include "game/runtime.h"
 #include "audio/music.h"
 #include "ui/frontend_menu.h"
+#include "ui/save_slots.h"
 #include "ui/sml_pager.h"
 #include "game/sim_player.h"
 #include "game/weapons.h"
@@ -2678,6 +2679,38 @@ int show_pager(const gm::Options& options) {
     return 0;
 }
 
+
+// `--save-slots`: the headless save-slot table (`docs/SAVE_SLOTS.md`):
+// 20 slots of `0x13` bytes, 6 visible rows, scroll 0..13.
+int show_save_slots(const gm::Options& options) {
+    gm::SaveSlotList slots;
+    std::string error;
+    slots.refresh(std::filesystem::path(options.game), &error);
+    if (!error.empty()) {
+        gm::logf(gm::LogLevel::Warn, "save-slots", error);
+    }
+    int present = 0;
+    for (int index = 0; index < slots.count(); ++index) {
+        if (slots.at(index).present) {
+            ++present;
+        }
+    }
+    std::printf("save-slots: present=%d/%d scroll=%d..%d selected=%d\n", present,
+                slots.count(), slots.scroll(),
+                slots.scroll() + slots.visible_rows() - 1, slots.selected());
+    for (int row = 0; row < slots.visible_rows(); ++row) {
+        const int index = slots.scroll() + row;
+        const gm::SaveSlot& slot = slots.at(index);
+        std::printf("  %2d %s %-19s level=%d mission=%d\n", index,
+                    index == slots.selected() ? "*" : " ",
+                    std::string(slots.item_label(row)).c_str(), slot.level,
+                    slot.mission);
+    }
+    // Slot 19 is unreachable by design: `scroll + 6 < 20` stops at 13
+    // (`0x48aa60`/`0x48abd0`), the model reproduces it instead of fixing it.
+    return 0;
+}
+
 int main(int argc, char** argv) {
     gm::set_log_level_from_env();
 
@@ -2705,6 +2738,9 @@ int main(int argc, char** argv) {
     }
     if (!options->pager.empty()) {
         return show_pager(*options);
+    }
+    if (options->save_slots) {
+        return show_save_slots(*options);
     }
     // M12.5: say *which* directory is missing instead of a bare ".sbw not
     // found": every data command joins names under `--game`.

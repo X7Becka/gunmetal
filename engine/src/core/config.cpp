@@ -458,6 +458,8 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 error = std::string(arg) + " wants a number of seconds";
                 return std::nullopt;
             }
+        } else if (arg == "--save-slots") {
+            options.save_slots = true;
         } else if (arg == "--pager") {
             const auto v = value(arg);
             if (!v) {
@@ -754,6 +756,7 @@ std::string usage() {
        << "      --pager-keys next,next,prev,first,last  feed the pager\n"
        << "      --page N      show page N (1-based)\n"
        << "      --all         with --pager: print every page\n"
+       << "      --save-slots  headless save-slot list (20 slots, 6 visible)\n"
        << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"
