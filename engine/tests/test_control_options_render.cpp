@@ -668,7 +668,6 @@ void test_default_frame(const fs::path& game, const std::map<int, gm::FontAtlas>
     check_eq(frame.stats.missing_glyphs, 0, tag + "missing glyphs 0");
 
     const gm::FontAtlas& title = fonts.at(gm::kControlOptionsTitleFont);
-    const gm::FontAtlas& body = fonts.at(gm::kControlOptionsRowFont);
     const int title_x = gm::control_options_title_x(title);
     check_eq(title_x, std::max(0, (196 - title.measure(gm::kControlOptionsTitle)) / 2),
              tag + "title x = (196 - width)/2");

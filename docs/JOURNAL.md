@@ -1856,3 +1856,26 @@
 - **Гейты:** `ctest` **338/338** (244,9 с), аудит **84/84 по 50 докам**,
   `build/warn` — 0, `install_audit` ok, `fuzz_saves` ok; ASan — прогон
   после влития волны 66.
+
+## Ход 2026-10-24 (партия 66: экраны 10/11/12/32/24/25/31, 29 кадров fade)
+
+- **Экраны 10 и 11:** `ui/control_options_render.*` (10 строк `y = 27+9i`,
+  `x 20/32`, ink 1736) и `ui/sound_options_render.*` (7 строк `y = 27+10i`,
+  2 слайдера `x = 69 + trunc(27·v/10)`, чекбокс; off-раскладка `rows=1
+  ink=1098`, low memory `sliders=1`).
+- **Экраны 12 и 32:** `ui/graphics_options_render.*` (6 строк, слайдер
+  `Border` `x = 89+6·b`, чекбокс `Reflections`, ink 1866) и
+  `ui/play_options_render.*` (8 пунктов, 6 чекбоксов битами, `DYNAMIC
+  CAMERA` 0..2, in-game строка шрифтом 8, ink 2765).
+- **Экраны 24/25 и 31:** `ui/player_name_render.*` (заголовки на y 14, имя
+  `FONTS2` 16×16 по центру y 28, каретка 8×17, лимит 10, ink 1812/2331) и
+  `ui/new_keyset_render.*` (`NAME OF NEW KEY SET` y 14, имя шрифтом 3,
+  каретка-рамка 8×17, лимит 15, пустое → `NEW SET`, ink 1849).
+- **CLI:** `--control-options`, `--sound-options`, `--graphics-options`,
+  `--play-options`, `--player-name`, `--new-keyset` — всего **207 опций**.
+- **Fade:** `cli_fade_lut` — **29 фронтенд-кадров**; `build/warn` — 0.
+- **Гейты:** `ctest` **361/361** (280,8 с), ASan **362/362** (704,7 с),
+  `regress --full --mirror` **125/125** (116,1 с), аудит **84/84 по 50
+  докам**, `install_audit` ok, `fuzz_saves` ok, `state.py --check` зелёный.
+- **История:** master между партиями был свёрнут в один squash-коммит
+  (внешнее действие), дальше работа идёт от него; содержимое сохранено.

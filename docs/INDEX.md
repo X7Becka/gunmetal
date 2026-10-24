@@ -29,13 +29,14 @@
 | `docs/CAMPAIGN_STATE.md` | 15 | 59 | Прогресс кампании в движке (`M9.1`, срез 2) |
 | `docs/CHASSIS.md` | 22 | 236 | Шасси: выбор, 57 CHEVY, модели/звуки, HUD (`M6.1.4`, `M6.5.3`) |
 | `docs/CHASSIS_PHYSICS.md` | 13 | 16 | Физика шасси (`M6.1.1`): масса, скорость, drag, подвеска |
-| `docs/CLI.md` | 8 | 3 | CLI движка: карта режимов и PNG-кадров |
+| `docs/CLI.md` | 12 | 4 | CLI движка: карта режимов и PNG-кадров |
 | `docs/COCKPIT.md` | 22 | 40 | Кокпит: собранный кадр 320×200 (M4.4.5, срез 3) |
 | `docs/COLLIDE.md` | 32 | 9 | Gunmetal — примитивы коллизий `.sbw` |
 | `docs/COLLIDE_GRID.md` | 22 | 0 | Gunmetal — broad-phase сетка коллизий (`CollideGrid`) |
 | `docs/COLLIDE_OVERLAP.md` | 24 | 0 | Gunmetal — объёмные запросы к статике (`collide_overlap`) |
 | `docs/CONFIG.md` | 28 | 241 | `GUNMETAL.CFG` / `CONTROLS.CFG` — карта полей |
 | `docs/CONTROLS_CPP.md` | 13 | 19 | `input/controls.h` — `.key` profiles and controller config |
+| `docs/CONTROL_OPTIONS_RENDER.md` | 17 | 137 | Рендер экрана 10 `CONTROL OPTIONS` (`engine/src/ui/control_options_render.h`) |
 | `docs/DAMAGE.md` | 31 | 255 | Урон, броня и щиты (`M6.5.2`) |
 | `docs/DIFFICULTY_RENDER.md` | 14 | 67 | Рендер экрана 23 `SET DIFFICULTY LEVEL` (`engine/src/ui/difficulty_render.h`) |
 | `docs/DM_RULES.md` | 31 | 394 | Deathmatch: режимы, счёт, respawn, гандикап, команды (`M9.2`) |
@@ -50,6 +51,7 @@
 | `docs/EQUIPMENT.md` | 30 | 318 | EQUIPMENT — модель экипировки (`DEFINE_EQUIPMENT`, состояние, эффекты) |
 | `docs/EQUIPMENT_ACT.md` | 15 | 23 | EQUIPMENT_ACT — активация и расход оборудования (`M6.2.4`, срез 2) |
 | `docs/EQUIPMENT_STATE.md` | 12 | 23 | EQUIPMENT_STATE — состояние оборудования в рантайме (`M6.2.4`, срез 2) |
+| `docs/ERROR_RENDER.md` | 21 | 106 | Рендер экрана 5 `ERROR` (`engine/src/ui/error_render.h`) |
 | `docs/EVENTS.md` | 24 | 92 | Event queue and `GENERATE` events |
 | `docs/EVENT_DAMAGE.md` | 13 | 19 | Событийный урон по вещам: `damaged_event` → `GENERATE` → blast |
 | `docs/FAQ.md` | 14 | 0 | FAQ — частые вопросы |
@@ -70,6 +72,7 @@
 | `docs/GAME_STATE.md` | 15 | 14 | Gunmetal — C++-слой игрового состояния (`GameState`) |
 | `docs/GAME_TYPE_RENDER.md` | 16 | 118 | Рендер экрана 19 `MULTIPLAYER GAME TYPE` (`engine/src/ui/game_type_render.h`) |
 | `docs/GHIDRA.md` | 22 | 37 | Ghidra: выбор, установка и рабочий процесс |
+| `docs/GRAPHICS_OPTIONS_RENDER.md` | 20 | 124 | Рендер экрана 12 `GRAPHICS OPTIONS` (`engine/src/ui/graphics_options_render.h`) |
 | `docs/HI_SCORES.md` | 14 | 40 | Экран лучших времён (`GUNMETAL.HI`) — `M8.4`, срез 2 |
 | `docs/HI_WRITE.md` | 26 | 39 | Запись `GUNMETAL.HI`: побайтовый round-trip и правка одной записи (`M11.5`, срез 11) |
 | `docs/HUD_AUDIT.md` | 49 | 160 | HUD кокпита `level0`: инвентарь элементов (M4.4) |
@@ -84,7 +87,7 @@
 | `docs/INGAME_MENU_RENDER.md` | 18 | 120 | Рендер экрана 9, in-game (кадр `DEMOTION`/`DISBAND`) |
 | `docs/INIT.md` | 32 | 556 | Инициализация движка: WinMain → видео → звук → ввод → конфиг → палитра (M2.2.1) |
 | `docs/INSTALL_AUDIT.md` | 12 | 0 | Аудит установки по манифесту |
-| `docs/JOURNAL.md` | 145 | 319 | JOURNAL — журнал ходов |
+| `docs/JOURNAL.md` | 148 | 320 | JOURNAL — журнал ходов |
 | `docs/JOYSTICK_CENTERING_RENDER.md` | 17 | 102 | Рендер экрана 26 `JOYSTICK CENTERING` (`engine/src/ui/joystick_centering_render.h`) |
 | `docs/KEYCFG_RENDER.md` | 37 | 213 | Рендер экрана 30 и редактора 34/35 — набор клавиш (`engine/src/ui/keycfg_render.h`) |
 | `docs/KEY_JAMMING_RENDER.md` | 18 | 103 | Рендер экрана 16 `KEY JAMMING` (`engine/src/ui/key_jamming_render.h`) |
@@ -92,6 +95,7 @@
 | `docs/KILLED.md` | 12 | 16 | Экран сообщений об убийстве (`KILLED.skb` / `.skk`) — `M8.4`, срез 3 |
 | `docs/KILLED_WRITE.md` | 24 | 7 | Запись таблиц убийств `KILLED.skb` / `.skk` (`M11.5`, срез 12) |
 | `docs/LAYOUT.md` | 8 | 0 | LAYOUT — каталоги, конфигурация, канон |
+| `docs/LAY_BUCKS_RENDER.md` | 17 | 94 | Рендер экрана 20 `LAY DOWN THE BUCKS` (`engine/src/ui/lay_bucks_render.h`) |
 | `docs/LEVEL_LOAD.md` | 32 | 672 | Загрузка и выгрузка уровня: `.sbw`, `.sbt`, `.sbc`, `SOB_TABLE` (M2.2.3) |
 | `docs/LEVEL_SELECT.md` | 18 | 57 | Экран выбора уровня (`M8.4`/`M9.1`, срез 2) |
 | `docs/LEVEL_SELECT_RENDER.md` | 27 | 75 | Рендер экрана выбора уровня (`engine/src/ui/level_select_render.h`) |
@@ -102,7 +106,7 @@
 | `docs/LINE_OF_SIGHT.md` | 17 | 5 | Gunmetal — линия видимости до цели (`M6.2.5`, срез 2) |
 | `docs/LOCAL_PLAYERS_RENDER.md` | 15 | 86 | Рендер экрана 21 `NUMBER OF LOCAL PLAYERS` (`engine/src/ui/local_players_render.h`) |
 | `docs/LOOK16.md` | 14 | 12 | `LOOK16.TAB`: что делает куб и как свет `0..127` превращается в цвет |
-| `docs/LUT_BUILDER.md` | 15 | 67 | Строитель LUT `0x682f90`: 16×256 таблиц воспроизведены из кода (`M8.5`, срез 6) |
+| `docs/LUT_BUILDER.md` | 16 | 67 | Строитель LUT `0x682f90`: 16×256 таблиц воспроизведены из кода (`M8.5`, срез 6) |
 | `docs/MAINLOOP.md` | 7 | 209 | Главный цикл и машина состояний (M2.2.2) |
 | `docs/MATCH_SETUP_RENDER.md` | 17 | 100 | Рендер экрана 27 `MULTIPLAY GAME OPTIONS` (`engine/src/ui/match_setup_render.h`) |
 | `docs/MATERIAL_BLEND.md` | 29 | 159 | Математика материалов полигонов: `none/reflective/translucent/varadd/add/shade` (M4.2.4) |
@@ -113,6 +117,7 @@
 | `docs/MOVING_COLLIDERS.md` | 29 | 30 | Gunmetal — кинематические коллайдеры дверей и лифтов |
 | `docs/MUSIC.md` | 15 | 8 | `audio/music`: громкость и переходы музыкального трека |
 | `docs/NESTED_THINGS.md` | 16 | 7 | Вложенные things: статический рекурсивный обход и исполнение |
+| `docs/NEW_KEYSET_RENDER.md` | 21 | 133 | Рендер экрана 31 `NAME OF NEW KEY SET` (`engine/src/ui/new_keyset_render.h`) |
 | `docs/OBJECTIVES.md` | 24 | 265 | Цели, секреты и триггеры конца уровня (`M6.4.5`) |
 | `docs/OBJECTIVES_STATE.md` | 12 | 73 | Маска целей и секреты в движке (`M6.4.5`, срез 2) |
 | `docs/ORACLE.md` | 35 | 12 | Эталонный оракул (M4.4.2) |
@@ -128,7 +133,10 @@
 | `docs/PLAYER_FIELDS.md` | 54 | 1527 | PLAYER_FIELDS — поля рантайм-структуры игрока (`M2.3.1`) |
 | `docs/PLAYER_GHIDRA.md` | 30 | 235 | Player speed and gravity: Ghidra notes |
 | `docs/PLAYER_GUIDE.md` | 12 | 0 | PLAYER_GUIDE — как играть в переиздание |
+| `docs/PLAYER_NAME_RENDER.md` | 21 | 186 | Рендер экранов 24/25, имена локальных игроков (`engine/src/ui/player_name_render.h`) |
+| `docs/PLAYER_SETUP_RENDER.md` | 28 | 205 | Рендер экрана 36 `PLAYER 1/2 JOYSTICK SETUP` (`engine/src/ui/player_setup_render.h`) |
 | `docs/PLAYLIST.md` | 13 | 3 | `audio/playlist`: списки песен `MUSIC/*.sog` |
+| `docs/PLAY_OPTIONS_RENDER.md` | 19 | 138 | Рендер экрана 32 `PLAY OPTIONS` (`engine/src/ui/play_options_render.h`) |
 | `docs/PROJECTILE_CPP.md` | 50 | 77 | Снаряды: `movement_type == 6` и RGM (`8`) |
 | `docs/QUIT_RENDER.md` | 17 | 105 | Рендер экрана 33 `QUIT GAME?` / `QUIT OPTIONS` (`engine/src/ui/quit_render.h`) |
 | `docs/RECORDS.md` | 35 | 260 | Записи состояния `.sbt`: `SECTOR_STUFF` (8), `ITEM` (19), `LIFT` (18) |
@@ -151,6 +159,7 @@
 | `docs/SAVE_LOAD.md` | 16 | 25 | Сейв → живой рантайм (`save_load`, M8.7/M9, срез 2) |
 | `docs/SAVE_MENU.md` | 16 | 19 | Экран сохранений: модель `save_menu` (`M8.4`, срез 2) |
 | `docs/SAVE_MENU_RENDER.md` | 34 | 82 | Рендер экрана SAVE GAME (`engine/src/ui/save_menu_render.h`) |
+| `docs/SAVE_NAME_RENDER.md` | 16 | 118 | Рендер экрана 15, ввод имени сейва (`engine/src/ui/save_name_render.h`) |
 | `docs/SAVE_SLOTS.md` | 11 | 27 | Безголовый список слотов сохранения (`M8.7`, срез 1) |
 | `docs/SAVE_WRITER.md` | 12 | 22 | C++-писатель сейвов Gunmetal |
 | `docs/SAVE_WRITE_CPP.md` | 19 | 29 | C++-писатель сейва: `write_save()` |
@@ -199,6 +208,7 @@
 | `docs/SOU2.md` | 6 | 10 | `SOU2`: музыкальный кодек и правила рендера |
 | `docs/SOUND_FIELDS.md` | 24 | 255 | Звук: записи сэмплов и голоса (M2.3.7) |
 | `docs/SOUND_NAMES.md` | 27 | 205 | Имена сэмплов: `SOUND_SAMPLE_TABLE` → `SOU.IDX`, поведение при промахе (M7.6) |
+| `docs/SOUND_OPTIONS_RENDER.md` | 18 | 111 | Рендер экрана 11 `SOUND OPTIONS` (`engine/src/ui/sound_options_render.h`) |
 | `docs/SOUND_POLICY.md` | 14 | 31 | Политика отсутствующих звуков (M7.6, срез 2) |
 | `docs/SOU_CONTAINER.md` | 12 | 19 | Контейнер `.sou`: SOU0 / SOU1 / SOU2 |
 | `docs/SPRITE.md` | 12 | 0 | Спрайтовый блиттер: индексированные `.sbm` в RGB-кадр |
@@ -216,6 +226,7 @@
 | `docs/TOOLCHAIN.md` | 2 | 1 | Инструменты и версии |
 | `docs/TOOLING.md` | 9 | 2 | Инструменты помимо Ghidra: что брать и зачем |
 | `docs/UI.md` | 30 | 181 | UI и меню: `.sml` / `.sme`, экраны, ассеты |
+| `docs/UI_COVERAGE.md` | 8 | 1 | Покрытие экранов фронтенда (C++) |
 | `docs/UI_SCREENS.md` | 30 | 371 | Экраны фронтенда: карта, переходы, load/save, options |
 | `docs/UI_SOUNDS.md` | 29 | 313 | Звуки интерфейса и музыка фронтенда (`M8.6`) |
 | `docs/UI_SOUNDS_STATE.md` | 10 | 28 | Звуки интерфейса в C++: состояние (`M8.6`, срез 2) |

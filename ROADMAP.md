@@ -2518,6 +2518,13 @@ Python-тулкит. Ещё без геймплея, но с проверяем�
       > [--no-plate] --png OUT [--png-scale N]`; CTest
       > `cli_level_select`, `_png`, `_scroll`, `_scale`. Стрелки
       > **Точный fade в брифинге (срез 7):** `BriefingRenderOptions::fade_lut*`
+      > **Экраны 24/25 и 31 (M8.8, срезы 22–23):**
+      > `ui/player_name_render.*` (заголовки 24/25 на y 14, имя `FONTS2`
+      > 16×16 по центру x 98 y 28, каретка 8×17, лимит 10 символов, ink
+      > 1812/2331) и `ui/new_keyset_render.*` (`NAME OF NEW KEY SET` y 14,
+      > имя шрифтом 3 y 28, каретка-рамка 8×17, лимит 15, пустое → `NEW
+      > SET`, ink 1849). CLI `--player-name [...]`, `--new-keyset [...]`,
+      > CTest `cli_player_name*`, `cli_new_keyset*`.
       > **Экраны 12 и 32 (M8.8, срезы 19–20):** `ui/graphics_options_render.*`
       > (6 строк, `y 24/39/54/69/84/98`, слайдер `Border` `x = 89+6·b`,
       > чекбокс `Reflections`, ink 1866) и `ui/play_options_render.*`

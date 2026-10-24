@@ -379,7 +379,8 @@ Asset load_asset(const fs::path& game, const std::string& name) {
 }
 
 /// Masked blit of a sprite into a `width` x `height` band, index 0 transparent.
-std::vector<std::uint32_t> compose_sprite(const Asset& sprite, int x, int y, int width,
+[[maybe_unused]] std::vector<std::uint32_t> compose_sprite(const Asset& sprite, int x,
+                                                          int y, int width,
                                           int height) {
     std::vector<std::uint32_t> out(static_cast<std::size_t>(width) *
                                        static_cast<std::size_t>(height),

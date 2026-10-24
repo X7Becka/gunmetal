@@ -784,6 +784,50 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             } catch (const std::exception&) {
                 return std::nullopt;
             }
+        } else if (arg == "--player-name") {
+            // `--player-name`: screens 24/25
+            // (`ui/player_name_render.*`, docs/PLAYER_NAME_RENDER.md).
+            options.player_name = true;
+        } else if (arg == "--player-name-player") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.player_name_player = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--player-name-text") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.player_name_text = std::string(*v);
+        } else if (arg == "--player-name-caret-pos") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.player_name_caret_pos = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--player-name-no-caret") {
+            options.player_name_no_caret = true;
+        } else if (arg == "--new-keyset") {
+            // `--new-keyset`: screen 31
+            // (`ui/new_keyset_render.*`, docs/NEW_KEYSET_RENDER.md).
+            options.new_keyset = true;
+        } else if (arg == "--new-keyset-text") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.new_keyset_text = std::string(*v);
+        } else if (arg == "--new-keyset-no-caret") {
+            options.new_keyset_no_caret = true;
         } else if (arg == "--graphics-options") {
             // `--graphics-options`: screen 12
             // (`ui/graphics_options_render.*`, docs/GRAPHICS_OPTIONS_RENDER.md).
@@ -1643,6 +1687,11 @@ std::string usage() {
        << "      --video-mode-list screen 18 video modes; --png OUT [--video-mode-list-cursor N]\n"
        << "      --mouse-setup     screen 22 mouse setup; --png OUT [--mouse-setup-cursor N]\n"
        << "      --ingame-menu     screen 9 DEMOTION/DISBAND; --png OUT [--ingame-menu-bg NAME]\n"
+       << "      --player-name     screens 24/25 player names; --png OUT [--player-name-player N]\n"
+       << "                        [--player-name-text NAME] [--player-name-caret-pos N]\n"
+       << "                        [--player-name-no-caret]\n"
+       << "      --new-keyset      screen 31 new key set name; --png OUT [--new-keyset-text NAME]\n"
+       << "                        [--new-keyset-no-caret]\n"
        << "      --graphics-options screen 12 graphics options; --png OUT [--graphics-options-cursor N]\n"
        << "                        [--graphics-options-border N] [--graphics-options-gamma N]\n"
        << "                        [--graphics-options-reflections N] [--graphics-options-light-maps N]\n"

@@ -1,6 +1,6 @@
 # CURRENT_STATE: фактический срез и переоценка
 
-**Снимок:** 2026-10-24, код — HEAD `3c97e56`, всего **1467 коммитов**
+**Снимок:** 2026-10-24, код — коммит `813eb26`, всего **1506 коммитов**
 (включая этот docs-коммит).
 **Установка:** `/mnt/d/games/Gunmetal 3dfx` (v1.36, 3dfx).
 **План:** [`ROADMAP.md`](ROADMAP.md); аудит процесса — [`docs/RE_AUDIT.md`](docs/RE_AUDIT.md);
@@ -18,12 +18,12 @@
 
 | Источник | Что даёт |
 |---|---|
-| `git log` | 1467 коммитов, `master` чист (worktree сабагентов не считаются) |
+| `git log` | 1506 коммитов, `master` чист (worktree сабагентов не считаются) |
 | `tools/qa/state.py` | 221 пункт этапов `M0…M12`: 95 ✅ / 107 🟡 / 18 ⬜ / 1 ⛔; item-строки (с DoD и стратегией) — 98 ✅ / 111 🟡 / 24 ⬜ / 1 ⛔ |
 | `python3 regress.py --mirror` | **115/115** проверок за ~61 с |
-| `python3 regress.py --full --mirror` | **125/125** за 98,5 с (6 из кэша) |
-| `ctest --test-dir build/sandbox -j6` | **322/322** за 270 с (quick 307 + full 15) |
-| Код | 86 601 строка C++ (`engine/src`, 128 `.cpp` + 131 `.h`), 322 CTest, 130 скриптов в `tools/{re,qa,editor}`, 223 документа в `docs` |
+| `python3 regress.py --full --mirror` | **125/125** за 116,1 с (6 из кэша) |
+| `ctest --test-dir build/sandbox -j6` | **361/361** за 281 с (quick 346 + full 15) |
+| Код | 97 166 строк C++ (`engine/src`, 138 `.cpp` + 141 `.h`), 361 CTest, 130 скриптов в `tools/{re,qa,editor}`, 234 документа в `docs` |
 | База сессий OpenCode | 175 проектных сессий, 107,7M input / 9,0M output, $34,36; 48,8 ч активной работы, пик 8 параллельных |
 
 Прежние два падения были **одной причиной**: игра переписывает
@@ -147,8 +147,8 @@
 ### Проверки
 
 * `regress.py --mirror`: **115/115** за ~61 с.
-* `regress.py --full --mirror`: **125/125** за 98,5 с.
-* CTest: **322** теста, **322/322** (`quick` + `full`), включая `core`,
+* `regress.py --full --mirror`: **125/125** за 116,1 с.
+* CTest: **361** тест, **361/361** (`quick` + `full`), включая `core`,
   `sprite`, `parity_mip`, `sbv_parity`, `sou1_full`, `sou1_audio`, `mixer`,
   `audio_output`, `controls`, `game_state`, `weapons`, `camera_rig`,
   `player_controller`, `doors`, `doors_full`, `things`, `things_full`,

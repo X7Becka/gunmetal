@@ -1,7 +1,7 @@
 # CLI движка: карта режимов и PNG-кадров
 
 `gunmetal --help` — единственный авторитетный список: он собирается из
-`engine/src/core/config.cpp` (`usage()`), и **все 199 опции** парсера в нём
+`engine/src/core/config.cpp` (`usage()`), и **все 207 опции** парсера в нём
 есть (проверено сравнением `grep '"--'` по парсеру с выводом `--help`,
 2026-10-24; до этого 11 опций `--hud*`, `--lm-world` и `--spawn-*` в
 подсказке отсутствовали).
@@ -47,6 +47,8 @@
 | `--sound-options --png OUT [--sound-options-cursor N] [--sound-options-music N] [--sound-options-effects N] [--sound-options-swap] [--sound-options-off] [--sound-options-low-memory] [--fade-lut N]` | экран 11 (`SOUND OPTIONS`) | 7 строк `y = 27+10i`, 2 слайдера, 1 чекбокс, ink 1869 (off — 1098) | `cli_sound_options*`, `cli_fade_lut` |
 | `--graphics-options --png OUT [--graphics-options-cursor N] [--graphics-options-border N] [--graphics-options-gamma N] [--graphics-options-reflections N] [--graphics-options-light-maps N] [--fade-lut N]` | экран 12 (`GRAPHICS OPTIONS`) | 6 строк (24/39/54/69/84/98), слайдер `Border`, чекбокс `Reflections`, ink 1866 | `cli_graphics_options*`, `cli_fade_lut` |
 | `--play-options --png OUT [--play-options-cursor N] [--play-options-flags HEX] [--play-options-camera N] [--play-options-in-game] [--fade-lut N]` | экран 32 (`PLAY OPTIONS`) | 8 пунктов, 6 чекбоксов, ink 2765 (in-game — 2854) | `cli_play_options*`, `cli_fade_lut` |
+| `--player-name --png OUT [--player-name-player N] [--player-name-text NAME] [--player-name-caret-pos N] [--player-name-no-caret] [--fade-lut N]` | экраны 24/25 (имена локальных игроков) | заголовок y 14, имя `FONTS2` y 28 по центру, каретка 8×17, ink 1812/2331 | `cli_player_name*`, `cli_fade_lut` |
+| `--new-keyset --png OUT [--new-keyset-text NAME] [--new-keyset-no-caret] [--fade-lut N]` | экран 31 (`NAME OF NEW KEY SET`) | заголовок y 14, имя 16×16 y 28, каретка 8×17, лимит 15, ink 1849 | `cli_new_keyset*`, `cli_fade_lut` |
 | `--lay-bucks --png OUT [--fade-lut N]` | экран 20 (`LAY DOWN THE BUCKS`, shareware-заглушка) | 4 строки (14/27/36/45), ink 1036 | `cli_lay_bucks*`, `cli_fade_lut` |
 | `--save-name --png OUT [--save-name-text NAME] [--save-name-row N] [--save-name-no-caret] [--no-fileslot] [--fade-lut N]` | экран 15 (ввод имени сейва) | `SAVE GAME` y 14, `ESC TO CANCEL` y 101, имя + `FILESLOT`, ink 544 | `cli_save_name*`, `cli_fade_lut` |
 | `--keycfg NAME --png OUT [--keycfg-cursor N] [--keycfg-mode view\|edit] [--keycfg-cell a\|b] [--keycfg-conflict TEXT] [--fade-lut N]` | экран 30 / редактор 34–35 (`KEYCFG/NAME.key`) | `PERFECT`: 31 строка / 29 имён / ink 2659 | `cli_keycfg*` |

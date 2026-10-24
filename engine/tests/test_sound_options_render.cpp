@@ -746,7 +746,7 @@ long long text_ink(const std::map<int, gm::FontAtlas>& fonts,
         0, (gm::kSoundOptionsPanelWidth - pen_width(title_face, gm::kSoundOptionsTitle)) / 2);
     ink += band_ink(compose_band(title_face, gm::kSoundOptionsTitle, title_x,
                                  gm::kSoundOptionsPanelWidth, title_face.cell_height));
-    const auto line_ink = [&](int item, int x, int y) {
+    const auto line_ink = [&](int item, int x, int /*y*/) {
         // The cursor item is font 4; the test passes the cursor separately
         // where it matters, so compute both fonts is not needed: the ink of a
         // word can differ per face, so use the face the renderer picks.
@@ -823,6 +823,7 @@ void test_frame(const fs::path& game, const std::map<int, gm::FontAtlas>& fonts)
     // Every label, its bbox and its band.
     const std::array<int, 4> items = {0, 2, 4, 6};
     long long row_ink_total = 0;
+    (void)row_ink_total;
     for (const int item : items) {
         const int font = item == options.cursor ? gm::kSoundOptionsSelectedFont
                                                 : gm::kSoundOptionsRowFont;

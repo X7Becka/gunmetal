@@ -660,6 +660,46 @@ if(EXISTS "/mnt/d/games/Gunmetal 3dfx/FRONTEND/BMP.IDX")
     gm_label(cli_play_options_in_game quick)
 endif()
 
+# M8.8 slices 22-23: screens 24/25 and 31 as PNG frames
+# (ui/player_name_render.*, ui/new_keyset_render.*).
+if(EXISTS "/mnt/d/games/Gunmetal 3dfx/FRONTEND/BMP.IDX")
+    add_test(NAME cli_player_name
+             COMMAND gunmetal --player-name)
+    set_tests_properties(cli_player_name PROPERTIES PASS_REGULAR_EXPRESSION
+        "player_name: player=0 rows=1 chars=0 truncated=0 caret=1 caret_px=46 ink=1812 missing=0 arrows=0")
+    gm_label(cli_player_name quick)
+    add_test(NAME cli_player_name_two
+             COMMAND gunmetal --player-name --player-name-player 1
+                     --player-name-text "JIM BOB")
+    set_tests_properties(cli_player_name_two PROPERTIES PASS_REGULAR_EXPRESSION
+        "player_name: player=1 rows=1 chars=7 truncated=0 caret=1 caret_px=46 ink=2331")
+    gm_label(cli_player_name_two quick)
+    add_test(NAME cli_player_name_long
+             COMMAND gunmetal --player-name --player-name-text
+                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234" --png
+                     ${CMAKE_CURRENT_BINARY_DIR}/player-name.png)
+    set_tests_properties(cli_player_name_long PROPERTIES PASS_REGULAR_EXPRESSION
+        "player_name: player=0 rows=1 chars=10 truncated=20 caret=1 caret_px=46 ink=2617")
+    gm_label(cli_player_name_long quick)
+    add_test(NAME cli_new_keyset
+             COMMAND gunmetal --new-keyset)
+    set_tests_properties(cli_new_keyset PROPERTIES PASS_REGULAR_EXPRESSION
+        "new_keyset: rows=1 chars=7 truncated=0 ink=1849 missing=0 arrows=0")
+    gm_label(cli_new_keyset quick)
+    add_test(NAME cli_new_keyset_long
+             COMMAND gunmetal --new-keyset --new-keyset-text
+                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234" --png
+                     ${CMAKE_CURRENT_BINARY_DIR}/new-keyset.png)
+    set_tests_properties(cli_new_keyset_long PROPERTIES PASS_REGULAR_EXPRESSION
+        "new_keyset: rows=1 chars=15 truncated=15 ink=2582")
+    gm_label(cli_new_keyset_long quick)
+    add_test(NAME cli_new_keyset_empty
+             COMMAND gunmetal --new-keyset --new-keyset-text "")
+    set_tests_properties(cli_new_keyset_empty PROPERTIES PASS_REGULAR_EXPRESSION
+        "new_keyset: rows=1 chars=0 truncated=0 ink=1314")
+    gm_label(cli_new_keyset_empty quick)
+endif()
+
 # M8.4 slice 4: `--level-select [--level-select-counter N] [--level-select-row N]
 # [--no-plate] --png OUT` renders screen 17 (ui/level_select_render.*).
 # Numbers are the module test's: counter 1 = 36 rows / 7 unlocked, ink 1305;
@@ -2867,6 +2907,28 @@ set_tests_properties(play_options_render PROPERTIES PASS_REGULAR_EXPRESSION
     "play_options_render: (ok \\([0-9]+ checks\\)|game not installed)")
 gm_label(play_options_render quick)
 
+# M8.8 slice 23: one frame of screen 31, `NAME OF NEW KEY SET`
+# (docs/NEW_KEYSET_RENDER.md, docs/UI_SCREENS.md §2/§3.7).  The map lists no
+# handler; the whole frame is painted by 0x48ebb0 (argument: the key-set
+# index), called from 0x48d1a5 (entering the state) and 0x48f432 (the state-31
+# branch of the input pass 0x48efc0).  rows 1 / step 0, PLATE 196x131 copy
+# 0x486050, title `NAME OF NEW KEY SET` (0x4bdd8c) font 5 centred at y 14, the
+# name (0x6c2058 + set*0x108) in font 3 at x = 98 - width/2, y 28, the hollow
+# caret frame 8x17 on row 27 (0x485d40, width 16/6 over M/W/I), the four font-0
+# prompts at x 26 (y 48/58/87/102), the 15-character limit of 0x405b20 and the
+# `NEW SET` fallback (0x4bdd3c).  Every pixel of the 320x200 canvas is compared
+# with an independent composition (black or the decoded PLATE), a 30-character
+# name is cut to 15, `caret = false` removes exactly 46 px, PLATE is decoded
+# independently, the exact fade levels and the refusals are pinned; bboxes,
+# inks and diff counts are printed.  Skips the pixel runs cleanly when the game
+# is not installed.
+add_executable(gm_new_keyset_render_tests test_new_keyset_render.cpp)
+target_link_libraries(gm_new_keyset_render_tests PRIVATE gm_engine)
+add_test(NAME new_keyset_render COMMAND gm_new_keyset_render_tests)
+set_tests_properties(new_keyset_render PROPERTIES PASS_REGULAR_EXPRESSION
+    "new_keyset_render: (ok \\([0-9]+ checks\\)|game not installed)")
+gm_label(new_keyset_render quick)
+
 # M8.8 slice 18: one frame of screen 11, `SOUND OPTIONS`
 # (docs/SOUND_OPTIONS_RENDER.md, docs/UI_SCREENS.md §2/§3.2).  rows 7, step 10,
 # title font 5 centred at y 14, `Music Volume:` (18,27) with `SLIDE` (68,37) +
@@ -2901,3 +2963,24 @@ add_test(NAME graphics_options_render COMMAND gm_graphics_options_render_tests)
 set_tests_properties(graphics_options_render PROPERTIES PASS_REGULAR_EXPRESSION
     "graphics_options_render: (ok \\([0-9]+ checks\\)|game not installed)")
 gm_label(graphics_options_render quick)
+
+# M8.8 slice 22: one frame of screens 24/25, the local player name entry
+# (docs/PLAYER_NAME_RENDER.md, docs/UI_SCREENS.md §2).  Handler
+# 0x489020(player): rows 1 / step 0 (0x489023/0x48902d), the PLATE copy
+# 0x486050, a centred title in font 5 at y 14 (`LOCAL PLAYER ONE NAME`
+# 0x4bd730 for 0, `LOCAL PLAYER TWO NAME` 0x4bd748 otherwise), the 16x16
+# `FONTS2` name line centred on x 98 at y 28, the hollow 17 px caret box of
+# 0x485d40 at plate row 27 (width 16/6/8 from the character at `[0x683f90]`)
+# and six hint lines in font 0 at x 16, y 48/56/67/75/89/102.  The name buffer
+# is 17 bytes (0x682f60 + player*0x11) but the editor 0x405b20 is capped at 11
+# bytes including NUL (push 0xb at 0x48f4cd), so 10 characters are reachable.
+# The test pins both titles, the name band, the 10-character cut, the caret
+# on/off and width rule, PLATE as an independently decoded background, the
+# exact fade levels and the refusals.  Skips the pixel runs cleanly when the
+# game is not installed.
+add_executable(gm_player_name_render_tests test_player_name_render.cpp)
+target_link_libraries(gm_player_name_render_tests PRIVATE gm_engine)
+add_test(NAME player_name_render COMMAND gm_player_name_render_tests)
+set_tests_properties(player_name_render PROPERTIES PASS_REGULAR_EXPRESSION
+    "player_name_render: (ok \\([0-9]+ checks\\)|game not installed)")
+gm_label(player_name_render quick)

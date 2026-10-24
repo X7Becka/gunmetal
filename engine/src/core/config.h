@@ -132,6 +132,15 @@ struct Options {
     int play_options_flags = 0;         // --play-options-flags HEX
     int play_options_camera = 1;        // --play-options-camera N: 0..2 (.data = 1)
     bool play_options_in_game = false;  // --play-options-in-game
+    bool player_name = false;           // --player-name: screens 24/25 (M8.8)
+    int player_name_player = 0;         // --player-name-player N: 0/1
+    std::string player_name_text;       // --player-name-text NAME
+    int player_name_caret_pos = -1;     // --player-name-caret-pos N (-1 = end)
+    bool player_name_no_caret = false;  // --player-name-no-caret
+    bool new_keyset = false;            // --new-keyset: screen 31 (M8.8)
+    std::string new_keyset_text = "NEW SET"; // --new-keyset-text NAME
+    bool new_keyset_no_caret = false;   // --new-keyset-no-caret
+
 
 
 

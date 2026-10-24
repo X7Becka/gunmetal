@@ -82,5 +82,7 @@ expect(control-options --control-options)
 expect(sound-options --sound-options)
 expect(graphics-options --graphics-options)
 expect(play-options --play-options)
+expect(player-name --player-name)
+expect(new-keyset --new-keyset)
 
-message(STATUS "fade_lut_check: 27 frames: level 11 = identity, level 13 differs; OK")
+message(STATUS "fade_lut_check: 29 frames: level 11 = identity, level 13 differs; OK")

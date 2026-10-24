@@ -75,10 +75,12 @@ add_library(gm_engine STATIC
     src/ui/player_setup_render.cpp
     src/ui/control_options_render.cpp
     src/ui/save_name_render.cpp
+    src/ui/player_name_render.cpp
     src/ui/ingame_menu_render.cpp
     src/ui/sound_options_render.cpp
     src/ui/graphics_options_render.cpp
     src/ui/play_options_render.cpp
+    src/ui/new_keyset_render.cpp
     src/res/bigfile.cpp
     src/res/bmp.cpp
     src/res/png.cpp

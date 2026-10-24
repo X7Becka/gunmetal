@@ -65,6 +65,8 @@
 #include "ui/player_setup_render.h"
 #include "ui/sound_options_render.h"
 #include "ui/play_options_render.h"
+#include "ui/new_keyset_render.h"
+#include "ui/player_name_render.h"
 #include "ui/graphics_options_render.h"
 #include "ui/control_options_render.h"
 #include "ui/lay_bucks_render.h"
@@ -4432,6 +4434,113 @@ int show_play_options(const gm::Options& options) {
     return 0;
 }
 
+// `--player-name [--player-name-player N] [--player-name-text NAME]
+// [--player-name-caret-pos N] [--player-name-no-caret] [--png OUT]`: screens
+// 24/25 (`ui/player_name_render.*`, docs/PLAYER_NAME_RENDER.md).
+int show_player_name(const gm::Options& options) {
+    gm::PlayerNameRenderOptions settings;
+    settings.player = options.player_name_player;
+    settings.name = options.player_name_text;
+    settings.caret = !options.player_name_no_caret;
+    settings.caret_pos = options.player_name_caret_pos;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kPlayerNamePanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "player_name", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::PlayerNameRenderStats stats;
+    if (!gm::render_player_name(std::filesystem::path(options.game), settings, rgba,
+                                 width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "player_name", error);
+        return 2;
+    }
+    std::printf("player_name: player=%d rows=%d chars=%d truncated=%d caret=%d "
+                "caret_px=%d ink=%d missing=%d arrows=%d\n",
+                settings.player, stats.rows, stats.chars, stats.truncated,
+                settings.caret ? 1 : 0, stats.caret_pixels, stats.ink_pixels,
+                stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--new-keyset [--new-keyset-text NAME] [--new-keyset-no-caret] [--png OUT]`:
+// screen 31, NAME OF NEW KEY SET (`ui/new_keyset_render.*`,
+// docs/NEW_KEYSET_RENDER.md).
+int show_new_keyset(const gm::Options& options) {
+    gm::NewKeysetRenderOptions settings;
+    settings.name = options.new_keyset_text;
+    settings.caret = !options.new_keyset_no_caret;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kNewKeysetPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "new_keyset", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::NewKeysetRenderStats stats;
+    if (!gm::render_new_keyset(std::filesystem::path(options.game), settings, rgba,
+                                width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "new_keyset", error);
+        return 2;
+    }
+    std::printf("new_keyset: rows=%d chars=%d truncated=%d ink=%d missing=%d "
+                "arrows=%d\n",
+                stats.rows, stats.chars, stats.truncated, stats.ink_pixels,
+                stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
 // `--keycfg NAME [--no-plate] [--png OUT]`: screen 30, the key-set viewer
 // (`ui/keycfg_render.*`, docs/KEYCFG_RENDER.md).  NAME is a set name resolved
 // under `KEYCFG/` (with or without `.key`) or a path.
@@ -5206,6 +5315,12 @@ int main(int argc, char** argv) {
     }
     if (options->play_options) {
         return show_play_options(*options);
+    }
+    if (options->player_name) {
+        return show_player_name(*options);
+    }
+    if (options->new_keyset) {
+        return show_new_keyset(*options);
     }
     if (!options->hud_lut_dump.empty()) {
         return show_hud_lut_dump(*options);

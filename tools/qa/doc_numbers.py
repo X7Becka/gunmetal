@@ -2036,7 +2036,7 @@ def c_key_corpus(env):
 # ==========================================================================
 # docs/CLI.md
 # ==========================================================================
-@check("CLI", "199 опции парсера, все есть в --help", "199")
+@check("CLI", "207 опции парсера, все есть в --help", "207")
 def c_cli_options(env):
     root = os.path.dirname(env.docs.rstrip("/"))
     source = os.path.join(root, "engine", "src", "core", "config.cpp")
@@ -2045,7 +2045,7 @@ def c_cli_options(env):
     with open(source, encoding="utf-8") as fh:
         text = fh.read()
     options = sorted(set(re.findall(r'"(--[a-z0-9-]+)"', text)))
-    ok = len(options) == 199
+    ok = len(options) == 207
     return str(len(options)), ok, "уникальных опций в парсере (docs/CLI.md)"
 
 
