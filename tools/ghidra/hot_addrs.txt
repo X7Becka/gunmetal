@@ -1,0 +1,87 @@
+# Hottest decompiled function starts (2026-10-20..24), used to seed fncache.
+#
+# Derived (read-only) from the OpenCode session DB: count every
+# ghidra.decompile_function call per address, keep addresses that Ghidra
+# reports as function starts, then take the top 50.  Regenerate with:
+#
+#   python3 - <<'PY'
+#   import sqlite3, json, re, collections, subprocess, sys
+#   con = sqlite3.connect('file:~/.local/share/opencode/opencode.db?immutable=1', uri=True)
+#   freq = collections.Counter()
+#   def walk(o):
+#       if isinstance(o, dict):
+#           name = o.get('name') or o.get('tool') or ''
+#           st = o.get('state')
+#           inp = (st.get('input') if isinstance(st, dict) else None) or o.get('input') or {}
+#           if name == 'ghidra.decompile_function':
+#               for a in re.findall(r'0x[0-9a-fA-F]{5,8}', json.dumps(inp)):
+#                   freq[int(a, 16)] += 1
+#           for v in o.values(): walk(v)
+#       elif isinstance(o, list):
+#           for v in o: walk(v)
+#   for (data,) in con.execute('select data from session_message'):
+#       if 'decompile_function' in data:
+#           walk(json.loads(data))
+#   out = subprocess.run([sys.executable, 'tools/ghidra/mcp.py', 'symbols', '.*',
+#                         '--functions', '--limit', '10000'],
+#                        capture_output=True, text=True).stdout
+#   starts = {int(s['address'], 16) for s in json.loads(out)['symbols']
+#             if s.get('type') == 'Function'}
+#   for a, c in freq.most_common():
+#       if a in starts:
+#           print(f'0x{a:06x}  # {c} decompiles')
+#   PY
+#
+# Refresh the cache with:
+#   python3 tools/ghidra/fncache.py warm --file tools/ghidra/hot_addrs.txt
+
+0x443690  # 21 decompiles
+0x4752d0  # 17 decompiles
+0x46d8b0  # 12 decompiles
+0x470c70  # 10 decompiles
+0x470500  # 10 decompiles
+0x470b20  # 10 decompiles
+0x47a980  # 9 decompiles
+0x457390  # 9 decompiles
+0x453b50  # 9 decompiles
+0x46ea40  # 8 decompiles
+0x477280  # 8 decompiles
+0x470290  # 8 decompiles
+0x4795b0  # 7 decompiles
+0x473a00  # 7 decompiles
+0x460040  # 7 decompiles
+0x4703a0  # 7 decompiles
+0x4453d0  # 6 decompiles
+0x478520  # 6 decompiles
+0x44d4c0  # 6 decompiles
+0x477f90  # 5 decompiles
+0x4799b0  # 5 decompiles
+0x466ae0  # 5 decompiles
+0x44f960  # 5 decompiles
+0x478b30  # 5 decompiles
+0x479810  # 5 decompiles
+0x8534c0  # 5 decompiles
+0x45fa00  # 4 decompiles
+0x473240  # 4 decompiles
+0x474ea0  # 4 decompiles
+0x4536e0  # 4 decompiles
+0x452730  # 4 decompiles
+0x44fad0  # 4 decompiles
+0x452670  # 4 decompiles
+0x454180  # 4 decompiles
+0x478be0  # 4 decompiles
+0x470420  # 4 decompiles
+0x476070  # 4 decompiles
+0x476830  # 4 decompiles
+0x450f50  # 4 decompiles
+0x409330  # 4 decompiles
+0x479960  # 3 decompiles
+0x463ab0  # 3 decompiles
+0x4690f0  # 3 decompiles
+0x4524d0  # 3 decompiles
+0x4746b0  # 3 decompiles
+0x476a50  # 3 decompiles
+0x453120  # 3 decompiles
+0x437909  # 3 decompiles
+0x4698b0  # 3 decompiles
+0x46d000  # 3 decompiles

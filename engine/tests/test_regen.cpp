@@ -84,14 +84,6 @@ int gauge_sum(const gm::Vitals& vitals) {
     return sum;
 }
 
-int shield_sum(const gm::Vitals& vitals) {
-    int sum = 0;
-    for (const std::int32_t shield : vitals.shields) {
-        sum += shield;
-    }
-    return sum;
-}
-
 bool gauges_within_max(const gm::Vitals& vitals) {
     if (vitals.armor < 0 || vitals.armor > vitals.armor_max) {
         return false;

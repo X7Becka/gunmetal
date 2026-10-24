@@ -1387,3 +1387,472 @@
   только через `Lift::cabin_sector/cabin_object`.
 - **Гейты:** `ctest` **184/184**, `regress --full --mirror` **125/125**,
   `build/warn` — без предупреждений.
+
+## Ход 2026-10-23 (партия 39: найден и исправлен перевёрнутый текст пагера)
+
+- **Баг рендера пагера (мой прошлый вывод «текст читается» был неверным).**
+  `pager_render` писал строку 0 глифа последней в ячейке
+  (`y + cell_height − 1 − row`) → каждый глиф зеркалился по вертикали, а
+  `ink_pixels` не менялся, поэтому тест молчал. Источник истины: `0x47faf0`
+  пишет строку 0 в целевую и идёт вниз (`gm/hud.py::draw_text`,
+  `docs/HUD_AUDIT.md` §2.9). Исправлено на `y = page_y + line.y + row`.
+- **Регрессия теперь ловится:** `test_glyph_orientation` рендерит `<d>L</d>`
+  и сравнивает профиль чернил по строкам с растром глифа из атласа.
+  Проверено обоими прогонами: с перевёрнутым порядком — 4 расхождения
+  (FAIL), с правильным — 0.
+- Визуальная проверка после фикса: `help.sme` стр. 2 читается корректно
+  («DEFAULT CONTROLS», «Arrow Keys - Move», «PgUp/PgDn - Look up»).
+- **`M8.2` срез 2 — рендер меню:** `engine/src/ui/menu_render.*` +
+  `docs/MENU_RENDER.md` (CTest `menu_render`, `cli_menu_png`), CLI
+  `--menu --png OUT`: панель `PLATE` 196×131, шрифты 0/4/5, подсветка;
+  MAIN 7 пунктов / ink 638, CONTROL OPTIONS 10 / 1466, QUIT GAME? 2 / 228;
+  все 34 экрана (26 с пунктами) — 29 916 ink; визуально проверено.
+- **Гейты:** `ctest` **187/187**, `regress --full --mirror` **125/125**.
+
+## Ход 2026-10-23 (партия 40: фон HELPSCRN и fade)
+
+- **`M8.1` срез 4.** `--pager --background` кладёт `HELPSCRN` (запись 46,
+  320×200, `FRONTEND/BMP.IDX`) под текст; хеш панели побайтово равен
+  `flipV(parse_bmp)`, ориентация доказана читаемыми заголовками (`HELP`,
+  `LOADING`, `MISSION OBJECTIVES`); найдены также `BRIEFBG2` (14) и
+  `LOADPAGE` (56). `--fade N` — кривая `0x682f90` (`k/11`, 0 — чёрный,
+  11/15 — тождество); пересчёт цвета в индекс не разобран, поэтому LUT —
+  модель `(v·k+5)/11` (макс. 75→34 при `k=5`).
+- Старый путь (`--png` без флагов) **побайтово тот же** — проверено на
+  `help.sme` стр. 2 (`ink=3905`, sha256 совпал).
+- Сабагент независимо нашёл тот же дефект перевёрнутых глифов (по `F`/`L`/`T`)
+  и не стал править молча; после моего фикса §5/§6 дока обновлены —
+  `test_glyph_orientation` ловит переворот (4 расхождения).
+- Визуально проверено: страница 2 читается на реальном фоне `HELPSCRN`
+  (лого `HELP`, красная рамка, стрелки), текст не перевёрнут.
+- **Гейты:** `ctest` **189/189**, `regress --full --mirror` **125/125**.
+
+## Ход 2026-10-23 (партия 41: загрузка сейва, виджеты меню, DM, оборудование, звуки, апскейл)
+
+Семь сабагентов параллельно; пять влиты в этом ходе (полигоны — следующим).
+
+- **`M8.7`/`M9` — сейв → живое состояние.** `game/save_load.*` +
+  `docs/SAVE_LOAD.md` (CTest `save_load`, CLI `--save-load SLOT
+  [--save-load-ticks N]`): уровень из заголовка, позиция/yaw/виталы/ammo/
+  `SECTOR_STUFF` реально попадают в `GameRuntime` и `SimPlayer`; `saved0`
+  → `(1116.174, 798.208, 48.000)`, yaw 5.073615, броня 10000, щиты 8000×4,
+  ammo 2000,90, 13/256 активных; 60 тиков детерминированы (два дайджеста),
+  15–16 полей в `unsupported` — без выдуманных значений.
+- **`M8.2` срез 3 — виджеты.** `menu_render` рисует `SLIDE`/`KNOB`/
+  `CHECK`/`NOCHECK`/`MENUARRW`: CONTROL OPTIONS 9 виджетов / ink 5752
+  (текст 1466 + 4286), слайдер 0/mid/max — 121/121/126 пикселей разницы,
+  чекбокс 128, стрелка (поворот 180°) 56; SOUND/GRAPHICS/PLAY — 3/2/6
+  виджетов. Формула бегунка — модель (оригинал едет 54 px от `x+1`).
+- **`M9.2` — правила DM.** `game/dm_state.*` + `docs/DM_STATE.md` (183
+  проверки): режимы 0..3, флаги `0x01..0x20`, `+1` убийце, team kill `−1`,
+  suicide `−1`, респавн **136 тиков**, 8 слотов, гандикап 18 точек —
+  0 расхождений с `tools/re/dm_rules.py`.
+- **`M6.2.4` — оборудование.** `game/equipment_state.*` (13/12 записей,
+  12 доступных, предел 31, события всех 13 записей, `BALLAST` по биту,
+  `MINE LAYER` снимает бит при ammo 0).
+- **`M7.6` — политика звуков.** `audio/sound_policy.*`:
+  `sounds` → `music` → missing, `-1`/`-2`, один `Warn` на ключ, тишина не
+  падение; `level0` 137/137/0/0, `dm1` 135/135/0/0.
+- **`M8.5` — апскейл/fade.** `render/upscale.*`: nearest 1..8 (5 378 000
+  точек, 0 несовпадений), LUT fade (0 — чёрный, 11 — тождество, 1..10
+  монотонно). Новый факт: уровни 12..15 **не** почти-тождественны
+  (132/73/48/45) — прежняя формулировка опровергнута.
+- **Аудит:** + `SAVE_WRITE_CPP`, `PAGER_RENDER`, `MENU_RENDER` — **56/56
+  по 22 докам**.
+- **Гейты:** `ctest` **197/197**, `regress --full --mirror` **125/125**.
+
+## Ход 2026-10-24 (партия 42: Ghidra — кэш, имена, структуры)
+
+- **Кэш декомпилятора.** `fncache.py`: `invalidate`/`invalidate_dependents`
+  (переименование 0x47a980 чистит и 0x45280f, который её вызывает),
+  `invalidate_all` (после типов), `warm --file` / `--cached`, `stats --json`,
+  `stale`, `selftest`. `mcp.py decompile` для числовых адресов читает и
+  пишет кэш (`--refresh`, `--no-cache`); нативные `tools.ghidra.*` — нет.
+  Итог: 232 записи / 1409 КиБ, `stale: 0` (было 205/210 без plate-комментария).
+- **История запросов.** `tools/ghidra/hot_addrs.txt` — 50 самых частых
+  function-start адресов из базы сессий (20–24.10); прогреты, покрытие
+  исторических адресов выросло с 61/260 до 232 записей.
+- **Имена.** Исправлен битый CSV (literal `\n` склеивал две строки, 9 строк
+  с незакавыченными запятыми), добавлены `kind=label` (6 внутренних адресов
+  без границы функции), разведена коллизия `damage_thing`: реализация —
+  `0x470500`, обёртка — `0x478b30 damage_thing_wrapper`. Добавлены 13
+  горячих имён (camera_spring, thing_tick, projectile_tick, thing_destroy,
+  chassis_spawn и др.). `apply_names --check --json` — 0 missing.
+- **Структуры.** `typegen.py` разбирает `THING_FIELDS` §3/§4 и
+  `PLAYER_FIELDS` §3, проверяет размеры 0x528/0x3a8/0x3510 и генерирует
+  `gm_types.h`; `apply_types.py` (pyghidra, проект закрыт) импортирует типы,
+  создаёт `things[260]`, `thing_types[128]`, `players[8]`, сохраняет ярлыки
+  документированных адресов и пишет `docs/re/ghidra/types_report.md`.
+  Результат на 5 горячих функциях: `&DAT_…` 994 → 0, поля
+  `things[i].flags_b`, `players[i].pose`; 274 типа в проекте.
+- **Гейты.** `state.py --check` теперь ловит расхождение имён и `stale` кэш;
+  `regress --category names` 1/1; `fncache selftest` ok; `typegen --check`
+  ok. Документация: `docs/GHIDRA.md` §3.1/§4.1/§5.2/§5.3, `RE_METHOD` §3/§6/§9,
+  `AGENTS.md` (кэш/типы), `RE_AUDIT` §2/§5/§8, `ROADMAP` M2.1.6–M2.1.8.
+
+## Ход 2026-10-24 (партия 42: LOS, поток смерти, звуки UI, экономика, кампания, полигоны)
+
+- **Влито 6 веток** (все — новые файлы + `CMakeLists.txt`):
+  `feat/gameflow` (`game/game_flow.*`) — смерть 136 тиков → `respawn_due`
+  на 137-м → `alive` на 273-м, трасса FNV-1a `5ea7d56985d1a5b9`;
+  `feat/los` (`game/line_of_sight.*`) — центральный луч, `level0` 313.6367
+  и стены t=56/72/336/80, `dm1` 2504.3961 и t=826.679/400/1964.061/399,
+  батч 10 целей 6/4; `feat/uisounds` (`ui/ui_sounds.*`) — 306 планов по 34
+  экранам, 1230 проверок, записи `SOU.IDX` 581/510/511/425/804/636;
+  `feat/economy2` (`game/economy_state.*`) — цены/масса `level0`/`dm1`
+  сходятся с §12 (1 100 000; 2185/1335), 353 проверки; `feat/campaign2`
+  (`game/campaign_state.*`) — счётчик 1→25 по 24 миссиям, 66 сайтов,
+  `GUNMETAL.HI` round-trip (576 Б / 9 записей), 258 проверок;
+  `feat/poly` (`tools/editor/sbwpoly.py`) — self-test 118/118,
+  round-trip 36/36 (235 069 полигонов), правки `level0` 1/11/120/2 байта.
+- **Гейты:** `ctest` **202/202** (188 quick + 14 full, 237 с),
+  `regress --full --mirror` **125/125** (96,9 с, 6 из кэша),
+  `regress --mirror` **115/115**, `build/warn` — 0 предупреждений
+  `gm_engine`. Убраны неиспользуемые хелперы из трёх тестов
+  (`moving_collider`, `door_collision`, `regen`).
+- **Аудит чисел:** + `SBW_POLY`, `CAMPAIGN_STATE`, `UI_SOUNDS_STATE` —
+  **59/59 по 25 докам**, `--strict` rc=0.
+- **Доки:** исправлены `UI_SCREENS.md` §3 (маскированные блиты одного
+  спрайта, шаг строки 0xc4, `0x67f0c8` — буфер `KNOB`) и
+  `PAGER_RENDER.md` §2.5 (уровни fade 12..15 не тождественны:
+  132/73/48/45 совпадений по дампу `hud_lut.bin`).
+- **Запущена партия 43 (4 агента):** `chassis_physics` (M6.1.1),
+  `camera_model` (M6.1.6), `pickup` (M6.2.6 срез 3), `collide_grid`
+  (broad-phase без изменения результата).
+
+## Ход 2026-10-24 (партия 43–44: шасси, камера, подбор, broad-phase, цели, кадры эффектов, перепись, туман, брифинги, сохранения, фаззинг)
+
+- **Влито 12 веток** (все — новые файлы + `CMakeLists.txt`):
+  `feat/chassisphys` (`game/chassis_physics.*`) — 8 `double`
+  сверены **616/616** записей 36 уровней, плато 1547.00/1137.50/1365.00,
+  `t90` 0.2527/0.3187/0.6374 с, подвеска 0.5 → затухание 17.2×;
+  `feat/camera2` (`render/camera_model.*`) — cockpit/chase/orbit, тряска
+  seed `0x9E3779B9` (0 на 64-м тике);
+  `feat/pickup2` (`game/pickup.*`, 256 проверок) — кламп брони 10000,
+  щиты 25/25/25/25, патроны 5000, масса-граница 500;
+  `feat/cgrid` (`render/collide_grid.*`) — паритет `500/500` лучей
+  (`max_delta=0`) на `level0`/`dm1`, кандидатов 0.79 %/0.56 %, 3.3–4×;
+  `feat/objmask` (`game/objectives.*`, 537 проверок) — `declare(0..30)`,
+  условие 7, секреты 101/105;
+  `feat/fxframe` (`render/fx_frame.*`) — 6117/133/18/6135, 49/48 серий,
+  1274 ссылки, 0 неразрешённых; исправлено `EFFECTS.md` §3.1
+  (`handle>=1`, а не `link_sector!=0`: 18 против 10);
+  `feat/census` (CTest `world_census`) — `28192/235069/357818/1779/3964/45`
+  за 2.3 с, два прохода побитово равны;
+  `feat/fogcpp` (`render/fog.*`, 99 проверок) — `z=1→62`, `59→4`,
+  таблица `0 mismatches/65536`; найден баг оракула: `fog.py` читал
+  палитру как `B,G,R` — исправлено, цвета в `FOG.md` §4 поправлены;
+  `feat/briefing` (`ui/briefing.*`) — 25 уровней / 58 страниц / 727 строк /
+  33 284 глифа, текст 25/25 совпал с Python;
+  `feat/menusave` (`ui/save_menu.*`, 131 проверка) — 20 слотов, 6 видимых,
+  `first(0,5,6,19)=(0,0,1,13)`, слот 19 недостижим;
+  `feat/fuzzsaves` (`tools/qa/fuzz_saves.py`) — **495 кейсов, 0 падений,
+  0 зависаний, 0 ASan** (+ ASan-прогон 495/495, 160.6 с).
+- **CLI:** `--png-scale N` (1..8) для `--menu/--pager --png` (M8.5):
+  `--menu` x3 → 960×600 (2 304 843 Б), пагер x2 → 640×400 (1 024 543 Б);
+  `--fade N` теперь и для меню (fade до зума); исправлено `--menu --png`
+  без `--menu-keys` (PNG не писался); `--briefing LEVEL [--briefing-text]`
+  (M8.3): `level1` = 2 страницы / 20 строк / 910 глифов.
+- **Гейты:** `ctest` **215/215** (242 с), `regress --full --mirror`
+  **125/125** (82,4 с), `regress --mirror` **115/115**, ASan **216/216**
+  (562 с), `build/warn` — 0 предупреждений `gm_engine`,
+  `install_audit` — ok, фаззинг форматов **723** кейса 0 падений,
+  аудит чисел **63/63 по 29 докам**, `state.py --check` зелёный.
+- **Доки:** новые `CHASSIS_PHYSICS`, `CAMERA_MODEL`, `PICKUP_STATE`,
+  `COLLIDE_GRID`, `OBJECTIVES_STATE`, `FX_FRAME`, `WORLD_CENSUS`,
+  `FOG_CPP`, `BRIEFING`, `SAVE_MENU`, `FUZZ_SAVES`; `AUDIT_NUMBERS` +7
+  проверок; `INDEX` перегенерирован.
+
+## Ход 2026-10-24 (партия 45–46: туман, брифинги, сохранения, `.sob`/`.sml`/`.soa`, скролл UV, оборудование, рекорды, иконки, кокпит, выбор уровня)
+
+- **Влито ещё 9 веток:** `feat/fogcpp` (`render/fog.*`, 99 проверок;
+  `z=1→62`, таблица `0/65 536` расхождений; найден баг оракула —
+  `fog.py` читал палитру как `B,G,R`, исправлено вместе с цветами
+  `FOG.md` §4); `feat/briefing` (`ui/briefing.*` — 25 уровней/58 страниц/
+  727 строк/33 284 глифа) + CLI `--briefing/--briefing-text`;
+  `feat/menusave` (`ui/save_menu.*`, 131 проверка, слот 19 недостижим);
+  `feat/fuzzsaves` (`tools/qa/fuzz_saves.py` — 495 кейсов, 0 падений,
+  0 зависаний, ASan 495/495); `feat/sobwrite` (round-trip **672/672**,
+  правка `TICK.sob` 2 байта, движок видит `bounds 18→60`);
+  `feat/smlwrite` (re-encode **151/151** `.sme` побайтово, 131/147 пар,
+  14 редакций + 2 CRLF задокументированы); `feat/texanim`
+  (`render/texture_anim.*`: 2917/235 069 полигонов со скроллом,
+  max 15 224/10 000, 114 пар); `feat/equipact` (`game/equipment_act.*`:
+  434 записи, маска `0xfff`, расход `ammo[E8] -= E7*ticks`, одно
+  `no_ammo`; вес `BALLAST` 850/2000); `feat/records` (`ui/records.*`,
+  155 проверок: минимум по имени `TESTING RANGE=18`, `KELLER CORE=1570`,
+  `NATAKA TOWER=7`).
+- **`feat/hudicons2`** (`render/hud_icons.*`, 296 проверок): 143 записи
+  `BMP.IDX`, 19/19 оружия и 12/12 экипировки 24×24, компас-модель.
+- **`feat/cockpit`** (`render/cockpit.*`, 68 проверок): панель 21 196 px
+  (0 отличий от блита), иконки/цифры/тяга/компас; CLI `--hud-png` +
+  `--hud-weapon/--hud-ammo/--hud-armor/--hud-kills/--hud-speed`
+  (320×200, 256 283 Б).
+- **`feat/levelsel`** (`ui/level_select.*`, 407 проверок): 36 записей,
+  `counter` 1/8/17/25 → 7/15/27/36 доступно, времена из `GUNMETAL.HI`;
+  поправка: компаратор `0x48b350` не складывает регистр — «`LEVEL*`
+  первыми» на строчных именах не работает.
+- **Гейты:** `ctest` **230/230** (237,4 с), `regress --full --mirror`
+  **125/125** (79,9 с), `regress --mirror` **115/115**, ASan **226/226**
+  на предыдущей партии (повторный прогон идёт), `build/warn` —
+  0 предупреждений `gm_engine`, `install_audit` ok, фаззинг форматов
+  723 кейса, фаззинг сейвов 495/495, аудит чисел **66/66 по 32 докам**.
+- **Доки:** + `FOG_CPP`, `BRIEFING`, `SAVE_MENU`, `FUZZ_SAVES`, `SOB_WRITE`,
+  `SML_WRITE`, `TEXTURE_ANIM`, `EQUIPMENT_ACT`, `HI_SCORES`,
+  `HUD_ICONS_CPP`, `COCKPIT`, `LEVEL_SELECT`, `WORLD_CENSUS` (итого 12
+  новых); `INDEX` перегенерирован.
+
+## Ход 2026-10-24 (партия 47–48: `.soa`/`.sub`, KILLED, плейлисты, конфиг, объёмные запросы)
+
+- **Влито 6 веток:** `feat/soawrite` (`tools/editor/soawrite.py` — round-trip
+  **104/104** `.soa`, 8 573 Б, 839 имён; правка `Flash3.soa` кадр 2 → 98 мс
+  = 2 байта, C++ видит `period: 38 (34 ticks)`); `feat/sub` (`res/sub.*` —
+  119/64/161 строк, `level0` 15 подстановок из 381 текстуры; важная
+  поправка: `.sub` — это `weight + имена`, а не индексы, `20`/`16` — класс
+  RAM; `FORMATS.md` §8.2 исправлен); `feat/killed` (`ui/killed.*` —
+  `.skb` 2338 Б/69 строк, `.skk` 1967 Б/50, фильтр `0<strlen<0x20` =
+  1..30 видимых байт, 138 замен `%S`, `pick = seed % n`; CLI `--killed`,
+  `--killed-all`, `--killed-seed`: seed 999 → «PLAYER SENDS PLAYER TO THE
+  BONEYARD.», 69 строк); `feat/playlist` (`audio/playlist.*` — 651 `.sog`
+  (598+53), `MUSIC/SOU.IDX` 3092, 5211 имён → 5088 резолвится, 123
+  вхождения/95 имён/25 песен отсутствуют, 998 дубликатов); `feat/cfg`
+  (`game/game_cfg.*` — 8192 Б round-trip, шапка `av1.93`+`0x1A`, 16 полей:
+  `music=16 effect=20 800x600x8 border=3 gamma=1 light_maps=2 camera=1`,
+  13 сеттеров, ≤2 байт на правку); `feat/overlap`
+  (`render/collide_overlap.*` — SAT по 13 осям + расстояние до
+  треугольника; паритет 2000/2000 синтетики, 240/240 коробок и 120/120
+  сфер на `level0`/`dm1`; полы/стены/потолки 558/2082/522; найден баг
+  Мёллера–Трамбура на ребре в плоскости).
+- **Гейты:** `ctest` **237/237** (264,7 с), `regress --full --mirror`
+  **125/125** (110,5 с), `regress --mirror` **115/115**, аудит чисел
+  **71/71 по 37 докам**, `state.py --check` зелёный, ASan — 231/231 на
+  предыдущей партии, повторный прогон идёт.
+- **Доки:** + `SOA_WRITE`, `SUB_CPP`, `KILLED`, `PLAYLIST`, `GAME_CFG`,
+  `COLLIDE_OVERLAP`; `FORMATS.md` §8.2 (`.sub`/`.cfg`), `ROADMAP` M7.5/
+  M12.5/M6.4.1/M11.5.
+
+## Ход 2026-10-24 (партия 49: точные fade-таблицы, save-action, `.sog`/`.sof`/`.soo`)
+
+- **Влито 5 веток:** `feat/hudlut` (`render/hud_lut.*` — дамп `0x682f90`
+  4096 Б, FNV `6330406254771f3d`; уровни 12..15 — **132/73/48/45**
+  индексных тождеств, 11 — 254/256; модель `fade_rgba` совпадает только
+  на концах: 0 → 236/256, 11 → 256/256); `feat/saveaction`
+  (`game/save_action.*`, 76 проверок: `save` слота 0 → 243 368 Б,
+  sha256 `e39c0c35…`, `load` → `level0`/`(1116.173752,798.207621,48.0)`;
+  запись в установку — `refused_write` с неизменным sha256);
+  `feat/sogwrite` (`tools/editor/sogwrite.py` — round-trip **651/651**
+  (598 `.sog` + 53 `.SOG`), 43 205 Б, self-test 41/41; правка
+  `Dm1A.sog` → `winner` 6 байт, C++ `--playlist` видит её);
+  `feat/sofwrit` (`.sof` — round-trip **48/48**, 95 330 304 Б,
+  11 637 кадров; правка пикселя = 1 байт, `--film` FNV меняется);
+  `feat/soowrite` (`.soo` — **40/40**, 3 416 Б, 264 кадра; правка
+  `dur2=70` = 1 байт, `--anim` меняет PNG).
+- **CLI:** `--best-times` (9 строк `GUNMETAL.HI`, 7 имён, минимум
+  `TESTING RANGE=18`), `--playlist FILE` (`Dm1B.sog`: 8/7/1,
+  236 876 Б), `--killed`/`--killed-all`/`--killed-seed` (ранее).
+- **Гейты:** `ctest` **243/243** (266 с), ASan **244/244** (549,5 с),
+  `regress --full --mirror` **125/125** (93,3 с), `regress --mirror`
+  **115/115**, `build/warn` — 0 предупреждений `gm_engine`,
+  `install_audit` ok, фаззинг сейвов 0 падений, аудит **75/75 по
+  41 докам**, `state.py --check` зелёный.
+- **Доки:** + `HUD_LUT`, `SAVE_ACTION`, `SOG_WRITE`, `SOF_WRITE`,
+  `SOO_WRITE`; `INDEX` перегенерирован.
+
+## Ход 2026-10-24 (партия 50: PNG брифинга, `.soe`/`.sni`)
+
+- **Влито 2 ветки:** `feat/briefpng` (`ui/briefing_render.*` — кадр
+  320×200 через пагер; **0 отличающихся пикселей** от прямого
+  `render_page`; корпус 25 брифингов = 58 страниц/727 строк/33 284 глифа,
+  `missing=0`, ink 344 505; `level0a` страницы различаются 3216/2333/3279 px,
+  `--background` меняет 61 786 px, fade 11 — тождество, 0 — чёрный);
+  `feat/soewrite` (`tools/editor/soewrite.py` — round-trip **2/2**
+  (`.soe` 340 Б/67 токенов, `.sni` 3 Б), self-test 51/51; правка токена 47
+  `200→250` = **1 байт**, C++ `parse_soe` видит 250).
+- **CLI:** `--briefing LEVEL --png OUT [--page N] [--background] [--fade K]
+  [--png-scale N]` — `level1` стр. 1: `15 строк / 719 глифов / ink 7214`,
+  PNG 256 283 Б; CTest `cli_briefing_png`, `_page2`, `_bad_page`, `_scale`.
+- **Гейты:** `ctest` **248/248** (262,8 с), ASan **249/249** (547,1 с),
+  `regress --full --mirror` **125/125** (93,8 с), `regress --mirror`
+  **115/115**, аудит **76/76 по 42 докам**, `state.py --check` зелёный.
+
+## Ход 2026-10-24 (партии 51–54: экраны 13/14/17, архивы SBM/BMP, HI/KILLED/KEY)
+
+- **Экраны фронтенда в PNG:** `ui/level_select_render.*` (экран 17, плата
+  `PLATE` 196×131, окно `clamp(selected-5,0)`, `ink=1305`), `ui/save_menu_render.*`
+  (экран 14: 6 строк, `y=28` шаг 12, `ESC (38,101)`, `ink=917`),
+  `ui/start_game_render.*` (экран 13: 8 строк, пункты `(35,23)`/`(35,33)`,
+  слоты `y=44+11i`, `ESC (35,110)`, `ink=1608 arrows=1`); стрелки `MENUARRW`
+  доказаны (`0x485cc0` вниз / `0x485d00` вверх, колонка 159, строки 2/121,
+  41 px). CLI: `--level-select`, `--save-menu`, `--start-game`.
+- **Действие сейва:** `--save-action save|load` (слот 0 → `level0`,
+  `feet=(1116.173752,798.207621,48.0)`, `blocks=15`, `sector_stuff=13`;
+  запись 243 368 Б, sha256 `e39c0c35…`).
+- **Писатели:** `sbmwrite.py` (2 архива, 1827 записей, 46 525 219 Б,
+  round-trip 2/2), `bmpwrite.py` (`FRONTEND/BMP.IDX`: 143 записи,
+  2 845 582 Б, round-trip 1/1, extract/replace), `hiwrite.py`
+  (`GUNMETAL.HI` 576 Б = 9×0x40, round-trip 1/1), `killedwrite.py`
+  (`.skb`/`.skk` round-trip 2/2, 69/50 принятых строк), `keywrite.py`
+  (3 `.key` по 376 Б, round-trip 3/3; хвост 112 Б — гипотеза).
+- **Гейты:** `ctest` **266/266** (266,6 с), `regress --full --mirror`
+  **125/125**, аудит **81/81 по 47 докам**, `install_audit` ok, ASan —
+  прогон после влития (прошлый 263/263), `state.py --check` зелёный.
+
+## Ход 2026-10-24 (партии 55–56: экран 30, точный fade, строитель LUT, things)
+
+- **Экран 30:** `ui/keycfg_render.*` (31 строка/шаг 8/`x=5`, окно
+  `max(0,cursor-5)` ≤ 21, стрелки 41 px; `PERFECT` — 29 имён, ink 2659),
+  CLI `--keycfg NAME --png OUT` + 4 CTest.
+- **Точный fade:** `PageRenderOptions::fade_lut*` + `BriefingRenderOptions`
+  (`--pager/--briefing --fade-lut N`): уровень 11 — **0 отличий** от кадра
+  без fade (пагер и брифинг), 12..15 различаются (пагер 40 747/56 593/45 025;
+  брифинг 39 238/52 240/46 118), модель по-прежнему клампит; CTest
+  `cli_fade_lut` через `cmake -E compare_files`.
+- **Строитель `0x682f90` разобран:** `tools/re/lut_build.py` строит
+  **4096/4096** байт (FNV `0x6330406254771f3d`, self-test 59/59): `k/11`
+  double, усечение, 6-битная палитра, 20 слотов исключений. Дамп больше не
+  единственный источник.
+- **Связка things:** `world/thing_anim.*` (клип = `Sobanim/<model>.soo`,
+  кадр через `soo_pose_at_tick`; 40 файлов/261 загружаемый кадр, `level13`
+  — 10 из 267 things).
+- **CLI-док:** `docs/CLI.md` + полное покрытие `--help` (123 опции; раньше
+  11 опций `--hud*`, `--lm-world`, `--spawn-*` отсутствовали в подсказке).
+- **Гейты:** `ctest` **273/273** (276,6 с), ASan **274/274** (597,2 с),
+  `regress --full --mirror` **125/125**, аудит **84/84 по 50 докам**.
+
+## Ход 2026-10-24 (партии 57–59: fade во всех кадрах, FILESLOT, редактор наборов)
+
+- **Точный fade во всём фронтенде:** `fade_lut*` добавлен в `menu_render`,
+  `level_select_render`, `save_menu_render`, `start_game_render`,
+  `keycfg_render`; CLI `--fade-lut K` общий для `--menu/--level-select/
+  --save-menu/--start-game/--keycfg/--pager/--briefing`. Уровень 11 — **0
+  отличий** от кадра без fade на всех 7 кадрах, 12..15 различаются (экран 13:
+  17 315/22 823/20 803); `cli_fade_lut` и `cli_fade_lut_built` (без дампа,
+  таблица из `GAMEPAL`) через `cmake -E compare_files`.
+- **C++-строитель LUT:** `build_hud_lut()` — 4096/4096 от дампа; уточнено,
+  что `0x40e0e0` меняет только RC (PC=53), поэтому double-модель точна.
+- **FILESLOT:** полосы 124×10 на экранах 13 `(35,43+11i)` и 14
+  `(38,27+12i)`; 6708 изменённых пикселей на 6 полос, `ink` не меняется.
+- **Экран 30:** курсор/окно `max(0,cursor-5)`/`top ≤ 21` (CLI
+  `--keycfg-cursor`) и редактор 34/35 (подсказка `Enter changes, Delete
+  clears`, подсветка ячейки, конфликт `%s has been used twice` в `y 109`).
+- **Модуль HUD-overlay:** `render/hud_overlay.*` (261 проверка, паритет с
+  прежним `overlay_hud` побайтово; `main.cpp` переведён на модуль).
+- **Golden-сценарии `--sim`:** 5 сценариев/9 прогонов, детерминизм 9/9,
+  `docs/SIM_SCENARIOS.md`.
+- **Гейты:** `ctest` **280/280** (271,9 с), ASan (прогон после влития),
+  `regress --full --mirror` **125/125**, аудит **84/84 по 50 докам**.
+
+## Ход 2026-10-24 (партия 60: экраны 6/21/33/37 + CLI и fade на 13 кадрах)
+
+- **Новые кадры:** `ui/local_players_render.*` (экран 21: 3 пункта по две
+  строки 27/36, ink 936), `ui/quit_render.*` (33: `QUIT GAME?` 2 строки
+  ink 228 / `QUIT OPTIONS` 3 строки ink 576), `ui/video_mode_render.*`
+  (37: `Yes`/`No` 27/43, ink 356), `ui/restart_render.*` (6: 2..4 пункта
+  `x 10`, `y=27+16i`, ink 585/898/1132).
+- **CLI:** `--local-players [--local-players-cursor N]`, `--quit
+  [--quit-in-game] [--quit-cursor N]`, `--video-mode [--video-mode-cursor N]`,
+  `--restart [--restart-items N] [--restart-cursor N]`; всего **142 опции**
+  парсера, все в `--help`.
+- **Точный fade:** `cli_fade_lut` теперь сверяет **13 кадров** (уровень 11 =
+  побайтово без fade, 13 ≠ без fade), в том числе без дампа
+  (`cli_fade_lut_built`).
+- **Гейты:** `ctest` **301/301** (264,2 с), `regress --full --mirror`
+  **125/125** (179,8 с), аудит **84/84 по 50 докам**, ASan — прогон после
+  влития.
+
+## Ход 2026-10-24 (партия 61: экраны 18/22, `--things-anim`, 15 кадров fade)
+
+- **Экран 18** (`ui/video_mode_list_render.*`): `SELECT VIDEO MODE` (y 11),
+  `Press Esc to close` (y 20), окно 10 строк `y = 29+9i`, стрелки 41 px;
+  таблица 15 режимов — **модель** (`EnumDisplayModes`+Glide, доказаны лишь
+  правила/тексты). ink 2838.
+- **Экран 22** (`ui/mouse_setup_render.*`): 12 строк `y = 24+8i`, 3 слайдера
+  `SLIDE`/`KNOB` с доказанной арифметикой `108 − trunc((v−0.2)·(−27))`
+  (кноб 108..162), ink 3986.
+- **CLI:** `--video-mode-list [--video-mode-list-cursor N]`,
+  `--mouse-setup [--mouse-setup-cursor N]`, `--things-anim [--level NAME]
+  [--things-anim-tick N] [--things-anim-limit N]` — живой рантайм
+  `Things::load` + `Ai::attach`, `level13` при тике 210:
+  `things=268 agents=140 bound=10 unbound=258 animated=2 still=8`,
+  первая привязка `SLUMP → slump frame=8 looping=1`. Всего **149 опций**.
+- **Точный fade:** `cli_fade_lut` проверяет **15 фронтенд-кадров** (11 =
+  без fade побайтово, 13 ≠), в том числе на собранной из `GAMEPAL` таблице.
+- **Гигиена:** `build/warn` — **0 предупреждений** (починены 11 в тестах
+  фронтенда).
+- **Гейты:** `ctest` **309/309** (273,3 с), `regress --full --mirror`
+  **125/125** (102,7 с), аудит **84/84 по 50 докам**, ASan — прогон после
+  влития.
+
+## Ход 2026-10-24 (партия 62: экраны 26/27, 17 кадров fade)
+
+- **Экран 26** (`ui/joystick_centering_render.*`) — это `JOYSTICK CENTERING`,
+  а не «mission info»: модуль переименован после влития (коммит `9d3f9fd`);
+  5 статических строк (25/35/45, 86/97; x 36/41), ink 1141; курсор 0 белит
+  весь текст (item 0 у всех строк) — квирк `0x485dd0`.
+- **Экран 27** (`ui/match_setup_render.*`): `MULTIPLAY GAME OPTIONS` (y 11),
+  8 строк (тип y 22, cash y 32, чекбоксы 45/60/75/90/103, `START GAME!`
+  y 113), 5 чекбоксов по флагам `0x75`; слайдеров нет (в `0x4885c0` нет
+  `SLIDE`/`KNOB`). ink 2239, все галочки — 2362.
+- **CLI:** `--joystick-centering [--joystick-centering-cursor N]`,
+  `--match-setup [--match-setup-cursor N] [--match-setup-type N]
+  [--match-setup-cash N] [--match-setup-flags HEX]`; всего **156 опций**.
+- **README:** добавлен раздел «Движок (C++)» с командами сборки, примерами
+  CLI и текущими счётчиками регрессии (115/125).
+- **Fade:** `cli_fade_lut` — **17 фронтенд-кадров**.
+- **Гейты:** `ctest` **316/316** (275,9 с), `regress --full --mirror` — прогон
+  после влития, аудит **84/84 по 50 докам**.
+
+## Ход 2026-10-24 (партия 63: экраны 16 и 9, 19 кадров fade)
+
+- **Экран 16** (`ui/key_jamming_render.*`): `KEY JAMMING` (y 14) + три
+  подсказки (26/35/44) + имена зажатых клавиш сеткой `x = 30+34·(n%4)`,
+  `y = 54+8·(n/4)` (≤ 28); «джемминга» как логики в оригинале нет — это
+  пассивный вывод массива `0x4bf2a8`. ink 752, 5 клавиш — 939.
+- **Экран 9** (`ui/ingame_menu_render.*`): у экрана **нет меню** — ветка
+  state 9 выходит до диспетчера; кадр = одна полноэкранная запись
+  `DEMOTION`/`DISBAND` 320×200 (выбор имени `0x497210`), 49 323 из 64 000
+  пикселей различаются.
+- **CLI:** `--key-jamming [--key-jamming-keys 30,31] [--key-jamming-cursor N]`,
+  `--ingame-menu [--ingame-menu-bg DEMOTION|DISBAND]`; всего **161 опция**.
+- **Fade:** `cli_fade_lut` — **19 фронтенд-кадров**.
+- **Гейты:** `ctest` **322/322** (269,8 с), `regress --full --mirror` — прогон
+  после влития, аудит **84/84 по 50 докам**.
+
+## Ход 2026-10-24 (партия 64: экраны 15 и 20, `--hud-lut-dump`, 21 кадр fade)
+
+- **Экран 15** (`ui/save_name_render.*`): `SAVE GAME` (y 14), `ESC TO CANCEL`
+  (y 101), строка ввода (42, 28+12·row) с хвостовой кареткой `'-'` (литерал,
+  без мигания), буфер 17 симв. + каретка, `FILESLOT` 124×10 под строкой;
+  ink 544.
+- **Экран 20** (`ui/lay_bucks_render.*`): shareware-заглушка `LAY DOWN THE
+  BUCKS` (14) + `THIS FEATURE IS NOT` / `AVAILABLE IN THE` / `SHAREWARE
+  VERSION` (27/36/45); ни суммы, ни курсора, ни `SLIDE`/`KNOB`; ink 1036.
+- **CLI:** `--save-name [--save-name-text NAME] [--save-name-row N]
+  [--save-name-no-caret] [--no-fileslot]`, `--lay-bucks`; всего **168 опций**.
+- **LUT:** `--hud-lut-dump OUT` строит те же 16×256 таблиц (4096 Б,
+  FNV `0x6330406254771f3d`, `cmp` с дампом пуст) и отказывается писать внутрь
+  каталога установки.
+- **Fade:** `cli_fade_lut` — **21 фронтенд-кадр**.
+- **Гейты:** `ctest` **331/331** (275,4 с), `regress --full --mirror` — прогон
+  после влития, аудит **84/84 по 50 докам**, `build/warn` — 0,
+  `install_audit` ok, `fuzz_saves` ok.
+
+## Ход 2026-10-24 (партия 65: экраны 5 и 36, карта покрытия, 23 кадра fade)
+
+- **Экран 5** (`ui/error_render.*`): `ERROR` (y 14), сообщение словами с
+  (10, 34), перенос при `x+width > 180`, шаг 10, `ESC TO RETURN TO MENU`
+  (y 91); подстановка `%s`/`%ld` делается до экрана (`sprintf` в буфер
+  `0x4aa2f8`). `No Error.` — ink 489, `Unable to load world file
+  (savegame).` — 803. CLI `--error [--error-message TEXT]`.
+- **Экран 36** (`ui/player_setup_render.*`): `PLAYER 1/2 JOYSTICK SETUP`
+  (y 11) + подсказка (y 20); 1 строка без устройства / 43 с ним, окно 10,
+  `x 13`, `y = 28+9i`, квирк «Hat 2 Y +13 px». CLI `--player-setup
+  [--player-setup-cursor N] [--player-setup-joystick N]
+  [--player-setup-player N]`.
+- **Документация:** `docs/UI_COVERAGE.md` — карта «экран → модуль → CLI →
+  тест → числа» для 20 экранов и общих кадров (`--menu`, `--pager`,
+  `--briefing`, HUD).
+- **Fade:** `cli_fade_lut` — **23 фронтенд-кадра**; всего **174 опции** CLI.
+- **Гейты:** `ctest` **338/338** (244,9 с), аудит **84/84 по 50 докам**,
+  `build/warn` — 0, `install_audit` ok, `fuzz_saves` ok; ASan — прогон
+  после влития волны 66.

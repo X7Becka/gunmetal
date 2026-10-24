@@ -153,6 +153,40 @@ void test_config() {
     CHECK(!gm::parse_args(static_cast<int>(bad_argv.size()), bad_argv.data(), error).has_value());
     CHECK(!error.empty());
 
+    std::vector<std::string> scale_args = {"gunmetal", "--png", "/tmp/a.png",
+                                           "--png-scale", "4"};
+    std::vector<char*> scale_argv;
+    for (auto& s : scale_args) {
+        scale_argv.push_back(s.data());
+    }
+    const auto scaled =
+        gm::parse_args(static_cast<int>(scale_argv.size()), scale_argv.data(), error);
+    CHECK(scaled.has_value());
+    if (scaled) {
+        CHECK_EQ(scaled->png_scale, 4);
+    }
+    for (const char* bad_scale : {"0", "9", "-1", "x"}) {
+        std::vector<std::string> args_bad = {"gunmetal", "--png-scale", bad_scale};
+        std::vector<char*> argv_bad;
+        for (auto& s : args_bad) {
+            argv_bad.push_back(s.data());
+        }
+        CHECK(!gm::parse_args(static_cast<int>(argv_bad.size()), argv_bad.data(), error)
+                   .has_value());
+        CHECK(!error.empty());
+    }
+    std::vector<std::string> default_scale = {"gunmetal", "--png", "/tmp/a.png"};
+    std::vector<char*> default_argv;
+    for (auto& s : default_scale) {
+        default_argv.push_back(s.data());
+    }
+    const auto unscaled =
+        gm::parse_args(static_cast<int>(default_argv.size()), default_argv.data(), error);
+    CHECK(unscaled.has_value());
+    if (unscaled) {
+        CHECK_EQ(unscaled->png_scale, 1);
+    }
+
     std::vector<std::string> bad_frames = {"gunmetal", "--frames", "x"};
     std::vector<char*> bad_frames_argv;
     for (auto& s : bad_frames) {

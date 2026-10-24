@@ -192,15 +192,6 @@ gm::SbwLevel single_object_level(const gm::SbwLevel& level, std::uint32_t sector
     return out;
 }
 
-const gm::Door* find_door_slot(const gm::WorldState& state, int sector, int object) {
-    for (const gm::Door& door : state.doors()) {
-        if (door.sector == sector && door.object == object) {
-            return &door;
-        }
-    }
-    return nullptr;
-}
-
 int find_door_index(const gm::WorldState& state, int sector, int object) {
     const std::vector<gm::Door>& doors = state.doors();
     for (std::size_t i = 0; i < doors.size(); ++i) {
@@ -209,10 +200,6 @@ int find_door_index(const gm::WorldState& state, int sector, int object) {
         }
     }
     return -1;
-}
-
-void print_vec(const char* label, gm::Vec3d v) {
-    std::printf("%s=(%.6f, %.6f, %.6f) ", label, v.x, v.y, v.z);
 }
 
 /// Axis-aligned bounds of every triangle of one `(sector, object)` pair in

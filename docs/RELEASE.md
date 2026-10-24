@@ -17,8 +17,8 @@
 export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$HOME/tools/bin:$PATH
 cmake -S . -B build/sandbox -G Ninja
 cmake --build build/sandbox -j 8
-ctest --test-dir build/sandbox -j 4 --output-on-failure     # сейчас 184/184
-python3 regress.py --full --mirror --json                   # сейчас 184/184
+ctest --test-dir build/sandbox -j 6 --output-on-failure     # сейчас 248/248
+python3 regress.py --full --mirror --json                   # сейчас 125/125
 python3 tools/re/install_audit.py --game "$GUNMETAL_DIR"    # RESULT: ok
 python3 tools/qa/perf.py --game "$GUNMETAL_DIR" --repeat 3  # снимок, не гейт
 ```
@@ -27,7 +27,7 @@ python3 tools/qa/perf.py --game "$GUNMETAL_DIR" --repeat 3  # снимок, не
 
 ```sh
 cmake --preset asan --fresh && cmake --build --preset asan -j 8
-ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build/asan -j 4   # сейчас 101/101
+ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build/asan -j 4   # сейчас 249/249
 ```
 
 Фаззинг: `python3 tools/fuzz_formats.py --game "$GUNMETAL_DIR"` (полная

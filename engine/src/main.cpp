@@ -8,6 +8,11 @@
 #include "res/bigfile.h"
 #include "res/bmp.h"
 #include "res/png.h"
+#include "render/upscale.h"
+#include "render/cockpit.h"
+#include "ui/killed.h"
+#include "ui/records.h"
+#include "audio/playlist.h"
 #include "res/sbm.h"
 #include "res/sbw.h"
 #include "res/sou.h"
@@ -34,10 +39,46 @@
 #include "audio/music.h"
 #include "audio/sample_cache.h"
 #include "ui/frontend_menu.h"
+#include "ui/menu_render.h"
 #include "ui/pager_render.h"
 #include "ui/save_slots.h"
+#include "ui/save_menu.h"
+#include "ui/save_menu_render.h"
+#include "ui/start_game_render.h"
+#include "world/things.h"
+#include "world/ai.h"
+#include "world/thing_anim.h"
+#include "render/hud_overlay.h"
+#include "ui/game_type_render.h"
+#include "ui/difficulty_render.h"
+#include "ui/local_players_render.h"
+#include "ui/quit_render.h"
+#include "ui/video_mode_render.h"
+#include "ui/restart_render.h"
+#include "ui/mouse_setup_render.h"
+#include "ui/joystick_centering_render.h"
+#include "ui/match_setup_render.h"
+#include "ui/key_jamming_render.h"
+#include "ui/ingame_menu_render.h"
+#include "ui/save_name_render.h"
+#include "ui/error_render.h"
+#include "ui/player_setup_render.h"
+#include "ui/sound_options_render.h"
+#include "ui/play_options_render.h"
+#include "ui/graphics_options_render.h"
+#include "ui/control_options_render.h"
+#include "ui/lay_bucks_render.h"
+#include "ui/video_mode_list_render.h"
+#include "ui/keycfg_render.h"
+#include "game/save_action.h"
+#include "ui/briefing.h"
+#include "ui/briefing_render.h"
+#include "ui/level_select.h"
+#include "ui/level_select_render.h"
+#include "game/campaign_state.h"
 #include "ui/sml_pager.h"
 #include "game/sim_player.h"
+#include "game/save_load.h"
 #include "game/weapons.h"
 #include "res/vm_exec.h"
 #include "world/doors.h"
@@ -111,6 +152,69 @@ int export_png(const gm::Options& options, int width, int height,
     std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
     return 0;
 }
+
+// `--png-scale N`: repeat every pixel of a 320x200 front-end frame as an
+// N x N block (`render/upscale.h`, docs/UPSCALE.md §2).  Pixel-exact: no
+// filtering, no rounding, alpha travels unchanged.  No-op for N == 1;
+// on failure the frame is left untouched and the caller returns 2.
+bool scale_frontend_frame(const gm::Options& options,
+                          std::vector<std::uint32_t>& pixels, int& width,
+                          int& height) {
+    if (options.png_scale <= 1) {
+        return true;
+    }
+    std::vector<std::uint32_t> scaled;
+    std::string error;
+    gm::UpscaleStats stats;
+    if (!gm::upscale_nearest(pixels.data(), width, height, options.png_scale,
+                             scaled, &error, &stats)) {
+        gm::logf(gm::LogLevel::Error, "png-scale", error);
+        return false;
+    }
+    pixels.swap(scaled);
+    width *= options.png_scale;
+    height *= options.png_scale;
+    std::printf("scale: x%d %dx%d (%zu -> %zu pixels)\n", stats.scale, width,
+                height, stats.pixels_in, stats.pixels_out);
+    return true;
+}
+
+/// Exact fade tables for `--fade-lut N`: the dump when it exists (it is the
+/// oracle of docs/HUD_LUT.md §2b), otherwise the tables **built** from the
+/// installed `FRONTEND/GAMEPAL` by `build_hud_lut()` (the same formula that
+/// reproduces the dump byte for byte), so a machine without the Ghidra dump
+/// still gets the exact fade.
+template <typename Settings>
+bool apply_fade_lut(const gm::Options& options, Settings& settings, gm::HudLut& lut,
+                    std::string* error) {
+    settings.fade_lut = true;
+    settings.fade_lut_level = options.pager_fade_lut;
+    const char* env = std::getenv("GM_HUD_LUT");
+    std::filesystem::path dump;
+    if (env != nullptr && *env != '\0') {
+        dump = std::filesystem::path(env);
+    } else {
+        const char* home = std::getenv("HOME");
+        dump = std::filesystem::path(std::string(home != nullptr ? home : "") +
+                                     "/.cache/gunmetal-re/hud_lut.bin");
+    }
+    std::error_code ec;
+    if (!dump.empty() && std::filesystem::exists(dump, ec)) {
+        settings.fade_lut_dump = dump.string();
+        return true;
+    }
+    const auto palette =
+        gm::installed_palette(std::filesystem::path(options.game), *error);
+    if (!palette) {
+        return false;
+    }
+    if (!gm::build_hud_lut(*palette, lut, error)) {
+        return false;
+    }
+    settings.fade_lut_table = &lut;
+    return true;
+}
+
 
 bool apply_save_edits(const gm::Options& options, gm::SavePlayer& player,
                       std::string& error);
@@ -907,8 +1011,14 @@ bool overlay_hud(const gm::Options& options, gm::RenderResult& image,
     if (!palette) {
         return false;
     }
-    return gm::draw(*film, image, *palette, options.hud_x, options.hud_y,
-                    true, options.hud_scale, options.hud_opacity, tick, error);
+    gm::HudOverlayOptions settings;
+    settings.x = options.hud_x;
+    settings.y = options.hud_y;
+    settings.scale = options.hud_scale;
+    settings.opacity = options.hud_opacity;
+    settings.transparent_zero = true;
+    settings.tick = tick;
+    return gm::overlay_film(image, *film, *palette, settings, nullptr, &error);
 }
 
 int render_image(const gm::Options& options) {
@@ -2716,9 +2826,71 @@ int show_menu(const gm::Options& options) {
         }
     };
 
+    // `M8.2` slice 2: the current screen as a 320x200 PNG
+    // (`docs/MENU_RENDER.md`); no panel for MAIN, black there.  `--png-scale`
+    // zooms it without filtering (`render/upscale.h`).  Both the plain
+    // `--menu --png` dump and a run with `--menu-keys` end here, so a screen
+    // is written in either mode.
+    auto render_png = [&options, &menu]() -> int {
+        if (options.png.empty()) {
+            return 0;
+        }
+        std::vector<std::uint32_t> rgba;
+        int width = 0;
+        int height = 0;
+        gm::MenuRenderStats stats;
+        std::string render_error;
+        gm::MenuRenderOptions menu_options;
+        gm::HudLut menu_lut;
+        if (options.pager_fade_lut >= 0) {
+            // `--fade-lut N`: the exact tables on the palette indices
+            // (docs/MENU_RENDER.md §7), before the zoom.
+            if (!apply_fade_lut(options, menu_options, menu_lut, &render_error)) {
+                gm::logf(gm::LogLevel::Error, "menu", render_error);
+                return 2;
+            }
+        }
+        if (!gm::render_screen(menu, std::filesystem::path(options.game), menu_options,
+                               rgba, width, height, &stats, &render_error)) {
+            gm::logf(gm::LogLevel::Error, "menu", render_error);
+            return 2;
+        }
+        // `--fade N`: the same engine curve the pager uses, applied to the
+        // 320x200 screen *before* the integer zoom (`docs/UPSCALE.md` §6).
+        if (options.menu_fade >= 0 && options.pager_fade_lut < 0) {
+            std::string fade_error;
+            if (!gm::fade_rgba(rgba, options.menu_fade, 11, &fade_error)) {
+                gm::logf(gm::LogLevel::Error, "menu", fade_error);
+                return 2;
+            }
+            std::printf("fade: level %d (max %d)\n", options.menu_fade, 11);
+        }
+        if (!scale_frontend_frame(options, rgba, width, height)) {
+            return 2;
+        }
+        std::vector<std::uint8_t> bytes(rgba.size() * 4);
+        for (std::size_t i = 0; i < rgba.size(); ++i) {
+            bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+            bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+            bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+            bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+        }
+        const auto png = gm::encode_png_rgba(width, height, bytes);
+        if (png.empty() || !write_file(options.png, png)) {
+            gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+            return 2;
+        }
+        std::printf("render: %s %dx%d items=%d drawn=%d ink=%d missing=%d\n",
+                    std::string(gm::FrontendMenu::screen_name(menu.screen())).c_str(),
+                    width, height, stats.items, stats.drawn_items, stats.ink_pixels,
+                    stats.missing_glyphs);
+        std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+        return 0;
+    };
+
     if (options.menu_keys.empty()) {
         dump("menu");
-        return 0;
+        return render_png();
     }
     dump("start");
 
@@ -2787,28 +2959,47 @@ int show_menu(const gm::Options& options) {
         }
     }
     dump("final");
-    return 0;
+    return render_png();
 }
 
 
 // `--pager ... --png OUT`: draw the *current* page (after `--page` and
 // `--pager-keys`) into a 320x200 RGBA PNG (`docs/PAGER_RENDER.md`).  The page
 // is painted with the font atlases of `<game>/FRONTEND/BMP.IDX`, the same ones
-// the pager uses; the background of the original (`HELPSCRN`) is not drawn.
+// the pager uses.  `--background` paints `HELPSCRN` first (M8.1 slice 4) and
+// `--fade N` applies the engine fade curve; without them the bytes are those
+// of slice 3.
 int render_pager_png(const gm::Options& options, const gm::SmlPager& pager) {
+    gm::PageRenderOptions settings;
+    settings.background = options.pager_background;
+    if (options.pager_fade >= 0) {
+        settings.fade = true;
+        settings.fade_level = options.pager_fade;
+    }
+    gm::HudLut built_lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, built_lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "pager", error);
+        return 2;
+    }
     std::vector<std::uint32_t> pixels;
     int width = 0;
     int height = 0;
     gm::PageRenderStats stats;
-    std::string error;
     if (!gm::render_page(pager, std::filesystem::path(options.game), pixels, width,
-                         height, &stats, &error)) {
+                         height, settings, &stats, &error)) {
         gm::logf(gm::LogLevel::Error, "pager", error);
         return 2;
     }
-    std::printf("render: page %d/%d %dx%d lines=%d glyphs=%d missing=%d ink=%d\n",
+    std::printf("render: page %d/%d %dx%d lines=%d glyphs=%d missing=%d ink=%d "
+                "background=%d contrast=%d..%d\n",
                 pager.page() + 1, pager.page_count(), width, height, stats.lines,
-                stats.glyphs, stats.missing_glyphs, stats.ink_pixels);
+                stats.glyphs, stats.missing_glyphs, stats.ink_pixels,
+                stats.background_pixels, stats.contrast_min, stats.contrast_max);
+    if (!scale_frontend_frame(options, pixels, width, height)) {
+        return 2;
+    }
 
     std::vector<std::uint8_t> rgba(pixels.size() * 4u);
     for (std::size_t i = 0; i < pixels.size(); ++i) {
@@ -2821,6 +3012,1783 @@ int render_pager_png(const gm::Options& options, const gm::SmlPager& pager) {
     if (png.empty() || !write_file(options.png, png)) {
         gm::logf(gm::LogLevel::Error, "pager",
                  "cannot write " + options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--playlist FILE`: one `.sog` playlist (`audio/playlist.h`,
+// docs/PLAYLIST.md) resolved against `MUSIC/SOU.IDX`.  Prints per-entry
+// index/bytes and the found/missing totals; never plays anything.
+int show_playlist(const gm::Options& options) {
+    gm::audio::Playlist playlist;
+    std::string error;
+    std::filesystem::path path(options.playlist);
+    if (path.is_relative()) {
+        path = std::filesystem::path(options.game) / "MUSIC" / path;
+    }
+    if (!gm::audio::load_playlist(path, playlist, &error)) {
+        gm::logf(gm::LogLevel::Error, "playlist", error);
+        return 2;
+    }
+    const std::filesystem::path music = std::filesystem::path(options.game) / "MUSIC";
+    auto archive = gm::BigFile::open(music / "SOU.IDX", error);
+    if (!archive) {
+        gm::logf(gm::LogLevel::Error, "playlist", error);
+        return 2;
+    }
+    if (!gm::audio::resolve_playlist(playlist, *archive, &error)) {
+        gm::logf(gm::LogLevel::Error, "playlist", error);
+        return 2;
+    }
+    std::printf("playlist: %s entries=%d found=%d missing=%d bytes=%lld\n",
+                playlist.path.filename().string().c_str(),
+                static_cast<int>(playlist.entries.size()),
+                playlist.found_count(), playlist.missing_count(),
+                static_cast<long long>(playlist.found_bytes()));
+    for (const gm::audio::PlaylistEntry& entry : playlist.entries) {
+        std::printf("  %-8s %6d %8d%s\n", entry.name.c_str(), entry.index_in_music,
+                    entry.bytes, entry.found ? "" : "  (missing)");
+    }
+    return 0;
+}
+
+// `--best-times`: the `GUNMETAL.HI` table (`ui/records.h`,
+// docs/HI_SCORES.md): 9 rows in file order plus the minimum per level name
+// (duplicates are legal — the original appends and compares case-insensitively).
+int show_best_times(const gm::Options& options) {
+    gm::Records records;
+    std::string error;
+    if (!records.load(std::filesystem::path(options.game) / "GUNMETAL.HI", &error)) {
+        gm::logf(gm::LogLevel::Error, "records", error);
+        return 2;
+    }
+    std::printf("records: rows=%d\n", static_cast<int>(records.rows().size()));
+    for (std::size_t i = 0; i < records.rows().size(); ++i) {
+        const gm::RecordRow& row = records.rows()[i];
+        std::printf("  %zu %7d  %s%s\n", i, row.seconds, row.name.c_str(),
+                    row.duplicate ? "  (duplicate)" : "");
+    }
+    const std::vector<gm::RecordView> best = records.best_by_name();
+    std::printf("best: names=%d\n", static_cast<int>(best.size()));
+    for (const gm::RecordView& view : best) {
+        std::printf("  %-16s %7d  %s  entries=%d\n", view.name.c_str(),
+                    view.seconds, records.format_time(view.seconds).c_str(),
+                    view.entries);
+    }
+    return 0;
+}
+
+// `--killed NAME [--killed-all] [--killed-seed N]`: the death messages of
+// `FRONTEND/KILLED.skb` (`ui/killed.h`, docs/KILLED.md).  Prints the counts,
+// the line `pick(seed)` returns and, with `--killed-all`, every accepted line.
+// Read-only; the same seed always picks the same line.
+int show_killed(const gm::Options& options) {
+    gm::KilledScreen screen;
+    std::string error;
+    if (!gm::load_killed(std::filesystem::path(options.game), options.killed_name,
+                         screen, &error)) {
+        gm::logf(gm::LogLevel::Error, "killed", error);
+        return 2;
+    }
+    std::printf("killed: %s lines=%d subs=%d seed=%u\n", screen.source.c_str(),
+                static_cast<int>(screen.lines.size()),
+                static_cast<int>(gm::substitution_count(screen)),
+                options.killed_seed);
+    if (options.killed_all) {
+        for (const gm::KilledLine& line : screen.lines) {
+            std::printf("  %s\n", line.text.c_str());
+        }
+    } else {
+        std::printf("  %s\n", gm::pick(screen, options.killed_seed).c_str());
+    }
+    return 0;
+}
+
+// `--hud-png OUT`: the composed cockpit frame (`render/cockpit.h`,
+// docs/COCKPIT.md) as a 320x200 RGBA PNG.  No world layer: the background is
+// black, exactly what the module documents.  `--png-scale` zooms it and
+// `--fade` applies to it like the other front-end frames.
+int show_hud_png(const gm::Options& options) {
+    gm::CockpitState state;
+    state.weapon_id = options.hud_weapon;
+    state.ammo = options.hud_ammo;
+    state.armor = options.hud_armor;
+    state.kills = options.hud_kills;
+    state.speed = options.hud_speed;
+    gm::CockpitOptions settings;
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::CockpitStats stats;
+    std::string error;
+    if (!gm::render_cockpit(std::filesystem::path(options.game), state, settings,
+                            rgba, width, height, &error, &stats)) {
+        gm::logf(gm::LogLevel::Error, "hud", error);
+        return 2;
+    }
+    std::printf("hud: %dx%d elements=%d missing=%d ink=%d panel=%d\n", width,
+                height, stats.elements_drawn, stats.missing_assets,
+                stats.ink_pixels, stats.panel_pixels);
+    if (options.pager_fade >= 0) {
+        std::string fade_error;
+        if (!gm::fade_rgba(rgba, options.pager_fade, 11, &fade_error)) {
+            gm::logf(gm::LogLevel::Error, "hud", fade_error);
+            return 2;
+        }
+        std::printf("fade: level %d (max %d)\n", options.pager_fade, 11);
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.hud_png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.hud_png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.hud_png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--briefing LEVEL [--briefing-text]`: the mission briefing of
+// `SML/brief/<level>.sme` (`ui/briefing.*`, docs/BRIEFING.md).  Prints the
+// page/line/glyph counts of every page, and with `--briefing-text` the text
+// the pager would lay out.  Read-only: neither the game nor the briefing file
+// is modified.
+int show_briefing(const gm::Options& options) {
+    gm::Briefing briefing;
+    std::string error;
+    if (!gm::load_briefing(std::filesystem::path(options.game), options.briefing,
+                           briefing, &error)) {
+        gm::logf(gm::LogLevel::Error, "briefing", error);
+        return 2;
+    }
+    int glyphs = 0;
+    for (const gm::BriefingPage& page : briefing.pages) {
+        glyphs += page.glyphs;
+    }
+    std::printf("briefing: %s (%s) pages=%d lines=%d glyphs=%d\n",
+                briefing.level.c_str(), briefing.source.c_str(),
+                briefing.page_count(), briefing.line_count(), glyphs);
+    for (const gm::BriefingPage& page : briefing.pages) {
+        std::printf("  page %d: lines=%d glyphs=%d\n", page.index,
+                    page.lines, page.glyphs);
+        if (options.briefing_text) {
+            for (const std::string& line : page.text) {
+                std::printf("    %s\n", line.c_str());
+            }
+        }
+    }
+    // `--briefing LEVEL --png OUT [--page N] [--background] [--fade K]`:
+    // one page as a 320x200 frame through the pager renderer
+    // (`ui/briefing_render.h`, docs/BRIEFING_RENDER.md).  `--png-scale` is
+    // applied after the frame is finished, exactly like the other front-end
+    // paths.
+    if (!options.png.empty()) {
+        gm::BriefingRenderOptions settings;
+        settings.page = options.pager_page > 0 ? options.pager_page : 1;
+        settings.background = options.pager_background;
+        if (options.pager_fade >= 0) {
+            settings.fade = true;
+            settings.fade_level = options.pager_fade;
+        }
+        gm::HudLut built_lut;
+        std::string render_error;
+        if (options.pager_fade_lut >= 0 &&
+            !apply_fade_lut(options, settings, built_lut, &render_error)) {
+            gm::logf(gm::LogLevel::Error, "briefing", render_error);
+            return 2;
+        }
+        std::vector<std::uint32_t> rgba;
+        int width = 0;
+        int height = 0;
+        gm::BriefingRenderStats stats;
+        if (!gm::render_briefing(std::filesystem::path(options.game),
+                                  options.briefing, settings, rgba, width, height,
+                                  &stats, &render_error)) {
+            gm::logf(gm::LogLevel::Error, "briefing", render_error);
+            return 2;
+        }
+        std::printf("render: page %d/%d %dx%d lines=%d glyphs=%d missing=%d "
+                    "ink=%d background=%d\n",
+                    settings.page, stats.pages, width, height, stats.lines,
+                    stats.glyphs, stats.missing_glyphs, stats.ink_pixels,
+                    stats.background_pixels);
+        if (!scale_frontend_frame(options, rgba, width, height)) {
+            return 2;
+        }
+        std::vector<std::uint8_t> bytes(rgba.size() * 4);
+        for (std::size_t i = 0; i < rgba.size(); ++i) {
+            bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+            bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+            bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+            bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+        }
+        const auto png = gm::encode_png_rgba(width, height, bytes);
+        if (png.empty() || !write_file(options.png, png)) {
+            gm::logf(gm::LogLevel::Error, "png", "cannot write ",
+                     options.png.string());
+            return 2;
+        }
+        std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(),
+                    png.size());
+    }
+    return 0;
+}
+
+// Put the SAVE GAME cursor on *target*, bounded: `move()` skips slots the mode
+// cannot reach (in load mode an empty slot is not selectable), so a walk that
+// does not advance stops instead of looping (docs/SAVE_MENU_RENDER.md §5).
+void place_save_cursor(gm::SaveMenu& menu, int target) {
+    target = target < 0 ? 0
+           : (target > gm::SaveMenu::kLastReachable ? gm::SaveMenu::kLastReachable
+                                                    : target);
+    for (int guard = 0; guard < gm::SaveMenu::kSlots && menu.selected() < target;
+         ++guard) {
+        const int before = menu.selected();
+        menu.move(1);
+        if (menu.selected() == before) {
+            break;
+        }
+    }
+    for (int guard = 0; guard < gm::SaveMenu::kSlots && menu.selected() > target;
+         ++guard) {
+        const int before = menu.selected();
+        menu.move(-1);
+        if (menu.selected() == before) {
+            break;
+        }
+    }
+}
+
+// `--game-type [--game-type-mask HEX] [--game-type-cursor N] [--png OUT]`:
+// screen 19, MULTIPLAYER GAME TYPE (`ui/game_type_render.*`,
+// docs/GAME_TYPE_RENDER.md).  The mask is the availability byte `0x4c1290`;
+// the cursor is an item id, not a visible row.
+int show_game_type(const gm::Options& options) {
+    gm::GameTypeRenderOptions settings;
+    settings.cursor = options.game_type_cursor;
+    settings.mask = options.game_type_mask;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kGameTypePanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "game_type", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::GameTypeRenderStats stats;
+    if (!gm::render_game_type(std::filesystem::path(options.game), settings, rgba,
+                              width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "game_type", error);
+        return 2;
+    }
+    std::printf("game_type: mask=0x%02x rows=%d modes=%d cancel_row=%d "
+                "highlight=%d arrows=%d ink=%d missing=%d\n",
+                static_cast<unsigned>(options.game_type_mask & 0xFFu), stats.rows,
+                stats.modes, stats.cancel_row, stats.highlight_item, stats.arrows,
+                stats.ink_pixels, stats.missing_glyphs);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--difficulty [--difficulty-cursor N] [--png OUT]`: screen 23,
+// SET DIFFICULTY LEVEL (`ui/difficulty_render.*`, docs/DIFFICULTY_RENDER.md).
+int show_difficulty(const gm::Options& options) {
+    gm::DifficultyRenderOptions settings;
+    settings.cursor = options.difficulty_cursor;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kDifficultyPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "difficulty", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::DifficultyRenderStats stats;
+    if (!gm::render_difficulty(std::filesystem::path(options.game), settings, rgba,
+                               width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "difficulty", error);
+        return 2;
+    }
+    std::printf("difficulty: rows=%d cursor=%d ink=%d missing=%d arrows=%d\n",
+                stats.rows, options.difficulty_cursor, stats.ink_pixels,
+                stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--local-players [--local-players-cursor N] [--png OUT]`: screen 21,
+// NUMBER OF LOCAL PLAYERS (`ui/local_players_render.*`,
+// docs/LOCAL_PLAYERS_RENDER.md).  Every item is two text lines 9 px apart.
+int show_local_players(const gm::Options& options) {
+    gm::LocalPlayersRenderOptions settings;
+    settings.cursor = options.local_players_cursor;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kLocalPlayersPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "local_players", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::LocalPlayersRenderStats stats;
+    if (!gm::render_local_players(std::filesystem::path(options.game), settings, rgba,
+                                  width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "local_players", error);
+        return 2;
+    }
+    std::printf("local_players: rows=%d cursor=%d ink=%d missing=%d arrows=%d\n",
+                stats.rows, options.local_players_cursor, stats.ink_pixels,
+                stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--quit [--quit-in-game] [--quit-cursor N] [--png OUT]`: screen 33, the
+// quit confirmation (`ui/quit_render.*`, docs/QUIT_RENDER.md).  In game it is
+// `QUIT OPTIONS` with three items, outside it asks `QUIT GAME?` with two.
+int show_quit(const gm::Options& options) {
+    gm::QuitRenderOptions settings;
+    settings.in_game = options.quit_in_game;
+    settings.cursor = options.quit_cursor;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kQuitPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "quit", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::QuitRenderStats stats;
+    if (!gm::render_quit(std::filesystem::path(options.game), settings, rgba,
+                         width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "quit", error);
+        return 2;
+    }
+    std::printf("quit: in_game=%d rows=%d cursor=%d ink=%d missing=%d arrows=%d\n",
+                options.quit_in_game ? 1 : 0, stats.rows, options.quit_cursor,
+                stats.ink_pixels, stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--video-mode [--video-mode-cursor N] [--png OUT]`: screen 37, the
+// `NEW VIDEO MODE OK?` confirmation (`ui/video_mode_render.*`,
+// docs/VIDEO_MODE_RENDER.md).
+int show_video_mode(const gm::Options& options) {
+    gm::VideoModeRenderOptions settings;
+    settings.cursor = options.video_mode_cursor;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kVideoModePanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "video_mode", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::VideoModeRenderStats stats;
+    if (!gm::render_video_mode(std::filesystem::path(options.game), settings, rgba,
+                               width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "video_mode", error);
+        return 2;
+    }
+    std::printf("video_mode: rows=%d cursor=%d ink=%d missing=%d arrows=%d\n",
+                stats.rows, options.video_mode_cursor, stats.ink_pixels,
+                stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--restart [--restart-items N] [--restart-cursor N] [--png OUT]`: screen 6,
+// RESTART GAME (`ui/restart_render.*`, docs/RESTART_RENDER.md).  The item
+// count is the runtime value the handler writes into `0x67f10c` (2..4).
+int show_restart(const gm::Options& options) {
+    gm::RestartRenderOptions settings;
+    settings.items = options.restart_items;
+    settings.cursor = options.restart_cursor;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kRestartPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "restart", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::RestartRenderStats stats;
+    if (!gm::render_restart(std::filesystem::path(options.game), settings, rgba,
+                            width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "restart", error);
+        return 2;
+    }
+    std::printf("restart: rows=%d cursor=%d ink=%d missing=%d arrows=%d\n",
+                stats.rows, options.restart_cursor, stats.ink_pixels,
+                stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--things-anim [--level NAME] [--things-anim-tick N] [--things-anim-limit N]`:
+// bind every runtime thing to its clip and frame (`world/thing_anim.*`,
+// docs/THING_ANIM_BIND.md).  The AI state comes from `Ai::attach`, so this is
+// the live `M6.3.1` binding on a real level; things without an agent are idle.
+int show_things_anim(const gm::Options& options) {
+    std::string error;
+    const std::string name = options.level.empty() ? "level0" : options.level;
+    const auto level =
+        gm::load_level(std::filesystem::path(options.game), name, error);
+    if (!level) {
+        gm::logf(gm::LogLevel::Error, "things_anim", error);
+        return 2;
+    }
+    if (!level->entities) {
+        gm::logf(gm::LogLevel::Error, "things_anim", name + " has no script block");
+        return 2;
+    }
+    gm::ThingsOptions thing_options;
+    const gm::Things things = gm::Things::load(
+        *level->entities, gm::vm_state_from_level(*level->entities), thing_options);
+    gm::Ai ai;
+    const std::size_t agents = ai.attach(things);
+    std::map<int, gm::AiState> by_id;
+    for (const gm::AiAgent& agent : ai.agents()) {
+        by_id[agent.thing_id] = agent.state;
+    }
+    std::vector<gm::AiState> states;
+    states.reserve(things.things().size());
+    for (const gm::Thing& thing : things.things()) {
+        const auto it = by_id.find(thing.id);
+        states.push_back(it == by_id.end() ? gm::AiState::idle : it->second);
+    }
+    const int tick = options.things_anim_tick;
+    std::string first_error;
+    const gm::thinganim::ThingAnimStats stats =
+        gm::thinganim::collect(things.things(), states, tick, &first_error);
+    std::printf("things_anim: level=%s things=%zu agents=%zu bound=%d unbound=%d "
+                "animated=%d still=%d tick=%d\n",
+                name.c_str(), things.things().size(), agents, stats.bound,
+                stats.unbound, stats.animated, stats.still, tick);
+    if (!first_error.empty()) {
+        std::printf("  first error: %s\n", first_error.c_str());
+    }
+    int shown = 0;
+    for (std::size_t i = 0;
+         i < things.things().size() && shown < options.things_anim_limit; ++i) {
+        std::string bind_error;
+        const auto binding = gm::thinganim::bind_thing_anim(
+            things.things()[i], states[i], tick, &bind_error);
+        if (!binding) {
+            continue;
+        }
+        std::printf("  id=%d type=%s model=%s clip=%s frame=%d tick=%d looping=%d\n",
+                    things.things()[i].id, things.things()[i].type_name.c_str(),
+                    things.things()[i].model.c_str(), binding->clip_name.c_str(),
+                    binding->frame, binding->tick, binding->looping ? 1 : 0);
+        ++shown;
+    }
+    return 0;
+}
+
+// `--video-mode-list [--video-mode-list-cursor N] [--png OUT]`: screen 18,
+// SELECT VIDEO MODE (`ui/video_mode_list_render.*`,
+// docs/VIDEO_MODE_LIST_RENDER.md).  The mode table itself is a model.
+int show_video_mode_list(const gm::Options& options) {
+    gm::VideoModeListRenderOptions settings;
+    settings.cursor = options.video_mode_list_cursor;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kVideoModeListPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "video_mode_list", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::VideoModeListRenderStats stats;
+    if (!gm::render_video_mode_list(std::filesystem::path(options.game), settings,
+                                    rgba, width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "video_mode_list", error);
+        return 2;
+    }
+    std::printf("video_mode_list: rows=%d first_row=%d cursor=%d arrows=%d ink=%d "
+                "missing=%d\n",
+                stats.rows, stats.first_row, options.video_mode_list_cursor,
+                stats.arrows, stats.ink_pixels, stats.missing_glyphs);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--mouse-setup [--mouse-setup-cursor N] [--png OUT]`: screen 22, MOUSE
+// SETUP (`ui/mouse_setup_render.*`, docs/MOUSE_SETUP_RENDER.md).
+int show_mouse_setup(const gm::Options& options) {
+    gm::MouseSetupRenderOptions settings;
+    settings.cursor = options.mouse_setup_cursor;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kMouseSetupPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "mouse_setup", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::MouseSetupRenderStats stats;
+    if (!gm::render_mouse_setup(std::filesystem::path(options.game), settings, rgba,
+                                width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "mouse_setup", error);
+        return 2;
+    }
+    std::printf("mouse_setup: rows=%d sliders=%d cursor=%d ink=%d missing=%d "
+                "arrows=%d\n",
+                stats.rows, stats.sliders, options.mouse_setup_cursor,
+                stats.ink_pixels, stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--joystick-centering [--joystick-centering-cursor N] [--png OUT]`: screen
+// 26, JOYSTICK CENTERING (`ui/joystick_centering_render.*`,
+// docs/JOYSTICK_CENTERING_RENDER.md).  All five lines are item 0, so cursor 0
+// whitens the whole body (the quirk of `0x485dd0`).
+int show_joystick_centering(const gm::Options& options) {
+    gm::JoystickRenderOptions settings;
+    settings.cursor = options.joystick_centering_cursor;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kJoystickPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "joystick_centering", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::JoystickRenderStats stats;
+    if (!gm::render_joystick_centering(std::filesystem::path(options.game),
+                                       settings, rgba, width, height, &stats,
+                                       &error)) {
+        gm::logf(gm::LogLevel::Error, "joystick_centering", error);
+        return 2;
+    }
+    std::printf("joystick_centering: rows=%d cursor=%d ink=%d missing=%d arrows=%d\n",
+                stats.rows, options.joystick_centering_cursor, stats.ink_pixels,
+                stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--match-setup [--match-setup-cursor N] [--match-setup-type N]
+// [--match-setup-cash N] [--match-setup-flags HEX] [--png OUT]`: screen 27,
+// MULTIPLAY GAME OPTIONS (`ui/match_setup_render.*`,
+// docs/MATCH_SETUP_RENDER.md).  The checkboxes come from the flag word.
+int show_match_setup(const gm::Options& options) {
+    gm::MatchSetupRenderOptions settings;
+    settings.cursor = options.match_setup_cursor;
+    settings.match_type = options.match_setup_type;
+    settings.starting_cash = options.match_setup_cash;
+    settings.flags = options.match_setup_flags;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kMatchSetupPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "match_setup", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::MatchSetupRenderStats stats;
+    if (!gm::render_match_setup(std::filesystem::path(options.game), settings, rgba,
+                                width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "match_setup", error);
+        return 2;
+    }
+    std::printf("match_setup: rows=%d sliders=%d checks=%d flags=0x%02x cursor=%d "
+                "ink=%d missing=%d arrows=%d\n",
+                stats.rows, stats.sliders, stats.checks,
+                static_cast<unsigned>(options.match_setup_flags & 0xFF), options.match_setup_cursor,
+                stats.ink_pixels, stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--key-jamming [--key-jamming-keys 30,31,...] [--key-jamming-cursor N]
+// [--png OUT]`: screen 16, KEY JAMMING (`ui/key_jamming_render.*`,
+// docs/KEY_JAMMING_RENDER.md).  The "pressed" codes are the caller's model of
+// the keyboard state array `0x4bf2a8`; the engine never synthesises input.
+int show_key_jamming(const gm::Options& options) {
+    gm::KeyJammingRenderOptions settings;
+    settings.cursor = options.key_jamming_cursor;
+    settings.pressed_keys = options.key_jamming_keys;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kKeyJammingPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "key_jamming", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::KeyJammingRenderStats stats;
+    if (!gm::render_key_jamming(std::filesystem::path(options.game), settings, rgba,
+                                width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "key_jamming", error);
+        return 2;
+    }
+    std::printf("key_jamming: rows=%d keys=%d cursor=%d ink=%d missing=%d arrows=%d\n",
+                stats.rows, stats.keys, options.key_jamming_cursor,
+                stats.ink_pixels, stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--ingame-menu [--ingame-menu-bg DEMOTION|DISBAND] [--png OUT]`: screen 9.
+// It has **no menu at all** (docs/INGAME_MENU_RENDER.md): the frame is one
+// full-screen `BMP.IDX` entry, `DEMOTION` by default.
+int show_ingame_menu(const gm::Options& options) {
+    gm::IngameMenuRenderOptions settings;
+    settings.background = options.ingame_menu_bg;
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "ingame_menu", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::IngameMenuRenderStats stats;
+    if (!gm::render_ingame_menu(std::filesystem::path(options.game), settings, rgba,
+                                width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "ingame_menu", error);
+        return 2;
+    }
+    std::printf("ingame_menu: bg=%s rows=%d ink=%d missing=%d arrows=%d\n",
+                settings.background.c_str(), stats.rows, stats.ink_pixels,
+                stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--hud-lut-dump OUT`: build the 16x256 fade tables from the installed
+// palette (`build_hud_lut`, docs/LUT_BUILDER.md) and write them as the
+// 4096-byte `hud_lut.bin`.  Refuses to write inside the installation: the
+// engine never modifies the game directory.
+int show_hud_lut_dump(const gm::Options& options) {
+    std::string error;
+    const char* home = std::getenv("HOME");
+    const std::string default_path =
+        std::string(home != nullptr ? home : "") + "/.cache/gunmetal-re/hud_lut.bin";
+    std::filesystem::path out = default_path;
+    if (!options.hud_lut_dump.empty()) {
+        out = options.hud_lut_dump;
+    }
+    std::error_code ec;
+    const std::filesystem::path game =
+        std::filesystem::weakly_canonical(std::filesystem::path(options.game), ec);
+    const std::filesystem::path target =
+        std::filesystem::weakly_canonical(out, ec);
+    if (!game.empty() && !target.empty()) {
+        const auto [end, _] = std::mismatch(game.begin(), game.end(), target.begin(),
+                                            target.end());
+        if (end == game.end()) {
+            gm::logf(gm::LogLevel::Error, "hud_lut",
+                     "refusing to write inside the installation: ", out.string());
+            return 2;
+        }
+    }
+    const auto palette =
+        gm::installed_palette(std::filesystem::path(options.game), error);
+    if (!palette) {
+        gm::logf(gm::LogLevel::Error, "hud_lut", error);
+        return 2;
+    }
+    gm::HudLut lut;
+    if (!gm::build_hud_lut(*palette, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "hud_lut", error);
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes;
+    bytes.reserve(gm::kHudLutBytes);
+    for (const auto& level : lut.levels) {
+        bytes.insert(bytes.end(), level.begin(), level.end());
+    }
+    if (!write_file(out, bytes)) {
+        gm::logf(gm::LogLevel::Error, "hud_lut", "cannot write ", out.string());
+        return 2;
+    }
+    std::uint64_t fnv = 0xcbf29ce484222325ull;
+    for (const std::uint8_t byte : bytes) {
+        fnv ^= byte;
+        fnv *= 0x100000001b3ull;
+    }
+    std::printf("hud_lut: %zu bytes, fnv1a64=0x%016llx, %s\n", bytes.size(),
+                static_cast<unsigned long long>(fnv), out.string().c_str());
+    return 0;
+}
+
+// `--lay-bucks [--no-plate] [--png OUT]`: screen 20, the shareware stub
+// `LAY DOWN THE BUCKS` (`ui/lay_bucks_render.*`, docs/LAY_BUCKS_RENDER.md).
+// There is no amount and no cursor: the handler prints four fixed lines.
+int show_lay_bucks(const gm::Options& options) {
+    gm::LayBucksRenderOptions settings;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kLayBucksPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "lay_bucks", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::LayBucksRenderStats stats;
+    if (!gm::render_lay_bucks(std::filesystem::path(options.game), settings, rgba,
+                              width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "lay_bucks", error);
+        return 2;
+    }
+    std::printf("lay_bucks: rows=%d ink=%d missing=%d arrows=%d\n", stats.rows,
+                stats.ink_pixels, stats.missing_glyphs, stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--save-name [--save-name-text NAME] [--save-name-row N]
+// [--save-name-no-caret] [--no-fileslot] [--png OUT]`: screen 15, the name
+// entry over the SAVE GAME frame (`ui/save_name_render.*`,
+// docs/SAVE_NAME_RENDER.md).  The input itself is the caller's.
+int show_save_name(const gm::Options& options) {
+    gm::SaveNameRenderOptions settings;
+    settings.name = options.save_name_text;
+    settings.row = options.save_name_row;
+    settings.caret = !options.save_name_no_caret;
+    settings.fileslot = !options.save_name_no_fileslot;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kSaveNamePanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "save_name", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::SaveNameRenderStats stats;
+    if (!gm::render_save_name(std::filesystem::path(options.game), settings, rgba,
+                              width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "save_name", error);
+        return 2;
+    }
+    std::printf("save_name: rows=%d chars=%d truncated=%d row=%d ink=%d missing=%d "
+                "arrows=%d bars=%d\n",
+                stats.rows, stats.chars, stats.truncated, settings.row,
+                stats.ink_pixels, stats.missing_glyphs, stats.arrows,
+                stats.fileslot_bands);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--error [--error-message TEXT] [--png OUT]`: screen 5, the ERROR screen
+// (`ui/error_render.*`, docs/ERROR_RENDER.md).  The message is already
+// substituted by the caller, as the original `sprintf` routines do.
+int show_error(const gm::Options& options) {
+    gm::ErrorRenderOptions settings;
+    settings.message = options.error_message;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kErrorPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "error_screen", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::ErrorRenderStats stats;
+    if (!gm::render_error(std::filesystem::path(options.game), settings, rgba,
+                          width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "error_screen", error);
+        return 2;
+    }
+    std::printf("error_screen: rows=%d lines=%d ink=%d missing=%d arrows=%d\n",
+                stats.rows, stats.lines, stats.ink_pixels, stats.missing_glyphs,
+                stats.arrows);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--player-setup [--player-setup-cursor N] [--player-setup-joystick N]
+// [--player-setup-player N] [--png OUT]`: screen 36, PLAYER 1/2 JOYSTICK
+// SETUP (`ui/player_setup_render.*`, docs/PLAYER_SETUP_RENDER.md).
+int show_player_setup(const gm::Options& options) {
+    gm::PlayerSetupRenderOptions settings;
+    settings.cursor = options.player_setup_cursor;
+    settings.joystick = options.player_setup_joystick;
+    settings.player = options.player_setup_player;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kPlayerSetupPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "player_setup", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::PlayerSetupRenderStats stats;
+    if (!gm::render_player_setup(std::filesystem::path(options.game), settings,
+                                  rgba, width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "player_setup", error);
+        return 2;
+    }
+    std::printf("player_setup: player=%d rows=%d sliders=%d checks=%d cursor=%d "
+                "joystick=%d arrows=%d ink=%d missing=%d\n",
+                settings.player, stats.rows, stats.sliders, stats.checks,
+                settings.cursor, settings.joystick, stats.arrows,
+                stats.ink_pixels, stats.missing_glyphs);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--control-options [--control-options-cursor N] [--control-options-keyset1 N]
+// [--control-options-keyset2 N] [--control-options-joystick1 N]
+// [--control-options-joystick2 N] [--control-options-mouse N] [--png OUT]`:
+// screen 10 (`ui/control_options_render.*`, docs/CONTROL_OPTIONS_RENDER.md).
+int show_control_options(const gm::Options& options) {
+    gm::ControlOptionsRenderOptions settings;
+    settings.cursor = options.control_options_cursor;
+    settings.keyset1 = options.control_options_keyset1;
+    settings.keyset2 = options.control_options_keyset2;
+    settings.joystick1 = options.control_options_joystick1;
+    settings.joystick2 = options.control_options_joystick2;
+    settings.mouse_type = options.control_options_mouse;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kControlOptionsPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "control_options", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::ControlOptionsRenderStats stats;
+    if (!gm::render_control_options(std::filesystem::path(options.game), settings,
+                                     rgba, width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "control_options", error);
+        return 2;
+    }
+    std::printf("control_options: rows=%d sliders=%d checks=%d cursor=%d arrows=%d "
+                "ink=%d missing=%d\n",
+                stats.rows, stats.sliders, stats.checks, settings.cursor,
+                stats.arrows, stats.ink_pixels, stats.missing_glyphs);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--sound-options [--sound-options-cursor N] [--sound-options-music N]
+// [--sound-options-effects N] [--sound-options-swap] [--sound-options-off]
+// [--sound-options-low-memory] [--png OUT]`: screen 11
+// (`ui/sound_options_render.*`, docs/SOUND_OPTIONS_RENDER.md).
+int show_sound_options(const gm::Options& options) {
+    gm::SoundOptionsRenderOptions settings;
+    settings.cursor = options.sound_options_cursor;
+    settings.music_volume = options.sound_options_music;
+    settings.effects_volume = options.sound_options_effects;
+    settings.switch_left_right = options.sound_options_swap ? 1 : 0;
+    settings.sound_enabled = !options.sound_options_off;
+    settings.music_low_memory = options.sound_options_low_memory;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kSoundOptionsPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "sound_options", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::SoundOptionsRenderStats stats;
+    if (!gm::render_sound_options(std::filesystem::path(options.game), settings,
+                                   rgba, width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "sound_options", error);
+        return 2;
+    }
+    std::printf("sound_options: rows=%d sliders=%d checks=%d cursor=%d arrows=%d "
+                "ink=%d missing=%d\n",
+                stats.rows, stats.sliders, stats.checks, settings.cursor,
+                stats.arrows, stats.ink_pixels, stats.missing_glyphs);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--graphics-options [--graphics-options-cursor N] [--graphics-options-border N]
+// [--graphics-options-gamma N] [--graphics-options-reflections N]
+// [--graphics-options-light-maps N] [--png OUT]`: screen 12
+// (`ui/graphics_options_render.*`, docs/GRAPHICS_OPTIONS_RENDER.md).
+int show_graphics_options(const gm::Options& options) {
+    gm::GraphicsOptionsRenderOptions settings;
+    settings.cursor = options.graphics_options_cursor;
+    settings.border = options.graphics_options_border;
+    settings.gamma = options.graphics_options_gamma;
+    settings.reflections = options.graphics_options_reflections;
+    settings.light_maps = options.graphics_options_light_maps;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kGraphicsOptionsPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "graphics_options", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::GraphicsOptionsRenderStats stats;
+    if (!gm::render_graphics_options(std::filesystem::path(options.game), settings,
+                                      rgba, width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "graphics_options", error);
+        return 2;
+    }
+    std::printf("graphics_options: rows=%d sliders=%d checks=%d cursor=%d arrows=%d "
+                "ink=%d missing=%d\n",
+                stats.rows, stats.sliders, stats.checks, settings.cursor,
+                stats.arrows, stats.ink_pixels, stats.missing_glyphs);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--play-options [--play-options-cursor N] [--play-options-flags HEX]
+// [--play-options-camera N] [--play-options-in-game] [--png OUT]`: screen 32
+// (`ui/play_options_render.*`, docs/PLAY_OPTIONS_RENDER.md).
+int show_play_options(const gm::Options& options) {
+    gm::PlayOptionsRenderOptions settings;
+    settings.cursor = options.play_options_cursor;
+    settings.flags = options.play_options_flags;
+    settings.dynamic_camera = options.play_options_camera;
+    settings.in_game = options.play_options_in_game;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kPlayOptionsPanelName);
+    }
+    gm::HudLut lut;
+    std::string error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, lut, &error)) {
+        gm::logf(gm::LogLevel::Error, "play_options", error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::PlayOptionsRenderStats stats;
+    if (!gm::render_play_options(std::filesystem::path(options.game), settings,
+                                  rgba, width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "play_options", error);
+        return 2;
+    }
+    std::printf("play_options: rows=%d sliders=%d checks=%d cursor=%d arrows=%d "
+                "ink=%d missing=%d\n",
+                stats.rows, stats.sliders, stats.checks, settings.cursor,
+                stats.arrows, stats.ink_pixels, stats.missing_glyphs);
+    if (options.png.empty()) {
+        return 0;
+    }
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--keycfg NAME [--no-plate] [--png OUT]`: screen 30, the key-set viewer
+// (`ui/keycfg_render.*`, docs/KEYCFG_RENDER.md).  NAME is a set name resolved
+// under `KEYCFG/` (with or without `.key`) or a path.
+int show_keycfg(const gm::Options& options) {
+    std::filesystem::path key_file(options.keycfg);
+    const bool has_sep = options.keycfg.find('/') != std::string::npos ||
+                         options.keycfg.find('\\') != std::string::npos;
+    if (!has_sep && !std::filesystem::exists(key_file)) {
+        std::filesystem::path dir = std::filesystem::path(options.game) / "KEYCFG";
+        std::filesystem::path direct = dir / key_file;
+        if (direct.extension().empty()) {
+            direct += ".key";
+        }
+        key_file = direct;
+        std::error_code ec;
+        if (!std::filesystem::exists(key_file, ec)) {
+            // `KEYCFG` is user data: match the name case-insensitively, like
+            // the engine's own lookups.
+            std::string folded = key_file.filename().string();
+            std::transform(folded.begin(), folded.end(), folded.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            for (const auto& entry : std::filesystem::directory_iterator(
+                     dir, std::filesystem::directory_options::skip_permission_denied, ec)) {
+                std::string name = entry.path().filename().string();
+                std::string lower = name;
+                std::transform(lower.begin(), lower.end(), lower.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (lower == folded) {
+                    key_file = entry.path();
+                    break;
+                }
+            }
+        }
+    }
+    gm::KeycfgRenderOptions settings;
+    settings.cursor = options.keycfg_cursor;
+    settings.mode = options.keycfg_mode == "edit" ? gm::KeycfgMode::edit
+                                                   : gm::KeycfgMode::view;
+    settings.edit_cell = options.keycfg_cell == "b" ? gm::KeycfgCell::second
+                                                     : gm::KeycfgCell::primary;
+    settings.conflict = options.keycfg_conflict;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kKeycfgPanelName);
+    }
+    gm::HudLut keycfg_lut;
+    std::string keycfg_fade_error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, keycfg_lut, &keycfg_fade_error)) {
+        gm::logf(gm::LogLevel::Error, "keycfg", keycfg_fade_error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::KeycfgRenderStats stats;
+    std::string error;
+    if (!gm::render_keycfg(std::filesystem::path(options.game), key_file, settings,
+                           rgba, width, height, &stats, &error)) {
+        gm::logf(gm::LogLevel::Error, "keycfg", error);
+        return 2;
+    }
+    std::printf("keycfg: %s rows=%d named=%d cursor=%d first_row=%d arrows=%d "
+                "mode=%s conflicts=%d ink=%d missing=%d\n",
+                key_file.filename().string().c_str(), stats.rows, stats.named_actions,
+                stats.cursor, stats.first_row, stats.arrows,
+                settings.mode == gm::KeycfgMode::edit ? "edit" : "view",
+                stats.conflict_rows, stats.ink_pixels, stats.missing_glyphs);
+    if (options.png.empty()) {
+        return 0;
+    }
+    std::printf("render: %dx%d ink=%d\n", width, height, stats.ink_pixels);
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--start-game [--save-menu-slot N] [--no-plate] [--png OUT]`: screen 13,
+// the START GAME list (`ui/start_game_render.*`, docs/START_GAME_RENDER.md).
+// The slot window comes from the SAVE GAME state, so the cursor obeys the same
+// reachability rules as `--save-menu`.
+int show_start_game(const gm::Options& options) {
+    gm::SaveMenu menu;
+    menu.open(gm::SaveMenuMode::load, std::filesystem::path(options.game));
+    if (!menu.is_open()) {
+        gm::logf(gm::LogLevel::Error, "start_game", menu.error());
+        return 2;
+    }
+    place_save_cursor(menu, options.save_menu_slot);
+    std::printf("start_game: slots=%d occupied=%d selected=%d first=%d\n",
+                gm::SaveMenu::kSlots,
+                [&menu] {
+                    int n = 0;
+                    for (const gm::SaveSlotView& view : menu.slots()) {
+                        n += view.occupied ? 1 : 0;
+                    }
+                    return n;
+                }(),
+                menu.selected(), menu.visible_first());
+    if (options.png.empty()) {
+        return 0;
+    }
+    gm::StartGameRenderOptions settings;
+    settings.first_slot = menu.visible_first();
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kStartGamePanelName);
+    }
+    gm::HudLut start_lut;
+    std::string start_fade_error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, start_lut, &start_fade_error)) {
+        gm::logf(gm::LogLevel::Error, "start_game", start_fade_error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::StartGameRenderStats stats;
+    std::string render_error;
+    if (!gm::render_start_game(std::filesystem::path(options.game), menu, settings,
+                               rgba, width, height, &stats, &render_error)) {
+        gm::logf(gm::LogLevel::Error, "start_game", render_error);
+        return 2;
+    }
+    std::printf("render: rows=%d first_slot=%d slot_rows=%d %dx%d ink=%d arrows=%d "
+                "missing=%d\n",
+                stats.rows, stats.first_slot, stats.slot_rows, width, height,
+                stats.ink_pixels, stats.arrows, stats.missing_glyphs);
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--save-menu [--save-menu-slot N] [--save-menu-mode load|save] [--no-plate]
+// [--png OUT]`: screen 14, the six-row SAVE GAME list (`ui/save_menu.*` for the
+// state, `ui/save_menu_render.*` for the frame,
+// docs/SAVE_MENU_RENDER.md).  The cursor is a slot index; the renderer paints
+// the window the real menu would show.
+int show_save_menu(const gm::Options& options) {
+    gm::SaveMenu menu;
+    menu.open(options.save_menu_mode == "save" ? gm::SaveMenuMode::save
+                                               : gm::SaveMenuMode::load,
+              std::filesystem::path(options.game));
+    if (!menu.is_open()) {
+        gm::logf(gm::LogLevel::Error, "save_menu", menu.error());
+        return 2;
+    }
+    place_save_cursor(menu, options.save_menu_slot);
+    int occupied = 0;
+    for (const gm::SaveSlotView& view : menu.slots()) {
+        occupied += view.occupied ? 1 : 0;
+    }
+    std::printf("save_menu: mode=%s slots=%d occupied=%d selected=%d first=%d\n",
+                options.save_menu_mode.c_str(), gm::SaveMenu::kSlots, occupied,
+                menu.selected(), menu.visible_first());
+    if (options.png.empty()) {
+        return 0;
+    }
+    gm::SaveMenuRenderOptions settings;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kSaveMenuPanelName);
+    }
+    gm::HudLut save_lut;
+    std::string fade_error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, save_lut, &fade_error)) {
+        gm::logf(gm::LogLevel::Error, "save_menu", fade_error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::SaveMenuRenderStats stats;
+    std::string render_error;
+    if (!gm::render_save_menu(std::filesystem::path(options.game), menu, settings,
+                              rgba, width, height, &stats, &render_error)) {
+        gm::logf(gm::LogLevel::Error, "save_menu", render_error);
+        return 2;
+    }
+    std::printf("render: rows=%d scroll=%d selected=%d slot_rows=%d %dx%d ink=%d "
+                "missing=%d\n",
+                stats.rows, stats.scroll, stats.selected_row, stats.slot_rows, width,
+                height, stats.ink_pixels, stats.missing_glyphs);
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
+        return 2;
+    }
+    std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
+    return 0;
+}
+
+// `--save-action save|load --save-menu-slot N [--save-action-out DIR]`:
+// perform the menu action on the real container (`game/save_action.*`,
+// docs/SAVE_ACTION.md).  A save is written to `DIR` (a scratch directory by
+// default) — never into the installation; a load parses the slot and applies
+// it to a scratch runtime, then prints the numbers `last_load()` reports.
+int show_save_action(const gm::Options& options) {
+    const bool saving = options.save_action == "save";
+    gm::SaveMenu menu;
+    menu.open(saving ? gm::SaveMenuMode::save : gm::SaveMenuMode::load,
+              std::filesystem::path(options.game));
+    if (!menu.is_open()) {
+        gm::logf(gm::LogLevel::Error, "save_action", menu.error());
+        return 2;
+    }
+    place_save_cursor(menu, options.save_menu_slot);
+    std::filesystem::path out_dir("/tmp/opencode/save-action");
+    if (!options.save_action_out.empty()) {
+        out_dir = std::filesystem::path(options.save_action_out);
+    }
+    gm::SaveAction action;
+    std::string error;
+    const gm::SaveActionResult result =
+        action.apply(menu, saving ? gm::SaveMenuEvent::save : gm::SaveMenuEvent::load,
+                     std::filesystem::path(options.game), out_dir, &error);
+    const char* names[] = {"none", "saved", "loaded", "refused_empty",
+                           "refused_write", "refused_read"};
+    std::printf("save_action: %s slot=%d result=%s saves=%d loads=%d refusals=%d\n",
+                options.save_action.c_str(), menu.selected(),
+                names[static_cast<int>(result)], action.stats().saves,
+                action.stats().loads, action.stats().refusals);
+    if (!error.empty()) {
+        std::printf("  error: %s\n", error.c_str());
+    }
+    if (result == gm::SaveActionResult::loaded) {
+        const gm::LoadedSave& loaded = action.last_load();
+        std::printf("  level=%s title=\"%s\" feet=(%.6f, %.6f, %.6f) yaw=%.6f\n",
+                    loaded.level.c_str(), loaded.title.c_str(), loaded.feet.x,
+                    loaded.feet.y, loaded.feet.z, loaded.yaw);
+        std::printf("  blocks=%zu sector_stuff=%zu unsupported=%zu\n", loaded.blocks,
+                    loaded.sector_stuff_active, loaded.unsupported.size());
+    }
+    switch (result) {
+        case gm::SaveActionResult::saved:
+        case gm::SaveActionResult::loaded:
+            return 0;
+        case gm::SaveActionResult::none:
+            return 0;
+        default:
+            return 2;
+    }
+}
+
+// `--level-select [--level-select-counter N] [--level-select-row N]
+// [--no-plate] [--png OUT]`: screen 17 of the front end, `SELECT LEVEL FOR NEW
+// GAME` (`ui/level_select.*` for the rows, `ui/level_select_render.*` for the
+// frame, docs/LEVEL_SELECT.md and LEVEL_SELECT_RENDER.md).  The campaign
+// counter is the only progress state the screen takes; the plate is painted
+// unless `--no-plate` asks for the bare black canvas.
+int show_level_select(const gm::Options& options) {
+    gm::CampaignState campaign;
+    campaign.load(options.level_select_counter);
+    gm::LevelSelect select;
+    select.build(campaign, nullptr);
+    const std::vector<gm::LevelEntry>& rows = select.levels();
+    if (rows.empty()) {
+        gm::logf(gm::LogLevel::Error, "level_select",
+                 select.last_error().empty() ? std::string("no rows")
+                                             : select.last_error());
+        return 2;
+    }
+    int unlocked = 0;
+    for (const gm::LevelEntry& entry : rows) {
+        unlocked += entry.unlocked ? 1 : 0;
+    }
+    // The cursor is a plain row index, clamped like `LevelSelect::move()`.
+    int row = options.level_select_row;
+    row = row < 0 ? 0 : row;
+    row = row >= static_cast<int>(rows.size()) ? static_cast<int>(rows.size()) - 1 : row;
+    while (select.selected() < row) {
+        select.move(1);
+    }
+    while (select.selected() > row) {
+        select.move(-1);
+    }
+    const gm::LevelEntry& current = rows[static_cast<std::size_t>(select.selected())];
+    std::printf("level_select: counter=%d rows=%d unlocked=%d selected=%d (%s)\n",
+                campaign.counter(), static_cast<int>(rows.size()), unlocked,
+                select.selected(), current.name.c_str());
+    if (options.png.empty()) {
+        return 0;
+    }
+    gm::LevelSelectRenderOptions settings;
+    if (!options.level_select_no_plate) {
+        settings.background = std::string(gm::kLevelSelectPanelName);
+    }
+    gm::HudLut level_lut;
+    std::string fade_error;
+    if (options.pager_fade_lut >= 0 &&
+        !apply_fade_lut(options, settings, level_lut, &fade_error)) {
+        gm::logf(gm::LogLevel::Error, "level_select", fade_error);
+        return 2;
+    }
+    std::vector<std::uint32_t> rgba;
+    int width = 0;
+    int height = 0;
+    gm::LevelSelectRenderStats stats;
+    std::string render_error;
+    if (!gm::render_level_select(std::filesystem::path(options.game), select, settings,
+                                 rgba, width, height, &stats, &render_error)) {
+        gm::logf(gm::LogLevel::Error, "level_select", render_error);
+        return 2;
+    }
+    std::printf("render: rows=%d selected=%d %dx%d ink=%d missing=%d\n", stats.rows,
+                stats.selected_row, width, height, stats.ink_pixels,
+                stats.missing_glyphs);
+    if (!scale_frontend_frame(options, rgba, width, height)) {
+        return 2;
+    }
+    std::vector<std::uint8_t> bytes(rgba.size() * 4);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        bytes[i * 4 + 0] = static_cast<std::uint8_t>(rgba[i] >> 24);
+        bytes[i * 4 + 1] = static_cast<std::uint8_t>(rgba[i] >> 16);
+        bytes[i * 4 + 2] = static_cast<std::uint8_t>(rgba[i] >> 8);
+        bytes[i * 4 + 3] = static_cast<std::uint8_t>(rgba[i]);
+    }
+    const auto png = gm::encode_png_rgba(width, height, bytes);
+    if (png.empty() || !write_file(options.png, png)) {
+        gm::logf(gm::LogLevel::Error, "png", "cannot write ", options.png.string());
         return 2;
     }
     std::printf("png: %s (%zu bytes)\n", options.png.string().c_str(), png.size());
@@ -2930,6 +4898,160 @@ int show_pager(const gm::Options& options) {
 }
 
 
+// `--save-load SLOT|PATH`: the save -> live runtime slice (M8.7/M9, slice 2;
+// docs/SAVE_LOAD.md).  The level is `--level` or the save header (resolved
+// case-insensitively through the install), the runtime is the same
+// `load_level` -> `vm_state_from_level` -> `GameRuntime::build` chain as
+// `--sim`, and the save is applied on top of it.  `--save-load-ticks N` steps
+// the fixed 91 Hz tick N times afterwards.
+int show_save_load(const gm::Options& options) {
+    std::string error;
+    const auto path = gm::resolve_save_path(options.game, options.save_load, &error);
+    if (!path) {
+        gm::logf(gm::LogLevel::Error, "save-load", error);
+        return 2;
+    }
+    const auto bytes = read_file(*path, error);
+    if (!bytes) {
+        gm::logf(gm::LogLevel::Error, "save-load", error);
+        return 2;
+    }
+    const auto save = gm::parse_save(*bytes, error);
+    if (!save) {
+        gm::logf(gm::LogLevel::Error, "save-load", path->string() + ": " + error);
+        return 2;
+    }
+
+    // Slot label for the summary line: the argument itself when it is a
+    // number, -1 for an explicit path.
+    int slot = -1;
+    const std::string& target = options.save_load;
+    if (std::all_of(target.begin(), target.end(), [](char c) {
+            return std::isdigit(static_cast<unsigned char>(c)) != 0;
+        })) {
+        slot = std::atoi(target.c_str());
+    }
+
+    const std::string from_header = gm::save_level_name(*save);
+    const std::string level = options.level.empty() ? from_header : options.level;
+    if (level.empty()) {
+        gm::logf(gm::LogLevel::Error, "save-load",
+                 "the save header has no level name and --level was not given");
+        return 2;
+    }
+    const auto bundle = gm::load_level(options.game, level, error);
+    if (!bundle) {
+        gm::logf(gm::LogLevel::Error, "save-load", error);
+        return 2;
+    }
+    if (!bundle->world) {
+        gm::logf(gm::LogLevel::Error, "save-load", "level " + level + ": no .sbw world");
+        return 2;
+    }
+    if (!bundle->entities) {
+        gm::logf(gm::LogLevel::Error, "save-load",
+                 "level " + level + ": no .sbt script (the runtime needs one)");
+        return 2;
+    }
+
+    gm::VmContext context;
+    context.game_mode = options.sim_mode;
+    context.player_count = options.sim_players;
+    context.players = options.sim_players;
+    context.difficulty = options.sim_difficulty;
+    context.god_mode = options.sim_god;
+    gm::VmState vm = gm::vm_state_from_level(*bundle->entities, context);
+
+    // Block 8 must reach the VM state before the runtime is built from it.
+    gm::LoadedSave loaded;
+    if (!gm::apply_save_sector_stuff(*save, vm, loaded, &error)) {
+        gm::logf(gm::LogLevel::Error, "save-load", error);
+        return 2;
+    }
+
+    gm::GameRuntime runtime;
+    if (!runtime.build(*bundle->entities, vm, *bundle->world, &error)) {
+        gm::logf(gm::LogLevel::Error, "save-load", error);
+        return 2;
+    }
+
+    // The capsule is the level's LIGHT chassis (as in `--sim-drive`); the
+    // save has no chassis record.  `apply_save()` re-inits the player at the
+    // saved feet/yaw, so the pose here is only a placeholder.
+    const auto sbt_path = gm::resolve_ci(options.game, level + ".sbt");
+    if (!sbt_path) {
+        gm::logf(gm::LogLevel::Error, "save-load",
+                 "level " + level + ": no .sbt script under " + options.game.string());
+        return 2;
+    }
+    std::string chassis_error;
+    const auto chassis = gm::chassis_from_level(*sbt_path, &chassis_error);
+    if (!chassis) {
+        gm::logf(gm::LogLevel::Error, "save-load", chassis_error);
+        return 2;
+    }
+    const gm::ChassisSpec* light = nullptr;
+    for (const gm::ChassisSpec& spec : *chassis) {
+        if (spec.name.find("LIGHT") != std::string::npos) {
+            light = &spec;
+            break;
+        }
+    }
+    if (light == nullptr) {
+        gm::logf(gm::LogLevel::Error, "save-load",
+                 "no LIGHT chassis record in " + sbt_path->string());
+        return 2;
+    }
+    gm::SimPlayer player;
+    if (!player.init(gm::Vec3d{}, 0.0, *light, &error)) {
+        gm::logf(gm::LogLevel::Error, "save-load", error);
+        return 2;
+    }
+    if (!gm::apply_save(*save, runtime, player, loaded, &error)) {
+        gm::logf(gm::LogLevel::Error, "save-load", error);
+        return 2;
+    }
+
+    // The weapon *tables* come from the level; the save carries only the
+    // loadout (`Arsenal`), which `apply_save()` already installed.
+    std::string weapons_error;
+    if (auto table = gm::Weapons::load(*sbt_path, &weapons_error)) {
+        runtime.set_player_weapons(std::move(*table), loaded.arsenal);
+    } else {
+        gm::logf(gm::LogLevel::Info, "save-load", "no weapon table: ", weapons_error);
+    }
+
+    const std::uint64_t ticks = static_cast<std::uint64_t>(options.save_load_ticks);
+    if (ticks != 0) {
+        runtime.tick(ticks);
+    }
+
+    const gm::Vitals& vitals = player.vitals();
+    std::printf("save-load: slot=%d level=%s pos=(%.3f, %.3f, %.3f) armor=%d "
+                "shields=%d/%d/%d/%d ammo=%u,%u sector_stuff=%zu unsupported=%zu "
+                "ticks=%llu\n",
+                slot, level.c_str(), player.state().pos.x, player.state().pos.y,
+                player.state().pos.z, vitals.armor, vitals.shields[0], vitals.shields[1],
+                vitals.shields[2], vitals.shields[3], loaded.arsenal.ammo[0],
+                loaded.arsenal.ammo[1], loaded.sector_stuff_active,
+                loaded.unsupported.size(), static_cast<unsigned long long>(ticks));
+    std::printf("save-load: level=%s sectors=%zu objects=%zu things=%zu doors=%zu "
+                "switches=%zu sector_stuff_slots=%zu applied=%d blocks=%zu\n",
+                level.c_str(), bundle->world->header.sectors.size(),
+                bundle->world->header.object_count, runtime.things().things().size(),
+                runtime.world().doors().size(), runtime.world().switches().size(),
+                loaded.sector_stuff, loaded.sector_stuff_applied ? 1 : 0, loaded.blocks);
+    for (const std::string& line : loaded.unsupported) {
+        std::printf("save-load: unsupported: %s\n", line.c_str());
+    }
+    if (ticks != 0) {
+        std::printf("save-load: after ticks pos=(%.3f, %.3f, %.3f) armor=%d\n",
+                    player.state().pos.x, player.state().pos.y, player.state().pos.z,
+                    player.vitals().armor);
+    }
+    return 0;
+}
+
 // `--save-slots`: the headless save-slot table (`docs/SAVE_SLOTS.md`):
 // 20 slots of `0x13` bytes, 6 visible rows, scroll 0..13.
 int show_save_slots(const gm::Options& options) {
@@ -2992,6 +5114,102 @@ int main(int argc, char** argv) {
     if (options->save_slots) {
         return show_save_slots(*options);
     }
+    if (!options->hud_png.empty()) {
+        return show_hud_png(*options);
+    }
+    if (!options->killed_name.empty()) {
+        return show_killed(*options);
+    }
+    if (options->best_times) {
+        return show_best_times(*options);
+    }
+    if (!options->playlist.empty()) {
+        return show_playlist(*options);
+    }
+    if (!options->briefing.empty()) {
+        return show_briefing(*options);
+    }
+    if (options->level_select) {
+        return show_level_select(*options);
+    }
+    if (options->save_menu) {
+        return show_save_menu(*options);
+    }
+    if (!options->save_action.empty()) {
+        return show_save_action(*options);
+    }
+    if (options->start_game) {
+        return show_start_game(*options);
+    }
+    if (!options->keycfg.empty()) {
+        return show_keycfg(*options);
+    }
+    if (options->game_type) {
+        return show_game_type(*options);
+    }
+    if (options->difficulty) {
+        return show_difficulty(*options);
+    }
+    if (options->local_players) {
+        return show_local_players(*options);
+    }
+    if (options->quit) {
+        return show_quit(*options);
+    }
+    if (options->video_mode) {
+        return show_video_mode(*options);
+    }
+    if (options->restart) {
+        return show_restart(*options);
+    }
+    if (options->things_anim) {
+        return show_things_anim(*options);
+    }
+    if (options->video_mode_list) {
+        return show_video_mode_list(*options);
+    }
+    if (options->mouse_setup) {
+        return show_mouse_setup(*options);
+    }
+    if (options->joystick_centering) {
+        return show_joystick_centering(*options);
+    }
+    if (options->match_setup) {
+        return show_match_setup(*options);
+    }
+    if (options->key_jamming) {
+        return show_key_jamming(*options);
+    }
+    if (options->ingame_menu) {
+        return show_ingame_menu(*options);
+    }
+    if (options->lay_bucks) {
+        return show_lay_bucks(*options);
+    }
+    if (options->save_name) {
+        return show_save_name(*options);
+    }
+    if (options->error_screen) {
+        return show_error(*options);
+    }
+    if (options->player_setup) {
+        return show_player_setup(*options);
+    }
+    if (options->control_options) {
+        return show_control_options(*options);
+    }
+    if (options->sound_options) {
+        return show_sound_options(*options);
+    }
+    if (options->graphics_options) {
+        return show_graphics_options(*options);
+    }
+    if (options->play_options) {
+        return show_play_options(*options);
+    }
+    if (!options->hud_lut_dump.empty()) {
+        return show_hud_lut_dump(*options);
+    }
     // M12.5: say *which* directory is missing instead of a bare ".sbw not
     // found": every data command joins names under `--game`.
     {
@@ -3005,6 +5223,9 @@ int main(int argc, char** argv) {
                          options->game.string().c_str());
             return 2;
         }
+    }
+    if (!options->save_load.empty()) {
+        return show_save_load(*options);
     }
     if (!options->music.empty()) {
         return play_music(*options);

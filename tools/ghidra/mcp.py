@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -173,19 +174,55 @@ def cmd_metadata(s: Session, args) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+ADDRESS_RE = re.compile(r"0x[0-9a-fA-F]{6,8}")
+
+
+def _cache_dir() -> str | None:
+    """Decompiler cache directory, or None when it cannot be resolved."""
+    try:
+        import fncache
+        return fncache.cache_dir(fncache.exe_sha(fncache.find_exe()))
+    except Exception as exc:  # cache is an optimisation, never a hard failure
+        print(f"// cache unavailable: {exc}", file=sys.stderr)
+        return None
+
+
 def cmd_decompile(s: Session, args) -> None:
-    payloads = s.call_docs("decompile_function", {
-        "binary_name": args.binary or BINARY,
-        "name_or_address": _addrs(args.address),
-        "include_callees": args.callees,
-        "include_strings": args.strings,
-        "include_xrefs": args.xrefs,
-    })
-    for payload in payloads:
-        if "text" in payload and len(payloads) == 1:
-            print(payload["text"])
-            continue
-        _print_decompile(payload, args)
+    cacheable = (not args.no_cache and not (args.xrefs or args.strings
+                                           or args.callees)
+                 and all(ADDRESS_RE.fullmatch(a) for a in args.address))
+    directory = _cache_dir() if cacheable else None
+    if directory is None:
+        payloads = s.call_docs("decompile_function", {
+            "binary_name": args.binary or BINARY,
+            "name_or_address": _addrs(args.address),
+            "include_callees": args.callees,
+            "include_strings": args.strings,
+            "include_xrefs": args.xrefs,
+        })
+        for payload in payloads:
+            if "text" in payload and len(payloads) == 1:
+                print(payload["text"])
+                continue
+            _print_decompile(payload, args)
+        return
+
+    import fncache
+    for target in args.address:
+        address = target.lower()
+        entry = None if args.refresh else fncache.read_entry(directory, address)
+        if entry is None:
+            payloads = s.call_docs("decompile_function", {
+                "binary_name": args.binary or BINARY,
+                "name_or_address": address,
+            })
+            payload = payloads[0] if payloads else {
+                "address": address, "error": "empty reply"}
+            if "text" in payload and "code" not in payload:
+                payload = {"address": address, "code": payload["text"]}
+            fncache.write_entry(directory, address, payload)
+            entry = fncache.read_entry(directory, address) or payload
+        _print_decompile(entry, args)
 
 
 def _print_decompile(payload: dict, args) -> None:
@@ -354,6 +391,10 @@ def main(argv: list[str]) -> int:
     p.add_argument("--xrefs", action="store_true")
     p.add_argument("--strings", action="store_true")
     p.add_argument("--callees", action="store_true")
+    p.add_argument("--no-cache", dest="no_cache", action="store_true",
+                   help="bypass fncache even for plain numeric addresses")
+    p.add_argument("--refresh", action="store_true",
+                   help="refetch and overwrite the cached entry")
     p.add_argument("--no-headers", dest="headers", action="store_false")
     p.set_defaults(func=cmd_decompile, headers=True)
 

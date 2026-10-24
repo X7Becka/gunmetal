@@ -664,7 +664,6 @@ void test_synthetic() {
     CHECK(gm::surface_of(collider.triangles()[1]) == gm::Surface::wall);
 
     const gm::Vec3d down{0.0, 0.0, -1.0};
-    const gm::Vec3d up{0.0, 0.0, 1.0};
     gm::CollideFilter floors;
     floors.walls = false;
     floors.ceilings = false;

@@ -49,7 +49,9 @@
 1. **Найти.** `grep` по `tools/re/names.csv`, `docs/` (лучше через
    `python3 tools/ctx.py addr 0x4752d0`), затем `names.py`/`xref.py`.
 2. **Прочитать код.** `python3 tools/re/disrange.py 0x4752d0 0x475380`
-   (листинг в кэше, диапазон читается по индексу), при необходимости —
+   (листинг в кэше, диапазон читается по индексу), затем
+   `python3 tools/ghidra/fncache.py get 0x4752d0 --head 40` — псевдо-C из
+   кэша без MCP. Только на промахе или для `--xrefs`/`--strings`:
    `tools/ghidra/mcp.py decompile 0x4752d0 --xrefs` (батчем, см. §6).
 3. **Снять данные.** Прочитать реальный файл/сейв тем же `gm.py`, которым
    пользуется оракул; распечатать ровно нужные поля (`--json` + фильтр), а не
@@ -137,7 +139,8 @@ python3 tools/ctx.py index                 # пересобрать docs/INDEX.m
 | таблицы команд/условий | `tools/re/cmdtable.py` |
 | раскладка записи по store-функции | `tools/re/table_layout.py` |
 | копирование записи A→B | `tools/re/copy_trace.py` |
-| декомпиляция/граф вызовов | `tools/ghidra/mcp.py` (headless, `batch` для пачки); кэш — `tools/ghidra/fncache.py` |
+| декомпиляция/граф вызовов | `tools/ghidra/fncache.py get` (кэш), `tools/ghidra/mcp.py` (headless, `batch` для пачки; числовые адреса кэшируются) |
+| структуры из карт полей | `tools/ghidra/typegen.py` (генерация) → `tools/ghidra/apply_types.sh` (импорт, проект закрыт) |
 | сравнить кадр оригинала с нашим | `tools/re/oracle_compare.py` (`--selftest`) |
 | исполнить байты как оракул | `tools/re/x86mini.py`, `tools/re/emu.py` |
 | состояние кэша/зеркала | `tools/re/gmcache.py status` |
@@ -205,6 +208,11 @@ Ghidra MCP: сервер на `127.0.0.1:8765`, проект `re/ghidra/`. Дл�
   рестарт (`docs/GHIDRA.md` §3.1).
 * Декомпилировать адрес повторно, когда ответ уже есть в
   `tools/ghidra/fncache.py` (в истории — 53 % повторов).
+* Оставлять кэш после переименования/смены типов: `fncache.py stats` покажет
+  `stale > 0`, и `state.py --check` упадёт. Лечение:
+  `apply_names.py` (чистит зависимости) и `warm --cached`.
+* Применять `apply_types.sh` при живом MCP-сервере: проект занят, скрипт
+  откажется; порядок — `stop.sh` → `apply_types.sh` → `start.sh`.
 
 Аудит самого процесса (где теряются время/токены, очередь задач) —
 `docs/RE_AUDIT.md`.

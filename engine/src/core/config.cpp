@@ -307,6 +307,22 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
                 return std::nullopt;
             }
             options.png = std::filesystem::path(std::string(*v));
+        } else if (arg == "--png-scale") {
+            // `--png-scale N`: repeat every pixel of the front-end frame as an
+            // N x N block (`render/upscale.h`, docs/UPSCALE.md §2).  The limit
+            // is `kUpscaleMaxScale` (8 -> 2560x1600), not an arithmetic bound.
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.png_scale = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+            if (options.png_scale < 1 || options.png_scale > 8) {
+                return std::nullopt;
+            }
         } else if (arg == "--render") {
             const auto v = value(arg);
             if (!v) {
@@ -531,6 +547,25 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             }
         } else if (arg == "--save-slots") {
             options.save_slots = true;
+        } else if (arg == "--save-load") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.save_load = std::string(*v);
+        } else if (arg == "--save-load-ticks") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.save_load_ticks = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+            if (options.save_load_ticks < 0) {
+                return std::nullopt;
+            }
         } else if (arg == "--pager") {
             const auto v = value(arg);
             if (!v) {
@@ -558,6 +593,749 @@ std::optional<Options> parse_args(int argc, char** argv, std::string& error) {
             }
         } else if (arg == "--all") {
             options.pager_all = true;
+        } else if (arg == "--background") {
+            // `--pager ... --png OUT --background`: HELPSCRN before the text
+            // (docs/PAGER_RENDER.md §2.4).
+            options.pager_background = true;
+        } else if (arg == "--fade-lut") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.pager_fade_lut = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--fade") {
+            // `--fade N`: engine fade level 0..15 (0 = black, 11 = identity),
+            // docs/PAGER_RENDER.md §2.5.  Not to be confused with `--fade-in`
+            // (music).
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.pager_fade = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+            if (options.pager_fade < 0 || options.pager_fade > 15) {
+                return std::nullopt;
+            }
+            // The same flag fades a `--menu --png` screen: one curve, one
+            // spelling (`docs/UPSCALE.md` §6).
+            options.menu_fade = options.pager_fade;
+        } else if (arg == "--playlist") {
+            // `--playlist FILE`: a `.sog` list resolved against `MUSIC/SOU.IDX`
+            // (`audio/playlist.h`, docs/PLAYLIST.md).
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.playlist = std::string(*v);
+        } else if (arg == "--best-times") {
+            // `--best-times`: the 9 `GUNMETAL.HI` rows and the minimum per
+            // level name (`ui/records.h`, docs/HI_SCORES.md).
+            options.best_times = true;
+        } else if (arg == "--killed") {
+            // `--killed NAME`: the death messages of FRONTEND/KILLED.skb with
+            // `%S` replaced by NAME (`ui/killed.h`, docs/KILLED.md).
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.killed_name = std::string(*v);
+        } else if (arg == "--killed-all") {
+            options.killed_all = true;
+        } else if (arg == "--killed-seed") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.killed_seed = static_cast<unsigned>(std::stoul(std::string(*v)));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--hud-png") {
+            // `--hud-png OUT`: the composed cockpit frame (panel, icons,
+            // numbers) as a 320x200 PNG (`render/cockpit.h`, docs/COCKPIT.md).
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.hud_png = std::filesystem::path(std::string(*v));
+        } else if (arg == "--hud-weapon" || arg == "--hud-ammo" ||
+                   arg == "--hud-armor" || arg == "--hud-kills" ||
+                   arg == "--hud-speed") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                if (arg == "--hud-speed") {
+                    options.hud_speed = std::stod(std::string(*v));
+                } else {
+                    const int number = std::stoi(std::string(*v));
+                    if (arg == "--hud-weapon") {
+                        options.hud_weapon = number;
+                    } else if (arg == "--hud-ammo") {
+                        options.hud_ammo = number;
+                    } else if (arg == "--hud-armor") {
+                        options.hud_armor = number;
+                    } else {
+                        options.hud_kills = number;
+                    }
+                }
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--briefing") {
+            // `--briefing LEVEL`: the mission briefing of `SML/brief/<level>.sme`
+            // (`ui/briefing.h`, docs/BRIEFING.md).  A level name, not a path.
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.briefing = std::string(*v);
+        } else if (arg == "--briefing-text") {
+            options.briefing_text = true;
+        } else if (arg == "--level-select") {
+            // `--level-select`: screen 17, `SELECT LEVEL FOR NEW GAME`
+            // (`ui/level_select_render.*`, docs/LEVEL_SELECT_RENDER.md).
+            options.level_select = true;
+        } else if (arg == "--level-select-counter" ||
+                   arg == "--level-select-row") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                const int number = std::stoi(std::string(*v));
+                if (arg == "--level-select-counter") {
+                    options.level_select_counter = number;
+                } else {
+                    options.level_select_row = number;
+                }
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--no-plate") {
+            options.level_select_no_plate = true;
+        } else if (arg == "--save-menu") {
+            // `--save-menu`: screen 14, the six-row SAVE GAME list
+            // (`ui/save_menu_render.*`, docs/SAVE_MENU_RENDER.md).
+            options.save_menu = true;
+        } else if (arg == "--save-menu-slot") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.save_menu_slot = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--keycfg") {
+            // `--keycfg NAME`: screen 30, the key-set viewer
+            // (`ui/keycfg_render.*`, docs/KEYCFG_RENDER.md).
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.keycfg = std::string(*v);
+        } else if (arg == "--game-type") {
+            // `--game-type`: screen 19, MULTIPLAYER GAME TYPE
+            // (`ui/game_type_render.*`, docs/GAME_TYPE_RENDER.md).
+            options.game_type = true;
+        } else if (arg == "--game-type-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.game_type_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--game-type-mask") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.game_type_mask = static_cast<unsigned>(
+                    std::stoul(std::string(*v), nullptr, 0));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--video-mode-list") {
+            // `--video-mode-list`: screen 18, SELECT VIDEO MODE
+            // (`ui/video_mode_list_render.*`, docs/VIDEO_MODE_LIST_RENDER.md).
+            options.video_mode_list = true;
+        } else if (arg == "--video-mode-list-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.video_mode_list_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--graphics-options") {
+            // `--graphics-options`: screen 12
+            // (`ui/graphics_options_render.*`, docs/GRAPHICS_OPTIONS_RENDER.md).
+            options.graphics_options = true;
+        } else if (arg == "--graphics-options-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.graphics_options_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--graphics-options-border") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.graphics_options_border = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--graphics-options-gamma") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.graphics_options_gamma = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--graphics-options-reflections") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.graphics_options_reflections = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--graphics-options-light-maps") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.graphics_options_light_maps = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--play-options") {
+            // `--play-options`: screen 32
+            // (`ui/play_options_render.*`, docs/PLAY_OPTIONS_RENDER.md).
+            options.play_options = true;
+        } else if (arg == "--play-options-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.play_options_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--play-options-flags") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.play_options_flags = static_cast<int>(
+                    std::stoul(std::string(*v), nullptr, 0));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--play-options-camera") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.play_options_camera = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--play-options-in-game") {
+            options.play_options_in_game = true;
+        } else if (arg == "--control-options") {
+            // `--control-options`: screen 10
+            // (`ui/control_options_render.*`, docs/CONTROL_OPTIONS_RENDER.md).
+            options.control_options = true;
+        } else if (arg == "--control-options-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.control_options_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--control-options-keyset1") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.control_options_keyset1 = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--control-options-keyset2") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.control_options_keyset2 = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--control-options-joystick1") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.control_options_joystick1 = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--control-options-joystick2") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.control_options_joystick2 = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--control-options-mouse") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.control_options_mouse = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--sound-options") {
+            // `--sound-options`: screen 11
+            // (`ui/sound_options_render.*`, docs/SOUND_OPTIONS_RENDER.md).
+            options.sound_options = true;
+        } else if (arg == "--sound-options-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.sound_options_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--sound-options-music") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.sound_options_music = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--sound-options-effects") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.sound_options_effects = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--sound-options-swap") {
+            options.sound_options_swap = true;
+        } else if (arg == "--sound-options-off") {
+            options.sound_options_off = true;
+        } else if (arg == "--sound-options-low-memory") {
+            options.sound_options_low_memory = true;
+        } else if (arg == "--player-setup") {
+            // `--player-setup`: screen 36, PLAYER 1/2 JOYSTICK SETUP
+            // (`ui/player_setup_render.*`, docs/PLAYER_SETUP_RENDER.md).
+            options.player_setup = true;
+        } else if (arg == "--player-setup-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.player_setup_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--player-setup-joystick") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.player_setup_joystick = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--player-setup-player") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.player_setup_player = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--error") {
+            // `--error`: screen 5, the ERROR screen
+            // (`ui/error_render.*`, docs/ERROR_RENDER.md).
+            options.error_screen = true;
+        } else if (arg == "--error-message") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.error_message = std::string(*v);
+        } else if (arg == "--lay-bucks") {
+            // `--lay-bucks`: screen 20, the shareware stub
+            // (`ui/lay_bucks_render.*`, docs/LAY_BUCKS_RENDER.md).
+            options.lay_bucks = true;
+        } else if (arg == "--save-name") {
+            // `--save-name`: screen 15, SAVE GAME + name entry
+            // (`ui/save_name_render.*`, docs/SAVE_NAME_RENDER.md).
+            options.save_name = true;
+        } else if (arg == "--save-name-text") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.save_name_text = std::string(*v);
+        } else if (arg == "--save-name-row") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.save_name_row = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--save-name-no-caret") {
+            options.save_name_no_caret = true;
+        } else if (arg == "--no-fileslot") {
+            options.save_name_no_fileslot = true;
+        } else if (arg == "--hud-lut-dump") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.hud_lut_dump = std::string(*v);
+        } else if (arg == "--ingame-menu") {
+            // `--ingame-menu`: screen 9, the full-screen DEMOTION/DISBAND
+            // frame (`ui/ingame_menu_render.*`, docs/INGAME_MENU_RENDER.md).
+            options.ingame_menu = true;
+        } else if (arg == "--ingame-menu-bg") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.ingame_menu_bg = std::string(*v);
+        } else if (arg == "--key-jamming") {
+            // `--key-jamming`: screen 16, KEY JAMMING
+            // (`ui/key_jamming_render.*`, docs/KEY_JAMMING_RENDER.md).
+            options.key_jamming = true;
+        } else if (arg == "--key-jamming-keys") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            std::string text(*v);
+            std::size_t start = 0;
+            while (start <= text.size()) {
+                const std::size_t comma = text.find(',', start);
+                const std::string item =
+                    text.substr(start, comma == std::string::npos ? std::string::npos
+                                                                 : comma - start);
+                if (!item.empty()) {
+                    try {
+                        options.key_jamming_keys.push_back(std::stoi(item));
+                    } catch (const std::exception&) {
+                        return std::nullopt;
+                    }
+                }
+                if (comma == std::string::npos) {
+                    break;
+                }
+                start = comma + 1;
+            }
+        } else if (arg == "--key-jamming-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.key_jamming_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--match-setup") {
+            // `--match-setup`: screen 27, MULTIPLAY GAME OPTIONS
+            // (`ui/match_setup_render.*`, docs/MATCH_SETUP_RENDER.md).
+            options.match_setup = true;
+        } else if (arg == "--match-setup-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.match_setup_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--match-setup-type") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.match_setup_type = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--match-setup-cash") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.match_setup_cash = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--match-setup-flags") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.match_setup_flags = static_cast<int>(
+                    std::stoul(std::string(*v), nullptr, 0));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--joystick-centering") {
+            // `--joystick-centering`: screen 26, JOYSTICK CENTERING
+            // (`ui/joystick_centering_render.*`, docs/JOYSTICK_CENTERING_RENDER.md).
+            options.joystick_centering = true;
+        } else if (arg == "--joystick-centering-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.joystick_centering_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--mouse-setup") {
+            // `--mouse-setup`: screen 22, MOUSE SETUP
+            // (`ui/mouse_setup_render.*`, docs/MOUSE_SETUP_RENDER.md).
+            options.mouse_setup = true;
+        } else if (arg == "--mouse-setup-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.mouse_setup_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--things-anim") {
+            // `--things-anim`: bind every thing to its clip/frame
+            // (`world/thing_anim.*`, docs/THING_ANIM_BIND.md).
+            options.things_anim = true;
+        } else if (arg == "--things-anim-tick") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.things_anim_tick = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--things-anim-limit") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.things_anim_limit = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--restart") {
+            // `--restart`: screen 6, RESTART GAME
+            // (`ui/restart_render.*`, docs/RESTART_RENDER.md).
+            options.restart = true;
+        } else if (arg == "--restart-items") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.restart_items = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--restart-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.restart_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--video-mode") {
+            // `--video-mode`: screen 37, NEW VIDEO MODE OK?
+            // (`ui/video_mode_render.*`, docs/VIDEO_MODE_RENDER.md).
+            options.video_mode = true;
+        } else if (arg == "--video-mode-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.video_mode_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--quit") {
+            // `--quit`: screen 33, QUIT GAME? / QUIT OPTIONS
+            // (`ui/quit_render.*`, docs/QUIT_RENDER.md).
+            options.quit = true;
+        } else if (arg == "--quit-in-game") {
+            options.quit_in_game = true;
+        } else if (arg == "--quit-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.quit_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--local-players") {
+            // `--local-players`: screen 21, NUMBER OF LOCAL PLAYERS
+            // (`ui/local_players_render.*`, docs/LOCAL_PLAYERS_RENDER.md).
+            options.local_players = true;
+        } else if (arg == "--local-players-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.local_players_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--difficulty") {
+            // `--difficulty`: screen 23, SET DIFFICULTY LEVEL
+            // (`ui/difficulty_render.*`, docs/DIFFICULTY_RENDER.md).
+            options.difficulty = true;
+        } else if (arg == "--difficulty-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.difficulty_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--keycfg-mode") {
+            const auto v = value(arg);
+            if (!v || (*v != "view" && *v != "edit")) {
+                return std::nullopt;
+            }
+            options.keycfg_mode = std::string(*v);
+        } else if (arg == "--keycfg-cell") {
+            const auto v = value(arg);
+            if (!v || (*v != "a" && *v != "b")) {
+                return std::nullopt;
+            }
+            options.keycfg_cell = std::string(*v);
+        } else if (arg == "--keycfg-conflict") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.keycfg_conflict = std::string(*v);
+        } else if (arg == "--keycfg-cursor") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            try {
+                options.keycfg_cursor = std::stoi(std::string(*v));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--start-game") {
+            // `--start-game`: screen 13, `New Single Player Game` + slots
+            // (`ui/start_game_render.*`, docs/START_GAME_RENDER.md).
+            options.start_game = true;
+        } else if (arg == "--save-action") {
+            // `--save-action save|load`: apply the SAVE GAME action on the
+            // container (`game/save_action.*`, docs/SAVE_ACTION.md).
+            const auto v = value(arg);
+            if (!v || (*v != "load" && *v != "save")) {
+                return std::nullopt;
+            }
+            options.save_action = std::string(*v);
+        } else if (arg == "--save-action-out") {
+            const auto v = value(arg);
+            if (!v) {
+                return std::nullopt;
+            }
+            options.save_action_out = std::string(*v);
+        } else if (arg == "--save-menu-mode") {
+            const auto v = value(arg);
+            if (!v || (*v != "load" && *v != "save")) {
+                return std::nullopt;
+            }
+            options.save_menu_mode = std::string(*v);
         } else if (arg == "--sim-projectile") {
             options.sim_projectile = true;
         } else if (arg == "--sim-vitals") {
@@ -766,6 +1544,23 @@ std::string usage() {
        << "  -l, --level NAME  level to load (opens the viewer; with --info prints a summary)\n"
        << "  -d, --dump FILE   print size and the first bytes of FILE, then exit\n"
        << "      --png OUT     with --dump of a .sbm/.bmp or with --pager: write OUT as PNG\n"
+       << "      --png-scale N with --menu/--pager --png: integer zoom 1..8 (no filtering)\n"       << "      --playlist FILE  resolve a MUSIC/*.sog playlist against MUSIC/SOU.IDX\n"
+       << "      --best-times     print the GUNMETAL.HI rows and best time per level\n"
+       << "      --killed NAME    print the KILLED screen lines with %S = NAME\n"
+       << "      --killed-all     with --killed: print every accepted line\n"
+       << "      --killed-seed N  with --killed: which line pick() returns (seed % n)\n"
+       << "      --hud-png OUT    composed cockpit frame (panel/icons/numbers) as PNG\n"
+       << "      --hud-weapon N   with --hud-png: weapon slot 0..18 (-1 = none)\n"
+       << "      --hud-ammo N     with --hud-png: rounds (default 0)\n"
+       << "      --hud-armor N    with --hud-png: armour in hundredths (default 10000)\n"
+       << "      --hud-kills N    with --hud-png: kill counter\n"
+       << "      --hud-speed X    with --hud-png: throttle fraction 0..1\n"
+       << "      --hud NAME    with --render: overlay a Film/*.sof HUD film\n"
+       << "      --hud-screen F  with --render: compose the HUD from a BMP entry\n"
+       << "      --hud-tick N  HUD clock in 91 Hz ticks (default 0)\n"
+       << "      --hud-x N / --hud-y N   HUD layer origin (default 0,0)\n"
+       << "      --hud-scale N   integer HUD zoom 1..8 (default 1)\n"
+       << "      --hud-opacity X HUD alpha 0..1 (default 1)\n"
        << "      --save-out OUT with --dump of a save: re-serialise it to OUT\n"
        << "      --set K=V     edit a save field (ammo0..11, armor, shield0..3,\n"
        << "                    posx/posy/posz, weapon); repeatable\n"
@@ -780,6 +1575,7 @@ std::string usage() {
        << "      --no-textures flat colours instead of archive textures\n"
        << "      --no-lightmaps ignore .sbc lightmaps\n"
        << "      --wire        draw polygon edges\n"
+       << "      --lm-world    project lightmaps in world space\n"
        << "      --mip N|auto  fixed mip level (default 0) or screen-space LOD\n"
        << "      --filter M    nearest|bilinear texture filtering\n"
        << "      --alpha-test  drop texels equal to --transparent-index\n"
@@ -824,6 +1620,9 @@ std::string usage() {
        << "      --sim-projectile  the driven player fires rounds (blast damage), not hitscan\n"
        << "      --sim-vitals ARMOR,SHIELD  starting gauges of the driven player\n"
        << "      --sim-respawn N  respawn the driven player N ticks after death (0 = now)\n"
+       << "      --spawn-camera   start the viewer at the campaign spawn\n"
+       << "      --spawn-slot N   campaign spawn slot to use (default 0)\n"
+       << "      --spawn-eye X    add X to the spawn eye height (default 0)\n"
        << "      --menu        dump the headless frontend screen (M8)\n"
        << "      --menu-keys up,down,enter,esc,text:0x1b  feed these keys and print each screen\n"
        << "      --menu-screen ID  start on that UI_SCREENS §2 screen id\n"
@@ -832,9 +1631,69 @@ std::string usage() {
        << "      --fade-out SEC music: linear fade out at the end\n"
        << "      --pager FILE  headless SML pager: status, lines, pages (M8.1)\n"
        << "      --pager-keys next,next,prev,first,last  feed the pager\n"
+       << "      --briefing LEVEL  print the mission briefing of SML/brief/LEVEL.sme\n"
+       << "      --level-select    screen 17 rows; --png OUT [--level-select-counter N]\n"
+       << "                        [--level-select-row N] [--no-plate] [--png-scale N]\n"
+       << "      --save-menu       screen 14 slots; --png OUT [--save-menu-slot N]\n"
+       << "                        [--save-menu-mode load|save] [--no-plate]\n"
+       << "      --game-type       screen 19 game types; --png OUT [--game-type-mask HEX]\n"
+       << "                        [--game-type-cursor N] [--no-plate]\n"
+       << "      --difficulty      screen 23 difficulty; --png OUT [--difficulty-cursor N]\n"
+       << "      --local-players   screen 21 player count; --png OUT [--local-players-cursor N]\n"
+       << "      --video-mode-list screen 18 video modes; --png OUT [--video-mode-list-cursor N]\n"
+       << "      --mouse-setup     screen 22 mouse setup; --png OUT [--mouse-setup-cursor N]\n"
+       << "      --ingame-menu     screen 9 DEMOTION/DISBAND; --png OUT [--ingame-menu-bg NAME]\n"
+       << "      --graphics-options screen 12 graphics options; --png OUT [--graphics-options-cursor N]\n"
+       << "                        [--graphics-options-border N] [--graphics-options-gamma N]\n"
+       << "                        [--graphics-options-reflections N] [--graphics-options-light-maps N]\n"
+       << "      --play-options    screen 32 play options; --png OUT [--play-options-cursor N]\n"
+       << "                        [--play-options-flags HEX] [--play-options-camera N] [--play-options-in-game]\n"
+       << "      --control-options screen 10 control options; --png OUT [--control-options-cursor N]\n"
+       << "                        [--control-options-keyset1 N] [--control-options-keyset2 N]\n"
+       << "                        [--control-options-joystick1 N] [--control-options-joystick2 N]\n"
+       << "                        [--control-options-mouse N]\n"
+       << "      --sound-options   screen 11 sound options; --png OUT [--sound-options-cursor N]\n"
+       << "                        [--sound-options-music N] [--sound-options-effects N]\n"
+       << "                        [--sound-options-swap] [--sound-options-off] [--sound-options-low-memory]\n"
+       << "      --player-setup    screen 36 joystick setup; --png OUT [--player-setup-cursor N]\n"
+       << "                        [--player-setup-joystick N] [--player-setup-player N]\n"
+       << "      --error           screen 5 error text; --png OUT [--error-message TEXT]\n"
+       << "      --lay-bucks       screen 20 shareware stub; --png OUT [--no-plate]\n"
+       << "      --save-name       screen 15 save name; --png OUT [--save-name-text NAME]\n"
+       << "                        [--save-name-row N] [--save-name-no-caret] [--no-fileslot]\n"
+       << "      --hud-lut-dump OUT  build the 16x256 fade tables from GAMEPAL and write them\n"
+       << "      --key-jamming     screen 16 key jamming; --png OUT [--key-jamming-keys 30,31]\n"
+       << "                        [--key-jamming-cursor N]\n"
+       << "      --match-setup     screen 27 match options; --png OUT [--match-setup-cursor N]\n"
+       << "                        [--match-setup-type N] [--match-setup-cash N] [--match-setup-flags HEX]\n"
+       << "      --joystick-centering  screen 26 joystick centering; --png OUT\n"
+       << "                        [--joystick-centering-cursor N]\n"
+       << "      --things-anim     bind level things to clips/frames (M6.3.1)\n"
+       << "                        [--level NAME] [--things-anim-tick N] [--things-anim-limit N]\n"
+       << "      --restart         screen 6 restart menu; --png OUT [--restart-items N]\n"
+       << "                        [--restart-cursor N] [--no-plate]\n"
+       << "      --video-mode      screen 37 video mode OK?; --png OUT [--video-mode-cursor N]\n"
+       << "      --quit            screen 33 quit dialog; --png OUT [--quit-in-game]\n"
+       << "                        [--quit-cursor N] [--no-plate]\n"
+       << "      --keycfg NAME     screen 30 key set (KEYCFG/NAME.key); --png OUT\n"
+       << "                        [--keycfg-cursor N] (0..30) [--keycfg-mode view|edit]\n"
+       << "                        [--keycfg-cell a|b] [--keycfg-conflict TEXT]\n"
+       << "                        [--no-plate] [--png-scale N]\n"
+       << "      --start-game      screen 13 slots; --png OUT [--save-menu-slot N]\n"
+       << "                        [--no-plate] [--png-scale N]\n"
+       << "      --save-action save|load  write/apply a slot; --save-menu-slot N\n"
+       << "                        [--save-action-out DIR] (default /tmp/opencode/save-action)\n"
+       << "      --briefing-text   with --briefing: print every page's text\n"
        << "      --page N      show page N (1-based)\n"
        << "      --all         with --pager: print every page\n"
+       << "      --background  with --pager --png: draw HELPSCRN behind the text\n"
+       << "      --fade N      with --pager/--menu --png: engine fade level 0..15\n"
+       << "                    (0 = black, 11 = identity; model, see docs)\n"
+       << "      --fade-lut N  with --pager --png: exact 0x682f90 tables (0..15);\n"
+       << "                    dump from $GM_HUD_LUT or ~/.cache/gunmetal-re/hud_lut.bin\n"
        << "      --save-slots  headless save-slot list (20 slots, 6 visible)\n"
+       << "      --save-load SLOT|PATH  load a save into the runtime (M8.7/M9)\n"
+       << "      --save-load-ticks N    fixed ticks after --save-load (default 0)\n"
        << "      --sou1 NAME   decode a SOU1 entry to --wav OUT (PCM16 at source rate)\n"
        << "      --sou2 NAME   decode a SOU2 entry to --wav OUT (PCM16)\n"
        << "      --wav OUT     output file for --sou2\n"

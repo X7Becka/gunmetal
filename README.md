@@ -263,11 +263,44 @@ python3 gm.py sbv      out/intro_raw out/intro.sbv                     # соб�
 Детали и точные структуры — в `docs/FORMATS.md`; карта адресов движка — в
 `NOTES.md`.
 
+## Движок (C++)
+
+В `engine/` — переиздание на C++20: загрузчики всех форматов, рендер мира и
+интерфейса, симуляция боя, фронтенд. Собирается Zig-CC (или системным
+компилятором) через CMake:
+
+```bash
+export PATH=$HOME/tools/cmake-4.4.4-linux-x86_64/bin:$PATH
+cmake -S . -B build/sandbox -G Ninja
+cmake --build build/sandbox -j 8
+ctest --test-dir build/sandbox -j 6          # 309 проверок (294 quick + 15 full)
+```
+
+Кадры интерфейса и мира пишутся в PNG (`docs/CLI.md` — полная карта, 149 опций):
+
+```bash
+E=build/sandbox/engine/gunmetal; G="/mnt/d/games/Gunmetal 3dfx"
+$E --game "$G" --start-game  --png /tmp/sg.png     # экран 13, слоты с FILESLOT
+$E --game "$G" --keycfg PERFECT --keycfg-mode edit --png /tmp/kc.png  # 30 / 34-35
+$E --game "$G" --game-type --game-type-mask 0x01 --png /tmp/gt.png     # экран 19
+$E --game "$G" --pager help.sme --background --fade-lut 13 --png /tmp/f.png
+$E --game "$G" --render /tmp/world.png --level level0 --hud AMMO4 --hud-x 14 --hud-y 125
+$E --game "$G" --things-anim --level level13 --things-anim-tick 210
+```
+
+Точный fade — таблицы `0x682f90`, которые движок **строит сам** из
+`FRONTEND/GAMEPAL` (4096/4096 байт, `docs/LUT_BUILDER.md`): уровень 11 —
+тождество (кадр побайтово равен кадру без fade), 12..15 различаются, в отличие
+от прежней модели. CTest `cli_fade_lut` проверяет это на 15 кадрах.
+
+Состояние и правила работы — `CURRENT_STATE.md`, `NEXT.md`, `AGENTS.md`;
+счётчики сверяет `python3 tools/qa/state.py --check`.
+
 ## Регрессия
 
 ```bash
-python3 regress.py            # все быстрые проверки (113)
-python3 regress.py --full     # плюс распаковка и тяжёлые проверки (123)
+python3 regress.py            # все быстрые проверки (115)
+python3 regress.py --full     # плюс распаковка и тяжёлые проверки (125)
 python3 regress.py --list-categories
 python3 regress.py --category save          # только сохранения
 python3 regress.py --category render,scene  # несколько категорий
@@ -276,7 +309,7 @@ python3 regress.py --game "…/Gunmetal 3dfx" --out /tmp/opencode/regress
 ```
 
 Категории разбивают быстрый набор без пересечений: сумма их счётчиков равна
-113 (полный — 123). `--category` можно повторять или перечислять через запятую;
+115 (полный — 125). `--category` можно повторять или перечислять через запятую;
 `all` снимает фильтр, `extract` автоматически включает `--full`.
 
 Скрипт прогоняет `gm.py` по всем семействам данных и сверяет итоговые строки

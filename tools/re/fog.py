@@ -347,9 +347,14 @@ def load_palette6(game: str = DEFAULT_GAME, path: str | None = None):
     info["entry_size"] = step
     pal = []
     for i in range(256):
-        b = data[i * step + 0] >> 2
+        # `gm/palette.*` returns BMP entries already normalised to RGBX
+        # (`gm/bmp.py`: "BMP stores palette entries as B,G,R,X — normalise to
+        # R,G,B,X"), and the engine LUT index is channel-order agnostic only
+        # because both halves use the same palette.  Reading this as B,G,R
+        # swaps red and blue (caught 2026-10-24 by `render/fog.cpp`).
+        r = data[i * step + 0] >> 2
         g = data[i * step + 1] >> 2
-        r = data[i * step + 2] >> 2
+        b = data[i * step + 2] >> 2
         pal.append((r, g, b))
     info["max6"] = max(max(c) for c in pal)
     return pal, info

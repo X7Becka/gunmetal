@@ -44,10 +44,111 @@ struct Options {
     double music_fade_in = 0.0;  // --fade-in SEC: music fades in (M7.5)
     double music_fade_out = 0.0; // --fade-out SEC: music fades out at the end
     std::string pager;        // --pager FILE: headless SML pager (M8.1)
+    std::string briefing;     // --briefing LEVEL: mission briefing (M8.3)
+    bool level_select = false;    // --level-select: screen 17 frame (M8.4)
+    int level_select_counter = 1; // --level-select-counter N: campaign counter
+    int level_select_row = 0;     // --level-select-row N: cursor row index
+    bool level_select_no_plate = false; // --no-plate: black canvas, no PLATE
+    bool save_menu = false;        // --save-menu: screen 14 frame (M8.7)
+    int save_menu_slot = 0;        // --save-menu-slot N: cursor slot index
+    std::string save_menu_mode = "load"; // --save-menu-mode load|save
+    std::string save_action;       // --save-action save|load (M8.7 slice 2)
+    std::string save_action_out;   // --save-action-out DIR: where `save` writes
+    bool start_game = false;       // --start-game: screen 13 frame (M8.7)
+    std::string keycfg;           // --keycfg NAME: screen 30 frame of a .key
+    int keycfg_cursor = 0;        // --keycfg-cursor N: highlighted action 0..30
+    std::string keycfg_mode = "view";   // --keycfg-mode view|edit (screens 34/35)
+    std::string keycfg_cell = "a";      // --keycfg-cell a|b: edited column
+    std::string keycfg_conflict;        // --keycfg-conflict TEXT: line at y 109
+    bool game_type = false;             // --game-type: screen 19 frame (M8.8)
+    int game_type_cursor = 0;           // --game-type-cursor N: item id 0..11
+    unsigned game_type_mask = 0xFFu;    // --game-type-mask HEX: 0x4c1290 byte
+    bool difficulty = false;            // --difficulty: screen 23 frame (M8.8)
+    int difficulty_cursor = 2;          // --difficulty-cursor N: 0..5 (2 default)
+    bool local_players = false;         // --local-players: screen 21 frame (M8.8)
+    int local_players_cursor = 0;       // --local-players-cursor N: 0..2
+    bool quit = false;                  // --quit: screen 33 frame (M8.8)
+    bool quit_in_game = false;          // --quit-in-game: QUIT OPTIONS variant
+    int quit_cursor = 0;                // --quit-cursor N: item id
+    bool video_mode = false;            // --video-mode: screen 37 frame (M8.8)
+    int video_mode_cursor = 0;          // --video-mode-cursor N: 0..1
+    bool restart = false;               // --restart: screen 6 frame (M8.8)
+    int restart_items = 2;              // --restart-items N: 2..4 (clamped)
+    int restart_cursor = 0;             // --restart-cursor N: item id
+    bool things_anim = false;           // --things-anim: clip/frame per thing
+    int things_anim_tick = 0;           // --things-anim-tick N: 91 Hz phase
+    int things_anim_limit = 20;         // --things-anim-limit N: printed lines
+    bool video_mode_list = false;       // --video-mode-list: screen 18 (M8.8)
+    int video_mode_list_cursor = 0;     // --video-mode-list-cursor N: 0..14
+    bool mouse_setup = false;           // --mouse-setup: screen 22 (M8.8)
+    int mouse_setup_cursor = 0;         // --mouse-setup-cursor N: 0..11
+    bool joystick_centering = false;    // --joystick-centering: screen 26 (M8.8)
+    int joystick_centering_cursor = -1; // --joystick-centering-cursor N (-1 = none)
+    bool match_setup = false;           // --match-setup: screen 27 (M8.8)
+    int match_setup_cursor = 7;         // --match-setup-cursor N: item 0..7
+    int match_setup_type = 0;           // --match-setup-type N: 0..2
+    int match_setup_cash = 4;           // --match-setup-cash N: 0..11
+    int match_setup_flags = 0;          // --match-setup-flags HEX: checkbox bits
+    bool key_jamming = false;           // --key-jamming: screen 16 (M8.8)
+    std::vector<int> key_jamming_keys;  // --key-jamming-keys 30,31,... (comma list)
+    int key_jamming_cursor = 4;         // --key-jamming-cursor N (4 = shipped)
+    bool ingame_menu = false;           // --ingame-menu: screen 9 (M8.8)
+    std::string ingame_menu_bg = "DEMOTION"; // --ingame-menu-bg DEMOTION|DISBAND
+    std::string hud_lut_dump;           // --hud-lut-dump OUT: write the 4096-byte tables
+    bool lay_bucks = false;             // --lay-bucks: screen 20 (M8.8)
+    bool save_name = false;             // --save-name: screen 15 (M8.8)
+    std::string save_name_text = "A SAVED GAME"; // --save-name-text NAME
+    int save_name_row = 0;              // --save-name-row N: 0..5 (clamped)
+    bool save_name_no_caret = false;    // --save-name-no-caret
+    bool save_name_no_fileslot = false; // --no-fileslot
+    bool error_screen = false;          // --error: screen 5 (M8.8)
+    std::string error_message = "No Error."; // --error-message TEXT
+    bool player_setup = false;          // --player-setup: screen 36 (M8.8)
+    int player_setup_cursor = 0;        // --player-setup-cursor N
+    int player_setup_joystick = -1;     // --player-setup-joystick N (-1 = none)
+    int player_setup_player = 0;        // --player-setup-player N: 0/1
+    bool control_options = false;       // --control-options: screen 10 (M8.8)
+    int control_options_cursor = 0;     // --control-options-cursor N: 0..9
+    int control_options_keyset1 = 0;    // --control-options-keyset1 N: 0..15
+    int control_options_keyset2 = 1;    // --control-options-keyset2 N: 0..15
+    int control_options_joystick1 = -1; // --control-options-joystick1 N
+    int control_options_joystick2 = -1; // --control-options-joystick2 N
+    int control_options_mouse = 0;      // --control-options-mouse N: 0..2
+    bool sound_options = false;         // --sound-options: screen 11 (M8.8)
+    int sound_options_cursor = 0;       // --sound-options-cursor N
+    int sound_options_music = 10;       // --sound-options-music N: 0..20
+    int sound_options_effects = 20;     // --sound-options-effects N: 0..20
+    bool sound_options_swap = false;    // --sound-options-swap
+    bool sound_options_off = false;     // --sound-options-off
+    bool sound_options_low_memory = false; // --sound-options-low-memory
+    bool graphics_options = false;      // --graphics-options: screen 12 (M8.8)
+    int graphics_options_cursor = 0;    // --graphics-options-cursor N: 0..5
+    int graphics_options_border = 3;    // --graphics-options-border N: 0..9
+    int graphics_options_gamma = 0;     // --graphics-options-gamma N: 0..3
+    int graphics_options_reflections = 1; // --graphics-options-reflections N
+    int graphics_options_light_maps = 1;  // --graphics-options-light-maps N: 0..2
+    bool play_options = false;          // --play-options: screen 32 (M8.8)
+    int play_options_cursor = 0;        // --play-options-cursor N: 0..7
+    int play_options_flags = 0;         // --play-options-flags HEX
+    int play_options_camera = 1;        // --play-options-camera N: 0..2 (.data = 1)
+    bool play_options_in_game = false;  // --play-options-in-game
+
+
+
+
+    bool briefing_text = false; // --briefing-text: print the page text
     std::string pager_keys;   // --pager-keys next,next,prev,first,last
     int pager_page = 0;       // --page N: 1-based page to show
     bool pager_all = false;   // --all: every page
+    bool pager_background = false; // --background: HELPSCRN behind the page (M8.1)
+    int pager_fade = -1;           // --fade N: fade level 0..15 (-1 = off, M8.1)
+    int pager_fade_lut = -1;       // --fade-lut N: exact 0x682f90 tables (-1 = off)
+    int menu_fade = -1;            // --fade N for --menu --png (same flag)
     bool save_slots = false;  // --save-slots: headless save-slot list (M8.7)
+    // M8.7/M9 slice 2: load a save into a live runtime (docs/SAVE_LOAD.md).
+    // `save_load` is a slot number 0..19 (`SAVEGAME/saved<N>.sbt`) or a path.
+    std::string save_load;
+    int save_load_ticks = 0;  // --save-load-ticks N: fixed ticks after the load
     int sim_respawn = -1;     // --sim-respawn N: auto-respawn N ticks after death
     std::string film;
     std::string anim;
@@ -68,6 +169,22 @@ struct Options {
     std::filesystem::path save_out; // --dump a save: re-serialise it here
     std::vector<std::string> save_edits; // --set KEY=VALUE (ammo0, armor, ...)
     std::filesystem::path png;
+    // --png-scale N: integer nearest-neighbour zoom of a 320x200 front-end
+    // frame (render/upscale.h, docs/UPSCALE.md).  1 = no change.
+    int png_scale = 1;
+    // --hud-png OUT: composed 320x200 cockpit frame (`render/cockpit.h`).
+    std::filesystem::path hud_png;
+    // --killed NAME: the KILLED screen lines with %S = NAME (ui/killed.h).
+    std::string killed_name;
+    bool killed_all = false;          // --killed-all: every accepted line
+    unsigned killed_seed = 0;         // --killed-seed N: which line pick() returns
+    bool best_times = false;          // --best-times: GUNMETAL.HI rows (ui/records.h)
+    std::string playlist;             // --playlist FILE: .sog resolved against MUSIC (M7.5)
+    int hud_weapon = -1;   // --hud-weapon N (weapon slot 0..18)
+    int hud_ammo = 0;      // --hud-ammo N
+    int hud_armor = 10000; // --hud-armor N (hundredths)
+    int hud_kills = 0;     // --hud-kills N
+    double hud_speed = 0.0;// --hud-speed X (throttle 0..1)
     std::filesystem::path render; // output PNG for --render
     std::filesystem::path model;  // .sob to render instead of a level
     int width = 640;

@@ -2,6 +2,9 @@
 
 **Статус:** Ghidra 12.1.4 + pyghidra-mcp 0.2.7 работают headless в WSL2.
 Проект — `re/ghidra/` (не в git), текстовые выгрузки — `docs/re/ghidra/`.
+В проекте три структуры из карт полей (`gm_thing`, `gm_thing_type`,
+`gm_player`) и типизированные массивы `things[260]`, `thing_types[128]`,
+`players[8]`; кэш декомпилятора — 232 записи, 0 устаревших.
 
 ## 1. Почему не GUI-плагины
 
@@ -107,15 +110,21 @@ python3 tools/ghidra/apply_names.py             # rename + plate-коммент�
 что проверено, а что нет. Данные/таблицы (`kind=table/data`) не
 переименовываются — это не функции.
 
-Проверено 2026-10-22 на `re/ghidra`: проект открылся без анализа (1506
-функций), применены 94 имени из 97, plate-комментарии на месте, `save`
-отработал (в логе `Saved /gundx.exe-902b77`), после **повторного** рестарта
-имена и комментарии сохранились. Три адреса — `0x45d240`, `0x45d881`,
-`0x4059c0` — в проекте не заведены функциями (код по адресу есть, границы
-нет): `rename_function` отвечает «not found». Проверено, что отдельный
-`createFunction`-проход не нужен: из 1303 call-целей `.text` только 21 без
-начала функции, и все внутри существующих (хвостовые вызовы/CRT). `names.csv`
-— карта адресов, а не функций.
+Проверено 2026-10-24 на `re/ghidra`: проект открылся без анализа (1506
+функций), `apply_names.py --check --json` отвечает `0 missing` для 105
+code-имён (ещё 6 адресов помечены `kind=label`, 23 — data, 2 — table),
+plate-комментарии на месте, `save` отработал. После **повторного** рестарта
+имена и комментарии сохранились. Отдельный `createFunction`-проход не нужен:
+из 1303 call-целей `.text` только 21 без начала функции, и все внутри
+существующих (хвостовые вызовы/CRT). `names.csv` — карта адресов, а не
+функций, поэтому внутренние инструкции без границы функции теперь имеют
+`kind=label` и не участвуют в переименовании.
+
+После успешного `save` `apply_names.py` **инвалидирует кэш**:
+удаляются записи переименованных адресов и все записи, которые их вызывают
+(иначе старое псевдо-C продолжает показывать `FUN_…` и не содержит
+plate-комментария). Проверка дрейфа — `apply_names.py --check --json`;
+`state.py --check` вызывает её и падает, если имена не применены.
 
 
 ## 4. Инструменты, которыми пользуемся
@@ -190,6 +199,12 @@ MCP-сервер, без запуска CLI: удобно для серии пр
 а вывод считается гипотезой до проверки данными/тестом. Для пакетных
 чтений по-прежнему дешевле `mcp.py batch`.
 
+`mcp.py decompile` для числовых адресов **сам читает и пишет `fncache`**
+(если не запрошены `--xrefs`/`--strings`/`--callees`). Нативные
+`tools.ghidra.decompile_function` кэш обходят: для одного адреса это
+приемлемо, для серии — `mcp.py decompile <addr>...` или `batch`. Флаги:
+`--refresh` (перечитать и перезаписать), `--no-cache` (обойти кэш).
+
 Настройки: `GM_GHIDRA_URL` (по умолчанию `http://127.0.0.1:8765/mcp`),
 `GM_GHIDRA_BINARY` (по умолчанию `/gundx.exe-902b77`). Если сервер не поднят,
 ошибка прямо говорит запустить `tools/ghidra/start.sh`. Инструменты,
@@ -233,7 +248,11 @@ MCP-сервер, без запуска CLI: удобно для серии пр
 python3 tools/ghidra/fncache.py get 0x4752d0            # из кэша или сети
 python3 tools/ghidra/fncache.py get 0x457390 --head 40  # большой функции — срез
 python3 tools/ghidra/fncache.py warm                    # все адреса names.csv
-python3 tools/ghidra/fncache.py stats
+python3 tools/ghidra/fncache.py warm --file tools/ghidra/hot_addrs.txt
+python3 tools/ghidra/fncache.py warm --cached           # перечитать весь кэш
+python3 tools/ghidra/fncache.py stats --json
+python3 tools/ghidra/fncache.py stale                   # что устарело и почему
+python3 tools/ghidra/fncache.py selftest                # без сервера
 python3 tools/ghidra/fncache.py export docs/re/ghidra/fn
 ```
 
@@ -246,9 +265,17 @@ python3 tools/ghidra/fncache.py export docs/re/ghidra/fn
   ~120 КБ псевдо-C. Полный текст в контекст не тянем.
 - Псевдо-C в кэше — по-прежнему **гипотеза**: доказательство — байты, данные,
   эмулятор или golden-тест (см. §5).
-- Догрев по самым упоминаемым в доках адресам (на 2026-10-22: 3424 адреса в
-  `.text`, прогрето 139 записей / 807 КБ, включая 60 самых частых; один
-  адрес — `0x45c500` — таблица переходов ВМ, не функция):
+- **Свежесть.** `stale_report` считает записи, которые разошлись с проектом:
+  своё имя всё ещё `FUN_`, вызывают уже именованную функцию или не имеют
+  plate-комментария. `apply_names.py` чистит такие записи автоматически;
+  после смены типов `apply_types.py` чистит кэш целиком (структуры меняют
+  почти каждую декомпиляцию). Ручное лечение:
+  `fncache.py warm --cached` (перечитать всё) или
+  `fncache.py warm --refresh --names tools/re/names.csv`.
+- Догрев по самым упоминаемым в доках адресам и по истории декомпиляций
+  (на 2026-10-24: 3424 адреса в `.text`, 232 записи / 1409 КиБ, 0 устаревших;
+  `tools/ghidra/hot_addrs.txt` — 50 самых частых function-start адресов из
+  базы сессий):
 
 ```sh
 python3 - <<'PY' > /tmp/opencode/top.txt
@@ -264,10 +291,63 @@ python3 tools/ghidra/fncache.py get --no-headers --head 1 $(cat /tmp/opencode/to
 ```
 
 
+## 5.3. Структуры из карт полей
+
+Карты полей уже есть в `docs/THING_FIELDS.md` §3/§4 и
+`docs/PLAYER_FIELDS.md` §3, но Ghidra их не знала: декомпилятор показывал
+`*(int *)(&DAT_007ac3e0 + i * 0x14a)`. Два скрипта закрывают разрыв.
+
+```sh
+python3 tools/ghidra/typegen.py            # docs -> tools/ghidra/gm_types.h
+python3 tools/ghidra/typegen.py --check    # падает, если header устарел
+```
+
+`typegen.py` (stdlib) разбирает таблицы, раскладывает поля по смещениям,
+заполняет неизвестные диапазоны байтами и **проверяет размеры**: 0x528
+(`gm_thing`), 0x3a8 (`gm_thing_type`), 0x3510 (`gm_player`). Ошибка в
+смещении/типе — отказ, а не догадка.
+
+```sh
+tools/ghidra/stop.sh                       # проект должен быть закрыт
+tools/ghidra/apply_types.sh --dry-run      # план
+tools/ghidra/apply_types.sh                # импорт + массивы + save
+tools/ghidra/start.sh
+```
+
+`apply_types.py` (pyghidra/JVM) импортирует header в Data Type Manager и
+типизирует базы из карт:
+
+| адрес | тип | символ |
+|---|---|---|
+| `0x7ac080` | `gm_thing[260]` | `things` |
+| `0x776d60` | `gm_thing_type[128]` | `thing_types` |
+| `0x819040` | `gm_player[8]` | `players` |
+
+Скрипт идемпотентен, отказывается чистить диапазон, если там есть функции,
+и восстанавливает ярлыки документированных адресов (`0x7ac3e0`,
+`0x81bd00`, …) после `clearCodeUnits`. Успешный прогон очищает `fncache`
+(структуры меняют псевдо-C) и пишет отчёт
+`docs/re/ghidra/types_report.md`: для пяти горячих функций — сколько было
+`&DAT_…`-обращений и сколько стало обращений к полям.
+
+Результат 2026-10-24:
+
+| функция | `&DAT_` до | после | поля |
+|---|---:|---:|---:|
+| `0x443690` camera_spring | 395 | 0 | 145 |
+| `0x470500` damage_thing | 52 | 0 | 34 |
+| `0x470c70` thing_tick | 344 | 0 | 61 |
+| `0x4752d0` projectile_tick | 62 | 0 | 10 |
+| `0x47a980` chassis_spawn | 141 | 0 | 24 |
+
+Пример: `things[param_1].flags_b`, `things[param_1].expire_ticks`,
+`players[param_1].pose`. Имена полей — из карт (статусы `proven/hypothesis`
+там же); типизация не делает псевдо-C доказательством.
+
 ## 6. Ограничения текущего выбора
 
-- Нет `create_function`/struct-editor tools: функции, которые Ghidra не создала,
-  приходится заводить pyghidra-скриптом или disassemble-эвристикой.
+- Нет `create_function`/struct-editor tools: структуры импортируются
+  офлайн через `apply_types.py` (проект закрыт), а не через MCP.
 - Нет `run_script` в MCP: кастомные Ghidra-скрипты запускаются отдельным
   процессом (проект должен быть закрыт).
 - Semantic-индекс (`ChromaDB`, `all-MiniLM`) грузится фоном; первые

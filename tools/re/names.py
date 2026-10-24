@@ -10,6 +10,9 @@ evidence in the last column.  This is the machine-readable counterpart of
 Checks:
   * every VA falls inside a section of the installed ``gundx.exe``;
   * kind is ``code`` for executable ranges and ``data`` for the rest;
+  * ``label`` marks an executable address with no function boundary of its
+    own (an inner instruction); the map is an address map, not only a
+    function map, so such rows are valid but are not renamed in Ghidra;
   * names are unique and the CSV is well-formed.
 
 Usage:  python3 tools/re/names.py [--game DIR] [--filter SUBSTR] [--json]
@@ -75,11 +78,11 @@ def main(argv=None) -> int:
             bad.append("%s: outside the image" % r["va"])
             continue
         executable = "text" in sec.lower()
-        if r["kind"] == "code" and not executable:
-            bad.append("%s: marked code but in %s" % (r["va"], sec))
+        if r["kind"] in ("code", "label") and not executable:
+            bad.append("%s: marked %s but in %s" % (r["va"], r["kind"], sec))
         if r["kind"] == "data" and executable:
             bad.append("%s: marked data but in %s" % (r["va"], sec))
-        if r["kind"] not in ("code", "data", "table"):
+        if r["kind"] not in ("code", "label", "data", "table"):
             bad.append("%s: unknown kind %r" % (r["va"], r["kind"]))
     if opts.filter:
         rows = [r for r in rows if opts.filter.lower() in

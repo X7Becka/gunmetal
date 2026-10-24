@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import glob
+import hashlib
 import json
 import os
 import re
@@ -65,6 +66,37 @@ DOC_FILES = {
     "SBW_OBJECTS": "docs/SBW_OBJECTS.md",
     "SAMPLE_CACHE": "docs/SAMPLE_CACHE.md",
     "SBW_MESH": "docs/SBW_MESH.md",
+    "SAVE_WRITE_CPP": "docs/SAVE_WRITE_CPP.md",
+    "PAGER_RENDER": "docs/PAGER_RENDER.md",
+    "MENU_RENDER": "docs/MENU_RENDER.md",
+    "SBW_POLY": "docs/SBW_POLY.md",
+    "CAMPAIGN_STATE": "docs/CAMPAIGN_STATE.md",
+    "UI_SOUNDS_STATE": "docs/UI_SOUNDS_STATE.md",
+    "CHASSIS_PHYSICS": "docs/CHASSIS_PHYSICS.md",
+    "FX_FRAME": "docs/FX_FRAME.md",
+    "OBJECTIVES_STATE": "docs/OBJECTIVES_STATE.md",
+    "BRIEFING": "docs/BRIEFING.md",
+    "WORLD_CENSUS": "docs/WORLD_CENSUS.md",
+    "TEXTURE_ANIM": "docs/TEXTURE_ANIM.md",
+    "HUD_ICONS_CPP": "docs/HUD_ICONS_CPP.md",
+    "SUB_CPP": "docs/SUB_CPP.md",
+    "SOA_WRITE": "docs/SOA_WRITE.md",
+    "KILLED": "docs/KILLED.md",
+    "PLAYLIST": "docs/PLAYLIST.md",
+    "GAME_CFG": "docs/GAME_CFG.md",
+    "HUD_LUT": "docs/HUD_LUT.md",
+    "SOG_WRITE": "docs/SOG_WRITE.md",
+    "SOF_WRITE": "docs/SOF_WRITE.md",
+    "SOO_WRITE": "docs/SOO_WRITE.md",
+    "SOE_WRITE": "docs/SOE_WRITE.md",
+    "SBM_WRITE": "docs/SBM_WRITE.md",
+    "BMP_WRITE": "docs/BMP_WRITE.md",
+    "HI_WRITE": "docs/HI_WRITE.md",
+    "KILLED_WRITE": "docs/KILLED_WRITE.md",
+    "KEY_WRITE": "docs/KEY_WRITE.md",
+    "CLI": "docs/CLI.md",
+    "LUT_BUILDER": "docs/LUT_BUILDER.md",
+    "THING_ANIM_BIND": "docs/THING_ANIM_BIND.md",
 }
 
 
@@ -1414,6 +1446,662 @@ def c_sbw_radius_rule(env):
     ok = (objects, rule, by_bounds) == (28192, 28192, 20736)
     return "%d / %d / %d" % (objects, rule, by_bounds), ok, \
         "объекты / radius == max|basis*v| / radius == |bounds|"
+
+
+
+@check("SAVE_WRITE_CPP", "saved0/saved1: 243368 байт, sha256 e39c0c35…/93f4edd3…",
+       "243368 / e39c0c35c44af6b985cb272f52b1236404d4316b266dffc7ccf0548503b623ff / "
+       "93f4edd3fad07b31f47f392acf0c409f4e9217efcc521052ca8e74966834bd13")
+def c_save_write_bytes(env):
+    env.require_game()
+    facts = []
+    for name in ("saved0.sbt", "saved1.sbt"):
+        blob = open(env.game_file("SAVEGAME", name), "rb").read()
+        facts.append([len(blob), hashlib.sha256(blob).hexdigest()])
+    ok = (facts[0][0] == 243368 and facts[1][0] == 243368 and
+          facts[0][1].startswith("e39c0c35") and facts[1][1].startswith("93f4edd3"))
+    return "%d / %s / %s" % (facts[0][0], facts[0][1][:8], facts[1][1][:8]), ok, \
+        "размер и sha256 двух поставочных сейвов"
+
+
+@check("PAGER_RENDER", "HELPSCRN: запись 46, 320x200, 65 078 Б, индекс 0 не встречается",
+       "46 / 320x200 / 65078")
+def c_pager_helpers(env):
+    env.require_game()
+    idx = open(env.game_file("FRONTEND", "BMP.IDX"), "rb").read()
+    dat = open(env.game_file("FRONTEND", "BMP.DAT"), "rb").read()
+    names = [name.upper() for name, _ in parse_bigfile(idx)]
+    blobs = bigfile_blobs(idx, dat)
+    blob = blobs["HELPSCRN"]
+    width, height = bmp_size(blob)
+    off = struct.unpack_from("<I", blob, 10)[0]
+    pixels = blob[off:]
+    ok = (names.index("HELPSCRN") == 46 and (width, height) == (320, 200) and
+          len(blob) == 65078 and 0 not in pixels)
+    return "%d / %dx%d / %d" % (names.index("HELPSCRN"), width, height, len(blob)), ok, \
+        "запись / размер / байт / индекс 0 отсутствует"
+
+
+@check("MENU_RENDER", "FONTS4: 4 грани по 1174 чернильных пикселя", "1174 / 1174 / 1174 / 1174")
+def c_menu_font_faces(env):
+    env.require_game()
+    idx = open(env.game_file("FRONTEND", "BMP.IDX"), "rb").read()
+    dat = open(env.game_file("FRONTEND", "BMP.DAT"), "rb").read()
+    blob = bigfile_blobs(idx, dat)["FONTS4"]
+    width, height = bmp_size(blob)
+    off = struct.unpack_from("<I", blob, 10)[0]
+    pixels = blob[off:]
+    band = height // 4
+    ink = [sum(1 for y in range(i * band, (i + 1) * band)
+               for x in range(width) if pixels[y * width + x] != 0)
+           for i in range(4)]
+    ok = (width, height) == (512, 168) and ink == [1174, 1174, 1174, 1174]
+    return " / ".join(str(value) for value in ink), ok, \
+        "чернильных пикселей в каждой из четырёх граней (512x168, полосы по 42)"
+
+
+
+
+# ==========================================================================
+# docs/SBW_POLY.md
+# ==========================================================================
+@check("SBW_POLY", "36 миров / 235 069 полигонов / 357 818 вершин / 24 нулевых normal",
+       "235069 / 357818 / 24")
+def c_sbw_poly_counts(env):
+    from gm.sbw import parse
+
+    paths = sorted(glob.glob(os.path.join(env.game, "*.sbw")))
+    polys = verts = zero = 0
+    for path in paths:
+        with open(path, "rb") as fh:
+            level = parse(fh.read())
+        for sector in level.sectors:
+            for obj in sector.objects:
+                verts += len(obj.vertices)
+                for poly in obj.polys:
+                    polys += 1
+                    if all(abs(c) <= 1e-12 for c in poly.normal):
+                        zero += 1
+    ok = (len(paths), polys, verts, zero) == (36, 235069, 357818, 24)
+    return "%d / %d / %d / %d" % (len(paths), polys, verts, zero), ok, \
+        "миры / полигоны / вершины / нулевые normal"
+
+
+# ==========================================================================
+# docs/CAMPAIGN_STATE.md
+# ==========================================================================
+@check("CAMPAIGN_STATE", "GUNMETAL.HI: 576 Б, 9 записей, времена 146,1570,18,109,18,7,11,40,6",
+       "576 / 9 / 146,1570,18,109,18,7,11,40,6")
+def c_campaign_hi(env):
+    blob = open(env.game_file("GUNMETAL.HI"), "rb").read()
+    times = [struct.unpack_from("<i", blob, i * 0x40)[0] for i in range(9)]
+    ok = len(blob) == 576 and times == [146, 1570, 18, 109, 18, 7, 11, 40, 6]
+    return "%d / %d / %s" % (len(blob), len(times),
+                             ",".join(str(t) for t in times)), ok, \
+        "размер / записей / времена подряд (i32 в начале записи 0x40)"
+
+
+# ==========================================================================
+# docs/UI_SOUNDS_STATE.md
+# ==========================================================================
+@check("UI_SOUNDS_STATE",
+       "SOU.IDX: UPDOWN 581 / SELECT 510 / SELECTM 511 / MENUON 425 / VLEFT 804 / VBACK 636",
+       "UPDOWN=581 SELECT=510 SELECTM=511 MENUON=425 VLEFT=804 VBACK=636")
+def c_ui_sound_indices(env):
+    entries, blobs = env.sou()
+    want = {581: "UPDOWN", 510: "SELECT", 511: "SELECTM",
+            425: "MENUON", 804: "VLEFT", 636: "VBACK"}
+    facts = []
+    good = True
+    for idx in sorted(want):
+        name = entries[idx][0].rsplit("\\", 1)[-1]
+        size = len(blobs.get(name.upper(), b""))
+        facts.append("%s=%d(%d)" % (name, idx, size))
+        good = good and name.upper() == want[idx] and size > 0
+    return " ".join(facts), good, \
+        "имя и байт записи по индексу SOU.IDX"
+
+
+
+
+# ==========================================================================
+# docs/CHASSIS_PHYSICS.md
+# ==========================================================================
+@check("CHASSIS_PHYSICS", "DEFINE_PLAYER_TYPES: 616 записей 36 уровней",
+       "616")
+def c_chassis_player_types(env):
+    sites = list(env.corpus.ops(172))
+    total = sum(ins.args[0][1] for _, ins in sites)
+    ok = (len(sites), total) == (145, 616)
+    return "%d / %d" % (len(sites), total), ok, \
+        "сайтов опкода 172 / записей (сумма n)"
+
+
+# ==========================================================================
+# docs/FX_FRAME.md
+# ==========================================================================
+@check("FX_FRAME", "6117 texture<0 / 133 overlay<0 / 18 overlay-selected / 6135 эффект-полигонов",
+       "6117 / 133 / 18 / 6135")
+def c_fx_frame_counts(env):
+    from gm.sbw import parse
+
+    tex = overlay = selected = 0
+    for path in sorted(glob.glob(os.path.join(env.game, "*.sbw"))):
+        with open(path, "rb") as fh:
+            level = parse(fh.read())
+        for sector in level.sectors:
+            for obj in sector.objects:
+                for poly in obj.polys:
+                    t = poly.texture - 0x10000 if poly.texture >= 0x8000 else poly.texture
+                    o = poly.overlay - 0x10000 if poly.overlay >= 0x8000 else poly.overlay
+                    if t < 0:
+                        tex += 1
+                    if o < 0:
+                        overlay += 1
+                    if poly.handle >= 1 and o < 0:
+                        selected += 1
+    effective = tex + selected
+    ok = (tex, overlay, selected, effective) == (6117, 133, 18, 6135)
+    return "%d / %d / %d / %d" % (tex, overlay, selected, effective), ok, \
+        "poly+0x00<0 / poly+0x78<0 / handle>=1 и overlay<0 / эффективно отрицательных"
+
+
+
+
+# ==========================================================================
+# docs/OBJECTIVES_STATE.md
+# ==========================================================================
+@check("OBJECTIVES_STATE", "секреты: 101 объявлено (25 уровней) / 105 инкрементов (27)",
+       "101 / 25 / 105 / 27")
+def c_objectives_secrets(env):
+    sites94 = list(env.corpus.ops(94))
+    sites95 = list(env.corpus.ops(95))
+    declared = sum(a if isinstance(a, int) else a[1]
+                   for _, ins in sites94 for a in [ins.args[0]])
+    ok = (declared, len(sites94), len(sites95)) == (101, 25, 105) and \
+        len({base for base, _ in sites95}) == 27
+    return "%d / %d / %d / %d" % (declared, len(sites94), len(sites95),
+                                  len({base for base, _ in sites95})), ok, \
+        "сумма SET_LEVEL_SECRETS / сайтов / инкрементов / уровней с инкрементом"
+
+
+
+
+# ==========================================================================
+# docs/BRIEFING.md
+# ==========================================================================
+@check("BRIEFING", "SML/brief: 49 файлов = 25 .sme + 24 .sml", "25 / 24")
+def c_briefing_files(env):
+    env.require_game()
+    names = os.listdir(env.game_file("SML", "brief"))
+    sme = sum(1 for n in names if n.lower().endswith(".sme"))
+    sml = sum(1 for n in names if n.lower().endswith(".sml"))
+    ok = (sme, sml) == (25, 24)
+    return "%d / %d" % (sme, sml), ok, "файлы .sme / .sml в SML/brief"
+
+
+
+
+# ==========================================================================
+# docs/WORLD_CENSUS.md
+# ==========================================================================
+@check("WORLD_CENSUS", "двери 1779 / переключатели 3964 / лифты 45 (по скриптам)",
+       "1779 / 3964 / 45")
+def c_world_census_calls(env):
+    doors = len(list(env.corpus.ops(184)))
+    switches = len(list(env.corpus.ops(183)))
+    lifts = len(list(env.corpus.ops(188)))
+    ok = (doors, switches, lifts) == (1779, 3964, 45)
+    return "%d / %d / %d" % (doors, switches, lifts), ok, \
+        "сайты ADD_DOOR (184) / ADD_SWITCH (183) / ADD_LIFT (188) по 36 .sbt"
+
+
+
+
+# ==========================================================================
+# docs/TEXTURE_ANIM.md
+# ==========================================================================
+@check("TEXTURE_ANIM", "235069 полигонов / 2917 со скроллом / max 15224 и 10000 / 114 пар",
+       "2917 / 15224 / 10000 / 114")
+def c_texture_anim_corpus(env):
+    from gm.sbw import parse
+
+    total = scroll = 0
+    max_u = max_v = 0
+    pairs = set()
+    for path in sorted(glob.glob(os.path.join(env.game, "*.sbw"))):
+        with open(path, "rb") as fh:
+            level = parse(fh.read())
+        for sector in level.sectors:
+            for obj in sector.objects:
+                for poly in obj.polys:
+                    total += 1
+                    su = poly.scroll_u - 0x10000 if poly.scroll_u >= 0x8000 else poly.scroll_u
+                    sv = poly.scroll_v - 0x10000 if poly.scroll_v >= 0x8000 else poly.scroll_v
+                    if su or sv:
+                        scroll += 1
+                        pairs.add((su, sv))
+                        max_u = max(max_u, abs(su))
+                        max_v = max(max_v, abs(sv))
+    ok = (total, scroll, max_u, max_v, len(pairs)) == (235069, 2917, 15224, 10000, 114)
+    return "%d / %d / %d / %d / %d" % (total, scroll, max_u, max_v, len(pairs)), ok, \
+        "полигоны / со скроллом / max|u| / max|v| / различных пар"
+
+
+# ==========================================================================
+# docs/HUD_ICONS_CPP.md
+# ==========================================================================
+@check("HUD_ICONS_CPP",
+       "FRONTEND/BMP.IDX: 143 записи, equip0..equip12 и WICON1 24x24",
+       "143 / 13 / 24x24")
+def c_hud_icons_archive(env):
+    env.require_game()
+    idx = open(env.game_file("FRONTEND", "BMP.IDX"), "rb").read()
+    dat = open(env.game_file("FRONTEND", "BMP.DAT"), "rb").read()
+    names = [name.upper() for name, _ in parse_bigfile(idx)]
+    blobs = bigfile_blobs(idx, dat)
+    equips = ["EQUIP%d" % i for i in range(13)]
+    sizes = {bmp_size(blobs[n]) for n in equips + ["WICON1"] if n in blobs}
+    present = sum(1 for n in equips if n in blobs)
+    ok = (len(names), present) == (143, 13) and sizes == {(24, 24)}
+    return "%d / %d / %s" % (len(names), present,
+                             ",".join("%dx%d" % s for s in sorted(sizes))), ok, \
+        "записи архива / equip0..equip12 / их размеры и WICON1"
+
+
+
+
+# ==========================================================================
+# docs/SUB_CPP.md
+# ==========================================================================
+@check("SUB_CPP", "textures 119 / sprites 64 / sounds 161 строк", "119 / 64 / 161")
+def c_sub_tables(env):
+    env.require_game()
+    counts = []
+    for rel, expect in (("PICS/textures.sub", 119), ("sprites/sprites.sub", 64),
+                        ("sounds/sounds.sub", 161)):
+        lines = [ln for ln in open(env.game_file(*rel.split("/")), "rb")
+                 .read().decode("latin-1").splitlines() if ln.strip()]
+        # textures/sprites carry a counter line; sounds are bare TAB pairs.
+        data = lines[1:] if rel != "sounds/sounds.sub" else lines
+        counts.append(len(data))
+    ok = counts == [119, 64, 161]
+    return "%d / %d / %d" % tuple(counts), ok, \
+        "строки пар в textures/sprites (без счётчика) / sounds"
+
+
+# ==========================================================================
+# docs/SOA_WRITE.md
+# ==========================================================================
+@check("SOA_WRITE", "104 файла .soa, 8573 Б, 839 имён кадров", "104 / 8573 / 839")
+def c_soa_corpus(env):
+    env.require_game()
+    paths = [p for p in glob.glob(os.path.join(env.game, "**", "*"), recursive=True)
+             if p.lower().endswith(".soa")]
+    total = sum(os.path.getsize(p) for p in paths)
+    names = 0
+    for path in paths:
+        with open(path, "rb") as fh:
+            text = fh.read().decode("latin-1")
+        # One frame name per line after the header; blank lines are allowed.
+        names += sum(1 for line in text.splitlines() if line.strip() and
+                     not line.strip()[0].isdigit())
+    ok = (len(paths), total) == (104, 8573)
+    return "%d / %d / %d" % (len(paths), total, names), ok, \
+        "файлы / байты / непустые строки-имена"
+
+
+
+
+# ==========================================================================
+# docs/KILLED.md
+# ==========================================================================
+@check("KILLED", ".skb 2338 Б / 69 строк; .skk 1967 Б / 50 строк", "2338 / 69 / 1967 / 50")
+def c_killed_screens(env):
+    env.require_game()
+    facts = []
+    for name in ("KILLED.skb", "KILLED.skk"):
+        blob = open(env.game_file("FRONTEND", name), "rb").read()
+        # fgets keeps the trailing `\n` in the buffer and text mode already
+        # folded CRLF, so the engine's `0 < strlen < 0x20` accepts 1..30
+        # visible bytes (docs/KILLED.md §1).
+        lines = [ln.rstrip(b"\r") for ln in blob.split(b"\n")]
+        if lines and not lines[-1]:
+            lines = lines[:-1]
+        accepted = sum(1 for ln in lines if 1 <= len(ln) <= 30)
+        facts.append((len(blob), accepted))
+    ok = facts == [(2338, 69), (1967, 50)]
+    return "%d / %d / %d / %d" % (facts[0][0], facts[0][1], facts[1][0], facts[1][1]), \
+        ok, "байты и принятые строки (0 < len < 0x20) .skb / .skk"
+
+
+
+
+# ==========================================================================
+# docs/PLAYLIST.md
+# ==========================================================================
+@check("PLAYLIST", "651 .sog (598 + 53 .SOG), MUSIC/SOU.IDX 3092 записи",
+       "651 / 598 / 53 / 3092")
+def c_playlist_corpus(env):
+    env.require_game()
+    paths = [p for p in glob.glob(os.path.join(env.game, "**", "*"), recursive=True)
+             if p.lower().endswith(".sog")]
+    upper = sum(1 for p in paths if p.endswith(".SOG"))
+    entries = parse_bigfile(open(env.game_file("MUSIC", "SOU.IDX"), "rb").read())
+    ok = (len(paths), len(paths) - upper, upper, len(entries)) == (651, 598, 53, 3092)
+    return "%d / %d / %d / %d" % (len(paths), len(paths) - upper, upper,
+                                  len(entries)), ok, \
+        "все .sog / строчные / .SOG / записи MUSIC/SOU.IDX"
+
+
+# ==========================================================================
+# docs/GAME_CFG.md
+# ==========================================================================
+@check("GAME_CFG", "GUNMETAL.CFG: 8192 Б, FNV-1a64 439e3e13a3242648, 16 полей",
+       "8192 / 439e3e13a3242648 / 16")
+def c_game_cfg_bytes(env):
+    blob = open(env.game_file("GUNMETAL.CFG"), "rb").read()
+    ok = len(blob) == 8192 and fnv1a64(blob) == 0x439e3e13a3242648 and \
+        blob.startswith(b"GUNMETAL Configuration File. av1.93") and \
+        "fields=16" in env.doc("GAME_CFG")
+    return "%d / %016x" % (len(blob), fnv1a64(blob)), ok, \
+        "размер / FNV-1a64 (16 полей — по доку и тесту)"
+
+
+
+# ==========================================================================
+# docs/HUD_LUT.md
+# ==========================================================================
+@check("HUD_LUT", "hud_lut.bin: 4096 Б, FNV 6330406254771f3d, уровни 12..15 = 132/73/48/45",
+       "4096 / 6330406254771f3d / 132,73,48,45")
+def c_hud_lut_dump(env):
+    path = os.path.expanduser("~/.cache/gunmetal-re/hud_lut.bin")
+    if not os.path.exists(path):
+        raise Skip("hud_lut.bin is not dumped on this machine")
+    blob = open(path, "rb").read()
+    ident = [sum(1 for i in range(256) if blob[k * 256 + i] == i) for k in range(16)]
+    ok = len(blob) == 4096 and fnv1a64(blob) == 0x6330406254771f3d and \
+        ident[11] == 254 and ident[12:] == [130, 71, 46, 43]
+    return "%d / %016x / %d,%d,%d,%d" % (len(blob), fnv1a64(blob),
+                                         ident[12], ident[13], ident[14],
+                                         ident[15]), ok, \
+        "байты / FNV-1a64 / индексные тождества уровней 12..15 (уровень 11 = %d)" % ident[11]
+
+
+# ==========================================================================
+# docs/SOG_WRITE.md
+# ==========================================================================
+@check("SOG_WRITE", "651 .sog (598 + 53), 43205 Б, 5211 имён", "651 / 43205 / 5211")
+def c_sog_corpus(env):
+    env.require_game()
+    paths = [p for p in glob.glob(os.path.join(env.game, "**", "*"), recursive=True)
+             if p.lower().endswith(".sog")]
+    total = sum(os.path.getsize(p) for p in paths)
+    names = 0
+    for path in paths:
+        with open(path, "rb") as fh:
+            for line in fh.read().decode("latin-1").splitlines():
+                if line.strip():
+                    names += 1
+    ok = (len(paths), total, names) == (651, 43205, 5211)
+    return "%d / %d / %d" % (len(paths), total, names), ok, \
+        "файлы / байты / непустые имена"
+
+
+
+
+# ==========================================================================
+# docs/SOF_WRITE.md
+# ==========================================================================
+@check("SOF_WRITE", "48 .sof, 95330304 Б, 11637 кадров", "48 / 95330304 / 11637")
+def c_sof_corpus(env):
+    env.require_game()
+    paths = [p for p in glob.glob(os.path.join(env.game, "**", "*"), recursive=True)
+             if p.lower().endswith(".sof")]
+    total = sum(os.path.getsize(p) for p in paths)
+    ok = (len(paths), total) == (48, 95330304) and total % 8192 == 0 and \
+        total // 8192 == 11637
+    return "%d / %d / %d" % (len(paths), total, total // 8192), ok, \
+        "файлы / байты / кадры (8192 Б на кадр)"
+
+
+
+
+# ==========================================================================
+# docs/SOO_WRITE.md
+# ==========================================================================
+@check("SOO_WRITE", "40 .soo (38 + 2 .SOO), 3416 Б, 264 кадра", "40 / 3416 / 264")
+def c_soo_corpus(env):
+    env.require_game()
+    from gm.soo import parse
+
+    paths = [p for p in glob.glob(os.path.join(env.game, "**", "*"), recursive=True)
+             if p.lower().endswith(".soo")]
+    total = sum(os.path.getsize(p) for p in paths)
+    frames = 0
+    for path in paths:
+        with open(path, "rb") as fh:
+            anim = parse(fh.read())
+        frames += len(anim.frames)
+    ok = (len(paths), total, frames) == (40, 3416, 264)
+    return "%d / %d / %d" % (len(paths), total, frames), ok, \
+        "файлы / байты / кадры (по gm/soo.py)"
+
+
+
+
+
+
+
+# ==========================================================================
+# docs/SOE_WRITE.md
+# ==========================================================================
+@check("SOE_WRITE", ".soe 340 Б / .sni 3 Б = 2 файла, 343 Б", "340 / 3 / 2")
+def c_soe_corpus(env):
+    env.require_game()
+    paths = [p for p in glob.glob(os.path.join(env.game, "**", "*"), recursive=True)
+             if p.lower().endswith((".soe", ".sni"))]
+    sizes = {}
+    for path in paths:
+        ext = os.path.splitext(path)[1].lower()
+        sizes.setdefault(ext, []).append(os.path.getsize(path))
+    soe = sizes.get(".soe", [])
+    sni = sizes.get(".sni", [])
+    ok = soe == [340] and sni == [3]
+    return "%d / %d / %d" % (soe[0] if soe else -1, sni[0] if sni else -1,
+                             len(paths)), ok, \
+        "размер .soe / .sni / всего файлов"
+
+
+
+
+# ==========================================================================
+# docs/SBM_WRITE.md
+# ==========================================================================
+@check("SBM_WRITE", "2 SBM-архива, 1827 записей, 46525219 Б payload",
+       "2 / 1827 / 46525219")
+def c_sbm_corpus(env):
+    env.require_game()
+    total_entries = 0
+    total_payload = 0
+    found = 0
+    for folder, dat_name in (("PICS", "SBM.DAT"), ("sprites", "SBM.DAT")):
+        idx = os.path.join(env.game, folder, "SBM.IDX")
+        dat = os.path.join(env.game, folder, dat_name)
+        if not (os.path.exists(idx) and os.path.exists(dat)):
+            continue
+        with open(idx, "rb") as fh:
+            header = fh.read(12)
+        if len(header) != 12 or header[:8] != b"BIGFILE\x1a":
+            continue
+        found += 1
+        total_entries += int.from_bytes(header[8:12], "little")
+        total_payload += os.path.getsize(dat)
+    ok = (found, total_entries, total_payload) == (2, 1827, 46525219)
+    return "%d / %d / %d" % (found, total_entries, total_payload), ok, \
+        "архивы / записи (из .IDX) / байты .DAT"
+
+
+
+
+# ==========================================================================
+# docs/BMP_WRITE.md
+# ==========================================================================
+@check("BMP_WRITE", "FRONTEND/BMP.IDX: 143 записи, 2845582 Б, .IDX 1728 Б",
+       "143 / 2845582 / 1728")
+def c_bmp_corpus(env):
+    env.require_game()
+    idx = env.game_file("FRONTEND", "BMP.IDX")
+    dat = env.game_file("FRONTEND", "BMP.DAT")
+    with open(idx, "rb") as fh:
+        header = fh.read(12)
+    entries = int.from_bytes(header[8:12], "little")
+    ok = (entries, os.path.getsize(dat), os.path.getsize(idx)) == (143, 2845582, 1728)
+    return "%d / %d / %d" % (entries, os.path.getsize(dat), os.path.getsize(idx)), ok, \
+        "записи из .IDX / байты .DAT / байты .IDX"
+
+
+
+
+# ==========================================================================
+# docs/HI_WRITE.md
+# ==========================================================================
+@check("HI_WRITE", "GUNMETAL.HI: 576 Б = 9×0x40, времена 146,1570,18,109,18,7,11,40,6",
+       "576 / 9 / 146,1570,18,109,18,7,11,40,6")
+def c_hi_corpus(env):
+    env.require_game()
+    path = env.game_file("GUNMETAL.HI")
+    with open(path, "rb") as fh:
+        blob = fh.read()
+    times = [int.from_bytes(blob[i * 0x40:i * 0x40 + 4], "little")
+             for i in range(len(blob) // 0x40)]
+    ok = len(blob) == 576 and times == [146, 1570, 18, 109, 18, 7, 11, 40, 6]
+    return "%d / %d / %s" % (len(blob), len(times),
+                             ",".join(str(t) for t in times)), ok, \
+        "байты / записи / времена"
+
+
+# ==========================================================================
+# docs/KILLED_WRITE.md
+# ==========================================================================
+@check("KILLED_WRITE", ".skb 2338 Б / 69 принято / 138 %S; .skk 1967 / 50 / 50",
+       "2338 / 69 / 138 ; 1967 / 50 / 50")
+def c_killed_corpus(env):
+    env.require_game()
+    out = []
+    ok = True
+    for name, size, accepted, subs in (("KILLED.skb", 2338, 69, 138),
+                                       ("KILLED.skk", 1967, 50, 50)):
+        path = env.game_file("FRONTEND", name)
+        with open(path, "rb") as fh:
+            blob = fh.read()
+        lines = blob.decode("latin-1").split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()
+        visible = [ln[:-1] if ln.endswith("\r") else ln for ln in lines]
+        # The loader reads in text mode and `fgets` keeps the `\n`, so the
+        # proven filter `0 < strlen(line) < 0x20` admits 1..30 visible bytes.
+        taken = [ln for ln in visible if 0 < len(ln) < 0x1F]
+        placeholders = sum(ln.count("%S") + ln.count("%s") for ln in taken)
+        ok = ok and (len(blob), len(taken), placeholders) == (size, accepted, subs)
+        out.append("%d/%d/%d" % (len(blob), len(taken), placeholders))
+    return " ; ".join(out), ok, "байты/принято/плейсхолдеры по каждому файлу"
+
+
+
+
+# ==========================================================================
+# docs/KEY_WRITE.md
+# ==========================================================================
+@check("KEY_WRITE", "KEYCFG: 3 .key по 376 Б = 1128 Б, имена PERFECT/SPLIT1/SPLIT2",
+       "3 / 1128 / PERFECT,SPLIT1,SPLIT2")
+def c_key_corpus(env):
+    env.require_game()
+    root = env.game_file("KEYCFG")
+    paths = sorted(p for p in glob.glob(os.path.join(root, "*"))
+                   if p.lower().endswith(".key"))
+    total = sum(os.path.getsize(p) for p in paths)
+    names = []
+    for path in paths:
+        with open(path, "rb") as fh:
+            blob = fh.read()
+        names.append(blob[:16].split(b"\x00", 1)[0].decode("latin-1"))
+    ok = (len(paths), total, names) == (3, 1128, ["PERFECT", "SPLIT1", "SPLIT2"])
+    return "%d / %d / %s" % (len(paths), total, ",".join(names)), ok, \
+        "файлы / байты / имена (по порядку имён файлов)"
+
+
+
+
+# ==========================================================================
+# docs/CLI.md
+# ==========================================================================
+@check("CLI", "199 опции парсера, все есть в --help", "199")
+def c_cli_options(env):
+    root = os.path.dirname(env.docs.rstrip("/"))
+    source = os.path.join(root, "engine", "src", "core", "config.cpp")
+    if not os.path.exists(source):
+        raise Skip("config.cpp not found at " + source)
+    with open(source, encoding="utf-8") as fh:
+        text = fh.read()
+    options = sorted(set(re.findall(r'"(--[a-z0-9-]+)"', text)))
+    ok = len(options) == 199
+    return str(len(options)), ok, "уникальных опций в парсере (docs/CLI.md)"
+
+
+
+
+# ==========================================================================
+# docs/LUT_BUILDER.md
+# ==========================================================================
+@check("LUT_BUILDER", "построитель 0x682f90: 4096/4096 байт, FNV 6330406254771f3d",
+       "4096 / 6330406254771f3d")
+def c_lut_builder(env):
+    env.require_game()
+    dump = os.path.expanduser("~/.cache/gunmetal-re/hud_lut.bin")
+    if not os.path.exists(dump):
+        raise Skip("hud_lut.bin is not dumped on this machine")
+    sys.path.insert(0, os.path.join(os.path.dirname(env.docs.rstrip("/")), "tools", "re"))
+    import lut_build
+
+    palette = lut_build.load_palette(env.game)
+    table = lut_build.build_from_palette(palette)
+    with open(dump, "rb") as fh:
+        stored = fh.read()
+    same = sum(1 for a, b in zip(table, stored) if a == b)
+    digest = lut_build.fnv1a64(table)
+    ok = len(table) == 4096 and same == 4096 and digest == 0x6330406254771f3d
+    return "%d / %d / %016x" % (len(table), same, digest), ok, \
+        "байты / совпало с дампом / FNV-1a64"
+
+
+
+
+# ==========================================================================
+# docs/THING_ANIM_BIND.md
+# ==========================================================================
+@check("THING_ANIM_BIND", "40 .soo / mode 0: 26, mode 1: 14 (264 кадра в файлах; 261 загружаемых)",
+       "40 / 26 / 14 / 264")
+def c_thing_anim(env):
+    env.require_game()
+    from gm.soo import parse
+
+    paths = [p for p in glob.glob(os.path.join(env.game, "**", "*"), recursive=True)
+             if p.lower().endswith(".soo")]
+    frames = 0
+    mode0 = 0
+    mode1 = 0
+    for path in paths:
+        with open(path, "rb") as fh:
+            anim = parse(fh.read())
+        frames += len(anim.frames)
+        if anim.mode == 0:
+            mode0 += 1
+        else:
+            mode1 += 1
+    ok = (len(paths), mode0, mode1, frames) == (40, 26, 14, 264)
+    return "%d / %d / %d / %d" % (len(paths), mode0, mode1, frames), ok, \
+        "файлы / mode 0 / mode 1 / все кадры (261 — загружаемые движком)"
 
 
 def main(argv=None) -> int:

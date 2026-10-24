@@ -50,7 +50,7 @@ python3 tools/ghidra/mcp.py symbols "weapon_target"
 | Готовые зоны | `M1` 48 ✅, `M5` 13 ✅ / 5 🟡, `M3` 8 ✅ / 6 🟡, `M2` 7 ✅ / 17 🟡 | `ROADMAP.md` |
 | Нулевые зоны | только `M10` (сеть, после v1.0); у `M11`/`M12` по одному 🟡 (`M11.1`, `M12.1`) | `ROADMAP.md` |
 | Инструменты | 93 скрипта в `tools/re`, 118 документов в `docs`, `tools/editor/sbtasm.py` (round-trip 15 061/15 061) | `ls`, `docs/INDEX.md` |
-| Ghidra | 1506 функций, 196 943 инструкции; проект `re/ghidra`, 119 имён | `metadata`, `state.py --ghidra`, `names.csv` |
+| Ghidra | 1506 функций, 196 943 инструкции; проект `re/ghidra`, 136 строк `names.csv` (105 code + 6 label), 274 типа, массивы `things[260]`/`thing_types[128]`/`players[8]`, кэш 232 записи / 0 stale | `metadata`, `apply_names.py --check`, `fncache.py stats`, `docs/re/ghidra/types_report.md` |
 | Рендер | палитра и 1-based индексы исправлены; кривая света доказана; текстурная проекция движка и пропуск полигонов без текстуры реализованы с байтовым паритетом Python↔C++ | `docs/PALETTE.md`, `docs/LOOK16.md`, `docs/TEXUV.md`, CTest `core` (FNV-пин) |
 
 ## 3. Узкие места
@@ -140,6 +140,9 @@ python3 tools/ghidra/mcp.py symbols "weapon_target"
 | Перенос MCP на `re/ghidra` + применение имён | — | **94/97 имён и комментарии пережили рестарт** (2026-10-22); `save` в логе «Saved»; 3 адреса не функции в проекте: `0x45d240`, `0x45d881`, `0x4059c0` |
 | `tools/qa/state.py` — снимок состояния (git, roadmap по item-строкам, ctest, категории, кэш, размеры доков) | — | 0,1 с; `--check` ловит отставший срез; нашёл завышение счётчиков |
 | Догрев кэша по топ-60 адресам из доков | — | 97 → 139 записей / 807 КБ; `0x45c500` (таблица ВМ) не функция, как и ожидалось |
+| Кэш: инвалидация при переименовании и зависимостей, `warm --file/--cached`, `stats --json`, `stale`, `selftest`; `mcp.py decompile` читает/пишет кэш | — | 232 записи / 1409 КиБ, `stale: 0`; отчёт `fncache selftest`; `state.py --check` ловит дрейф |
+| Структуры: `typegen.py` из `THING_FIELDS` §3/§4 и `PLAYER_FIELDS` §3 → `gm_types.h` → `apply_types.py` (массивы и ярлыки) | — | `docs/re/ghidra/types_report.md`: 5 функций, `&DAT_…` 994 → 0, 274 типа |
+| Имена: `kind=label` для внутренних адресов, `apply_names --check`, исправлен битый CSV и коллизия `damage_thing` | — | 136 строк, 105 code, 0 missing; `regress --category names` |
 
 Правила работы с проектом — `docs/GHIDRA.md` §3.1 и §5.2.
 
@@ -208,9 +211,12 @@ xref→CSV. Полный анализ не перезапускать — про
    метрики остаются структурными (измерено: `win2` лучше объясняется наклоном
    камеры ≈6°, которого нет в sidecar).
 
-Состояние Ghidra (2026-10-23): сервер не запущен (последний прогон — 22.10),
-проект `re/ghidra` цел, `fncache` — 1,2 МБ; для RE его нужно поднять
-(`tools/ghidra/start.sh`), но текущие задачи решаются листингом и кэшем.
+Состояние Ghidra (2026-10-24): сервер поднят на `re/ghidra`, в проекте три
+структуры и типизированные массивы (`things`, `thing_types`, `players`),
+`fncache` — 232 записи / 1,4 МБ, `stale: 0`. Декомпиляция горячих функций
+теперь показывает поля (`things[i].health`), а не `&DAT_… + offset`.
+Следующее по types — уточнить `gm_player`: сейчас это крупные блоки из §3,
+а не отдельные поля из §4–§16.
 
 ## 9. Ограничения аудита
 
